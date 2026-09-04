@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Brain — Achilles</title>
+<style>
+  :root { --bg:#0f1419; --panel:#1a2230; --fg:#e6edf3; --muted:#8b98a9; --acc:#4cc38a;
+          --bad:#e5534b; --warn:#d29922; --border:#2a3543; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { padding:14px 20px; border-bottom:1px solid var(--border); display:flex;
+           align-items:center; gap:16px; flex-wrap:wrap; }
+  h1 { font-size:18px; margin:0; }
+  .sub { color:var(--muted); font-size:12px; }
+  input { background:var(--panel); border:1px solid var(--border); color:var(--fg);
+          border-radius:6px; padding:6px 9px; font-size:13px; }
+  button { background:var(--acc); color:#06231a; border:0; border-radius:6px;
+           padding:6px 12px; font-weight:600; cursor:pointer; }
+  button.ghost { background:var(--panel); color:var(--fg); border:1px solid var(--border); }
+  nav { display:flex; gap:6px; padding:10px 20px; flex-wrap:wrap;
+        border-bottom:1px solid var(--border); }
+  nav button { background:var(--panel); color:var(--muted); border:1px solid var(--border);
+               font-weight:500; }
+  nav button.active { color:var(--fg); border-color:var(--acc); }
+  main { padding:18px 20px; max-width:1100px; }
+  section { display:none; }
+  section.active { display:block; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+  th,td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--border);
+          vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .pill { padding:1px 8px; border-radius:999px; font-size:12px; }
+  .ok { color:var(--acc); } .no { color:var(--bad); } .wn { color:var(--warn); }
+  textarea { width:100%; min-height:120px; background:var(--panel); color:var(--fg);
+             border:1px solid var(--border); border-radius:8px; padding:10px; font-size:13px; }
+  .muted { color:var(--muted); } .err { color:var(--bad); }
+  code { background:var(--panel); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧠 AI Brain <span class="sub">Achilles — registry · tools · ingestion · eval</span></h1>
+  <div style="margin-left:auto" class="row">
+    <input id="token" placeholder="API token (boşsa lokal)" size="22" />
+    <span id="health" class="sub">·</span>
+  </div>
+</header>
+<nav>
+  <button data-tab="registry" class="active">Registry</button>
+  <button data-tab="tools">Scientific Tools</button>
+  <button data-tab="ingestion">Ingestion Quality</button>
+  <button data-tab="eval">Hypothesis Eval</button>
+</nav>
+<main>
+  <section id="registry" class="active">
+    <div class="row">
+      <button class="ghost" data-kind="datasets">Datasets</button>
+      <button class="ghost" data-kind="rag-indices">RAG Indices</button>
+      <button class="ghost" data-kind="embeddings">Embeddings</button>
+      <button class="ghost" data-kind="rewards">Rewards</button>
+      <button class="ghost" data-kind="decisions">Decisions</button>
+      <span class="muted">— terfi (promote) İNSAN ONAYI ile CLI'da (Kural 8)</span>
+    </div>
+    <div id="registry-out" class="muted">Bir tür seç…</div>
+  </section>
+
+  <section id="tools">
+    <div class="row"><button id="tools-load">Araçları + son çalışmaları getir</button></div>
+    <div id="tools-out" class="muted">—</div>
+  </section>
+
+  <section id="ingestion">
+    <div class="row">
+      <input id="paper-id" placeholder="paper_id" size="28" />
+      <button id="ing-go">Kalite skoru hesapla</button>
+      <span class="muted">100-puanlık rubrik (compute-on-demand)</span>
+    </div>
+    <div id="ing-out" class="muted">—</div>
+  </section>
+
+  <section id="eval">
+    <div class="muted">Her satır bir trading hipotezi (str). "sinyal değil test-edilebilir mi" denetimi.</div>
+    <textarea id="hyps" placeholder="Volatilite yüksekse momentum zayıflayabilir; backtest ile test edilmeli, örneklem-dışı doğrulama ve komisyon+slippage dahil, risk stop-loss ile.
+%100 garanti kazandırır, hemen al."></textarea>
+    <div class="row" style="margin-top:8px"><button id="eval-go">Değerlendir</button></div>
+    <div id="eval-out" class="muted">—</div>
+  </section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+function headers() { const t = $("#token").value.trim(); return t ? {"X-API-Token": t} : {}; }
+async function api(path, opts={}) {
+  const r = await fetch(path, {...opts, headers: {...headers(), ...(opts.headers||{})}});
+  if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0,200)}`);
+  return r.json();
+}
+function table(rows, cols) {
+  if (!rows || !rows.length) return '<div class="muted">kayıt yok</div>';
+  const th = cols.map(c => `<th>${esc(c.label)}</th>`).join("");
+  const tr = rows.map(r => "<tr>" + cols.map(c => `<td>${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("") + "</tr>").join("");
+  return `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
+}
+// tabs
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll("main section").forEach(x => x.classList.remove("active"));
+  b.classList.add("active"); $("#"+b.dataset.tab).classList.add("active");
+});
+// registry
+const REG_COLS = {
+  datasets: [{key:"dataset_version_id",label:"ID"},{key:"name",label:"Ad"},{key:"source_type",label:"Tür"},{key:"n_records",label:"Kayıt"},
+    {key:"approval_status",label:"Onay",render:r=>`<span class="pill ${r.approval_status==='approved'?'ok':r.approval_status==='rejected'?'no':'wn'}">${esc(r.approval_status)}</span>`}],
+  "rag-indices":[{key:"rag_index_version_id",label:"ID"},{key:"collection_name",label:"Collection"},{key:"embedding_model",label:"Embedding"},{key:"n_chunks",label:"Chunk"},{key:"n_papers",label:"Makale"}],
+  embeddings:[{key:"embedding_model_id",label:"ID"},{key:"model_name",label:"Model"},{key:"dimension",label:"Boyut"},{key:"provider",label:"Sağlayıcı"}],
+  rewards:[{key:"reward_version_id",label:"ID"},{key:"name",label:"Ad"},{key:"method",label:"Yöntem"},{key:"n_examples",label:"Örnek"},{key:"secret_scanned",label:"Sır"},{key:"pii_scanned",label:"PII"}],
+  decisions:[{key:"target_type",label:"Tür"},{key:"target_id",label:"Hedef"},
+    {key:"decision",label:"Karar",render:r=>`<span class="pill ${r.decision==='approved'?'ok':r.decision==='blocked'?'wn':'no'}">${esc(r.decision)}</span>`},
+    {key:"reason",label:"Gerekçe"},{key:"approved_by",label:"Onaylayan"}],
+};
+document.querySelectorAll("#registry [data-kind]").forEach(b => b.onclick = async () => {
+  const kind = b.dataset.kind;
+  $("#registry-out").innerHTML = "yükleniyor…";
+  try { const d = await api(`/api/registry/${kind}`); $("#registry-out").innerHTML = table(d.items, REG_COLS[kind]); }
+  catch(e){ $("#registry-out").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+});
+// tools
+$("#tools-load").onclick = async () => {
+  $("#tools-out").innerHTML = "yükleniyor…";
+  try {
+    const [t, runs] = await Promise.all([api("/api/tools"), api("/api/tools/runs")]);
+    $("#tools-out").innerHTML =
+      "<h3>Araçlar</h3>" + table(t.tools, [{key:"tool_id",label:"ID"},{key:"category",label:"Kategori"},
+        {key:"requires_seed",label:"Seed?",render:r=>r.requires_seed?'<span class="ok">evet</span>':'—'},{key:"description",label:"Açıklama"}]) +
+      "<h3 style='margin-top:18px'>Son çalışmalar</h3>" + table(runs.runs, [{key:"tool_id",label:"Araç"},{key:"seed",label:"Seed"},
+        {key:"status",label:"Durum"},{key:"started_at",label:"Başladı",render:r=>esc((r.started_at||'').slice(0,19))}]);
+  } catch(e){ $("#tools-out").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+};
+// ingestion
+$("#ing-go").onclick = async () => {
+  const pid = $("#paper-id").value.trim(); if (!pid) return;
+  $("#ing-out").innerHTML = "hesaplanıyor…";
+  try {
+    const d = await api(`/api/ingestion-quality/${encodeURIComponent(pid)}`);
+    const comp = Object.entries(d.components||{}).map(([k,v])=>`${esc(k)}=${esc(v)}`).join("  ");
+    const cls = d.total>=90?'ok':d.total>=50?'wn':'no';
+    $("#ing-out").innerHTML = `<div style="font-size:22px" class="${cls}">${esc(d.total)}/100 · ${esc(d.status)}</div>
+      <div class="muted" style="margin-top:6px">${comp}</div>` +
+      (d.notes&&d.notes.length?`<div class="muted" style="margin-top:6px">Not: ${esc(d.notes.join("; "))}</div>`:"");
+  } catch(e){ $("#ing-out").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+};
+// eval
+$("#eval-go").onclick = async () => {
+  const hyps = $("#hyps").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  if (!hyps.length) return;
+  $("#eval-out").innerHTML = "değerlendiriliyor…";
+  try {
+    const d = await api("/api/eval/trading-hypothesis", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({hypotheses: hyps})});
+    const gate = d.passed ? '<span class="ok">GEÇTİ</span>' : '<span class="no">KALDI</span>';
+    const rows = (d.items||[]).map(it => {
+      const ck = Object.entries(it.checklist||{}).filter(([,v])=>!v).map(([k])=>k).join(", ") || "—";
+      const vcls = it.verdict==='candidate'?'ok':it.verdict==='rejected'?'no':'wn';
+      return `<tr><td><span class="pill ${vcls}">${esc(it.verdict)}</span></td><td>${esc(it.score)}</td><td class="muted">eksik: ${esc(ck)}</td></tr>`;
+    }).join("");
+    $("#eval-out").innerHTML = `<div>Kapı: ${gate} · kalem: ${esc(d.n_items)}</div>
+      <table><thead><tr><th>Verdict</th><th>Skor</th><th>Eksik maddeler</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="muted" style="margin-top:6px">Not: çıktı hipotez/test-noktasıdır, yatırım tavsiyesi değildir.</div>`;
+  } catch(e){ $("#eval-out").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+};
+// health
+api("/api/status").then(s => $("#health").textContent = `● ${s.embedding_mode||""} · ${s.n_papers??"?"} makale`).catch(()=>$("#health").textContent="● bağlantı yok");
+</script>
+</body>
+</html>

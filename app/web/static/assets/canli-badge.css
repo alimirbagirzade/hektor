@@ -1,0 +1,62 @@
+/* Ana arayüz header'ına gömülü web-sunucusu canlılık rozeti.
+   app.css'ten SONRA yüklenir → onun :root değişkenlerini (--ok, --neg, --mono,
+   --muted, --ink-dim, --border-strong) yeniden kullanır. Renk-körü güvenli:
+   CANLI = teal dolu daire (nabız), KAPALI = turuncu kare. */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  padding: 3px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.live-shape {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.live-ok {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: rgba(13, 148, 136, 0.1);
+}
+.live-ok .live-shape {
+  background: var(--ok);
+  animation: livePulse 1.8s ease-out infinite;
+}
+
+.live-down {
+  color: var(--neg);
+  border-color: var(--neg);
+  background: rgba(194, 65, 12, 0.1);
+}
+.live-down .live-shape {
+  border-radius: 2px;
+  background: var(--neg);
+}
+
+@keyframes livePulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(13, 148, 136, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-ok .live-shape {
+    animation: none;
+  }
+}

@@ -1,0 +1,23 @@
+# Sürekli öğrenme — arXiv zenginleştirme konuları (her tur 1 satır, döngüsel).
+# Ağırlık: trading psikolojisi, belirsizlik, felsefe/karar kuramı (kullanıcı hedefi).
+# '#' ile başlayan satırlar atlanır.
+trading psychology behavioral biases investors
+prospect theory loss aversion trading decisions
+overconfidence bias trading volume performance
+Knightian uncertainty ambiguity aversion asset pricing
+uncertainty quantification financial time series forecasting
+Bayesian decision theory philosophy of probability
+Kelly criterion optimal position sizing risk
+regime switching hidden Markov models financial markets
+herding behavior market sentiment contagion
+disposition effect investor behavior empirical
+epistemic uncertainty deep learning trading
+risk management maximum drawdown control trading systems
+bounded rationality heuristics financial decision making
+entropy information theory market efficiency
+fear greed index volatility sentiment
+causal inference financial markets spurious correlation
+reinforcement learning portfolio uncertainty exploration
+black swan tail risk extreme value theory markets
+philosophy of induction probability Hume finance
+mean reversion momentum interaction empirical evidence

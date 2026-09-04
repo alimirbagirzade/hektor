@@ -1,0 +1,34 @@
+# Achilles — pre-commit kancaları (güvenlik + temel hijyen).
+# Kurulum (bir kez):  uv run pre-commit install
+# Elle hepsini çalıştır:  uv run pre-commit run --all-files
+# Sürümleri güncelle:  uv run pre-commit autoupdate
+#
+# Amaç: kazara SIR (API key, private key, token) commit'ini ENGELLEMEK.
+# .env zaten .gitignore'da; bu kancalar ikinci savunma katmanıdır.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+        name: gitleaks — sır taraması (API key/token/parola)
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: detect-private-key
+        name: özel anahtar tespiti
+      - id: check-added-large-files
+        name: büyük dosya engeli (veri/model commit'ini önle)
+        args: ["--maxkb=2048"]
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  # Kod kalitesi (proje zaten ruff kullanıyor) — lint + format kontrolü.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format

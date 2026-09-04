@@ -1,0 +1,171 @@
+models:
+  # ── TINY (1B–3B) ──────────────────────────────────────────────────────────
+  - id: qwen2_5_coder_1_5b_q4
+    display_name: "Qwen2.5 Coder 1.5B Q4"
+    family: qwen
+    size_tier: tiny
+    task_tags: [coding, light_assistant]
+    backends:
+      ollama:
+        name: "qwen2.5-coder:1.5b"
+    min_ram_gb: 4
+    recommended_ram_gb: 6
+    min_vram_gb: 0
+    recommended_vram_gb: 4
+    context_default: 4096
+    context_max_safe_cpu: 4096
+    quality_score: 4
+    speed_score: 9
+    notes: "Çok hafif laptoplar için. Bant-genişliği sınırlı."
+
+  - id: qwen3_4b_q4
+    display_name: "Qwen3 4B Q4"
+    family: qwen
+    size_tier: tiny
+    task_tags: [general, light_coding, multilingual, reasoning]
+    backends:
+      ollama:
+        name: "qwen3:4b"
+    min_ram_gb: 6
+    recommended_ram_gb: 8
+    min_vram_gb: 0
+    recommended_vram_gb: 4
+    context_default: 4096
+    context_max_safe_cpu: 8192
+    quality_score: 6
+    speed_score: 8
+    notes: "8 GB RAM altı makineler için iyi seçenek."
+
+  # ── SMALL (7B) ────────────────────────────────────────────────────────────
+  - id: qwen2_5_coder_7b_q4
+    display_name: "Qwen2.5 Coder 7B Q4"
+    family: qwen
+    size_tier: small
+    task_tags: [coding, general, agent]
+    backends:
+      ollama:
+        name: "qwen2.5-coder:7b"
+      llamacpp:
+        gguf_hint: "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
+    min_ram_gb: 10
+    recommended_ram_gb: 16
+    min_vram_gb: 0
+    recommended_vram_gb: 8
+    context_default: 4096
+    context_max_safe_cpu: 4096
+    quality_score: 7
+    speed_score: 6
+    notes: "16 GB RAM makineler için temel coding modeli."
+
+  - id: mistral_7b_q4
+    display_name: "Mistral 7B Q4"
+    family: mistral
+    size_tier: small
+    task_tags: [general, reasoning, multilingual]
+    backends:
+      ollama:
+        name: "mistral:7b"
+      llamacpp:
+        gguf_hint: "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+    min_ram_gb: 10
+    recommended_ram_gb: 16
+    min_vram_gb: 0
+    recommended_vram_gb: 8
+    context_default: 4096
+    context_max_safe_cpu: 4096
+    quality_score: 7
+    speed_score: 6
+    notes: "Genel amaçlı, çoklu dil için iyi."
+
+  - id: llama3_1_8b_q4
+    display_name: "Llama 3.1 8B Q4"
+    family: llama
+    size_tier: small
+    task_tags: [general, reasoning, coding]
+    backends:
+      ollama:
+        name: "llama3.1:8b"
+    min_ram_gb: 10
+    recommended_ram_gb: 16
+    min_vram_gb: 0
+    recommended_vram_gb: 8
+    context_default: 4096
+    context_max_safe_cpu: 4096
+    quality_score: 7
+    speed_score: 6
+    notes: "Meta'nın temel modeli. Genel kullanım için dengeli."
+
+  # ── MEDIUM (13B–20B) ──────────────────────────────────────────────────────
+  - id: qwen2_5_coder_14b_q4
+    display_name: "Qwen2.5 Coder 14B Q4"
+    family: qwen
+    size_tier: medium
+    task_tags: [coding, agent, reasoning]
+    backends:
+      ollama:
+        name: "qwen2.5-coder:14b"
+    min_ram_gb: 20
+    recommended_ram_gb: 32
+    min_vram_gb: 0
+    recommended_vram_gb: 12
+    context_default: 4096
+    context_max_safe_cpu: 4096
+    quality_score: 8
+    speed_score: 4
+    notes: "32 GB RAM veya 12+ GB VRAM gerektirir."
+
+  - id: deepseek_r1_14b_q4
+    display_name: "DeepSeek R1 14B Q4"
+    family: deepseek
+    size_tier: medium
+    task_tags: [reasoning, coding, math]
+    backends:
+      ollama:
+        name: "deepseek-r1:14b"
+    min_ram_gb: 20
+    recommended_ram_gb: 32
+    min_vram_gb: 0
+    recommended_vram_gb: 12
+    context_default: 4096
+    context_max_safe_cpu: 4096
+    quality_score: 9
+    speed_score: 3
+    notes: "Güçlü reasoning. Yavaş CPU'da."
+
+  # ── LARGE (30B–34B) ───────────────────────────────────────────────────────
+  - id: qwen2_5_coder_32b_q4
+    display_name: "Qwen2.5 Coder 32B Q4"
+    family: qwen
+    size_tier: large
+    task_tags: [coding, agent, reasoning]
+    backends:
+      ollama:
+        name: "qwen2.5-coder:32b"
+    min_ram_gb: 40
+    recommended_ram_gb: 64
+    min_vram_gb: 20
+    recommended_vram_gb: 24
+    context_default: 4096
+    context_max_safe_cpu: 2048
+    quality_score: 9
+    speed_score: 2
+    notes: "64 GB RAM veya 24 GB VRAM için."
+
+  # ── VERY LARGE (70B) ──────────────────────────────────────────────────────
+  - id: llama3_1_70b_q4
+    display_name: "Llama 3.1 70B Q4"
+    family: llama
+    size_tier: very_large
+    task_tags: [general, reasoning, coding, multilingual]
+    backends:
+      ollama:
+        name: "llama3.1:70b"
+    min_ram_gb: 64
+    recommended_ram_gb: 96
+    min_vram_gb: 40
+    recommended_vram_gb: 48
+    context_default: 4096
+    context_max_safe_cpu: 1024
+    quality_score: 10
+    speed_score: 1
+    notes: "Sadece yüksek VRAM GPU veya 64+ GB RAM ile kullanılabilir."

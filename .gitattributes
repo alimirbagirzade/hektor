@@ -1,0 +1,20 @@
+# Satır sonu normalizasyonu.
+# Kabuk scriptleri DAİMA LF olmalı — CRLF olursa macOS/Linux'ta
+# "bad interpreter: /usr/bin/env bash^M" hatası verir ve çalışmaz.
+*.sh  text eol=lf
+
+# Windows scriptleri CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# İkili dosyalar — satır sonu dönüşümü uygulanmaz.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.pdf  binary
+*.gguf binary
+*.safetensors binary
+*.bin  binary
+*.pt   binary
+*.pth  binary

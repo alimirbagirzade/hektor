@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: lint · types · tests (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      # 'dev' extra includes the web deps (fastapi/httpx/...) so web tests run.
+      # 'mcp' extra (fastmcp) is required so the MCP tool-surface allow-list is
+      # actually exercised in CI — without it those tests skip and the guarantee
+      # that forbidden endpoints stay off the MCP surface goes unverified.
+      # 'train' (mlx-lm) is Apple-Silicon only and is intentionally NOT installed.
+      - name: Sync dependencies
+        run: uv sync --extra dev --extra mcp
+
+      - name: Ruff lint
+        run: uv run ruff check app tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check app tests
+
+      - name: Type check (mypy)
+        run: uv run mypy app
+
+      - name: Tests (offline — ollama-marked tests are deselected)
+        run: uv run pytest -m "not ollama"

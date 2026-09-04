@@ -1,0 +1,90 @@
+name: Nightly Automation Audit (report-only · TEMPLATE)
+
+# ============================================================================
+# PHASE 4A ŞABLONU — yalnız RAPOR üretir. Kod DEĞİŞTİRMEZ, branch AÇMAZ,
+# eğitim BAŞLATMAZ, adapter terfi ETMEZ, main'e DOKUNMAZ.
+# Cron WIRED ama VARSAYILAN KAPALI: zamanlanmış koşu yalnız repo değişkeni
+# `ENABLE_NIGHTLY_AUDIT == 'true'` ise çalışır (aksi halde no-op). Elle dispatch
+# her zaman çalışır. Rapor repoya commit EDİLMEZ → artifact olarak yüklenir.
+# ============================================================================
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Haftalık, düşük frekans (Pzt 04:17 UTC). Etkin olması için repo variable şart.
+    - cron: "17 4 * * 1"
+
+# Salt-okuma niyeti: rapor artifact'ı; issue güncelleme (opsiyonel) için issues:write.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: nightly-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    # Zamanlanmış koşu yalnız açıkça etkinleştirilmişse; dispatch her zaman.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      vars.ENABLE_NIGHTLY_AUDIT == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Sync (dev only — torch/peft gerekmez)
+        run: uv sync --extra dev
+
+      # --- offline kalite kapısı (rapor amaçlı; fail olsa da audit sürer) ---
+      - name: Lint / format / types / tests
+        id: gate
+        continue-on-error: true
+        run: |
+          {
+            echo "## Achilles Nightly Audit"
+            echo ""
+            echo '### CI gate'
+            echo '```'
+            uv run ruff check app tests 2>&1 | tail -20 || true
+            uv run ruff format --check app tests 2>&1 | tail -5 || true
+            uv run mypy app 2>&1 | tail -5 || true
+            uv run pytest -m "not ollama" -q --basetemp=.pytest_tmp 2>&1 | tail -15 || true
+            echo '```'
+          } >> audit-report.md
+
+      # --- offline gözlem komutları (varsa; eğitim/terfi YOK) ---
+      - name: Understanding + pretrain-gate (offline, observe-only)
+        continue-on-error: true
+        run: |
+          {
+            echo ''
+            echo '### Understanding score (objective, offline)'
+            echo '```'
+            uv run achilles understanding-score --record 2>&1 | tail -20 || echo "n/a"
+            uv run achilles understanding-history --compare 2>&1 | tail -20 || echo "n/a"
+            echo '```'
+            echo ''
+            echo '### Pretrain gate (GO/NO-GO, LLM-free)'
+            echo '```'
+            uv run achilles pretrain-gate 2>&1 | tail -20 || echo "n/a"
+            echo '```'
+          } >> audit-report.md
+
+      # --- raporu ARTIFACT olarak yükle (repoya COMMIT EDİLMEZ) ---
+      - name: Upload audit report (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-audit-report
+          path: audit-report.md
+          retention-days: 14
+
+      # TODO (opsiyonel, aktivasyonda): rapor özetini bir 'automation' etiketli
+      # issue'ya yorum olarak yaz. KOD DEĞİŞTİRME / BRANCH AÇMA / EĞİTİM YOK.

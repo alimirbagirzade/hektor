@@ -1,0 +1,24 @@
+FROM ./achilles-Q4_K_M.gguf
+
+# Qwen3-4B-Instruct-2507 (non-thinking) ChatML — egitimdeki apply_chat_template
+# ('qwen3-instruct') ile BIREBIR ayni. Tool-call kullanmiyorsan bu minimal surum yeterli.
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ .Response }}<|im_end|>
+"""
+
+SYSTEM """Sen Achilles yerel AI asistanisin. Matematik, fizik, istatistik, felsefe, trading ve AI sistem tasarimi konularinda adim adim, kaynak temelli, kontrollu ve belirsizligi dogru ifade eden cevaplar ver. RAG baglami varsa kullan. Kaynak yoksa emin gorunme."""
+
+# Qwen3 ozel token'lari — stop SART, yoksa model durmaz/sonsuz uretir
+PARAMETER stop "<|im_start|>"
+PARAMETER stop "<|im_end|>"
+# Qwen resmi onerisi (Instruct-2507, non-thinking): tutarli cikti
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8
+PARAMETER top_k 20
+PARAMETER min_p 0.0
+# num_ctx egitim max_seq_length'inden buyuk olabilir (RoPE); lokal RAM'e gore 4096-8192
+PARAMETER num_ctx 8192

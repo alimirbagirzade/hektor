@@ -1,0 +1,219 @@
+name: Claude Code Task (guarded · verified-but-NOT-activated)
+
+# ============================================================================
+# PHASE 4C — anthropics/claude-code-action@v1 input'ları + tool-kısıtlama formatı
+# RESMİ docs/configuration.md ile doğrulandı: tool kısıtı `claude_args` içinde
+# `--allowedTools` / `--disallowedTools` ile yazılır (NOT: camelCase; ayrı input
+# DEĞİL). Aşağıda ALLOW-LIST yaklaşımı: yalnız listelenen araçlar kullanılabilir →
+# train --run / rm / network / data-model yazımı listede YOK = otomatik reddedilir.
+#
+# HÂLÂ AKTİF DEĞİL: Claude adımı `vars.ENABLE_CLAUDE_TASK == 'true'` olmadan SKIP.
+# Aktivasyon adımları: docs/PHASE4C_ACTIVATION.md (tamamı KULLANICI tarafından).
+#   - ANTHROPIC_API_KEY secret (repoya YAZILMAZ/loglanmaz).
+#   - main branch protection + zorunlu review (workflow main'e PUSH ETMEZ).
+#   - SHA-pin UYGULANDI: @v1 yerine commit 51705da4... (v1 @ 2026-06-19, Claude Code
+#     2.1.183) ile pinlendi (supply-chain; v1 hareketli tag, bugün taşındı). Action'ı
+#     YÜKSELTİRKEN yeniden pinle (runbook §3):
+#       gh api repos/anthropics/claude-code-action/git/ref/tags/v1 --jq '.object.sha'
+#       # annotated tag → git/tags/<TAG_SHA> --jq '.object.sha' ile commit'e deref et.
+#   - TODO: tool-permission arg-joker (`:*`) Claude Code CLI sözdizimidir; action
+#     passthrough'unu ilk dry-run'da teyit et (allow-list zaten fail-safe).
+# Otomatik birleştirme YOKTUR; PR yalnız İNSAN onayıyla kapanır.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "İşlenecek issue numarası"
+        required: true
+  issues:
+    types: [labeled]
+  # PR olaylarında YALNIZ needs-approval etiketleme işi koşar (aşağıdaki ayrı job).
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Minimum yetki. main'e push YOK; iş-branch + PR + issue yorumu (Claude action PR açabilir).
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  group: >-
+    claude-task-${{ github.event.issue.number || github.event.pull_request.number
+    || github.event.inputs.issue_number }}
+  cancel-in-progress: false
+
+env:
+  CLAUDE_HARD_RULES: |
+    You are working on Achilles.
+
+    Hard safety rules:
+    - Do not run train --run.
+    - Do not start LoRA training.
+    - Do not promote adapters.
+    - Do not modify data/, storage/, vector_db/, models/, models/adapters/.
+    - Do not change secrets, .env files, keys, tokens.
+    - Do not push to main.
+    - Do not auto-merge.
+    - Do not claim trading success without backtest + OOS.
+    - Do not remove safety gates.
+    - Keep changes limited to the issue scope.
+    - Run offline CI before final summary.
+
+jobs:
+  # Bloklayıcı label (human-only / no-claude / dangerous-change / needs-approval)
+  # varsa Claude ATLANIR + issue'ya açıklama yazılır.
+  skip-notice:
+    if: >-
+      github.event_name == 'issues' &&
+      github.event.label.name == 'claude-task' &&
+      (contains(github.event.issue.labels.*.name, 'human-only') ||
+       contains(github.event.issue.labels.*.name, 'no-claude') ||
+       contains(github.event.issue.labels.*.name, 'dangerous-change') ||
+       contains(github.event.issue.labels.*.name, 'needs-approval'))
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Comment skip (human-only / dangerous)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh issue comment ${{ github.event.issue.number }}
+          --repo ${{ github.repository }}
+          --body "Claude automation skipped because this task is marked human-only / dangerous / needs-approval."
+
+  guard-and-run:
+    # Yalnız 'claude-task' (veya elle dispatch) VE bloklayıcı label YOK.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.event.label.name == 'claude-task' &&
+       !contains(github.event.issue.labels.*.name, 'human-only') &&
+       !contains(github.event.issue.labels.*.name, 'no-claude') &&
+       !contains(github.event.issue.labels.*.name, 'dangerous-change') &&
+       !contains(github.event.issue.labels.*.name, 'needs-approval'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (tam geçmiş — guard base...HEAD için)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      # --- GUARD #1 — Claude'dan ÖNCE: taban korumalı yola dokunmuyor mu ---
+      - name: Protected path guard (pre)
+        run: >-
+          python scripts/check_protected_paths.py
+          --base "origin/${{ github.event.repository.default_branch }}"
+
+      # --- Claude Code (v1 — doğrulanmış syntax; AKTİVASYON repo değişkeniyle KAPALI) ---
+      # vars.ENABLE_CLAUDE_TASK set edilmedikçe bu adım SKIP olur (inert template).
+      - name: Claude Code (guarded)
+        if: ${{ vars.ENABLE_CLAUDE_TASK == 'true' }}
+        # SHA-pin (supply-chain): @v1 hareketli tag, bugün taşındı → commit'e sabitlendi.
+        uses: anthropics/claude-code-action@51705da45eecce209d4700538bf8377d5b5fc695 # v1 @ 2026-06-19 (Claude Code 2.1.183)
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            ${{ env.CLAUDE_HARD_RULES }}
+
+            Task (issue #${{ github.event.issue.number || github.event.inputs.issue_number }}):
+            Apply the scope described in the issue body. Work ONLY in app/, tests/, docs/.
+            Run offline CI (ruff + mypy + pytest -m "not ollama") before finishing.
+          # Tool kısıtı = ALLOW-LIST (docs/configuration.md ile doğrulandı: --allowedTools,
+          # camelCase, claude_args içinde). Yalnız düzenleme + offline komut. Listede OLMAYAN
+          # her şey (train --run, achilles lora*, rm, PR-birleştirme, push, ağ) REDDEDİLİR.
+          # --disallowedTools en tehlikelileri ayrıca açıkça yasaklar (defense-in-depth).
+          # NOT (TODO): arg-joker `:*` Claude Code CLI sözdizimi; ilk dry-run'da teyit et.
+          claude_args: |
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(uv sync --extra dev),Bash(uv run ruff check app tests),Bash(uv run ruff format --check app tests),Bash(uv run mypy app),Bash(uv run pytest:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*)"
+            --disallowedTools "WebFetch,WebSearch,Bash(achilles train:*),Bash(uv run achilles train:*),Bash(achilles lora:*),Bash(rm:*)"
+
+      - name: Claude Code (inert placeholder — değişken kapalıyken)
+        if: ${{ vars.ENABLE_CLAUDE_TASK != 'true' }}
+        run: |
+          echo "INERT: vars.ENABLE_CLAUDE_TASK!='true' → Claude adımı atlandı (aktivasyon kullanıcıda)."
+
+      # --- CI kapısı (offline; Phase 3.5 sonrası torch'suz mypy temiz) ---
+      - name: CI — sync + lint + format + types + tests
+        run: |
+          uv sync --extra dev
+          uv run ruff check app tests
+          uv run ruff format --check app tests
+          uv run mypy app
+          uv run pytest -m "not ollama" --basetemp=.pytest_tmp
+
+      # --- GUARD #2 — Claude'dan SONRA: değişiklikler korumalı yola dokundu mu ---
+      # İhlal → workflow FAIL (PR kırmızı + zorunlu review + auto-merge yok = merge olmaz).
+      - name: Protected path guard (post)
+        run: >-
+          python scripts/check_protected_paths.py
+          --base "origin/${{ github.event.repository.default_branch }}"
+
+      # --- Bağımlılık/iş-akışı değişimi → needs-approval uyarısı ---
+      - name: Dependency / workflow change detector (needs-approval)
+        run: |
+          base="origin/${{ github.event.repository.default_branch }}"
+          changed="$(git diff --name-only "$base"...HEAD || true)"
+          if printf '%s\n' "$changed" | grep -Eq '^(pyproject\.toml|uv\.lock|requirements.*\.txt|\.github/workflows/)'; then
+            echo "::warning::Bağımlılık/iş-akışı dosyası değişti → bu PR 'needs-approval' ister (insan onayı)."
+            echo "Değişen hassas dosyalar:"
+            printf '%s\n' "$changed" | grep -E '^(pyproject\.toml|uv\.lock|requirements.*\.txt|\.github/workflows/)' || true
+            # Mekanik label-add aşağıdaki 'dependency-approval-label' (pull_request tetikli)
+            # job'unda yapılır — PR numarası orada github.event.pull_request.number ile bilinir.
+          else
+            echo "Bağımlılık/iş-akışı değişimi yok."
+          fi
+
+      # --- PR notu: Claude Code action v1 PR'ı KENDİ açabilir (README). MERGE YOK. ---
+      # PR gövdesinde olması gerekenler (action prompt'una/şablona göre):
+      #   - changed files · test results · protected-path guard result · remaining risks
+      #   - "manual review required" (otomatik birleştirme YOK)
+      # TODO: action PR açmıyorsa fallback `gh pr create` (yalnız iş-branch → main; merge yok).
+      - name: PR policy note
+        run: |
+          echo "PR yalnız iş-branch'ten açılır; main'e birleştirme YALNIZ insan onayıyla."
+          echo "PR gövdesi: değişen dosyalar + test sonucu + guard sonucu + kalan risk + 'manual review required'."
+
+      - name: Güvenlik ihlali / CI fail → not (yalnız önceki adım fail ederse)
+        if: failure()
+        run: |
+          echo "Guard veya CI başarısız — değişiklik birleştirilmemeli. (TODO: issue/PR'a otomatik yorum.)"
+
+  # PR'da bağımlılık/iş-akışı değişiyorsa 'needs-approval' etiketi EKLE (mekanik).
+  # YALNIZ pull_request olaylarında koşar; PR numarası burada bilinir. MERGE YAPMAZ.
+  dependency-approval-label:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout (tam geçmiş)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bağımlılık/iş-akışı değişirse needs-approval ekle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base="origin/${{ github.event.pull_request.base.ref }}"
+          changed="$(git diff --name-only "$base"...HEAD || true)"
+          if printf '%s\n' "$changed" | grep -Eq '^(pyproject\.toml|uv\.lock|requirements.*\.txt|\.github/workflows/)'; then
+            echo "Bağımlılık/iş-akışı değişti → 'needs-approval' etiketi ekleniyor (insan onayı şart)."
+            gh pr edit "${{ github.event.pull_request.number }}" \
+              --repo "${{ github.repository }}" --add-label needs-approval || \
+              echo "::warning::needs-approval etiketi eklenemedi (etiket repo'da yoksa önce oluştur)."
+          else
+            echo "Bağımlılık/iş-akışı değişimi yok — needs-approval gerekmez."
+          fi

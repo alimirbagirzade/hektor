@@ -1,0 +1,150 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.venv311/
+
+# uv — lock dosyası BİLEREK commit'lenir (tekrarlanabilirlik + CI cache).
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Data & generated artifacts (keep dir structure via .gitkeep)
+data/papers/raw_pdf/*
+data/papers/extracted_text/*
+data/papers/metadata/*
+data/training/raw/*
+data/training/cleaned/*
+data/training/jsonl/*
+data/market/raw/*
+data/market/processed/*
+vector_db/chroma/*
+storage/sqlite/*.db
+storage/sqlite/*.db-*
+models/adapters/*
+models/evals/*
+reports/papers/*
+reports/papers/mastery/*
+reports/training/*
+reports/backtests/*
+reports/evals/*
+# Sentez makaleleri makineye özel üretilir → commit edilmez (audit GAP fix)
+reports/synthesis/*
+# Agent runtime gözlemcisi (Phase 1) — koşu başına JSONL günlükleri (runtime)
+reports/agent_runs/*
+# RLM koşu raporları — koşu başına JSON (runtime çıktısı; achilles rlm-answer üretir)
+reports/rlm_runs/*
+# RLM motor trajektori logları (opsiyonel alexzhang motoru; runtime + olası hassas içerik)
+reports/rlm/trajectories/*
+# Lokal eğitim-denetim raporları (Phase 5A) — report-only çıktılar (runtime)
+reports/local_training_orchestrator/*
+
+# But keep the .gitkeep placeholders
+!**/.gitkeep
+
+# LoRA — büyük çıktılar commit edilmez
+data/lora/raw/
+data/lora/approved/
+data/lora/review_needed/
+data/lora/rejected/
+data/lora_sft/*.jsonl
+# Echo feedback — KULLANICI DÜZELTME METNİ içerir (app/feedback/echo.py:237).
+# Diğer data/ alt dizinleri tek tek sayıldığı için bu atlanmıştı → kullanıcının
+# yazdığı metin sessizce commit'lenebilirdi. .gitkeep `!**/.gitkeep` ile korunur.
+data/feedback/*.jsonl
+outputs/
+checkpoints/
+adapters/
+# AMA: RLM motor-adapter KAYNAK paketi (LoRA eğitim çıktısı DEĞİL) izlenmeli — yoksa
+# 'adapters/' kuralı app/rlm/adapters/* kaynak dosyalarını sessizce commit dışı bırakır.
+# Yalnız .py kaynağı geri-dahil; __pycache__/*.pyc ignore'da KALIR (genel '!**' onu ezerdi).
+!app/rlm/adapters/
+!app/rlm/adapters/*.py
+*.safetensors
+*.bin
+*.gguf
+*.pt
+*.pth
+wandb/
+mlruns/
+reports/lora/private/*
+reports/lora/*.md
+registry/adapters/*.jsonl
+
+# Üretilen veri setleri
+data/training/unified_sft.jsonl
+
+# Claude worktrees (geçici ajan dizinleri)
+.claude/worktrees/
+
+# Yanlış yere oluşan DB dosyaları
+storage/*.db
+storage/*.db-*
+
+# Runtime state (her makinede değişir → COMMIT EDİLMEZ; izlenirse git pull'u kilitler).
+# Tek tek saymak yerine TÜM durum JSON'ları: yeni bir ajan state dosyası eklendiğinde
+# listeye eklemeyi unutmak yüzünden self_heal/unattended state'leri sızıyordu.
+storage/*.json
+storage/STOP_ALL
+storage/STOP_LEARNING
+storage/STOP_TRAINING
+storage/learning_topic_index
+storage/.training_launching
+storage/_commit_msg.txt
+# Sür (drive) modu MCP config dosyaları — koşu başına üretilir (sır içermez ama runtime)
+storage/mcp/
+
+# Haftalık bug-avı raporları makineye özgüdür (dizin .gitkeep ile korunur).
+reports/bug-scan/*
+!reports/bug-scan/.gitkeep
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# büyük kaynak logo (optimize sürüm app/web/static/assets/achilles-logo.jpg)
+/achilles trading logo.png
+
+# TradingView dışa aktarımları ve MLX model dosyaları
+BTCUSD 1H/
+models/mlx/
+
+# Colab notebook'lar (reports/ altında .ipynb)
+reports/*.ipynb
+
+# pytest yerel basetemp (Temp izin sorunu workaround)
+.pytest_tmp/
+# pytest basetemp varyantları (suffixli; kök dizinde birikmesin)
+.pytest_tmp_*/
+
+# Runtime PID / log / yedek çöpü (her makinede üretilir → commit edilmez)
+*.pid
+logs/
+*.bak
+*.proje-yedek
+perf.txt
+
+# Bozuk/yedek vektör DB kopyaları
+vector_db/chroma.corrupt-*/
+
+# Yerel scratch / kurtarma scriptleri (storage/ altında _ önekli)
+storage/_*.py
+
+# Editör/araç yerel ayarları
+.claude/launch.json
+
+# Windows autostart VBS — start-server.ps1/-loop.ps1 -Install ile $PSScriptRoot
+# tabanlı (taşınabilir) ÜRETİLİR; statik kopya hardcoded yol içerir → commit edilmez
+scripts/*-autostart.vbs

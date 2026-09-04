@@ -1,0 +1,730 @@
+PROJE ŞARTNAMESİ — Achilles TRADER AI
+Claude Code’a Verilecek Ana Talimat Dosyası
+
+============================================================
+1. PROJE TANIMI
+============================================================
+
+Proje adı: Achilles Trader AI
+
+Amaç:
+Mac üzerinde local-first çalışan, finans/trading alanında akademik makaleleri okuyabilen, bu makaleleri kalıcı hafızaya alabilen, RAG sistemiyle kaynaklı cevap verebilen, zamanla LoRA fine-tuning ile finans/trading karakteri kazanabilen ve ürettiği strateji fikirlerini backtest disiplininden geçiren bir araştırma yapay zekası geliştirmek.
+
+Bu sistem finansal tavsiye veya canlı işlem botu değildir.
+Bu sistem bir trading research AI sistemidir.
+
+============================================================
+2. ANA PRENSİPLER
+============================================================
+
+1. Sistem local-first olmalı.
+2. Claude Code sadece geliştirme asistanıdır; çalışan AI beyni değildir.
+3. Ana beyin local model + local hafıza + backtest sistemiyle çalışmalıdır.
+4. API servisleri zorunlu olmamalıdır.
+5. Canlı emir gönderme MVP’ye eklenmeyecek.
+6. Modelin önerdiği hiçbir strateji test edilmeden başarılı kabul edilmeyecek.
+7. Akademik makale bilgileri kalıcı olarak saklanacak.
+8. Her makale source_id / paper_id ile takip edilecek.
+9. Her strateji denemesi SQLite’a kaydedilecek.
+10. Her eğitim datası ve LoRA adapter versiyonlanacak.
+11. Model cevaplarında “akademik bulgu”, “trading hipotezi” ve “test sonucu” birbirinden ayrılacak.
+12. Sistem önce CLI olarak çalışacak. Dashboard daha sonra eklenecek.
+
+============================================================
+3. HEDEF SİSTEM
+============================================================
+
+Sistem şunları yapabilmeli:
+
+- Akademik PDF makaleleri okuyacak.
+- PDF’leri metne çevirecek.
+- Makaleleri chunk/parça haline getirecek.
+- Metadata çıkaracak: başlık, yazar, yıl, kaynak, dosya hash.
+- ChromaDB’ye embedding ile kaydedecek.
+- SQLite’a paper, chunk, summary, knowledge_card kayıtları yazacak.
+- Local Ollama modeliyle makale özeti çıkaracak.
+- Makalelerden knowledge card üretecek.
+- Knowledge card’lardan training JSONL dosyaları oluşturacak.
+- MLX-LM ile LoRA fine-tuning için eğitim scripti hazırlayacak.
+- Base model ile fine-tuned model cevaplarını karşılaştıracak.
+- Trading strateji fikirlerini hipotez olarak üretecek.
+- Hipotezleri Python backtest motorunda test edecek.
+- Sonuçları SQLite’a kaydedecek.
+- Başarılı/başarısız strateji nedenlerini hafızaya yazacak.
+
+============================================================
+4. MAC ORTAMI
+============================================================
+
+- macOS Apple Silicon varsayılacak.
+- VRAM yerine unified memory mantığı kullanılacak.
+- Başlangıçta büyük modeller değil, 7B/14B sınıfı modeller hedeflenecek.
+- 32 GB RAM altında sistem küçük modelle çalışacak şekilde tasarlanmalı.
+- Ağır model eğitimi değil, önce RAG + LoRA adapter eğitimi hedeflenecek.
+
+============================================================
+5. TEKNOLOJİ STACK
+============================================================
+
+Ana stack:
+
+- Python 3.12
+- uv
+- Ollama
+- MLX-LM
+- ChromaDB
+- SQLite
+- pandas
+- numpy
+- polars
+- pyarrow
+- pydantic
+- pydantic-settings
+- sqlalchemy
+- pymupdf
+- pypdf
+- pdfplumber
+- ta
+- backtesting
+- pytest
+- ruff
+- mypy
+- typer
+- rich
+- requests
+- beautifulsoup4
+- feedparser
+
+İleri aşama için opsiyonel:
+
+- vectorbt
+- Backtrader
+- FastAPI
+- React dashboard
+- PostgreSQL
+- FAISS
+- Docker
+- GitHub MCP
+- Claude Skills
+- Claude Hooks
+
+============================================================
+6. LOCAL MODEL STRATEJİSİ
+============================================================
+
+İlk MVP’de kullanılacak local model:
+
+- Ollama üzerinde qwen2.5-coder:7b veya qwen2.5-coder:14b.
+- Embedding için nomic-embed-text veya benzeri local embedding modeli.
+- Eğitim/fine-tuning tarafı için MLX-LM kullanılacak.
+
+Model stratejisi:
+
+- RAG: güncel ve kaynaklı akademik bilgi için.
+- Knowledge card: akademik bilgiyi yapılandırmak için.
+- LoRA / SFT: trader tarzı davranış kazandırmak için.
+- Backtest feedback: hipotezleri gerçek veriyle test etmek için.
+- Evaluator logic: zayıf ve yanıltıcı stratejileri reddetmek için.
+- DPO / preference tuning: daha ileri aşamada, yeterli veri birikince.
+
+Fine-tuning tek başına yeterli değildir.
+Profesyonel sistem şu birleşimle kurulmalıdır:
+
+RAG
++ Knowledge Graph / knowledge card
++ LoRA / SFT
++ Tool-use agent
++ Backtest feedback
++ Evaluator model
++ Model versioning
+
+============================================================
+7. PROJE KLASÖR YAPISI
+============================================================
+
+Aşağıdaki klasör yapısı kurulmalı:
+
+achilles-trader-ai/
+  README.md
+  CLAUDE.md
+  pyproject.toml
+  .env.example
+  .gitignore
+
+  app/
+    main.py
+
+    config/
+      settings.py
+
+    ingestion/
+      paper_loader.py
+      pdf_parser.py
+      metadata_extractor.py
+      chunker.py
+
+    memory/
+      sqlite_store.py
+      chroma_store.py
+      embedding_service.py
+      paper_indexer.py
+      retrieval_service.py
+
+    brain/
+      local_llm.py
+      rag_answerer.py
+      paper_summarizer.py
+      knowledge_card_builder.py
+      training_data_builder.py
+      model_router.py
+
+    training/
+      dataset_builder.py
+      mlx_lora_train.py
+      evaluate_model.py
+      adapter_registry.py
+
+    trading/
+      market_data_loader.py
+      indicators.py
+      strategy_ir.py
+      strategy_generator.py
+      backtester.py
+      evaluator.py
+      overfit_checks.py
+
+    prompts/
+      system_trader.md
+      paper_summary.md
+      knowledge_card.md
+      rag_answer.md
+      strategy_hypothesis.md
+      strategy_critique.md
+      training_example_builder.md
+
+  data/
+    papers/
+      raw_pdf/
+      extracted_text/
+      metadata/
+
+    training/
+      raw/
+      cleaned/
+      jsonl/
+
+    market/
+      raw/
+      processed/
+
+  vector_db/
+    chroma/
+
+  storage/
+    sqlite/
+      achilles_trader_ai.db
+
+  models/
+    adapters/
+    evals/
+
+  strategies/
+    python/
+    pine/
+    mql5/
+
+  reports/
+    papers/
+    training/
+    backtests/
+    evals/
+
+  tests/
+    test_pdf_parser.py
+    test_chunker.py
+    test_sqlite_store.py
+    test_chroma_store.py
+    test_rag_answerer.py
+    test_knowledge_card_builder.py
+    test_strategy_ir.py
+    test_backtester.py
+
+============================================================
+8. MVP AŞAMALARI
+============================================================
+
+Aşama 1 — Proje iskeleti
+
+- pyproject.toml oluştur.
+- uv ile Python 3.12 ortamı kur.
+- README.md oluştur.
+- CLAUDE.md oluştur.
+- .gitignore oluştur.
+- tests klasörünü oluştur.
+- app klasör yapısını oluştur.
+
+Aşama 2 — PDF ingestion
+
+- data/papers/raw_pdf içine koyulan PDF’leri bul.
+- Her PDF için file_hash üret.
+- PDF’den metin çıkar.
+- Başlık, olası yazarlar, tarih ve dosya metadata çıkar.
+- Çıkan metni data/papers/extracted_text içine kaydet.
+- Metadata’yı SQLite’a yaz.
+
+Aşama 3 — Chunking ve embedding
+
+- Makale metnini mantıklı parçalara böl.
+- Her chunk için:
+  - paper_id
+  - chunk_id
+  - section_name
+  - page_number varsa
+  - text
+  - token/character count
+  kaydet.
+- Embedding üret.
+- ChromaDB’ye yaz.
+- SQLite’a chunk metadata yaz.
+
+Aşama 4 — RAG cevap sistemi
+
+- Kullanıcının sorusunu embedding’e çevir.
+- ChromaDB’den ilgili chunk’ları getir.
+- Local Ollama modeline context ile prompt gönder.
+- Cevapta kaynak paper_id ve chunk_id göster.
+- Model kaynak yoksa uydurma yapmasın.
+
+Cevap formatı:
+
+1. Kısa cevap
+2. Kullanılan kaynaklar
+3. Akademik bulgu
+4. Trading hipotezi
+5. Test edilmesi gereken noktalar
+
+Aşama 5 — Knowledge card üretimi
+
+Her makaleden şu JSON formatında bilgi kartı üret:
+
+{
+  "paper_id": "...",
+  "title": "...",
+  "year": "...",
+  "domain": "...",
+  "main_claim": "...",
+  "methods": [],
+  "datasets": [],
+  "trading_relevance": "...",
+  "limitations": [],
+  "possible_strategy_hypotheses": [],
+  "risk_warnings": [],
+  "implementation_notes": []
+}
+
+Bu knowledge card SQLite’a ve reports/papers içine kaydedilecek.
+
+Aşama 6 — Training data builder
+
+Knowledge card’lardan instruction/input/output formatında JSONL eğitim datası üret.
+
+Örnek format:
+
+{
+  "instruction": "Bu akademik bulguyu test edilebilir trading hipotezine çevir.",
+  "input": "Volatilite kümelenmesi momentum sinyallerinin kalıcılığını etkiler.",
+  "output": "Hipotez: ATR yüzdesi yüksek olduğunda trend-following sinyalleri daha kalıcı olabilir. Test: XAUUSD 15m, ATR percentile > 60, EMA trend filtresi, out-of-sample backtest.",
+  "source_paper_id": "paper_001"
+}
+
+Eğitim örnek türleri:
+
+1. Makale özetleme
+2. Akademik bulgudan trading hipotezi üretme
+3. Strateji eleştirisi
+4. Overfit riski tespiti
+5. Risk yönetimi yorumu
+6. Backtest sonucunu yorumlama
+7. Pine Script fikrine dönüştürme
+8. Python backtest fikrine dönüştürme
+
+Aşama 7 — MLX-LM LoRA hazırlığı
+
+- MLX-LM ile LoRA eğitimi için script hazırla.
+- İlk aşamada gerçek eğitimi otomatik başlatma.
+- Script parametre almalı:
+  - base_model
+  - train_jsonl
+  - valid_jsonl
+  - adapter_output_path
+  - iterations
+  - batch_size
+
+Eğitim sonunda adapter path models/adapters altına yazılmalı.
+
+Her adapter için metadata dosyası olmalı:
+
+- version
+- base_model
+- training_data_hash
+- created_at
+- notes
+
+Aşama 8 — Model evaluation
+
+- Base model ve LoRA model aynı sorularla test edilmeli.
+
+Eval setleri:
+
+- paper_understanding_eval.jsonl
+- trading_hypothesis_eval.jsonl
+- overfit_detection_eval.jsonl
+- backtest_interpretation_eval.jsonl
+
+Cevaplar reports/evals içine kaydedilmeli.
+
+Modelin şu hataları yapıp yapmadığı kontrol edilmeli:
+
+- Kaynak uydurma
+- Kesin kazanç iddiası
+- Backtest olmadan stratejiyi başarılı ilan etme
+- Spread/slipaj/komisyon unutma
+- Overfit riskini görmezden gelme
+- Akademik bulguyu doğrudan canlı işlem kuralı yapma
+
+Aşama 9 — Trading research skeleton
+
+- İlk piyasa placeholder olarak XAUUSD veya BTCUSDT olsun.
+- CSV’den OHLCV veri okunsun.
+- RSI, EMA, MACD, ATR, Bollinger hesaplanabilsin.
+- Strategy IR oluşturulsun.
+- Strategy IR JSON tabanlı olsun.
+- İlk strateji EMA + RSI örneği olsun.
+- Basit backtest çalışsın.
+- Sonuç SQLite’a yazılsın.
+- Sonuç raporu reports/backtests içine kaydedilsin.
+
+Strategy IR örneği:
+
+{
+  "name": "ema_rsi_trend_filter_v1",
+  "market": "XAUUSD",
+  "timeframe": "15m",
+  "indicators": [
+    {"name": "EMA", "period": 20},
+    {"name": "EMA", "period": 50},
+    {"name": "RSI", "period": 14},
+    {"name": "ATR", "period": 14}
+  ],
+  "entry_rules": [
+    "ema_20 > ema_50",
+    "rsi_14 > 55"
+  ],
+  "exit_rules": [
+    "ema_20 < ema_50",
+    "rsi_14 < 45"
+  ],
+  "risk": {
+    "stop_loss": "2 * ATR",
+    "take_profit": "optional",
+    "position_size": "fixed_fractional"
+  },
+  "costs": {
+    "commission": 0.0005,
+    "slippage": 0.0005
+  }
+}
+
+Aşama 10 — Güvenlik ve yasaklar
+
+- .env dosyası Git’e eklenmeyecek.
+- API key kod içine yazılmayacak.
+- Canlı exchange bağlantısı eklenmeyecek.
+- Canlı emir gönderme yok.
+- Otomatik işlem yok.
+- Kullanıcının izni olmadan dosya silme yok.
+- Random MCP server ekleme yok.
+- GitHub MCP eklenirse read-only ve sınırlı yetkiyle eklenecek.
+- İlk MVP’de MCP zorunlu değil.
+
+============================================================
+9. CLAUDE SKILLS
+============================================================
+
+Proje içine .claude/skills oluştur.
+
+Başlangıçta şu üç skill yeterli:
+
+1. trading-research
+
+Amaç:
+Akademik bulguları trading hipotezine çevirmek.
+
+2. backtest-auditor
+
+Amaç:
+Backtest sonuçlarını overfit, data leakage, look-ahead bias, spread, slipaj ve out-of-sample açısından denetlemek.
+
+3. codegen-review
+
+Amaç:
+Python, Pine Script ve MQL5 kodlarının mantık farklarını kontrol etmek.
+
+============================================================
+10. MCP STRATEJİSİ
+============================================================
+
+- İlk MVP’de MCP kurma.
+- GitHub CLI yeterli.
+- İkinci aşamada sadece GitHub MCP eklenebilir.
+- MCP kullanılırsa token .env içinde saklanacak.
+- MCP yazma yetkileri sınırlı olacak.
+- Rastgele MCP server kurulmayacak.
+
+============================================================
+11. KABUL KRİTERLERİ
+============================================================
+
+1. `uv run pytest` çalışmalı.
+2. data/papers/raw_pdf içine PDF koyunca sistem PDF’yi okuyabilmeli.
+3. PDF metni extracted_text içine kaydedilmeli.
+4. SQLite’ta paper ve chunk kayıtları oluşmalı.
+5. ChromaDB’de chunk embedding kayıtları oluşmalı.
+6. RAG sistemi PDF içeriğine dayalı cevap verebilmeli.
+7. Knowledge card JSON üretilebilmeli.
+8. Training JSONL dosyası üretilebilmeli.
+9. MLX-LM LoRA eğitim scripti hazır olmalı.
+10. Basit OHLCV CSV ile EMA/RSI backtest çalışmalı.
+11. Backtest sonucu SQLite’a kaydedilmeli.
+12. README tüm komutları açıklamalı.
+13. Sistem canlı trading yapmamalı.
+
+============================================================
+12. ÖNCELİKLİ GÖREV
+============================================================
+
+Önce proje iskeletini oluştur.
+
+Sonra sırayla:
+
+1. PDF ingestion
+2. SQLite schema
+3. ChromaDB indexing
+4. RAG answerer
+5. Knowledge card builder
+6. Training data builder
+7. MLX-LM LoRA training script
+8. Evaluation script
+9. Trading/backtest skeleton
+10. README ve testler
+
+Büyük dosyalar tek seferde yazılmasın.
+Her modül küçük, okunabilir ve test edilebilir olsun.
+Önce test edilebilir çalışan MVP çıkar.
+
+============================================================
+13. CLAUDE.MD İÇERİĞİ
+============================================================
+
+Aşağıdaki içeriği proje kök dizinine CLAUDE.md olarak koy:
+
+# Achilles Trader AI — Claude Instructions
+
+## Project Goal
+
+Build a local-first AI trading research system for macOS Apple Silicon.
+
+The system must:
+- Read academic finance/trading papers.
+- Store them in persistent local memory.
+- Use RAG for source-grounded answers.
+- Build structured knowledge cards from papers.
+- Generate instruction datasets for LoRA fine-tuning.
+- Support MLX-LM LoRA training.
+- Generate testable trading hypotheses.
+- Backtest generated strategies.
+- Store results and failures in SQLite.
+- Avoid live trading in MVP.
+
+## Important Boundary
+
+Claude Code is only a development assistant.
+
+The runtime brain must be:
+- Local LLM
+- Local database
+- Local RAG memory
+- Local backtest engine
+
+Do not design Claude Code as the live AI brain.
+
+## Architecture Principles
+
+Use separate layers:
+
+1. Ingestion
+   - PDF loading
+   - PDF parsing
+   - Metadata extraction
+   - Chunking
+
+2. Memory
+   - SQLite for structured data
+   - ChromaDB for vector memory
+   - Paper IDs and chunk IDs must be stable
+
+3. Brain
+   - Local Ollama model
+   - RAG answerer
+   - Paper summarizer
+   - Knowledge card builder
+   - Training data builder
+
+4. Training
+   - JSONL dataset builder
+   - MLX-LM LoRA training script
+   - Model evaluation script
+   - Adapter registry
+
+5. Trading
+   - OHLCV data loader
+   - Indicator engine
+   - Strategy IR
+   - Backtest engine
+   - Evaluator
+   - Overfit checks
+
+## Model Strategy
+
+Do not rely only on fine-tuning.
+
+Use:
+
+- RAG for current and source-grounded paper knowledge.
+- Knowledge cards for structured financial understanding.
+- LoRA / SFT for trader-style behavior.
+- Backtest feedback for empirical validation.
+- Evaluator logic to reject weak strategies.
+- Future DPO/preference tuning only after enough data exists.
+
+## Financial Research Rules
+
+Never say a strategy works unless it has been tested.
+
+Always check:
+- Overfitting
+- Look-ahead bias
+- Data leakage
+- Survivorship bias
+- Spread
+- Slippage
+- Commission
+- Liquidity
+- Out-of-sample performance
+- Walk-forward stability
+- Drawdown
+- Profit factor
+- Sharpe/Sortino
+- Trade count
+
+Academic paper findings must be separated from executable trading rules.
+
+Use this distinction:
+- Academic finding
+- Trading hypothesis
+- Test plan
+- Backtest result
+- Decision
+
+## Coding Rules
+
+- Python 3.12
+- uv for environment management
+- small modules
+- type hints
+- pytest tests
+- no hidden API dependencies
+- no hardcoded secrets
+- no live trading
+- no exchange order execution
+- no random MCP servers
+- no file deletion without explicit approval
+
+## Storage Rules
+
+SQLite stores:
+- papers
+- chunks
+- summaries
+- knowledge cards
+- training examples
+- strategies
+- backtests
+- model evaluations
+- adapter metadata
+
+ChromaDB stores:
+- paper chunks
+- summaries
+- strategy notes
+- failure notes
+- research memories
+
+Every stored object must have stable IDs.
+
+## Output Style
+
+When building code:
+- Explain what was created.
+- Show how to run it.
+- Add tests.
+- Add README instructions.
+- Do not skip validation.
+
+When analyzing trading:
+- Be skeptical.
+- Do not hype.
+- Prefer testable hypotheses.
+- Reject unvalidated claims.
+
+============================================================
+14. EKSİK KALAN AMA PROJEYİ DURDURMAYAN BİLGİLER
+============================================================
+
+Bunlar sonra doldurulur:
+
+1. Mac modeli ve RAM miktarı
+2. İlk hedef piyasa: XAUUSD, BTC, BIST, Forex, ABD hisseleri
+3. İlk zaman dilimi: 5m, 15m, 1h, 4h, günlük
+4. İlk çıktı dili: Pine Script, Python, MQL5
+5. Akademik makaleler nereden gelecek: elle PDF, arXiv, SSRN, Semantic Scholar, Google Scholar
+6. İlk local model: qwen2.5-coder:7b mi 14b mi
+7. Eğitim hedefi: sadece analiz mi, strateji üretimi mi, kod üretimi mi
+
+Varsayılan ayarlar:
+
+- Piyasa: XAUUSD ve BTCUSDT
+- Zaman dilimi: 15m ve 1h
+- Çıktı: Python backtest, sonra Pine Script
+- Model: qwen2.5-coder:7b veya 14b
+- Hafıza: SQLite + ChromaDB
+- Eğitim: MLX-LM LoRA hazırlığı
+
+============================================================
+15. CLAUDE CODE’A VERİLECEK İLK KISA KOMUT
+============================================================
+
+Şimdi bu şartnameye göre sadece ilk MVP iskeletini kur.
+
+Önce:
+1. Proje klasörlerini oluştur.
+2. pyproject.toml hazırla.
+3. README.md yaz.
+4. CLAUDE.md oluştur.
+5. SQLite schema yaz.
+6. PDF parser için çalışan ilk modülü yaz.
+7. ChromaDB indexing için ilk modülü yaz.
+8. Basit testleri ekle.
+
+Canlı trading, dashboard, MCP, LoRA eğitimi ve büyük model entegrasyonunu henüz başlatma.
+Önce PDF → text → chunk → SQLite → ChromaDB akışını çalıştır.

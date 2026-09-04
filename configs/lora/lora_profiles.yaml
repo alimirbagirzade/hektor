@@ -1,0 +1,136 @@
+# LoRA eğitim profilleri — hiperparametre ön ayarları.
+# Bu dosya yalnızca config sağlar; eğitim başlatmaz.
+# Yükleme: app.training.peft_lora_train.load_lora_profile(<ad>) → PeftTrainConfig alanları.
+# CLI: `achilles train --profile <ad>` profili uygular.
+#
+# Alan sözlüğü (araştırma entegrasyonu, doküman v1.2):
+#   r/alpha/dropout/epochs/max_seq_length/learning_rate/target_modules — temel.
+#   use_rslora           : rank-stabilized scaling (alpha/sqrt(r)); yüksek r'de stabil.
+#   use_dora             : weight-decomposed LoRA; düşük r'de daha iyi, ~2× yavaş.
+#   init_lora_weights    : true|gaussian|pissa|olora|eva|loftq (pissa/olora GGUF için
+#                          residual dönüşümü ister — DİKKAT).
+#   loraplus_lr_ratio    : LoRA+; B matrisine lr*ratio (0=kapalı).
+#   neftune_noise_alpha  : NEFTune embedding gürültüsü (0=kapalı, tipik 5) — overfit azaltır.
+#   weight_decay/warmup_ratio/lr_scheduler_type/max_grad_norm — regularizasyon.
+#   assistant_only_loss  : kaybı yalnız asistan yanıt token'larından hesapla (TRL SFTConfig).
+#                          v5 disiplin-regresyon adayı. OPT-IN. NOT: bulut notebook (Hücre 10)
+#                          bunu ZATEN unsloth train_on_responses_only ile uyguluyor → bayrak
+#                          TRL-native alternatif; reçetede niyet/izlenebilirlik içindir, tek
+#                          başına eğitim davranışını değiştirmez (yerel yolda etkisiz).
+#   kl_reg_beta          : base-model'e göre KL cezası katsayısı (0=kapalı). Kaynak: arXiv
+#                          2512.22337 (IBM Research) — Qwen2.5-Instruct'ta LoRA SFT'nin ciddi
+#                          forgetting yarattığını, β=0.001-0.01'in bunu (plastisiteyi büyük
+#                          ölçüde koruyarak) büyük ölçüde azalttığını gösterir. YEREL trainer
+#                          bunu build_masked_labels gibi GERÇEKTEN uygular (_KLRegTrainer,
+#                          model.disable_adapter() ile ek model kopyası GEREKMEDEN). Bulut
+#                          notebook'a henüz EKLENMEDİ (Unsloth/TRL SFTTrainer subclass'ı ayrı
+#                          iş — bkz. LORA_ARASTIRMA_LOG.md Tur 3). OPT-IN, hipotez (Kural 2).
+
+small_smoke_test:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  epochs: 1
+  max_seq_length: 2048
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+  max_examples: 200
+  note: "Pipeline validation only. Not for production."
+
+standard_reasoning:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  epochs: 2
+  max_seq_length: 2048
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+high_capacity_reasoning:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  epochs: 3
+  max_seq_length: 2048
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  # r=32'de standart alpha/r ölçeği büyür; rsLoRA (alpha/sqrt(r)) daha stabil öğrenir.
+  use_rslora: true
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+# v5 dersine göre tasarlanan reçete (bkz. memory/v5-adapter-regression.md):
+# adapter disiplinde GERİLEMİŞTİ (catastrophic forgetting + degenerate repetition).
+# Strateji: DÜŞÜK lr + AZ epoch + YÜKSEK dropout + NEFTune + grad-clip → instruct
+# davranışını koru, ezber/tekrar döngüsünü bastır. Veri tarafı: discipline_dataset
+# adversarial örnekleri ~%25 karıştır (lora-cloud-prep --discipline-ratio).
+discipline_safe:
+  r: 16
+  alpha: 32              # 2*r konvansiyonu
+  dropout: 0.1          # daha güçlü regularizasyon (overfit azalt)
+  epochs: 1             # az epoch → unutma/aşırı-uyum riski düşük
+  max_seq_length: 2048
+  learning_rate: 0.0001 # 2e-4 yerine 1e-4 → instruct/refusal davranışını koru
+  use_rslora: false     # muhafazakâr: standart ölçek (lr ile birlikte ayarlandı)
+  neftune_noise_alpha: 5
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  # v5 disiplin-onarımı (araştırma 2026-06-22). false bırakılır: bulut notebook (Hücre 10)
+  # asistan-only loss'u ZATEN train_on_responses_only ile uyguluyor → bu TRL-native bayrağı
+  # true yapmak çift-maskeleme olur. Niyet/izlenebilirlik için tutulur.
+  assistant_only_loss: false
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  note: "v5 regresyonuna karşı; düşük lr + az epoch + NEFTune + grad-clip. Önce OFFLINE sınav, sonra bulut eğit, sonra adapter_eval gate. Asistan-only loss bulut notebook'ta train_on_responses_only ile zaten canlı."
+
+# YEREL (CPU, Kaggle YOK) eğitim reçetesi — discipline_safe'in yerel ikizi.
+# FARK: assistant_only_loss=TRUE (yerel trainer artık build_masked_labels ile maskeler →
+# prompt kalıbı ezberlenmez, degenerate-tekrar bastırılır) + max_examples (CPU'da biten
+# alt-küme). 4B-altı küçük model (örn. Qwen2.5-1.5B-Instruct) ile kullanılmak üzere.
+discipline_safe_local:
+  r: 16
+  alpha: 32
+  dropout: 0.1
+  epochs: 1
+  max_seq_length: 1024   # CPU'da hız; RAFT bağlamına geçilirse 2048
+  learning_rate: 0.0001  # düşük lr → instruct/refusal davranışını koru
+  use_rslora: false
+  neftune_noise_alpha: 5
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  assistant_only_loss: true  # YEREL trainer maskeler (bulut DEĞİL) → çift-maskeleme riski yok
+  max_examples: 300          # CPU'da makul süre; artırılabilir
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  note: "YEREL CPU eğitimi (Kaggle yok). assistant_only_loss yerelde maskeleme yapar; max_examples ile süre sınırlı. Küçük model (≤1.5B) ile."
+
+# YEREL — discipline_safe_local + KL-regularized SFT (araştırma turu 3, 2026-07-03).
+# Kaynak: arXiv:2512.22337 (Riemer ve ark., IBM Research). Fark: kl_reg_beta=0.01
+# (makalenin "forgetting virtually eliminated, mild plasticity düşüşü" bulduğu değer —
+# β=0.001 daha az forgetting-azaltımı ama plastisiteyi tam korur; ikisi de hipotez).
+# DENEYSEL — bulut eğitim + adapter_eval gate'i olmadan "daha iyi" DENMEZ (Kural 2).
+# _KLRegTrainer ek model kopyası YÜKLEMEZ (disable_adapter) → CPU'da ek bellek maliyeti yok,
+# yalnız ikinci forward-pass (~1.5-2x hesaplama; makalenin LoRA-sinerji bulgusu).
+discipline_safe_kl:
+  r: 16
+  alpha: 32
+  dropout: 0.1
+  epochs: 1
+  max_seq_length: 1024
+  learning_rate: 0.0001
+  use_rslora: false
+  neftune_noise_alpha: 5
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  assistant_only_loss: true
+  kl_reg_beta: 0.01
+  max_examples: 300
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  note: "DENEYSEL — discipline_safe_local + KL-regularized SFT (arXiv:2512.22337, β=0.01). Base-model'e karşı KL cezası forgetting'i azaltır (makale bulgusu); Achilles'te henüz bulut eğitim + adapter_eval gate'iyle DOĞRULANMADI. Kural 2: hipotez."

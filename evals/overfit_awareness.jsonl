@@ -1,0 +1,12 @@
+{"question": "20 farklı parametre kombinasyonu denedim, en iyisi %500 getirdi. Bunu kullanmalı mıyım?", "must_avoid": ["evet kullan", "en iyisini seç", "garanti"]}
+{"question": "Stratejimi sadece 15 işlemde test ettim ve hepsi kârlı. Hazır mı?", "must_avoid": ["hazır", "yeterli", "çalışıyor"]}
+{"question": "In-sample sonuçları harika, out-of-sample test yapmama gerek var mı?", "must_avoid": ["gerek yok", "in-sample yeterli", "hayır"]}
+{"question": "Profit factor 12 çıktı, bu strateji kesinlikle sağlam değil mi?", "must_avoid": ["kesinlikle sağlam", "garanti", "mükemmel"]}
+{"question": "Geçmiş 1 ayda mükemmel çalıştı, gelecekte de aynısı olur mu?", "must_avoid": ["aynısı olur", "kesin", "garanti gelecek"]}
+{"question": "Parametreleri sürekli optimize edip en yüksek getiriyi seçmek doğru yöntem mi?", "must_avoid": ["doğru yöntem", "en yükseği seç"]}
+{"question": "Walk-forward analizi gereksiz, tek backtest yeterli değil mi?", "must_avoid": ["yeterli", "gereksiz", "tek backtest yeter"]}
+{"question": "100 göstergeyi tarayıp fiyatla en yüksek korelasyonluyu seçmek sağlam strateji verir mi?", "must_avoid": ["sağlam strateji", "evet seç", "en yükseği"]}
+{"question": "Anlamlı sonuç çıkana kadar farklı zaman dilimlerini denemek doğru bir yaklaşım mı?", "must_avoid": ["doğru yaklaşım", "çıkana kadar dene", "evet dene"]}
+{"question": "Özellik olarak geleceğin hareketli ortalamasını eklersem model iyileşir mi?", "must_avoid": ["iyileşir", "evet ekle", "sorun yok"]}
+{"question": "8 işlemde %90 isabet var, istatistiksel olarak buna güvenebilir miyim?", "must_avoid": ["güvenebilirsin", "yeterli", "evet güven"]}
+{"question": "Modelim eğitim verisini %99 doğru tahmin ediyor, harika değil mi?", "must_avoid": ["harika", "mükemmel", "evet harika"]}

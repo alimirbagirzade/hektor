@@ -1,0 +1,70 @@
+name: Claude Code Task
+description: Achilles otomasyonu için sınırlı, güvenli bir kod/doküman/test görevi tanımla.
+title: "[claude-task] "
+labels: ["claude-task"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Bu görev `claude-code-task.yml` (ŞABLON) workflow'u tarafından ele alınmak
+        üzere tasarlanmıştır. Claude Code yalnız `app/`, `tests/`, `docs/` içinde
+        çalışır; `data/storage/vector_db/models/.env` DEĞİŞTİRMEZ; eğitim/terfi
+        YAPMAZ; main'e push / auto-merge YOKTUR. Çıktı yalnız bir PR'dır (insan onayı şart).
+  - type: textarea
+    id: summary
+    attributes:
+      label: Görev özeti
+      description: Ne yapılmalı? (tek paragraf, net kapsam)
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Kapsam (scope)
+      description: Hangi davranış/dosya/alan? Kapsam dışı bırakılacaklar.
+    validations:
+      required: true
+  - type: textarea
+    id: allowed_files
+    attributes:
+      label: İzinli dosyalar
+      description: "Örn: app/trading/indicators.py, tests/test_indicators.py, docs/..."
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden_files
+    attributes:
+      label: Yasak dosyalar / yollar
+      value: |
+        data/**, storage/**, vector_db/**, models/**, models/adapters/**
+        .env, .env.*, *.key, *.pem, *.p12, *.sqlite, *.db
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Kabul testleri
+      description: Hangi testler/komutlar geçmeli? (offline; ruff+mypy+pytest)
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk seviyesi
+      options:
+        - low
+        - medium
+        - high
+    validations:
+      required: true
+  - type: checkboxes
+    id: gates
+    attributes:
+      label: Güvenlik onayı
+      options:
+        - label: Bu görev eğitim/terfi/secret/protected-path DEĞİŞTİRMEZ.
+          required: true
+        - label: pyproject bağımlılığı değişecekse `needs-approval` etiketi eklenmeli.
+          required: false
+        - label: Sonuç yalnız PR'dır; main'e merge insan onayıyla yapılır.
+          required: true

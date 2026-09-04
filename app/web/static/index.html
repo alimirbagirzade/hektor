@@ -1,0 +1,1172 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ACHILLES — Trading Research Terminal</title>
+    <link rel="stylesheet" href="/assets/app.css?v=13" />
+    <link rel="stylesheet" href="/assets/canli-badge.css?v=1" />
+  </head>
+  <body>
+
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="/assets/achilles-logo.jpg" alt="Achilles logo" />
+        <span class="brand-name">ACHILLES</span>
+        <span class="brand-sub">trading research terminal</span>
+      </div>
+      <div class="status-strip" id="statusStrip">
+        <span id="liveBadge" class="live-badge live-init" title="Web sunucusu canlılığı — birkaç saniyede bir /api/status yoklanır">
+          <span class="live-shape" aria-hidden="true"></span>
+          <span id="liveBadgeText">yokluyor…</span>
+        </span>
+        <span class="sep">│</span>
+        <span class="dot dot-idle" id="connDot"></span>
+        <span id="connText">bağlanıyor…</span>
+        <span class="sep">│</span>
+        <span id="paperCount" class="muted">makale: —</span>
+        <span class="sep">│</span>
+        <span id="trainBadge" class="muted" title="LoRA eğitim durumu (gerçek süreç — web veya detached/CLI)">eğitim: —</span>
+        <span id="statusExtra" class="status-extra collapsed">
+          <span class="sep">│</span>
+          <span id="embedMode" class="muted">gömme: —</span>
+          <span class="sep">│</span>
+          <span id="ragMastery" class="muted" title="RAG kaç makaleyi içerik kartına dönüştürüp anladı + eğitim hazırlığı">RAG anladı: —</span>
+          <span class="sep">│</span>
+          <span id="objUnderstanding" class="muted clickable" title="Objektif anlama skoru — L3/L4 sınav geçme oranı (LLM gerekir; tıkla hesapla). Kaba öz-değerlendirmenin yerine objektif kanıt.">obj. anlama: tıkla</span>
+          <span class="sep">│</span>
+          <span id="versionBadge" class="muted" title="Sürüm durumu — bu makine GitHub 'main' ile güncel mi? (geride kalırsa uyarır)">sürüm: —</span>
+        </span>
+        <button type="button" id="statusMoreBtn" class="status-more" aria-expanded="false" title="Diğer göstergeleri göster/gizle">⋯ tümü</button>
+      </div>
+    </header>
+
+    <div class="disclaimer">
+      ⚠ ARAŞTIRMA ARACI — yatırım tavsiyesi değildir. Her çıktı test edilmesi
+      gereken bir <em>hipotezdir</em>. Hiçbir strateji backtest + örneklem-dışı
+      doğrulama olmadan "başarılı" sayılmaz.
+    </div>
+
+    <nav class="groups" id="groupNav" aria-label="Bölüm grupları">
+      <button class="group-btn active" data-group="kesfet">Keşfet &amp; sor</button>
+      <button class="group-btn" data-group="kutuphane">Kütüphane</button>
+      <button class="group-btn" data-group="trader">Trader &amp; backtest</button>
+      <button class="group-btn" data-group="egitim">Eğitim hattı</button>
+      <button class="group-btn group-advanced" data-group="izleme">İzleme &amp; sağlık</button>
+      <button type="button" class="group-toggle" id="advancedToggle" aria-expanded="false" title="Gözlem/gelişmiş panelleri (öğrenme, ajanlar, nöbetçi, sistem, ajan haritası) göster veya gizle. Arka plan işi her hâlükârda çalışır.">⋯ gelişmiş</button>
+    </nav>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="research"><span class="tab-num">01</span> · ARAŞTIRMA</button>
+      <button class="tab" data-tab="papers"><span class="tab-num">02</span> · MAKALELER</button>
+      <button class="tab" data-tab="trader"><span class="tab-num">03</span> · TRADER BEYİN</button>
+      <button class="tab" data-tab="backtest"><span class="tab-num">04</span> · BACKTEST</button>
+      <button class="tab" data-tab="training"><span class="tab-num">05</span> · EĞİTİM</button>
+      <button class="tab" data-tab="review"><span class="tab-num">06</span> · ONAY</button>
+      <button class="tab" data-tab="eval"><span class="tab-num">07</span> · DEĞERLENDİRME</button>
+      <button class="tab" data-tab="about"><span class="tab-num">08</span> · SİSTEM</button>
+      <button class="tab" data-tab="learning"><span class="tab-num">09</span> · ÖĞRENME</button>
+      <button class="tab" data-tab="agents"><span class="tab-num">10</span> · AGENTS / OTOMASYON</button>
+      <button class="tab" data-tab="rlm"><span class="tab-num">11</span> · RLM</button>
+      <button class="tab" data-tab="orchestration"><span class="tab-num">12</span> · ORKESTRASYON</button>
+      <button class="tab" data-tab="feedback"><span class="tab-num">13</span> · GERİ BİLDİRİM</button>
+      <button class="tab" data-tab="sentinel"><span class="tab-num">14</span> · NÖBETÇİ</button>
+      <button class="tab" data-tab="agentmap"><span class="tab-num">15</span> · AJAN HARİTASI</button>
+    </nav>
+
+    <main>
+      <div class="next-step" id="nextStep" style="display:none">
+        <span class="next-step-icon" aria-hidden="true">→</span>
+        <span id="nextStepText"></span>
+      </div>
+
+      <!-- RESEARCH -->
+      <section class="panel active" id="panel-research">
+        <div class="intro-banner" id="introBanner" style="display:none">
+          <button class="intro-close" id="introClose" type="button" aria-label="Bu açıklamayı kapat">✕</button>
+          <h3>Achilles nasıl çalışır? · 3 adım</h3>
+          <ol class="intro-steps">
+            <li><strong>Makale ekle</strong> — <em>Kütüphane</em>'de PDF yükle ya da arXiv'den çek.</li>
+            <li><strong>Soru sor</strong> — <em>Keşfet &amp; sor</em>'da kaynaklı cevap al (kaynak yoksa sistem uydurmaz).</li>
+            <li><strong>Backtest et</strong> — <em>Trader &amp; backtest</em>'te stratejiyi maliyet+slippage dahil, look-ahead'siz sına.</li>
+          </ol>
+          <p class="intro-foot">Araştırma aracıdır, yatırım tavsiyesi değildir. Her panel üstündeki "Sonraki adım" şeridi yol gösterir.</p>
+        </div>
+        <div class="panel-head">
+          <h2>RAG Araştırma</h2>
+          <p class="muted">
+            Soru sor → indekslenmiş makalelerden kaynaklı cevap. Kaynak yoksa
+            sistem uydurmaz.
+          </p>
+        </div>
+        <form id="askForm" class="ask-form">
+          <textarea
+            id="question"
+            rows="3"
+            maxlength="2000"
+            placeholder="örn: Volatilite kümelenmesi momentum sinyallerinin kalıcılığını nasıl etkiler?"
+          ></textarea>
+          <div class="ask-row">
+            <label class="topk">
+              <span class="jargon" title="Cevap için kaç kaynak parçası (chunk) getirileceği. Yüksek değer = daha çok bağlam ama daha yavaş.">top_k</span>
+              <input type="number" id="topk" min="1" max="20" value="6" />
+            </label>
+            <label class="adapter-select-label">
+              model
+              <select id="adapterSelect">
+                <option value="">Ollama (varsayılan)</option>
+              </select>
+            </label>
+            <button type="submit" class="btn btn-primary" id="askBtn">
+              SORGULA →
+            </button>
+          </div>
+        </form>
+        <div id="askResult" class="result hidden"></div>
+      </section>
+
+      <!-- PAPERS -->
+      <section class="panel" id="panel-papers">
+        <div class="panel-head">
+          <h2>Makale Kütüphanesi</h2>
+          <p class="muted">PDF yükle → otomatik indekslenir (SQLite + ChromaDB).</p>
+        </div>
+        <div class="upload-zone" id="uploadZone">
+          <input type="file" id="pdfInput" accept="application/pdf" multiple hidden />
+          <div class="upload-inner">
+            <span class="upload-icon">⇪</span>
+            <p>PDF'i buraya bırak veya <button class="link" id="browseBtn">dosya seç</button></p>
+            <p class="muted small" id="pdfHint">yalnız .pdf · maks 100&nbsp;MB · birden çok seçebilirsin · içerik doğrulanır</p>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="btn" id="refreshPapers">↻ YENİLE</button>
+          <button class="btn" id="reindexBtn">↻ TÜMÜNÜ İNDEKSLE</button>
+          <button class="btn" id="batchCardBtn">TÜM KARTLARI ÜRET</button>
+          <button class="btn" id="batchScoreBtn">TÜM SKORLARI HESAPLA</button>
+          <button class="btn" id="crossSynthesisBtn">ÇAPRAZ SENTEZ ÜRET</button>
+        </div>
+        <div id="batchCardResult" class="result hidden"></div>
+        <div id="batchScoreResult" class="result hidden"></div>
+        <div id="crossSynthesisResult" class="result hidden"></div>
+
+        <!-- arXiv arama kutusu -->
+        <div class="arxiv-section">
+          <h3 class="arxiv-heading">arXiv'den Makale Çek</h3>
+          <p class="muted small">Anahtar kelime gir → arXiv'de ara → PDF'i indir → otomatik indeksle</p>
+          <div class="arxiv-form">
+            <input type="search" id="arxivQuery" placeholder="örn: momentum trading volatility RSI" maxlength="200" autocomplete="off" />
+            <label class="arxiv-max">
+              maks
+              <input type="number" id="arxivMax" min="1" max="20" value="5" />
+            </label>
+            <button class="btn" id="arxivSearchBtn">🔍 ARA</button>
+            <button class="btn btn-primary" id="arxivFetchBtn">⬇ İNDİR + İNDEKSLE</button>
+          </div>
+          <div id="arxivResult" class="result hidden"></div>
+          <div class="arxiv-save-row">
+            <button class="btn" id="arxivSaveBtn" title="Mevcut sorguyu kütüphaneye kaydet">Sorguyu Kaydet</button>
+          </div>
+        </div>
+
+        <div class="arxiv-section">
+          <h3 class="arxiv-heading">Kayıtlı Sorgular</h3>
+          <p class="muted small">Kayıtlı sorguları tek tıkla tekrar çalıştır.</p>
+          <button class="btn" id="refreshArxivQueries">↻ YENİLE</button>
+          <div id="arxivQueriesList"></div>
+        </div>
+
+        <div class="filter-bar">
+          <input type="search" id="paperSearch" placeholder="başlık ara…" autocomplete="off" />
+          <div class="filter-group" id="cardFilter" role="group" aria-label="Kart filtresi">
+            <button class="filter-btn active" data-filter="all">Tümü</button>
+            <button class="filter-btn" data-filter="card">Kartlı</button>
+            <button class="filter-btn" data-filter="nocard">Kartsız</button>
+          </div>
+          <select id="paperSort" aria-label="Sıralama">
+            <option value="default">Varsayılan sıra</option>
+            <option value="title-asc">Başlık A→Z</option>
+            <option value="title-desc">Başlık Z→A</option>
+            <option value="card-first">Kartlı önce</option>
+            <option value="nocard-first">Kartsız önce</option>
+          </select>
+        </div>
+        <div id="papersList" class="papers-list"></div>
+      </section>
+
+      <!-- TRADER BEYİN -->
+      <section class="panel" id="panel-trader">
+        <div class="panel-head">
+          <h2>Trader Beyin</h2>
+          <p class="muted">
+            LLM makalelerden formül çıkarır, kavramları birleştirir ve yeni
+            indikatör hipotezleri önerir. Her öneri otomatik backtest edilir.
+          </p>
+        </div>
+
+        <!-- Formül Çıkarımı -->
+        <div class="training-section">
+          <h3>1 · Formül Çıkarımı</h3>
+          <p class="muted small">Yüklü makalelerden matematiksel formülleri çıkar ve kavram grafiğini kur.</p>
+          <button class="btn btn-primary" id="extractFormulasBtn">FORMÜL ÇIKAR</button>
+          <div id="extractResult" class="result hidden"></div>
+          <div id="formulasList" class="formulas-list"></div>
+        </div>
+
+        <!-- Araştırma Döngüsü -->
+        <div class="training-section">
+          <h3>2 · <span class="jargon" title="Agentic = kendi kendine adım adım çalışan AI döngüsü: formülleri sentezler → indikatör önerir → backtest eder → sonuca göre kendini iyileştirir.">Agentic</span> Araştırma</h3>
+          <p class="muted small">
+            LLM tüm formülleri sentezler → yeni indikatör önerir → backtest eder → yansıtır → iyileştirir.
+          </p>
+          <div class="research-form">
+            <textarea id="researchQuestion" rows="3" maxlength="1000"
+              placeholder="örn: Momentum göstergelerini yüksek volatilite dönemlerinde nasıl filtreleriz? RSI + ATR kombinasyonu çalışır mı?"></textarea>
+            <div class="research-row">
+              <label>Maksimum iterasyon
+                <input type="number" id="researchIter" min="1" max="5" value="2" />
+              </label>
+              <button class="btn btn-primary" id="runResearchBtn">ARAŞTIR →</button>
+            </div>
+          </div>
+          <div id="researchResult" class="result hidden"></div>
+        </div>
+
+        <!-- Eğitilen Modelle Sohbet -->
+        <div class="training-section">
+          <h3>3 · Eğitilen Modelle Sohbet (LoRA)</h3>
+          <p class="muted small">
+            Eğitilen LoRA adapter'ı (veya base model) ile <strong>LOKAL</strong> sohbet —
+            Ollama gerektirmez. CPU'da yavaştır (cevap dakikalar sürebilir). Liste boşsa
+            önce EĞİTİM sekmesinden bir adapter eğit. Kaynaklı cevap istiyorsan
+            "01 · ARAŞTIRMA" sekmesindeki RAG kutusunu kullan.
+          </p>
+          <form id="loraChatForm" class="ask-form">
+            <textarea
+              id="loraChatQuestion"
+              rows="3"
+              maxlength="4000"
+              placeholder="örn: Merhaba, ne öğrendin? Trend takip stratejisinde look-ahead bias nasıl önlenir?"
+            ></textarea>
+            <div class="ask-row">
+              <label class="adapter-select-label">
+                model
+                <select id="loraChatAdapter">
+                  <option value="">(base — adapter yok)</option>
+                </select>
+              </label>
+              <label class="topk">
+                <span class="jargon" title="Modelin üreteceği en fazla parça (token) sayısı — yaklaşık cevap uzunluğu. Yüksek = daha uzun ama daha yavaş.">maks. token</span>
+                <input type="number" id="loraChatMaxTokens" min="16" max="1024" value="256" />
+              </label>
+              <button type="submit" class="btn btn-primary" id="loraChatBtn">SOR →</button>
+            </div>
+          </form>
+          <div id="loraChatResult" class="result hidden"></div>
+        </div>
+
+        <!-- Zincir Veri Seti -->
+        <div class="training-section">
+          <h3>4 · Zincir Veri Seti (LoRA)</h3>
+          <p class="muted small">Araştırma oturumlarını <span class="jargon" title="Reasoning-chain — modelin 'adım adım nasıl düşündüğünü' gösteren akıl-yürütme zinciri; LoRA'ya bu örneklerle muhakeme öğretilir.">reasoning-chain</span> eğitim verisine çevir.</p>
+          <label class="filter-btn-label">
+            <input type="checkbox" id="onlySuccessful" /> Yalnız başarılı oturumlar
+          </label>
+          <button class="btn btn-primary" id="buildChainBtn">ZİNCİR DATASET OLUŞTUR</button>
+          <div id="chainResult" class="result hidden"></div>
+        </div>
+
+        <!-- Sentez Makaleleri -->
+        <div class="training-section">
+          <h3>5 · Sentez Makaleleri</h3>
+          <p class="muted small">
+            Araştırma oturumlarındaki hipotezler tek bir incelenebilir makaleye dönüştürülür:
+            kaynaklar, formüller, backtest sonuçları, yansıma ve test noktaları.
+            İndir → incele → istersen RAG'a geri besle.
+          </p>
+          <button class="btn btn-primary" id="genSynthPaperBtn">SENTEZ MAKALESİ ÜRET</button>
+          <button class="btn" id="refreshSynthPapers">↻ LİSTEYİ YENİLE</button>
+          <div id="synthPaperResult" class="result hidden"></div>
+          <div id="synthPapersList" class="sessions-list"></div>
+        </div>
+
+        <!-- Araştırma Geçmişi -->
+        <div class="training-section">
+          <h3>6 · Araştırma Geçmişi</h3>
+          <button class="btn" id="refreshSessions">↻ YENİLE</button>
+          <div id="sessionsList" class="sessions-list"></div>
+        </div>
+      </section>
+
+      <!-- BACKTEST -->
+      <section class="panel" id="panel-backtest">
+        <div class="panel-head">
+          <h2>Strateji Backtest</h2>
+          <p class="muted">
+            Sentetik <b>veya gerçek <span class="jargon" title="Open-High-Low-Close-Volume — her zaman diliminin açılış / en yüksek / en düşük / kapanış (ve hacim) fiyatı; standart fiyat verisi formatı.">OHLCV</span> CSV</b> üzerinde örnek strateji. Motor
+            <span class="jargon" title="Look-ahead bias — geleceğin verisini yanlışlıkla bugünün kararına sızdırmak. Yasak: pozisyon shift(1) ile gecikmeli uygulanır.">look-ahead'siz</span>, maliyetli ve <span class="jargon" title="Out-of-sample: stratejinin görmediği veri üzerinde test — ezberi gerçek başarıdan ayırır (overfit denetimi).">örneklem-dışı</span> denetimli. Zayıf strateji
+            <b>FAIL</b> alır.
+          </p>
+          <p class="achilles-heel">Her stratejinin bir <em>Aşil topuğu</em> vardır — backtest tam da onu arar.</p>
+        </div>
+        <form id="btForm" class="bt-form">
+          <div class="setting-group">
+            <label>
+              bar sayısı
+              <input type="number" id="nBars" min="200" max="20000" value="2000" />
+            </label>
+            <p class="setting-desc">
+              Sentetik OHLCV mumu sayısı (1 bar = 1 zaman dilimi). <code>200–500</code> hızlı ön test,
+              <code>2000</code> önerilen (≈3–4 ay 1H), <code>5000+</code> uzun vadeli strateji doğrulaması.
+              Fazla bar ram kullanımını artırır; 20 000 üzeri önerilmez.
+            </p>
+          </div>
+          <div class="setting-group">
+            <label>
+              seed
+              <input type="number" id="seed" min="0" max="9999999" value="42" />
+            </label>
+            <p class="setting-desc">
+              Sentetik fiyat verisi üretiminde kullanılan rastgelelik başlangıcı.
+              Aynı <code>seed</code> + aynı bar sayısı → her çalıştırmada özdeş veri üretilir (tekrarlanabilirlik).
+              Farklı <code>seed</code> değerleri farklı piyasa koşullarını simüle eder; aynı stratejiyi
+              birden fazla seed'de test etmek sağlamlığı artırır.
+            </p>
+          </div>
+          <button type="submit" class="btn btn-primary" id="btBtn">SENTETİK ÇALIŞTIR →</button>
+        </form>
+
+        <div class="bt-divider"><span>veya gerçek veri</span></div>
+
+        <div class="upload-zone" id="csvZone">
+          <input type="file" id="csvInput" accept=".csv,text/csv" hidden />
+          <div class="upload-inner">
+            <span class="upload-icon">⇪</span>
+            <p>OHLCV <b>.csv</b>'yi buraya bırak veya
+              <button class="link" id="csvBrowse" type="button">dosya seç</button></p>
+            <p class="muted small" id="csvHint">
+              kolonlar: time, open, high, low, close[, volume] · maks 100&nbsp;MB · içerik doğrulanır
+            </p>
+          </div>
+        </div>
+
+        <div id="btResult" class="result hidden"></div>
+
+        <details class="bt-custom-section">
+          <summary class="bt-custom-toggle">⚙ Özel <span class="jargon" title="StrategyIR — stratejinin makineye okunur JSON tarifi (indikatörler, giriş/çıkış kuralları, maliyetler). Kod değil güvenli veri; eval/exec yok.">strateji IR (JSON)</span> ile backtest</summary>
+          <div class="bt-custom-body">
+            <p class="muted small">
+              Geçerli bir StrategyIR JSON'u yapıştır. Boş bırakırsan örnek EMA/RSI stratejisi kullanılır.
+            </p>
+            <textarea id="customIR" rows="8" placeholder='{"name":"my_strat","market":"XAUUSD","timeframe":"15m","indicators":[{"name":"EMA","period":20},{"name":"EMA","period":50},{"name":"RSI","period":14},{"name":"ATR","period":14}],"entry_rules":["ema_20 > ema_50","rsi_14 > 55"],"exit_rules":["ema_20 < ema_50","rsi_14 < 45"],"risk":{"stop_loss":"2 * ATR"},"costs":{"commission":0.0005,"slippage":0.0005}}'></textarea>
+            <div class="bt-custom-row">
+              <div class="setting-group" style="flex:1;min-width:140px">
+                <label>bar sayısı <input type="number" id="customNBars" min="200" max="20000" value="2000" /></label>
+                <p class="setting-desc">Kaç mum üretilsin? <code>2000</code> önerilen.</p>
+              </div>
+              <div class="setting-group" style="flex:1;min-width:140px">
+                <label>seed <input type="number" id="customSeed" min="0" max="9999999" value="42" /></label>
+                <p class="setting-desc">Aynı seed → aynı sentetik veri; farklı seed → farklı senaryo.</p>
+              </div>
+              <button class="btn btn-primary" id="customBtBtn" style="align-self:flex-start;margin-top:4px">ÖZEL IR ÇALIŞTIR →</button>
+            </div>
+          </div>
+        </details>
+
+        <div class="bt-divider"><span>geçmiş</span></div>
+        <button class="btn" id="refreshHistory">↻ GEÇMİŞİ YENİLE</button>
+        <div id="btHistory" class="bt-history"></div>
+
+        <div class="bt-divider"><span>kayıtlı risk raporları</span></div>
+        <button class="btn" id="refreshRiskReports">↻ RİSK GEÇMİŞİ</button>
+        <div id="riskReportsList" class="risk-reports-list"></div>
+      </section>
+
+      <!-- TRAINING -->
+      <section class="panel" id="panel-training">
+        <div class="panel-head">
+          <h2><span class="jargon" title="Low-Rank Adaptation — büyük modeli baştan eğitmeden, küçük bir 'adapter' katmanıyla yerel olarak ince ayarlama yöntemi.">LoRA</span> Eğitimi</h2>
+          <p class="muted">Butona bas → eğitim başlar, ilerlemeyi canlı izle. Terminal gerekmez.</p>
+        </div>
+
+        <!-- 1. Dataset -->
+        <div class="training-section">
+          <h3>1 · Veri Seti</h3>
+          <p class="muted small">Onaylı bilgi kartlarından train/valid JSONL oluşturur.</p>
+          <button class="btn btn-primary" id="buildDatasetBtn">DATASET OLUŞTUR</button>
+          <div id="trainingStatus" class="muted small" style="margin-top:8px"></div>
+          <div id="datasetResult" class="result hidden"></div>
+        </div>
+
+        <!-- 2. Ayarlar -->
+        <div class="training-section">
+          <h3>2 · Eğitim Ayarları</h3>
+          <p class="muted small">Aşağıdaki değerleri değiştirerek eğitimi özelleştirebilirsin.</p>
+          <div class="dry-run-form">
+            <div class="setting-group">
+              <label>Temel model<input type="text" id="drBaseModel" value="" placeholder="boş = otomatik (Windows/Linux: 4B brain, macOS: MLX)" /></label>
+              <p class="setting-desc">Boş bırakırsan sunucu backend'e göre seçer: Windows/Linux PEFT → <code>Qwen3-4B-Instruct-2507</code> (tek beyin, Ollama <code>qwen3:4b</code> ile uyumlu), macOS → MLX modeli. Elle girersen o model kullanılır; değiştirirsen önceki adapter'lar uyumsuz olur.</p>
+            </div>
+            <div class="setting-group">
+              <label>Adapter adı<input type="text" id="trAdapterName" value="achilles_lora" /></label>
+              <p class="setting-desc">Eğitim sonucunun kaydedileceği klasör adı (<code>models/adapters/&lt;ad&gt;</code>). Her yeni eğitim için farklı isim kullan (ör. <code>achilles_lora_v2</code>) — aynı adı kullanırsan öncekinin üzerine yazılır.</p>
+            </div>
+            <div class="setting-group">
+              <label>İterasyon<input type="number" id="drIterations" min="50" max="5000" value="500" /></label>
+              <p class="setting-desc">Modelin kaç güncelleme adımı yapacağı. <strong>100–200:</strong> hızlı ama yetersiz. <strong>300–500:</strong> çoğu kullanım için yeterli (önerilen). <strong>1000+:</strong> güçlü ama yavaş ve aşırı öğrenme riski taşır.</p>
+            </div>
+            <div class="setting-group">
+              <label>Batch<input type="number" id="drBatch" min="1" max="16" value="2" /></label>
+              <p class="setting-desc">Her adımda aynı anda işlenecek örnek sayısı. <strong>1–2:</strong> düşük RAM / CPU eğitimi için güvenli. <strong>4–8:</strong> CUDA GPU varsa hızlandırır. Bellek hatası alırsan bu değeri düşür.</p>
+            </div>
+            <div class="setting-group">
+              <label>Katman<input type="number" id="drLayers" min="1" max="64" value="8" /></label>
+              <p class="setting-desc">LoRA'nın modelin kaç transformatör katmanını ince ayarlayacağı. <strong>4–8:</strong> hızlı ve az bellek (başlangıç için yeterli). <strong>16–32:</strong> daha güçlü öğrenme ama yavaş ve fazla bellek ister.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Başlat -->
+        <div class="training-section">
+          <h3>3 · Eğitimi Başlat</h3>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+            <button class="btn btn-primary" id="startTrainBtn" style="font-size:1.05rem;padding:10px 28px">&#9654; EĞİTİMİ BAŞLAT</button>
+            <button class="btn" id="stopTrainBtn" style="display:none;padding:10px 20px">&#9632; DURDUR</button>
+            <span id="trainStateLabel" class="badge badge-info">boşta</span>
+          </div>
+          <div style="border-top:1px solid #333;padding-top:10px;margin-top:4px">
+            <p class="muted small" style="margin:0 0 8px">Windows / Linux: Google Colab ücretsiz T4 GPU ile ~30 dk eğitim.</p>
+            <a href="/api/training/colab-notebook" download
+               class="btn" style="padding:8px 18px;font-size:.9rem">&#11015; Colab Notebook İndir (.ipynb)</a>
+          </div>
+        </div>
+
+        <!-- 4. Canlı İlerleme -->
+        <div class="training-section" id="trainProgressSection" style="display:none">
+          <h3>4 · Canlı İlerleme</h3>
+          <div id="trainMeta" class="train-meta"></div>
+          <div class="train-progress-wrap">
+            <div class="train-progress-bar" id="trainProgressBar" style="width:0%"></div>
+          </div>
+          <div class="train-progress-labels">
+            <span id="trainIterLabel">0 / 0 iter</span>
+            <span id="trainPctLabel" style="font-weight:700;font-size:1.1rem">0%</span>
+          </div>
+          <div class="train-loss-row">
+            <div class="train-loss-box"><span class="muted small">Eğitim kaybı</span><span id="trainLossVal" class="train-loss-num">—</span></div>
+            <div class="train-loss-box"><span class="muted small">Doğrulama kaybı</span><span id="valLossVal" class="train-loss-num">—</span></div>
+          </div>
+          <div class="train-log-wrap">
+            <div class="train-log-head">
+              <span class="muted small">Canlı Log</span>
+              <button class="btn" id="clearLogBtn" style="padding:2px 8px;font-size:.75rem">temizle</button>
+            </div>
+            <pre id="trainLog" class="train-log"></pre>
+          </div>
+        </div>
+
+        <!-- 5. Adapter'lar -->
+        <div class="training-section" id="adaptersSection">
+          <h3>5 · Kayıtlı <span class="jargon" title="Adapter — LoRA eğitiminin küçük çıktı dosyası; base modele takılıp onu baştan eğitmeden uzmanlaştırır.">Adapter'lar</span></h3>
+          <button class="btn" id="refreshAdapters">↻ YENİLE</button>
+          <div id="adaptersList" class="adapters-list"></div>
+        </div>
+
+        <!-- 6. Örnekler -->
+        <div class="training-section">
+          <h3>6 · Eğitim Örnekleri</h3>
+          <button class="btn" id="refreshExamples">↻ YENİLE</button>
+          <div id="examplesList" class="examples-list"></div>
+        </div>
+
+        <!-- 7. Auto-LoRA Pipeline -->
+        <div class="training-section" id="autoLoraSection">
+          <h3>7 · Otomatik LoRA Pipeline</h3>
+          <p class="muted small">
+            Yeterli kart birikince <span class="jargon" title="Gate 0-8 — eğitim öncesi 9 kalite kapısı (kaynak, şema, domain, matematik, felsefe, güvenlik, bölme…); hepsi geçmeden gerçek eğitim açılmaz.">Gate 0-8</span> otomatik denetlenir.
+            <strong>Eğitim ve production terfi kullanıcı onayı gerektirir.</strong>
+          </p>
+
+          <!-- Otomatik kontrol aç/kapat -->
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+            <span class="muted small">Otomatik kontrol:</span>
+            <button class="btn btn-sm" id="autoLoraEnableBtn">Aç</button>
+            <button class="btn btn-sm" id="autoLoraDisableBtn">Kapat</button>
+            <span id="autoLoraEnabledLabel" class="badge badge-info" style="margin-left:4px">kapalı</span>
+          </div>
+          <p class="setting-desc" style="margin-bottom:12px">Otomatik kontrol açıkken sistem her saatte bir onaylı kart sayısını kontrol eder. 20+ kart biriktiyse Gate 0-8 çalıştırılır. Eğitimi yine de sen başlatırsın — otomatik olarak eğitim başlamaz.</p>
+
+          <!-- Pipeline durumu -->
+          <div class="card" style="padding:12px;margin-bottom:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="muted small">Pipeline Durumu</span>
+              <button class="btn btn-sm" id="autoLoraRefreshBtn">↻</button>
+            </div>
+            <div id="autoLoraStatusBody" style="margin-top:8px;font-size:13px">
+              <span class="muted">Yükleniyor…</span>
+            </div>
+          </div>
+
+          <!-- Eğitim konfigürasyonu -->
+          <div class="card" style="padding:14px;margin-bottom:14px;border:1px solid #334155">
+            <h4 style="margin:0 0 10px;font-size:.9rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em">Eğitim Konfigürasyonu</h4>
+            <div class="setting-group" style="margin-bottom:10px">
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">
+                Adapter adı
+                <input type="text" id="autoLoraAdapterName" value="achilles_lora_v2" style="max-width:260px" />
+              </label>
+              <p class="setting-desc">Eğitim sonucunun kaydedileceği klasör adı. Her yeni eğitim için farklı bir versiyon numarası kullan (ör. <code>achilles_lora_v2</code>, <code>v3</code>…). Aynı adı kullanırsan önceki adapter'ın üzerine yazılır.</p>
+            </div>
+            <div class="setting-group">
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">
+                İterasyon
+                <input type="number" id="autoLoraIters" min="50" max="5000" value="300" style="max-width:120px" />
+              </label>
+              <p class="setting-desc">Gate geçtikten sonra kaç adım eğitim yapılacağı. <strong>300</strong> başlangıç için önerilir. Daha uzun eğitim istiyorsan 500–1000 arası dene — ancak aşırı öğrenme riskini göz önünde bulundur.</p>
+            </div>
+          </div>
+
+          <!-- Aksiyon butonları -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" id="autoLoraCheckBtn">🔍 Gate Kontrolü Başlat</button>
+            <button class="btn btn-primary" id="autoLoraTrainBtn" disabled>▶ Eğitimi Onayla &amp; Başlat</button>
+            <button class="btn" id="autoLoraPromoteBtn" disabled>⬆ Production'a Terfi Et</button>
+            <button class="btn" id="autoLoraResetBtn">↻ Sıfırla</button>
+          </div>
+          <div class="setting-desc" style="margin-top:8px">
+            <strong>Gate Kontrolü:</strong> 9 kalite kapısından geçip geçmediğini denetler (kaynak, şema, domain, kalite, matematik, felsefe, güvenlik, bölme). Tümü geçerse "Eğitimi Onayla" butonu aktif olur. |
+            <strong>Production'a Terfi:</strong> Eval puanı eşiği geçen adapter'ı aktif model olarak işaretle.
+          </div>
+          <div id="autoLoraMsg" class="result hidden" style="margin-top:10px"></div>
+        </div>
+      </section>
+
+      <!-- ONAY -->
+      <section class="panel" id="panel-review">
+        <div class="panel-head">
+          <h2>Kart Onay Ekranı</h2>
+          <p class="muted">
+            Bekleyen bilgi kartlarını incele; LoRA eğitimine girmesine izin ver veya reddet.
+          </p>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <span class="badge badge-info">ONAY BEKLEYENLERİ YÜKLE</span>
+            <button class="btn" id="btn-load-pending">Yenile</button>
+          </div>
+          <div id="pending-cards-list">
+            <p style="color:#94a3b8">Yüklemek için "Yenile" butonuna tıklayın.</p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <span class="badge badge-success">ONAYLANANLAR</span>
+          <div id="approved-cards-summary" style="margin-top:8px;color:#94a3b8">—</div>
+        </div>
+      </section>
+
+      <!-- EVAL -->
+      <section class="panel" id="panel-eval">
+        <div class="panel-head">
+          <h2>Model Değerlendirme</h2>
+          <p class="muted">
+            Kural ihlali tespiti (kaynak uydurma, garanti kâr, test edilmeden başarılı deme…).
+            Ollama aktif olmalı.
+          </p>
+        </div>
+
+        <div class="training-section">
+          <h3>Eval Seti Seç</h3>
+          <div class="eval-run-row">
+            <select id="evalSetSelect" class="eval-select">
+              <option value="">Yükleniyor…</option>
+            </select>
+            <select id="evalAdapterSelect" class="eval-select">
+              <option value="">Ollama (varsayılan)</option>
+            </select>
+            <button class="btn btn-primary" id="runEvalBtn">DEĞERLENDİR →</button>
+          </div>
+          <div id="evalResult" class="result hidden"></div>
+        </div>
+      </section>
+
+      <!-- ABOUT -->
+      <section class="panel" id="panel-about">
+        <div class="panel-head"><h2>Sistem & Disiplin</h2></div>
+        <div class="card" style="margin-bottom:16px">
+          <h3>Canlı Durum</h3>
+          <div id="systemStatusDisplay" class="muted small">Yükleniyor…</div>
+        </div>
+        <div class="card" style="margin-bottom:16px" id="hwProfileCard">
+          <h3>Donanım Profili & Model Önerisi</h3>
+          <div id="hwProfileBody" class="muted small">Yükleniyor…</div>
+        </div>
+        <div class="about-grid">
+          <div class="card">
+            <h3>Katmanlar</h3>
+            <pre class="ascii">PDF → ingestion
+   → SQLite + ChromaDB
+   → RAG / bilgi kartı
+   → (LoRA, dry-run)
+   → Strateji IR → Backtest
+   → Overfit → Evaluator</pre>
+          </div>
+          <div class="card">
+            <h3>Disiplin Kuralları</h3>
+            <ul class="rules">
+              <li>Kaynak yoksa uydurma.</li>
+              <li>Test edilmeden "başarılı" deme.</li>
+              <li>Komisyon + slippage daima dahil.</li>
+              <li>Look-ahead yasak (shift+1).</li>
+              <li>In/out-of-sample bölmesi.</li>
+              <li>Kullanıcı girdisi asla çalıştırılmaz.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Güvenlik</h3>
+            <ul class="rules">
+              <li>Yalnız localhost'a bağlanır.</li>
+              <li>İsteğe bağlı token kimlik doğrulama.</li>
+              <li>Katı PDF doğrulama + boyut limiti.</li>
+              <li>CSP + güvenlik başlıkları.</li>
+              <li>IP başına hız sınırı.</li>
+              <li>Path-traversal koruması.</li>
+            </ul>
+          </div>
+        </div>
+        <p class="muted small">
+          API token ayarlamak için <code>.env</code> içinde
+          <code>ACHILLES_API_TOKEN</code>; ardından arayüzde aşağıya gir.
+        </p>
+        <div class="token-row">
+          <input type="password" id="tokenInput" placeholder="API token (opsiyonel)" />
+          <button class="btn" id="saveToken">KAYDET</button>
+        </div>
+      </section>
+
+      <!-- 09 · ÖĞRENME -->
+      <section class="panel" id="panel-learning">
+        <div class="panel-head"><h2>Öğrenme Dinamikleri</h2></div>
+
+        <!-- RAG Öğrenme Döngüsü (otonom, sunucu-taraflı) -->
+        <div class="card" style="margin-bottom:1rem;border:1px solid #334155">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h3 style="margin:0">RAG Öğrenme Döngüsü <span class="muted small">(otonom)</span></h3>
+            <button class="btn btn-sm" id="ragLoopRefreshBtn">↻</button>
+          </div>
+          <p class="muted small" style="margin:.4rem 0 .8rem">
+            Sunucu-taraflı arka plan döngüsü: arXiv'den yeni makale çek → indeksle →
+            bilgi kartı üret → anlama skorla → RAG ustalığını güncelle. Tarayıcı/web
+            kapansa da sürer. <strong>Açmadıkça çalışmaz.</strong> LoRA eğitimi
+            sürerken kendini duraklatır.
+          </p>
+
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+            <span class="muted small">Döngü:</span>
+            <button class="btn btn-sm" id="ragLoopEnableBtn">Aç</button>
+            <button class="btn btn-sm" id="ragLoopDisableBtn">Kapat</button>
+            <button class="btn btn-sm btn-primary" id="ragLoopRunOnceBtn">⏵ Şimdi bir tur çalıştır</button>
+            <span id="ragLoopEnabledLabel" class="badge badge-info" style="margin-left:4px">kapalı</span>
+          </div>
+
+          <div class="card" style="padding:12px;margin-bottom:12px">
+            <div id="ragLoopStatusBody" style="font-size:13px"><span class="muted">Yükleniyor…</span></div>
+          </div>
+
+          <details>
+            <summary class="muted small" style="cursor:pointer">⚙ Döngü ayarları</summary>
+            <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">Tur aralığı (dk)
+                <input type="number" id="ragLoopInterval" min="5" max="1440" value="30" /></label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">Çekim aralığı (saat)
+                <input type="number" id="ragLoopFetchHours" min="1" max="720" value="24" /></label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">Tur başına makale
+                <input type="number" id="ragLoopMaxFetch" min="0" max="50" value="5" /></label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">Tur başına kart
+                <input type="number" id="ragLoopCards" min="0" max="50" value="3" /></label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">Tur başına skor
+                <input type="number" id="ragLoopScores" min="0" max="50" value="5" /></label>
+              <label style="display:flex;align-items:flex-end;gap:6px;font-size:.85rem">
+                <input type="checkbox" id="ragLoopFetchEnabled" checked /> Yeni makale çek</label>
+              <label style="display:flex;align-items:flex-end;gap:6px;font-size:.85rem">
+                <input type="checkbox" id="ragLoopUseLlm" checked /> Skorda LLM kullan</label>
+              <label style="display:flex;align-items:flex-end;gap:6px;font-size:.85rem" title="İçeriksiz (boş) kartı olan makaleleri yeniden üret — coverage darboğazını açar (ağır, her makale 1 kez denenir)">
+                <input type="checkbox" id="ragLoopRebuildEmpty" /> Boş kartları yeniden üret</label>
+            </div>
+            <button class="btn btn-sm" id="ragLoopSaveCfgBtn" style="margin-top:10px">Ayarları Kaydet</button>
+            <p class="setting-desc">Yeni makale çekimi arXiv'e nazik olmak için ayrı, daha seyrek bir kadansta yapılır (varsayılan 24 saatte bir); kart/skor üretimi her turda yapılır. "Tur başına" sınırları CPU'yu boğmamak içindir. Yeni makale çekmek için <strong>Makaleler</strong> sekmesinde en az bir <em>kayıtlı sorgu</em> olmalı (auto-ingest açık).</p>
+          </details>
+          <div id="ragLoopMsg" class="result hidden" style="margin-top:10px"></div>
+        </div>
+
+        <!-- Özet kartları -->
+        <div class="card" style="margin-bottom:1rem">
+          <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center">
+            <div><span class="muted small">Makaleler</span><br><strong id="lrn-papers">—</strong></div>
+            <div><span class="jargon muted small" title="Chunk — makalenin aramada kullanılan küçük metin parçası; PDF parçalanıp indekslenir, RAG bunları getirir.">Chunk'lar</span><br><strong id="lrn-chunks">—</strong></div>
+            <div><span class="muted small">Onaylı Kart</span><br><strong id="lrn-approved">—</strong></div>
+            <div><span class="muted small">Bekleyen Kart</span><br><strong id="lrn-pending">—</strong></div>
+            <button class="btn btn-sm" id="lrnRefreshBtn" style="margin-left:auto">YENİLE</button>
+          </div>
+        </div>
+
+        <!-- 1. Loss Curve -->
+        <div class="card" style="margin-bottom:1rem">
+          <h3 style="margin:0 0 .75rem">Eğitim Loss Eğrisi</h3>
+          <div style="margin-bottom:.5rem">
+            <label class="muted small">Adapter seç: </label>
+            <select id="lrnRunSelect" style="background:var(--bg2);color:var(--fg);border:1px solid var(--border);padding:.2rem .5rem;border-radius:4px"></select>
+          </div>
+          <svg id="lrnLossSvg" viewBox="0 0 700 220" style="width:100%;height:220px;background:var(--bg2);border-radius:6px;display:block">
+            <text x="350" y="115" text-anchor="middle" fill="#666" font-size="13">Henüz eğitim verisi yok</text>
+          </svg>
+          <div style="margin-top:.4rem;font-size:.75rem;color:#888">
+            <span style="color:#4af">■</span> Eğitim kaybı &nbsp;
+            <span style="color:#fa4">■</span> Doğrulama kaybı
+          </div>
+        </div>
+
+        <!-- 2. Kart Büyümesi -->
+        <div class="card" style="margin-bottom:1rem">
+          <h3 style="margin:0 0 .75rem">Günlük Kart Büyümesi</h3>
+          <svg id="lrnGrowthSvg" viewBox="0 0 700 180" style="width:100%;height:180px;background:var(--bg2);border-radius:6px;display:block">
+            <text x="350" y="95" text-anchor="middle" fill="#666" font-size="13">Henüz onaylı kart yok</text>
+          </svg>
+        </div>
+
+        <!-- 3. Adapter Eval Karşılaştırması -->
+        <div class="card">
+          <h3 style="margin:0 0 .75rem">Adapter Eval Geçiş Oranları</h3>
+          <div id="lrnEvalTable"><span class="muted small">Yükleniyor…</span></div>
+        </div>
+
+        <!-- 4. Objektif Anlama Geçmişi (sınavla, öz-değerlendirme DEĞİL) -->
+        <div class="card">
+          <h3 style="margin:0 0 .25rem">Objektif Anlama Geçmişi</h3>
+          <p class="muted small" style="margin:0 0 .75rem">
+            Sınav geçme oranı (L Taban→L5) — KALICI, zaman serisi. Kaba "öz-değerlendirme %" değil.
+          </p>
+          <svg id="lrnUndSvg" viewBox="0 0 700 160"
+               style="width:100%;height:160px;background:var(--bg2);border-radius:6px;display:block"></svg>
+          <div id="lrnUndTable" style="margin-top:.75rem"><span class="muted small">Yükleniyor…</span></div>
+        </div>
+      </section>
+
+      <!-- 10 · AGENTS / OTOMASYON — Phase 3 dashboard (yalnız Phase 1/2 endpointleri) -->
+      <section class="panel" id="panel-agents">
+        <div class="ag-toolbar">
+          <h2 style="margin:0">Agents / Otomasyon</h2>
+          <button class="btn" id="agRefreshBtn">↻ Yenile</button>
+          <span class="muted small">Görünürlük + onay + STOP_ALL kontrol yüzeyi. Yeni
+            tehlikeli yetenek YOK; yalnız mevcut backend.</span>
+        </div>
+
+        <!-- A) Supervisor / Health status -->
+        <div class="card">
+          <h3 style="margin:0 0 .5rem">Supervisor / Sağlık</h3>
+          <div id="agStatusGrid" class="ag-status-grid">
+            <span class="muted small">Yükleniyor…</span>
+          </div>
+          <div class="ag-stopall-row">
+            <button class="btn ag-stopall-btn" id="agStopAllBtn">🛑 STOP_ALL OLUŞTUR</button>
+            <button class="btn" id="agClearStopAllBtn">STOP_ALL Kaldır</button>
+            <span class="muted small">STOP_ALL tüm tehlikeli aksiyonları bloklar
+              (eğitim, terfi). Salt-okuma ajanlar etkilenmez.</span>
+          </div>
+        </div>
+
+        <!-- D) Approvals (pending önce) -->
+        <div class="card">
+          <h3 style="margin:0 0 .5rem">Onay İstekleri</h3>
+          <p class="muted small" style="margin:0 0 .5rem">Onaylar TEK KULLANIMLIKTIR; her
+            gerçek eğitim/terfi ayrı taze onay ister (standing yetki yok).</p>
+          <div id="agApprovalsTable"><span class="muted small">Yükleniyor…</span></div>
+        </div>
+
+        <!-- B) Agents -->
+        <div class="card">
+          <h3 style="margin:0 0 .5rem">Agents</h3>
+          <p class="muted small" id="agAgentFilterHint" style="margin:0 0 .5rem">Bir ajana
+            tıkla → koşularını filtrele.</p>
+          <div id="agAgentsTable"><span class="muted small">Yükleniyor…</span></div>
+        </div>
+
+        <!-- C) Runs + detail -->
+        <div class="card">
+          <h3 style="margin:0 0 .5rem">Agent Koşuları</h3>
+          <div id="agRunsTable"><span class="muted small">Yükleniyor…</span></div>
+          <div id="agRunDetail" class="ag-run-detail hidden"></div>
+        </div>
+
+        <!-- E) Tasks + create -->
+        <div class="card">
+          <h3 style="margin:0 0 .5rem">Otomasyon Görevleri</h3>
+          <div id="agTasksTable"><span class="muted small">Yükleniyor…</span></div>
+          <details class="ag-create">
+            <summary>+ Yeni görev oluştur</summary>
+            <div class="ag-create-form">
+              <input id="agTaskAgent" placeholder="ajan kimliği — agent_id" autocomplete="off" />
+              <input id="agTaskTitle" placeholder="başlık" autocomplete="off" />
+              <input id="agTaskDesc" placeholder="açıklama (opsiyonel)" autocomplete="off" />
+              <label class="ag-check">
+                <input type="checkbox" id="agTaskApproval" /> Onay gerektirsin
+              </label>
+              <button class="btn" id="agTaskCreateBtn">Oluştur</button>
+              <span class="muted small">Not: oluşturma ucu query-param tabanlı;
+                JSON parametreler (params_json) şimdilik backend'de yok (Phase 2 şeması).</span>
+            </div>
+          </details>
+        </div>
+
+        <!-- F) Global events -->
+        <div class="card">
+          <h3 style="margin:0 0 .5rem">Genel Olay Akışı (son 100)</h3>
+          <div id="agEventsTable"><span class="muted small">Yükleniyor…</span></div>
+        </div>
+      </section>
+
+      <!-- 11 · RLM (Recursive/Reasoning LM — çok-adımlı kaynaklı cevap) -->
+      <section class="panel" id="panel-rlm">
+        <div class="ag-toolbar">
+          <h2 style="margin:0"><span class="jargon" title="Recursive/Reasoning LM — çok-adımlı retrieval + iddia-düzeyi kaynak doğrulama; desteklenmeyen iddiayı atar, kaynak yetersizse çekimser kalır.">RLM</span> — Kaynaklı Cevap Koşuları</h2>
+          <button class="btn" id="rlmRefreshBtn">↻ Yenile</button>
+          <span class="muted small">Çok-adımlı retrieval + iddia-düzeyi doğrulama. Salt-okuma
+            görünüm; bir koşuya tıklayınca adımlar + kanıt + doğrulama açılır.</span>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 .5rem">Motor (salt-okuma)</h3>
+          <div id="rlmEnginePanel"><span class="muted small">Yükleniyor…</span></div>
+        </div>
+        <div class="card">
+          <h3 style="margin:0 0 .5rem">Koşular</h3>
+          <div id="rlmRunsTable"><span class="muted small">Yükleniyor…</span></div>
+        </div>
+        <div class="card hidden" id="rlmDetail"></div>
+      </section>
+
+      <!-- 12 · ORKESTRASYON (dayanıklı eğitim hattı — tek-tık + canlı izleme) -->
+      <section class="panel" id="panel-orchestration">
+        <div class="panel-head">
+          <h2>Orkestrasyon — Dayanıklı Eğitim Hattı</h2>
+          <p class="muted">
+            Tek tık: ön kontrol → veri kapısı → müfredat → kuru çalıştırma
+            <strong>gözetimsiz</strong> çalışır; insan kapılarında (<span class="jargon"
+            title="Eğitim öncesi ZORUNLU Kademe-2 adversarial bug-avı — CLAUDE.md. v5 regresyonu bu yüzden olmuştu.">derin
+            av</span>, <span class="jargon" title="Gerçek eğitim için TEK KULLANIMLIK taze insan onayı — CLAUDE.md Kural 8.">onay</span>)
+            DURUR. Gerçek eğitim <strong>asla gözetimsiz başlamaz</strong>. Bitince
+            kaldığı yerden sürdürülebilir (checkpoint) — oturum kesilse bile.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>Yeni Koşu</h3>
+          <div class="orc-form">
+            <label>Adapter adı
+              <input id="orcAdapter" type="text" value="achilles_lora" />
+            </label>
+            <label>Adım sayısı
+              <input id="orcIters" type="number" value="300" min="1" />
+            </label>
+            <label class="orc-check">
+              <input id="orcHuntAck" type="checkbox" />
+              <span class="jargon" title="Kademe-2 derin av tamamlandı olarak işaretle. İşaretlenmezse derin-av aşamasında güvenle durur.">Derin av tamamlandı</span>
+            </label>
+            <button class="btn btn-primary" id="orcStartBtn">⚡ ORKESTRASYONU BAŞLAT</button>
+          </div>
+          <div class="orc-actions">
+            <button class="btn" id="orcResumeBtn" disabled>▶ Sürdür</button>
+            <button class="btn" id="orcAutodriveBtn" disabled title="deep-hunt'ı abonelikli claude -p ile otonom çalıştırır; onay kapısında durur (Kural 8)">🤖 Otonom Sürüş</button>
+            <button class="btn" id="orcRecoverBtn">⛑ Panic Recovery</button>
+            <button class="btn" id="orcRefreshBtn">↻ Yenile</button>
+            <span class="muted small" id="orcRunLabel"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Aşama Akışı</h3>
+          <div id="orcGraph" class="orc-graph"><span class="muted small">Koşu başlatın…</span></div>
+        </div>
+
+        <div class="card">
+          <h3>Zaman Çizelgesi</h3>
+          <div id="orcTimeline" class="orc-timeline"><span class="muted small">—</span></div>
+        </div>
+
+        <div class="card">
+          <h3>Son Koşular <span class="muted small">(tıkla → yükle)</span></h3>
+          <div id="orcRuns"><span class="muted small">—</span></div>
+        </div>
+      </section>
+
+      <!-- 13 · GERİ BİLDİRİM (Echo — kullanıcı düzeltmesi → sentetik SFT adayı) -->
+      <section class="panel" id="panel-feedback">
+        <div class="panel-head">
+          <h2>Geri Bildirim — Echo Döngüsü</h2>
+          <p class="muted">
+            Bir cevap yanlışsa <strong>doğrusunu</strong> yaz → Echo onu lora_sft formatında
+            <strong>aday</strong> eğitim örneğine çevirir. <span class="jargon"
+            title="Garanti/kesinlik dili (Kural 1 zehiri) içeren düzeltmeler ANINDA reddedilir; eğitim verisine sızmaz.">Güvenlik
+            filtresi</span> + insan onayı sonrası export edilir. <strong>Eğitim asla
+            otomatik başlamaz</strong> (Kural 8) — aday yine veri kapısından geçer.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>Düzeltme Ekle</h3>
+          <div class="orc-form">
+            <label style="flex:1 1 100%">Soru / bağlam
+              <input id="fbQuestion" type="text" placeholder="Hangi soruya/cevaba dair?" />
+            </label>
+            <label style="flex:1 1 100%">Yanlış cevap <span class="muted small">(opsiyonel)</span>
+              <input id="fbBad" type="text" placeholder="Neyi düzeltiyorsun?" />
+            </label>
+            <label style="flex:1 1 100%">Doğru / düzeltilmiş cevap
+              <textarea id="fbCorrection" rows="3" placeholder="Doğrusu nedir?"></textarea>
+            </label>
+            <label>Tür
+              <select id="fbType">
+                <option value="claim_correction">İddia düzeltme</option>
+                <option value="missing_caveat">Eksik uyarı</option>
+                <option value="wrong_number">Hatalı sayı</option>
+                <option value="advice_language_removed">Tavsiye dili giderildi</option>
+                <option value="other">Diğer</option>
+              </select>
+            </label>
+            <button class="btn btn-primary" id="fbSubmitBtn">+ DÜZELTME KAYDET</button>
+          </div>
+          <div class="orc-actions">
+            <button class="btn" id="fbExportBtn">⬇ Onaylananları export et</button>
+            <button class="btn" id="fbRefreshBtn">↻ Yenile</button>
+            <span class="muted small" id="fbSummary"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Düzeltmeler <span class="muted small">(bekleyen → onayla/reddet)</span></h3>
+          <div id="fbList"><span class="muted small">—</span></div>
+        </div>
+      </section>
+
+      <!-- 14 · NÖBETÇİ (Sentinel — tüm ajan/altsistemleri izleyen sağlık monitörü) -->
+      <section class="panel" id="panel-sentinel">
+        <div class="panel-head">
+          <h2>Nöbetçi — Sistem Sağlık Monitörü</h2>
+          <p class="muted">
+            Tüm ajan ve altsistemleri tek bakışta izler: Ollama, web, eğitim, orkestrasyon,
+            STOP_ALL, disk, veritabanı, geri bildirim kuyruğu ve
+            <span class="jargon" title="Danışman Resource Negotiator: CPU-only makinede eğitim sürerken sorguların yavaşlayacağını raporlar; eğitimi DURAKLAMAZ (yalnız öneri).">CPU çekişmesi</span>.
+            <strong>Salt rapor</strong> — hiçbir şeyi durdurmaz/başlatmaz; öneriler metin olarak
+            gösterilir, eylem sizindir.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="orc-actions">
+            <button class="btn btn-primary" id="senRunBtn">🩺 ŞİMDİ YOKLA</button>
+            <button class="btn" id="senRefreshBtn">↻ Yenile</button>
+            <span class="muted small" id="senOverall"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Yoklamalar</h3>
+          <div id="senProbes" class="orc-graph"><span class="muted small">"Şimdi yokla" ile başlat…</span></div>
+        </div>
+
+        <div class="card">
+          <h3>Geçmiş <span class="muted small">(son koşular)</span></h3>
+          <div id="senHistory" class="orc-timeline"><span class="muted small">—</span></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-agentmap">
+        <div class="panel-head">
+          <h2>Ajan Haritası — Canlı Işıklı Yol</h2>
+          <p class="muted">
+            Ajanlar birbirini nasıl <strong>devreye sokar</strong> görünür: <strong>düz ok</strong>
+            akış zinciri (ordan buraya gider), <strong>ince kesik çizgi</strong> veri bağı
+            (kim kimle ilişkili). Çalışan ajan <em>yanar</em> (nabız) ve yolu <em>ışıklı akar</em>.
+            Ana ajan (büyük yeşil, <code>claude -p</code>) diğerlerini devreye sokar.
+            <strong>Salt-okuma</strong> — harita hiçbir şeyi kendisi başlatmaz; tetik senin
+            onayınla ve onay kapısında durur (Kural 8).
+          </p>
+        </div>
+
+        <div class="card">
+          <!-- MOTOR SEÇİCİ — salt bilgi (/api/engines). Kurulu olmayan motor DEVRE DIŞI ve
+               altında "nasıl kurulur" ipucu görünür. ⛔ Burası bir KİMLİK FORMU DEĞİLDİR:
+               Achilles hiçbir motorun mail/şifre/anahtarını istemez, saklamaz, göstermez —
+               motorlar kendi CLI oturumlarıyla girişlidir. -->
+          <div class="am-engine">
+            <label class="am-engine-lbl" for="amEngineSel">Motor</label>
+            <select class="am-engine-sel" id="amEngineSel">
+              <option value="">Yükleniyor…</option>
+            </select>
+            <button class="btn btn-sm" id="amEngineRescanBtn" type="button">↻ Yeniden tara</button>
+          </div>
+          <p class="muted small am-engine-note" id="amEngineNote">—</p>
+
+          <div class="orc-actions">
+            <button class="btn btn-primary am-trigger" id="amTriggerBtn">⚡ EĞİTİMİ DEVREYE SOK</button>
+            <button class="btn" id="amRefreshBtn">↻ Yenile</button>
+            <span class="muted small" id="amStatusLine">Yükleniyor…</span>
+          </div>
+
+          <!-- CANLI KOŞU + GÖRÜNÜR DURDURMA. Sürüş başlayınca açılır; STOP_ALL kill-switch'i
+               her zaman tek tık uzakta olsun (koşu arka planda sürerken de). -->
+          <div id="amLive" class="am-live" hidden>
+            <span class="am-live-dot" aria-hidden="true"></span>
+            <span class="am-live-text" id="amLiveText">Sürüş devrede…</span>
+            <button class="btn btn-danger am-stop-btn" id="amStopBtn" type="button">
+              ⛔ DURDUR (STOP_ALL)
+            </button>
+          </div>
+
+          <div id="amDryRun" class="am-dryrun" hidden>
+            <div class="muted small am-dryrun-head">
+              KURU-ÇALIŞTIRMA — çalıştırılacak <code>claude -p</code> komutu (spawn YOK):
+            </div>
+            <pre class="am-dryrun-cmd"><code id="amDryRunCmd"></code></pre>
+          </div>
+
+          <!-- İKİNCİ TIK: ön kontroller + derin av bitti, hat onay kapısında durdu.
+               Gerçek eğitim YALNIZ buradan, insanın açık onayıyla başlar (Kural 8). -->
+          <div id="amGate" class="am-gate" hidden>
+            <div class="am-gate-head">
+              ⏸ <strong>Eğitim onay kapısında bekliyor</strong>
+              <span class="muted small" id="amGateInfo"></span>
+            </div>
+            <p class="muted small am-gate-note">
+              Ön kontroller ve zorunlu derin av tamamlandı. Gerçek LoRA eğitimi ancak
+              <strong>senin açık onayınla</strong> başlar — motor kendi eğitimini onaylayamaz
+              (Kural 8). Onaylarsan eğitim <strong>detached</strong> başlar; web/terminal
+              kapansa da sürer ve harita canlı yanar.
+            </p>
+            <button class="btn btn-primary am-approve-btn" id="amApproveTrainBtn">
+              ✅ ONAYLA VE EĞİTİMİ BAŞLAT
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="am-legend" id="amLegend">
+            <span class="am-lg"><span class="am-lg-dot lg-idle"></span>boşta</span>
+            <span class="am-lg"><span class="am-lg-dot lg-running"></span>çalışıyor</span>
+            <span class="am-lg"><span class="am-lg-dot lg-blocked"></span>onay bekliyor</span>
+            <span class="am-lg"><span class="am-lg-dot lg-error"></span>hata</span>
+            <span class="am-lg"><span class="am-lg-swatch lg-main"></span>ana ajan (alt buton)</span>
+            <span class="am-lg"><span class="am-lg-ring lg-danger"></span>tehlikeli (onay şart)</span>
+            <span class="am-lg"><span class="am-lg-line lg-chain"></span>zincir (akış)</span>
+            <span class="am-lg"><span class="am-lg-line lg-data"></span>veri bağı</span>
+            <span class="am-lg"><span class="am-lg-line lg-activate"></span>devreye sokar</span>
+            <span class="am-lg"><span class="am-lg-orbit lg-orbit"></span>çalışan (gezen ışık)</span>
+            <span class="am-lg"><span class="am-lg-frame lg-linked"></span>ilişkili</span>
+          </div>
+          <p class="muted small am-hint">
+            Kartın <strong>sol-kenar rengi</strong> = durum. Oklar <strong>dik açılı</strong>
+            akış. Bir ajan çalışırken kartının <strong>etrafında ışıklar döner</strong> (LED);
+            o an ona bağlı olan ajanlar da <strong>ışıklı çerçeve</strong> alır — böylece kimin
+            devrede ve kiminle ilişkili olduğu tek bakışta görünür. Alttaki tam-genişlik
+            <strong>yeşil buton = ana ajan</strong>; ondan yükselen yeşil yollar
+            "devreye soktukları"dır.
+          </p>
+          <div class="am-canvas-wrap" id="amCanvasWrap">
+            <div id="amCanvas" class="am-canvas"><span class="muted small">Harita yükleniyor…</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Ajan ayrıntısı</h3>
+          <div id="amDetail" class="am-detail">
+            <span class="muted small">
+              Bir ajana tıkla — tetikleyici, ne okur/yazar, güvenlik kapıları ve canlı durum burada.
+            </span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span class="muted small">achilles-trader-ai · local-first · not financial advice</span>
+    </footer>
+
+    <!-- ⚡ RUN ONAY DİYALOĞU — ATLANAMAZ. Geri alınamaz iş (gerçek motor spawn'ı) YALNIZ
+         buradaki "Evet, başlat" ile tetiklenir; `execute:true` başka hiçbir yoldan
+         gönderilmez (test bunu sabitler). Panel dışında durur: paneller display:none ile
+         gizlenir, modal içeride olsaydı görünmezdi. -->
+    <div id="amConfirmModal" class="modal hidden" role="dialog" aria-modal="true"
+         aria-labelledby="amConfirmTitle">
+      <div class="modal-box am-confirm-box">
+        <button class="modal-close" id="amConfirmCloseBtn" type="button"
+                aria-label="Kapat">✕</button>
+        <h3 class="am-confirm-title" id="amConfirmTitle">⚡ Otonom sürüşü başlat?</h3>
+
+        <dl class="am-confirm-facts">
+          <dt>Çalışacak motor</dt>
+          <dd id="amConfirmEngine">—</dd>
+          <dt>Abonelik kotası</dt>
+          <dd id="amConfirmQuota">—</dd>
+        </dl>
+
+        <p class="am-confirm-safe" id="amConfirmSafe">
+          ✅ <strong>Eğitim BAŞLAMAZ.</strong> Bu adım yalnız zorunlu Kademe-2 derin avı
+          sürer ve hat <strong>taze insan onayında DURUR</strong> (Kural 8). Gerçek LoRA
+          eğitimi ancak sen ayrıca onaylarsan başlar — motor kendi eğitimini onaylayamaz.
+        </p>
+        <p class="muted small am-confirm-note">
+          İptal edersen hiçbir süreç doğmaz; yalnızca çalıştırılacak
+          <strong>kuru-çalıştırma</strong> komutu gösterilir.
+        </p>
+
+        <!-- İKİNCİ BİLİNÇLİ HAREKET: kutu işaretlenmeden başlat butonu AÇILMAZ.
+             Neden: tek bir buton, odaklanmışsa kazara Enter/tıkla tetiklenebilir —
+             bu gerçekten yaşandı (bkz. PR açıklaması). İki bağımsız kasıtlı hareket
+             istemek, dalgın bir tuş vuruşunu zararsız kılar. -->
+        <label class="am-confirm-ack">
+          <input type="checkbox" id="amConfirmAck" />
+          <span>Abonelik kotamın harcanacağını anladım ve bu motoru başlatmak istiyorum.</span>
+        </label>
+
+        <div class="am-confirm-actions">
+          <button class="btn" id="amConfirmCancelBtn" type="button">Vazgeç (kuru-çalıştırma)</button>
+          <!-- Varsayılan DEVRE DIŞI (fail-closed): yalnız kutu işaretlenince açılır. -->
+          <button class="btn btn-primary am-confirm-go" id="amConfirmGoBtn" type="button" disabled>
+            Evet, motoru başlat
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <div id="riskModal" class="modal hidden">
+      <div class="modal-box" style="max-width:680px">
+        <button class="modal-close" id="riskClose">✕</button>
+        <div id="riskBody"></div>
+      </div>
+    </div>
+
+    <div id="cardModal" class="modal hidden">
+      <div class="modal-box">
+        <button class="modal-close" id="cardClose" aria-label="Kapat">✕</button>
+        <div id="cardBody"></div>
+      </div>
+    </div>
+
+    <!-- Kurulum popup — ilk açılışta donanım profili ve model önerisi -->
+    <div id="setupModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="setupModalTitle">
+      <div class="modal-box" style="max-width:600px">
+        <button class="modal-close" id="setupModalClose" aria-label="Kapat">✕</button>
+        <h2 id="setupModalTitle" style="margin-top:0">Sisteminiz için Model Önerisi</h2>
+        <div id="setupModalBody"><p class="muted small">Yükleniyor…</p></div>
+        <div style="margin-top:16px;text-align:right">
+          <button class="btn" id="setupModalDismiss">Anladım, gösterme</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/assets/app.js?v=13"></script>
+    <script src="/assets/canli-badge.js?v=1"></script>
+  </body>
+</html>

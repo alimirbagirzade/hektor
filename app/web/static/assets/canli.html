@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ACHILLES · canlılık</title>
+    <link rel="stylesheet" href="/assets/canli.css?v=1" />
+  </head>
+  <body class="state-init">
+    <main class="wrap">
+      <header class="head">
+        <div class="brand">
+          <img class="logo" src="/assets/achilles-logo.jpg" alt="" />
+          <div>
+            <div class="title">ACHILLES</div>
+            <div class="sub">canlılık izleme · http://127.0.0.1:8765</div>
+          </div>
+        </div>
+        <div class="poll-info">
+          <span id="pollState" class="muted">başlatılıyor…</span>
+          <button id="refreshBtn" type="button" class="btn">şimdi yokla</button>
+        </div>
+      </header>
+
+      <!-- Büyük durum kahramanı -->
+      <section id="hero" class="hero" aria-live="polite">
+        <span id="heroShape" class="shape" aria-hidden="true"></span>
+        <div class="hero-text">
+          <div id="heroLabel" class="hero-label">BAĞLANIYOR…</div>
+          <div id="heroDetail" class="hero-detail muted">sunucuya ilk yoklama yapılıyor</div>
+        </div>
+        <div class="hero-side">
+          <div class="lat"><span id="latency">—</span><span class="lat-u">ms</span></div>
+          <div class="lat-cap muted">yanıt süresi</div>
+        </div>
+      </section>
+
+      <!-- Ölçümler -->
+      <section class="grid">
+        <div class="cell"><div class="k">Ollama</div><div id="mOllama" class="v">—</div></div>
+        <div class="cell"><div class="k">aktif backend</div><div id="mBackend" class="v">—</div></div>
+        <div class="cell"><div class="k">LLM modeli</div><div id="mModel" class="v">—</div></div>
+        <div class="cell"><div class="k">embedding modu</div><div id="mEmbed" class="v">—</div></div>
+        <div class="cell"><div class="k">makaleler</div><div id="mPapers" class="v">—</div></div>
+        <div class="cell"><div class="k">RAG parçaları (chunk)</div><div id="mChunks" class="v">—</div></div>
+        <div class="cell"><div class="k">son başarılı yoklama</div><div id="mLastOk" class="v">—</div></div>
+        <div class="cell"><div class="k">ardışık hata</div><div id="mFails" class="v">0</div></div>
+      </section>
+
+      <footer class="foot muted">
+        <span>her <span id="intervalSec">3</span> sn'de bir <code>/api/status</code> yoklanır · sayfa açık: <span id="uptime">0sn</span></span>
+        <span id="lastErr" class="err"></span>
+      </footer>
+    </main>
+    <script src="/assets/canli.js?v=1"></script>
+  </body>
+</html>
