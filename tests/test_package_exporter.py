@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from app.trading.backtester import _compute_columns, _position_series
 from app.trading.package_exporter import (
     ACHPKG_VERSION,
     AchillesPackage,
@@ -126,3 +127,117 @@ def test_example_ir_exports_cleanly() -> None:
     assert len(pkg.pine_code) > 50
     assert len(pkg.python_code) > 100
     assert pkg.name == ir.name
+
+
+# --- Dışa aktarım ↔ backtest tutarlılığı (üretilen kod GERÇEKTEN çalıştırılır) ---
+#
+# Eski testler üretilen kodu yalnız metin olarak kontrol ediyordu; bu yüzden MACD/BB
+# kolon adlarının backtest ile sapması ve desteklenmeyen göstergelerin sessizce
+# tanımsız kolona atıf yapması fark edilmemişti.
+
+
+def _synthetic_ohlcv(n: int = 300):
+    import numpy as np
+    import pandas as pd
+
+    idx = pd.date_range("2024-01-01", periods=n, freq="15min")
+    px = pd.Series(100 + np.cumsum(np.random.default_rng(7).normal(0, 0.5, n)), index=idx)
+    return pd.DataFrame(
+        {"open": px, "high": px + 1.0, "low": px - 1.0, "close": px, "volume": 1000.0},
+        index=idx,
+    )
+
+
+def _run_generated(code: str, df):
+    ns: dict = {}
+    # Üretilen modülü GERÇEKTEN çalıştır: bu, dışa aktarımın backtest ile aynı
+    # kolonları hesapladığını doğrulayan tek yol (metin kontrolü bunu kaçırmıştı).
+    exec(compile(code, "<generated>", "exec"), ns)
+    return ns["compute_signals"](df.copy())
+
+
+@pytest.mark.parametrize(
+    ("ind_name", "period", "column"),
+    [("EMA", 20, "ema_20"), ("SMA", 50, "sma_50"), ("RSI", 14, "rsi_14"), ("MACD", 12, "macd_12")],
+)
+def test_generated_python_runs_for_supported_indicators(ind_name, period, column) -> None:
+    """Üretilen modül, kuralların atıf yaptığı kolonu gerçekten hesaplamalı."""
+    ir = StrategyIR(
+        name=f"{column}_smoke",
+        indicators=[IndicatorSpec(name=ind_name, period=period)],
+        entry_rules=[f"{column} > 0"],
+        exit_rules=[f"{column} < 0"],
+    )
+    out = _run_generated(_ir_to_python(ir), _synthetic_ohlcv())
+    assert column in out.columns
+    assert set(out["entry_signal"].unique()) <= {0, 1}
+
+
+def test_generated_python_bollinger_uses_canonical_mid_column() -> None:
+    """BB kanonik kolonu = ORTA bant (compute_indicator ile aynı)."""
+    ir = StrategyIR(
+        name="bb_smoke",
+        indicators=[IndicatorSpec(name="BB", period=20)],
+        entry_rules=["close > bb_20"],
+        exit_rules=["close < bb_20"],
+    )
+    out = _run_generated(_ir_to_python(ir), _synthetic_ohlcv())
+    assert {"bb_20", "bb_20_upper", "bb_20_lower"} <= set(out.columns)
+
+
+def test_generated_python_matches_backtester_position() -> None:
+    """Dışa aktarılan sinyaller backtest'te doğrulanan pozisyonla aynı olmalı."""
+    ir = StrategyIR(
+        name="parity",
+        indicators=[IndicatorSpec(name="EMA", period=10), IndicatorSpec(name="EMA", period=30)],
+        entry_rules=["ema_10 > ema_30"],
+        exit_rules=["ema_10 < ema_30"],
+    )
+    df = _synthetic_ohlcv()
+    out = _run_generated(_ir_to_python(ir), df)
+
+    enriched = _compute_columns(df, ir)
+    entry = (enriched["ema_10"] > enriched["ema_30"]).shift(1).fillna(False).astype(int)
+    assert out["entry_signal"].equals(entry.rename("entry_signal"))
+    # Backtest pozisyonu da aynı sinyalden türer (blok mantığı).
+    assert int(_position_series(enriched, ir).sum()) > 0
+
+
+def test_export_rejects_rule_column_the_code_cannot_compute() -> None:
+    """Desteklenmeyen gösterge → sessiz bozuk paket DEĞİL, açık hata."""
+    ir = StrategyIR(
+        name="entropy_v1",
+        indicators=[IndicatorSpec(name="ENTROPY", period=14)],
+        entry_rules=["entropy_14 < 50"],
+        exit_rules=["entropy_14 > 80"],
+    )
+    with pytest.raises(ValueError, match="entropy_14"):
+        _ir_to_python(ir)
+    with pytest.raises(ValueError, match="entropy_14"):
+        ir.to_pine()
+    with pytest.raises(ValueError, match="entropy_14"):
+        export_strategy(ir)
+
+
+def test_pine_defines_every_rule_column() -> None:
+    """MACD/BB Pine çıktısı kuralların atıf yaptığı değişkeni tanımlamalı."""
+    ir = StrategyIR(
+        name="pine_cols",
+        indicators=[IndicatorSpec(name="MACD", period=12), IndicatorSpec(name="BB", period=20)],
+        entry_rules=["macd_12 > 0", "close > bb_20"],
+        exit_rules=["macd_12 < 0"],
+    )
+    pine = ir.to_pine()
+    assert "[macd_12, macd_12_signal, macd_12_hist] = ta.macd" in pine
+    assert "[bb_20_upper, bb_20, bb_20_lower] = ta.bb" in pine
+    assert "???" not in pine
+
+
+def test_pine_escapes_quotes_in_strategy_name() -> None:
+    ir = StrategyIR(
+        name='ema "breakout" v1',
+        indicators=[IndicatorSpec(name="EMA", period=20)],
+        entry_rules=["ema_20 > 100"],
+        exit_rules=["ema_20 < 100"],
+    )
+    assert 'strategy("ema \\"breakout\\" v1"' in ir.to_pine()

@@ -24,7 +24,7 @@ from app.config import get_settings
 from app.memory.sqlite_store import SqliteStore
 from app.trading.indicators import compute_indicator
 from app.trading.risk_manager import _extract_trade_returns
-from app.trading.strategy_ir import StrategyIR, parse_rule
+from app.trading.strategy_ir import StrategyIR, is_number_literal, parse_rule
 
 log = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ def _eval_rules(df: pd.DataFrame, rules: list[str]) -> pd.Series:
     for rule in rules:
         lhs, op, rhs = parse_rule(rule)
         left = df[lhs]
-        right = float(rhs) if rhs.replace(".", "", 1).lstrip("-").isdigit() else df[rhs]
+        right = float(rhs) if is_number_literal(rhs) else df[rhs]
         mask &= ops[op](left, right)
     return mask.fillna(False)
 

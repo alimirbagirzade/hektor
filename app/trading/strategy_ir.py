@@ -14,9 +14,26 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
+_NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+
 _RULE_RE = re.compile(
     r"^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(<|<=|>|>=|==|!=)\s*([a-zA-Z_][a-zA-Z0-9_]*|-?\d+(?:\.\d+)?)\s*$"
 )
+
+# Kural sağ tarafında OHLCV kolonları her zaman vardır (gösterge tanımı gerektirmez).
+# Backtest DataFrame'i, üretilen Python modülü ve Pine (builtin) için ortak taban.
+BASE_COLUMNS = frozenset({"open", "high", "low", "close", "volume"})
+
+
+def is_number_literal(token: str) -> bool:
+    """Kural sağ tarafı sayı sabiti mi? ``_RULE_RE``'nin sayı dalıyla AYNI tanım.
+
+    Tek kaynak: backtester (``_eval_rules``), ``required_columns`` ve dışa aktarım
+    kod üreteçleri bunu kullanır. Ayrı ayrı yazılmış sezgisel kontroller
+    (``isdigit``, ``float()`` denemesi) birbirinden sapıyordu; ``inf``/``nan`` gibi
+    tokenlar bir tarafta kolon, diğerinde sayı sayılıyordu.
+    """
+    return bool(_NUMBER_RE.match(token))
 
 
 class IndicatorSpec(BaseModel):
@@ -60,62 +77,102 @@ class StrategyIR(BaseModel):
         return rules
 
     def required_columns(self) -> set[str]:
-        cols = {ind.column for ind in self.indicators}
+        return {ind.column for ind in self.indicators} | self.rule_columns()
+
+    def rule_columns(self) -> set[str]:
+        """Yalnız kuralların referans verdiği kolonlar (gösterge listesi hariç).
+
+        Dışa aktarım üreteçleri bunu "üretilen kod hangi kolonları tanımlamak
+        ZORUNDA" sorusunu yanıtlamak için kullanır.
+        """
+        cols: set[str] = set()
         for rule in [*self.entry_rules, *self.exit_rules]:
             m = _RULE_RE.match(rule)
             if m:
                 lhs, _, rhs = m.groups()
                 cols.add(lhs)
-                if not re.match(r"^-?\d", rhs):
+                if not is_number_literal(rhs):
                     cols.add(rhs)
         return cols
 
     def to_pine(self) -> str:
-        """StrategyIR → TradingView Pine Script v5 (taslak)."""
+        """StrategyIR → TradingView Pine Script v5 (taslak).
+
+        Kural bir kolona atıf yapıyor ama üretilen kod o değişkeni TANIMLAMIYORSA
+        ``ValueError`` atar. Eskiden desteklenmeyen gösterge sessizce yorum satırına
+        düşüyor, ``entryCondition`` tanımsız değişkene atıf yapıyordu → TradingView'a
+        yapıştırıldığında derlenmeyen, ama üretim anında "başarılı" görünen çıktı.
+        """
         # commission_value in Pine expects percent; strip trailing zeros for readability
         commission_pct = self.costs.commission * 100
         commission_str = f"{commission_pct:.4f}".rstrip("0").rstrip(".")
+        # Strateji adı Pine string literalinin içine girer → tırnak/ters bölü kaçışlanmalı.
+        safe_name = self.name.replace("\\", "\\\\").replace('"', '\\"')
         lines: list[str] = [
             "//@version=5",
             (
-                f'strategy("{self.name}", overlay=true,'
+                f'strategy("{safe_name}", overlay=true,'
                 f" commission_type=strategy.commission.percent,"
                 f" commission_value={commission_str})"
             ),
             "",
         ]
-        # Indikatör tanımları
-        ind_map: dict[str, str] = {}
+        # Indikatör tanımları. `defined` = üretilen Pine kodunun GERÇEKTEN tanımladığı
+        # değişkenler; kural kapsamı bunun üzerinden doğrulanır.
+        defined: set[str] = set(BASE_COLUMNS)
+        unsupported: list[str] = []
         for ind in self.indicators:
             col = ind.column
             n = ind.name.upper()
             if n == "EMA":
                 lines.append(f"{col} = ta.ema(close, {ind.period})")
+                defined.add(col)
             elif n == "SMA":
                 lines.append(f"{col} = ta.sma(close, {ind.period})")
+                defined.add(col)
             elif n == "RSI":
                 lines.append(f"{col} = ta.rsi(close, {ind.period})")
+                defined.add(col)
             elif n == "ATR":
                 lines.append(f"{col} = ta.atr({ind.period})")
+                defined.add(col)
             elif n == "MACD":
-                lines.append(f"{col}_line = ta.macd(close, 12, 26, 9).macd")
+                # Kanonik `{col}` = MACD ÇİZGİSİ — compute_indicator("MACD") ile aynı.
+                # Eskiden yalnız `{col}_line` tanımlanıyordu; kurallar `{col}`e atıf
+                # yaptığı için üretilen kod tanımsız değişken kullanıyordu.
+                lines.append(f"[{col}, {col}_signal, {col}_hist] = ta.macd(close, 12, 26, 9)")
+                defined |= {col, f"{col}_signal", f"{col}_hist"}
             elif n in ("BB", "BOLLINGER"):
-                lines.append(
-                    f"[{col}_upper, {col}_mid, {col}_lower] = ta.bb(close, {ind.period}, 2)"
-                )
+                # Kanonik `{col}` = ORTA bant — compute_indicator("BB") ile aynı.
+                lines.append(f"[{col}_upper, {col}, {col}_lower] = ta.bb(close, {ind.period}, 2)")
+                defined |= {f"{col}_upper", col, f"{col}_lower"}
             elif n in ("STOCH", "STOCHASTIC"):
                 # IndicatorSpec yalnız `period` taşır; %K/%D yumuşatma Pine varsayılanı 3.
                 lines.append(f"{col}_k = ta.sma(ta.stoch(close, high, low, {ind.period}), 3)")
                 lines.append(f"{col}_d = ta.sma({col}_k, 3)")
+                defined |= {f"{col}_k", f"{col}_d"}
             elif n == "VWAP":
                 lines.append(f"{col} = ta.vwap(hlc3)")
+                defined.add(col)
             elif n in ("SUPERTREND", "ST"):
                 # IndicatorSpec çarpan taşımaz; Pine varsayılanı 3.0 sabit.
                 lines.append(f"[{col}, {col}_dir] = ta.supertrend(3.0, {ind.period})")
+                defined |= {col, f"{col}_dir"}
             else:
                 lines.append(f"// {col} = ???  /* {n} desteklenmiyor */")
-            ind_map[col] = col
+                unsupported.append(f"{n} ({col})")
         lines.append("")
+
+        missing = sorted(self.rule_columns() - defined)
+        if missing:
+            detail = (
+                f" Desteklenmeyen gösterge(ler): {', '.join(unsupported)}." if unsupported else ""
+            )
+            raise ValueError(
+                f"Pine dışa aktarımı eksik: kurallar {missing} kolonlarına atıf yapıyor ama "
+                f"üretilen kod bunları tanımlamıyor.{detail} "
+                "Derlenmeyen bir Pine betiği üretmek yerine durduruldu."
+            )
 
         def _rule_to_pine(rule: str) -> str:
             lhs, op, rhs = parse_rule(rule)
