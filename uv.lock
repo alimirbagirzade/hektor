@@ -35,7 +35,7 @@ wheels = [
 ]
 
 [[package]]
-name = "achilles-trader-ai"
+name = "achilles2-0-trader-ai"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

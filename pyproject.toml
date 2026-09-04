@@ -1,5 +1,5 @@
 [project]
-name = "achilles-trader-ai"
+name = "achilles2.0-trader-ai"
 version = "0.1.0"
 description = "Local-first AI trading research system (RAG + knowledge cards + LoRA + backtest) for macOS Apple Silicon."
 readme = "README.md"
