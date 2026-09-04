@@ -29,17 +29,21 @@ _DEFAULT_SQLITE_PATH = Path("storage/sqlite/hektor_trader_ai.db")
 _LEGACY_SQLITE_PATH = Path("storage/sqlite/achilles_trader_ai.db")
 
 
-def _promote_legacy_env(env_file: Path) -> list[str]:
+def _promote_legacy_env(env_file: Path | None) -> list[str]:
     """Eski ``ACHILLES_*`` ayarlarını ``HEKTOR_*`` karşılığına taşı (yalnız boşsa).
 
     Hem süreç ortamını hem ``.env`` dosyasını tarar. Yeni önek zaten tanımlıysa ASLA
     ezilmez — açık ayar her zaman kazanır. Taşınan her anahtar bir kez uyarı loglar;
     böylece geçiş sessiz değil, görünür olur.
+
+    ``env_file=None`` → dosya hiç okunmaz. Bu, ``Settings`` ``.env``'i devre dışı
+    bıraktığında (test oturumu) bu kancanın onu ARKA KAPIDAN ``os.environ``'a
+    taşımasını engeller; iki yol da aynı yapılandırmaya uyar.
     """
     legacy: dict[str, str] = {
         k: v for k, v in os.environ.items() if k.startswith(LEGACY_ENV_PREFIX)
     }
-    if env_file.is_file():
+    if env_file is not None and env_file.is_file():
         try:
             for raw in env_file.read_text(encoding="utf-8").splitlines():
                 line = raw.strip()
@@ -400,8 +404,11 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     # Eski ACHILLES_* önekini Settings kurulmadan ÖNCE taşı; aksi halde
-    # yeniden adlandırma sonrası mevcut .env sessizce yok sayılırdı.
-    _promote_legacy_env(Path.cwd() / ".env")
+    # yeniden adlandırma sonrası mevcut .env sessizce yok sayılırdı. Hangi dosyanın
+    # okunacağı Settings'in KENDİ yapılandırmasından gelir — böylece `.env` kapalıyken
+    # (test oturumu) bu kanca da onu okumaz.
+    env_file = Settings.model_config.get("env_file")
+    _promote_legacy_env(Path.cwd() / str(env_file) if env_file else None)
     return Settings()
 
 

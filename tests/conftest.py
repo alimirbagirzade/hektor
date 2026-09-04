@@ -8,6 +8,22 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.config.settings import Settings
+
+# --- Geliştiricinin `.env` dosyasını test oturumundan TAMAMEN çıkar ---
+#
+# `Settings.model_config` `env_file=".env"` taşır ve bu yol CWD'ye görelidir; pytest
+# depo kökünden koştuğu için geliştiricinin gerçek `.env`'i ayarlara sızıyordu. Depo
+# ağacı izolasyonu (aşağıdaki `_isolate_storage`) yalnız BİRKAÇ anahtarı env ile
+# eziyordu; geri kalan her ayar (`*_API_TOKEN`, rate-limit, trusted-hosts, chunk
+# boyutları...) makineye göre değişiyor, testleri makineye bağımlı yapıyordu —
+# `.env`'inde API token olan geliştiricide 116 test düşüyor, olmayanda hepsi geçiyordu.
+#
+# Bu satır conftest IMPORT edilirken (test modülleri toplanmadan önce) çalışır; sonraki
+# tüm `Settings()` kurulumları — `get_settings()` ve testlerin doğrudan çağrıları dahil —
+# `.env`'i görmez. Testler ayarları yalnız açık env değişkeni veya kwarg ile değiştirir.
+Settings.model_config["env_file"] = None
+
 
 def _ollama_running() -> bool:
     try:
