@@ -109,7 +109,9 @@ def _memory_info() -> MemoryInfo:
     # macOS fallback: sysctl
     if platform.system() == "Darwin":
         try:
-            out = subprocess.check_output(["sysctl", "hw.memsize"], text=True, timeout=3)
+            out = subprocess.check_output(
+                ["sysctl", "hw.memsize"], text=True, errors="replace", timeout=3
+            )
             total_bytes = int(out.split(":")[1].strip())
             total_gb = round(total_bytes / 1024**3, 1)
             return MemoryInfo(ram_total_gb=total_gb, ram_available_gb=total_gb * 0.5)
@@ -135,7 +137,7 @@ def _gpu_info() -> GpuInfo:
         vram = 0.0
         try:
             out = subprocess.check_output(
-                ["system_profiler", "SPHardwareDataType"], text=True, timeout=5
+                ["system_profiler", "SPHardwareDataType"], text=True, errors="replace", timeout=5
             )
             for line in out.splitlines():
                 if "Memory:" in line:
@@ -174,7 +176,7 @@ def _gpu_info() -> GpuInfo:
     rocm = False
     if vendor == "unknown":
         try:
-            out = subprocess.check_output(["rocminfo"], text=True, timeout=5)
+            out = subprocess.check_output(["rocminfo"], text=True, errors="replace", timeout=5)
             if "gfx" in out.lower():
                 vendor = "AMD"
                 rocm = True
@@ -186,7 +188,7 @@ def _gpu_info() -> GpuInfo:
     if vendor == "unknown":
         try:
             if system == "Linux":
-                out = subprocess.check_output(["lspci"], text=True, timeout=5)
+                out = subprocess.check_output(["lspci"], text=True, errors="replace", timeout=5)
                 for line in out.splitlines():
                     if "VGA" in line or "Display" in line:
                         gpu_name = line.split(":")[-1].strip()[:60]

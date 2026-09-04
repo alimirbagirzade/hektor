@@ -49,6 +49,8 @@ def _run(cmd: str, timeout: int = 60) -> CommandResult:
             cmd.split(),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
         return CommandResult(
@@ -103,6 +105,8 @@ def smoke_test(ollama_name: str) -> CommandResult:
             input="Say: OK",
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
         ok = result.returncode == 0 and len(result.stdout.strip()) > 0

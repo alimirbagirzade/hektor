@@ -98,6 +98,8 @@ class CollisionDetector:
                 ["git", *args],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=30,
                 check=False,
                 cwd=str(self._repo_root) if self._repo_root else None,

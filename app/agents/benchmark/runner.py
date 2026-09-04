@@ -71,6 +71,8 @@ def _call_ollama(model: str, prompt: str, timeout: int = 60) -> tuple[str, float
             input=prompt,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
         elapsed_ms = (time.perf_counter() - start) * 1000

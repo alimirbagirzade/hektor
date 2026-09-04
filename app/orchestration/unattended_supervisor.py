@@ -29,6 +29,26 @@ def _now() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
 
+def _is_productive(result: dict[str, Any]) -> bool:
+    """Motor koşusu ilerleme sağladı mı? (geri çekilme kararının tek ölçütü).
+
+    ``ok`` YALNIZ "sürücü çağrısı hata vermeden döndü" demektir — motorun verdict'i
+    PASS demek DEĞİLDİR. Eskiden geri çekilme yalnız ``ok``'a bakıyordu: verdict'i
+    FAIL/unknown olan sür koşusu da ``ok=True`` döndüğü için ``failures`` her turda
+    sıfırlanıyor, ``retry_after`` hiç yazılmıyordu → motor dakikada bir yeniden
+    doğuyor, hep aynı yerde düşüyor ve abonelik kotasını yakıyordu. Verdict bayrakları
+    artık kapıya dâhildir.
+
+    ⛔ DURDUR (STOP_ALL) ile kesilen koşu başarısızlık SAYILMAZ: bu insan kararıdır,
+    motorun hatası değil — ayrıca stop_all guard'ı zaten yeni doğuşu engeller.
+    """
+    if not result.get("ok"):
+        return False
+    if result.get("stopped"):
+        return True
+    return all(bool(result[flag]) for flag in ("drive_passed", "hunt_passed") if flag in result)
+
+
 @dataclass
 class UnattendedState:
     enabled: bool = True
@@ -81,14 +101,19 @@ class UnattendedSupervisor:
 
     def _record_driver_result(self, result: dict[str, Any]) -> None:
         self.state.last_result = result
-        success = bool(result.get("ok"))
-        if success:
+        if _is_productive(result):
             self.state.failures = 0
             self.state.retry_after = ""
         else:
             self.state.failures += 1
             delay = min(_MAX_BACKOFF_S, _BASE_BACKOFF_S * 2 ** (self.state.failures - 1))
             self.state.retry_after = (_now() + dt.timedelta(seconds=delay)).isoformat()
+            log.warning(
+                "Gözetimsiz motor ilerleme sağlamadı (%d. kez) → %d sn geri çekilme. Sebep: %s",
+                self.state.failures,
+                delay,
+                result.get("reason") or (result.get("verdict") or {}).get("summary") or "-",
+            )
         self.state.status = "idle"
         self._save()
 

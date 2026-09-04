@@ -238,3 +238,28 @@ def test_dry_run_reports_engine_quota_warning(driver: AutoDriver) -> None:
     res = driver.drive(run_id, execute=False, engine="codex")
     assert res["engine"] == "codex" and res["command"][:2] == ["codex", "exec"]
     assert "5 saatlik" in res["quota_warning"]
+
+
+def test_default_runner_decodes_utf8_engine_output() -> None:
+    """Motor çıktısı UTF-8'dir — yerel kod sayfasıyla çözülmemeli.
+
+    Regresyon (Türkçe Windows / cp1254): `Popen(text=True)` `encoding` verilmeden
+    yerel kod sayfasını kullanıyordu. Motorun UTF-8 çıktısındaki tek bir bayt
+    `_readerthread`'i `UnicodeDecodeError` ile düşürüyor, `communicate()` BOŞ string
+    ve returncode 0 döndürüyordu → sürücü "çalıştı ama çıktı yok" görüp
+    `ACHILLES_DRIVE_VERDICT` satırını bulamıyor ve her koşuyu FAIL sayıyordu.
+    """
+    import sys
+
+    from app.orchestration.driver import _default_runner
+
+    metin = "ĞŞİÖÇÜ ıği — sürüş bitti"
+    kod = f"import sys; sys.stdout.buffer.write({metin!r}.encode('utf-8'))"
+
+    rc, out = _default_runner([sys.executable, "-c", kod], 60)
+
+    assert rc == 0
+    assert metin in out
+    # Aynı çağrı `encoding` olmadan çıktıyı kaybederdi — sözleşme budur.
+    assert out.strip() != ""
+    assert not isinstance(out, bytes)

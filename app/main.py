@@ -99,6 +99,8 @@ def _git_ro(args: list[str], cwd: Path) -> tuple[int, str]:
             cwd=str(cwd),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
@@ -125,6 +127,7 @@ def _task_path_matches(task_name: str, repo: Path) -> tuple[bool | None, str | N
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=15,
         )
     except (OSError, subprocess.SubprocessError):

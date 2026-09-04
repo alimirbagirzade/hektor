@@ -31,6 +31,8 @@ def _git(args: list[str], timeout: int = 8) -> tuple[int, str]:
             cwd=str(REPO),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError):
