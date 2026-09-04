@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Achilles Trader AI — TEK KOMUT güncelleme (macOS / Linux; KURULU makinede çalıştır)
+# Hektor Trader AI — TEK KOMUT güncelleme (macOS / Linux; KURULU makinede çalıştır)
 #
 #   ./update.sh            -- normal: origin/main'e GÜVENLİ yakınsama (ff-only)
 #   ./update.sh --force    -- yereli AT, origin/main ile birebir eşitle (salt-kopya kurulum)
@@ -10,7 +10,7 @@
 # NOT (kök-neden düzeltmesi): Bu betik artık MEVCUT dal ne olursa olsun makineyi
 # 'main' dalına + origin/main'e yakınsatır. Eskiden bir feature dalına parklanmış
 # makinede 'git pull origin main' origin/main'i o dala MERGE ediyor, makine asla
-# main'e geçmiyordu -> "güncelleme oturmuyor". Tanı için:  uv run achilles doctor
+# main'e geçmiyordu -> "güncelleme oturmuyor". Tanı için:  uv run hektor doctor
 #
 # Tarayıcıda son halini görmek için sonunda: Cmd+Shift+R (sert yenileme).
 
@@ -117,7 +117,7 @@ sync_to_main() {
   fi
 }
 
-# --- 1. Web sunucusunu durdur (port 8765 + achilles-web). EĞİTİME dokunma. ---
+# --- 1. Web sunucusunu durdur (port 8765 + hektor-web). EĞİTİME dokunma. ---
 stop_web() {
   if [ -f .web.pid ]; then
     pid="$(cat .web.pid 2>/dev/null)"
@@ -132,8 +132,8 @@ stop_web() {
     pids="$(lsof -ti tcp:8765 2>/dev/null || true)"
     [ -n "$pids" ] && kill $pids 2>/dev/null || true
   fi
-  # achilles-web süreçleri (EĞİTİM 'achilles train' DEĞİL — ona dokunma)
-  pkill -f 'achilles-web' 2>/dev/null || true
+  # hektor-web süreçleri (EĞİTİM 'hektor train' DEĞİL — ona dokunma)
+  pkill -f 'hektor-web' 2>/dev/null || true
 }
 stop_web
 sleep 1
@@ -155,8 +155,8 @@ if [ "$UPDATED" -eq 1 ] || [ "$FORCE" -eq 1 ]; then
 fi
 
 # --- 4. Web'i yeniden başlat (arka plan) ---
-nohup "$UV" run --project "$PROJECT_DIR" achilles-web \
-  > logs/achilles-web.log 2> logs/achilles-web-err.log &
+nohup "$UV" run --project "$PROJECT_DIR" hektor-web \
+  > logs/hektor-web.log 2> logs/hektor-web-err.log &
 echo $! > .web.pid
 echo "[$(date '+%Y-%m-%d %H:%M')] Sunucu başlatıldı (PID $(cat .web.pid))." >> "$LOG"
 
@@ -174,5 +174,5 @@ if [ "$OK" -eq 1 ]; then
   echo "[OK] Web çalışıyor: http://127.0.0.1:8765"
   echo "     >> Son halini görmek için tarayıcıda: Cmd+Shift+R (sert yenileme!)"
 else
-  echo "[UYARI] Web 30 sn'de açılmadı — log: logs/achilles-web-err.log"
+  echo "[UYARI] Web 30 sn'de açılmadı — log: logs/hektor-web-err.log"
 fi

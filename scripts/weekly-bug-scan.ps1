@@ -1,4 +1,4 @@
-# Achilles weekly bug-hunt scan -- TIER 1 (REPORT-ONLY).  ASCII-only (Windows PS 5.1 safe).
+# Hektor weekly bug-hunt scan -- TIER 1 (REPORT-ONLY).  ASCII-only (Windows PS 5.1 safe).
 #
 # What it does:
 #   1) Validation gate: ruff + mypy + pytest (offline, --no-sync avoids the web .exe lock).
@@ -24,7 +24,7 @@ function LastLine([string]$s) {
     ($s -split "`r?`n" | Where-Object { $_.Trim() -ne "" } | Select-Object -Last 1)
 }
 
-"# Achilles bug-hunt scan -- $stamp (Tier 1, report-only)" | Out-File -FilePath $report -Encoding utf8
+"# Hektor bug-hunt scan -- $stamp (Tier 1, report-only)" | Out-File -FilePath $report -Encoding utf8
 Append ""
 
 # --- 1) Validation gate ------------------------------------------------------
@@ -46,7 +46,7 @@ if ($claude) {
     # SECURITY (see docs/SCOPE_ISOLATION.md): this prompt used to say "DO NOT edit code,
     # DO NOT run git" -- A PROMPT INSTRUCTION IS NOT A BOUNDARY. The scan reads recent
     # diffs, so hostile content in a commit can redirect the agent (prompt injection).
-    # With Bash it could run the UNAUTHENTICATED CLI (`achilles approval-approve`) or hit
+    # With Bash it could run the UNAUTHENTICATED CLI (`hektor approval-approve`) or hit
     # 127.0.0.1:8765 and approve its own training (CLAUDE.md Rule 8).
     #
     # The restriction is now TECHNICAL, matching AutoDriver (app/orchestration/engines.py):
@@ -63,7 +63,7 @@ if ($claude) {
     if ($diff.Length -gt 6000) { $diff = $diff.Substring(0, 6000) + "`n...(truncated)" }
 
     $prompt = @"
-Run a LIGHTWEIGHT, REPORT-ONLY bug scan on the Achilles trading-RESEARCH project.
+Run a LIGHTWEIGHT, REPORT-ONLY bug scan on the Hektor trading-RESEARCH project.
 Only find and summarize -- you have read-only tools (Read/Grep/Glob) by design.
 FIRST read CLAUDE.md at the repo root (safe-mode disables auto-discovery; the rules are there).
 Focus: the changed files below + core (app/trading, app/brain, app/memory,

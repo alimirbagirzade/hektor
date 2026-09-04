@@ -1,9 +1,9 @@
-# Achilles — Automation Architecture (Phase 0/1)
+# Hektor — Automation Architecture (Phase 0/1)
 
 _Durum: Phase 0 (belge + manifest) + Phase 1 (runtime gözlemci) tamamlandı.
 Phase 2 (task queue + approvals + supervisor) HENÜZ YOK._
 
-Bu belge, Achilles'in mevcut **otonomi yüzeyini** ve **güvenlik sınırlarını** tanımlar.
+Bu belge, Hektor'in mevcut **otonomi yüzeyini** ve **güvenlik sınırlarını** tanımlar.
 Tek, bildirimsel kaynak: [`automation_manifest.yaml`](../automation_manifest.yaml)
 (`app/agents/runtime/registry.py` ile okunur).
 
@@ -32,7 +32,7 @@ Tam alanlar için manifest'e bakın; özet:
 | rules-updater | requires_approval | ❌ | ✅ | ❌ |
 | model-advisor | autonomous | ❌ | ❌ | ❌ |
 
-`agent_id` listesi `uv run achilles agents-list` ile de görülebilir.
+`agent_id` listesi `uv run hektor agents-list` ile de görülebilir.
 
 ## 2. Mevcut döngüler (loops)
 
@@ -81,7 +81,7 @@ Aşağıdakiler **Phase 2 supervisor + approval gelene kadar GÖZETİMSİZ çal�
 
 | Öğe | Neden | Şimdilik kural |
 |-----|-------|----------------|
-| `uv run achilles train --run` | gerçek LoRA eğitimi (geri alınması pahalı; v5 regresyonu) | her koşu **elle, ayrı onay** |
+| `uv run hektor train --run` | gerçek LoRA eğitimi (geri alınması pahalı; v5 regresyonu) | her koşu **elle, ayrı onay** |
 | `scripts/train-loop.ps1` | 24s döngüde tekrar tekrar `train --run` | elle başlat, denetimli; loop'ta bırakma |
 | `scripts/mac-loop.sh` | MLX `train --run` her turda | elle, denetimli |
 | `scripts/auto-chain.sh` | zincir sonunda 24s eğitim döngüsü | elle, denetimli |
@@ -117,7 +117,7 @@ Claude PR otomasyonu KAPALI (Phase 4). Yalnız backend + CLI + API + test.
   fail_task / cancel_task` (+ supervisor için `mark_blocked`).
 - **Windows Task Scheduler DIŞ cron olarak KALIR** (kullanıcı kararı): bu kuyruk görevleri
   yalnız KAYIT + DURUM olarak izler; zamanlama henüz app içine taşınmadı. (Mevcut dış
-  görevler: `Achilles-WeeklyBugScan`, `AchillesWeb`, `AchillesUpdate`, `Achilles-RAG-*`.)
+  görevler: `Hektor-WeeklyBugScan`, `HektorWeb`, `HektorUpdate`, `Hektor-RAG-*`.)
 
 ### 7.2 Approval system (`app/agents/runtime/approvals.py`)
 - SQLite `approval_requests` tablosu (+ `consumed_at`). Risk: low/medium/high/critical.
@@ -152,7 +152,7 @@ Claude PR otomasyonu KAPALI (Phase 4). Yalnız backend + CLI + API + test.
 ### 7.7 Tehlikeli aksiyon politikası (ŞİMDİ ZORLANIYOR)
 | Aksiyon | Kapı | Davranış |
 |---------|------|----------|
-| `achilles train --run` (manuel) | STOP_ALL + taze onay (`lora-trainer`/`train_run`, critical) | Onay yoksa eğitim BAŞLAMAZ; approval_id basılır, exit 3 |
+| `hektor train --run` (manuel) | STOP_ALL + taze onay (`lora-trainer`/`train_run`, critical) | Onay yoksa eğitim BAŞLAMAZ; approval_id basılır, exit 3 |
 | auto-lora `start_training` | STOP_ALL + taze onay (`auto-lora-pipeline`/`auto_lora_start_training`, critical) | Onay yoksa `needs_approval` döner |
 | auto-lora `promote_to_production` | STOP_ALL + taze onay (`.../auto_lora_promote_adapter`, high) | Onay yoksa `needs_approval` döner |
 | `rules-update --approve` | STOP_ALL + taze onay (`rules-updater`/`rules_apply`, medium) | Onay yoksa uygulanmaz, exit 3 |
@@ -161,8 +161,8 @@ Claude PR otomasyonu KAPALI (Phase 4). Yalnız backend + CLI + API + test.
 `launch()`'ın taze onayı **ÜST katmanda** alınır: CLI manuel yol kendi kapısından,
 auto-lora `start_training` kendi onayından **ve web `/api/training/run` (Phase 4D-1) artık
 `require_fresh_approval` ile** geçer. Onaylı çağrı `launch()`'a girer; spawn edilen iç
-`achilles train --run`'a `ACHILLES_TRAIN_SUPERVISED=1` verilir → **çift onay olmaz**; ama
-STOP_ALL iç komutta da geçerlidir. Manuel `achilles train --run` bu env'i ALMAZ → onay ister.
+`hektor train --run`'a `HEKTOR_TRAIN_SUPERVISED=1` verilir → **çift onay olmaz**; ama
+STOP_ALL iç komutta da geçerlidir. Manuel `hektor train --run` bu env'i ALMAZ → onay ister.
 
 > **Web training start is now protected by the same fresh manual approval model as CLI training.**
 > (Phase 4D-1) Eskiden `/api/training/run` doğrudan `launch()` çağırıp onayı atlıyordu;
@@ -181,7 +181,7 @@ STOP_ALL iç komutta da geçerlidir. Manuel `achilles train --run` bu env'i ALMA
 
 ## 8. Phase 3 — Agent/Otomasyon Dashboard
 
-Mevcut Achilles Web UI'na yeni bir sekme (**10 · AGENTS / OTOMASYON**) eklendi —
+Mevcut Hektor Web UI'na yeni bir sekme (**10 · AGENTS / OTOMASYON**) eklendi —
 ayrı uygulama DEĞİL, mevcut `app/web/static/` (vanilla JS) içine. **Yeni backend yetenek
 EKLENMEDİ**; yalnız Phase 1/2 endpoint'leri tüketilir.
 

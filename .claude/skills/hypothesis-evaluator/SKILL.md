@@ -13,8 +13,8 @@ Tavsiye/kesinlik dili → REJECT. Çıktı asla yatırım tavsiyesi değildir.
 ## Komutlar
 ```bash
 # Trading hipotezlerini değerlendir (JSON listesi veya JSONL; her öğe str ya da dict)
-uv run achilles eval-runner --type trading-hypothesis --input hyps.jsonl --json
-uv run achilles eval-runner --type trading-hypothesis --input hyps.json --strict   # kapı geçilemezse hata
+uv run hektor eval-runner --type trading-hypothesis --input hyps.jsonl --json
+uv run hektor eval-runner --type trading-hypothesis --input hyps.json --strict   # kapı geçilemezse hata
 ```
 
 Örnek `hyps.jsonl` (her satır bir hipotez):

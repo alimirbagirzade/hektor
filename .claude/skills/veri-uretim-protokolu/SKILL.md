@@ -19,11 +19,11 @@ Detay: `docs/PROTOKOL_VERI_URETIM.md` · üst: `docs/PROTOKOL_ASAMALI_EGITIM.md`
 ## Komutlar
 | İş | Komut |
 |----|-------|
-| Tek seferlik üretim | `uv run achilles synth-qa --per-chunk 5 --max-chunks 12 --seed 0` |
+| Tek seferlik üretim | `uv run hektor synth-qa --per-chunk 5 --max-chunks 12 --seed 0` |
 | Sürekli döngü (72sa) | `bash scripts/continuous-learning.sh 72` |
 | Döngüyü durdur | `New-Item storage/STOP_LEARNING` (Win) / `touch storage/STOP_LEARNING` |
-| Eşik durumu | `uv run achilles lora-readiness` |
-| RAG panosu | `uv run achilles rag-mastery` |
+| Eşik durumu | `uv run hektor lora-readiness` |
+| RAG panosu | `uv run hektor rag-mastery` |
 
 ## İş akışı
 1. **Durum kontrol:** `lora-readiness` ile mevcut örnek sayısı + ≥1000 eşiği.
@@ -35,7 +35,7 @@ Detay: `docs/PROTOKOL_VERI_URETIM.md` · üst: `docs/PROTOKOL_ASAMALI_EGITIM.md`
 
 ## Sağlık kontrolü (döngü için)
 - Boş RAM < 2GB → ağır LLM işini beklet, çakışan süreçleri durdur.
-- Web (8765) düştüyse: `uv run achilles-web` (arka plan).
+- Web (8765) düştüyse: `uv run hektor-web` (arka plan).
 - Döngü öldüyse: `bash scripts/continuous-learning.sh 72` ile yeniden başlat.
 
 ## Kullanıcı onayı gerektiren

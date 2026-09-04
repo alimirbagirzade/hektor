@@ -1,4 +1,4 @@
-"""Achilles Trader AI — local-first trading research system."""
+"""Hektor Trader AI — local-first trading research system."""
 
 from __future__ import annotations
 

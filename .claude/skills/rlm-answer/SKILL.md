@@ -15,25 +15,25 @@ bir kontrol katmanıdır (`app/rlm`).
 - "Bu makalelerde bu soruya cevap var mı?" — yetersizse sistem çekimser kalmalı.
 
 Tek bir makaleden hızlı, doğrulamasız özet yeterliyse `/rag-reliability-engineer`
-veya `achilles ask` kullan; RLM daha ağırdır (çok-tur + doğrulama).
+veya `hektor ask` kullan; RLM daha ağırdır (çok-tur + doğrulama).
 
 ## Temel komutlar
 
 ```bash
 # Çok-adımlı kaynaklı cevap (genel havuz)
-uv run achilles rlm-answer "Bu makalelere göre volatilite rejimi momentum'u nasıl etkiler?"
+uv run hektor rlm-answer "Bu makalelere göre volatilite rejimi momentum'u nasıl etkiler?"
 
 # Belirli makale(ler)e sınırla
-uv run achilles rlm-answer "Bu makalenin metodolojisi nedir?" --paper-ids paper_abc123
+uv run hektor rlm-answer "Bu makalenin metodolojisi nedir?" --paper-ids paper_abc123
 
 # Tur/chunk ayarı
-uv run achilles rlm-answer "..." --rounds 3 --top-k 8
+uv run hektor rlm-answer "..." --rounds 3 --top-k 8
 
 # Kayıtlı koşuları listele (durum/kanıt/güven)
-uv run achilles rlm-runs
+uv run hektor rlm-runs
 
 # §16 LoRA dataset ADAYLARI (salt-okuma; eğitim YOK, insan onayı şart)
-uv run achilles rlm-lora-candidates [--export data/rlm_lora_candidates.jsonl]
+uv run hektor rlm-lora-candidates [--export data/rlm_lora_candidates.jsonl]
 ```
 
 API: `POST /api/rlm/answer` · `GET /api/rlm/runs` · `GET /api/rlm/runs/{run_id}`.
@@ -74,7 +74,7 @@ classify → plan → (retrieval ⇄ reformulation)* → kanıt kapısı → tas
 - **Kural 7** — iki kapılı güvence: kanıt skoru çok düşükse LLM hiç çağrılmaz;
   cevap sonrası düşük güvende çekimser kal.
 
-## Yapılandırma (env `ACHILLES_RLM_*`)
+## Yapılandırma (env `HEKTOR_RLM_*`)
 
 `rlm_max_retrieval_rounds=3` · `rlm_min_evidence_to_retry=40` ·
 `rlm_min_evidence_to_answer=60` · `rlm_min_evidence_to_skip_retry=80` ·

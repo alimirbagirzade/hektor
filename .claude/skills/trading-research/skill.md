@@ -1,6 +1,6 @@
 # /trading-research — Araştırma Döngüsü Skili
 
-Bu skill, Achilles'in tam araştırma döngüsünü adım adım yürütür:
+Bu skill, Hektor'in tam araştırma döngüsünü adım adım yürütür:
 **Formül Çıkarımı → Kavram Grafiği → Sentez → Backtest → Yansıma → İyileştirme**
 
 ## Ne zaman kullan
@@ -13,15 +13,15 @@ Bu skill, Achilles'in tam araştırma döngüsünü adım adım yürütür:
 
 ### 1. Formül çıkar (Ollama gerekir)
 ```bash
-uv run achilles extract-formulas
-uv run achilles formulas          # çıkarılanları listele
+uv run hektor extract-formulas
+uv run hektor formulas          # çıkarılanları listele
 ```
 
 ### 2. Araştırma döngüsü
 ```bash
-uv run achilles research "<soru>"
+uv run hektor research "<soru>"
 # Örnek:
-uv run achilles research "Momentum göstergeleri yüksek volatilitede nasıl filtrelenir?"
+uv run hektor research "Momentum göstergeleri yüksek volatilitede nasıl filtrelenir?"
 ```
 Bu komut:
 - Tüm formülleri alır → kavram grafini günceller
@@ -32,18 +32,18 @@ Bu komut:
 ### 3. Gerçek veriyle backtest
 ```bash
 # BTCUSD 1H Binance verisi
-uv run achilles backtest data/market/raw/BTCUSD_1h_Binance.csv
+uv run hektor backtest data/market/raw/BTCUSD_1h_Binance.csv
 
 # Diğer borsalar
-uv run achilles backtest data/market/raw/BTCUSD_1h_Coinbase.csv
-uv run achilles backtest data/market/raw/BTCUSD_1h_OKX.csv
+uv run hektor backtest data/market/raw/BTCUSD_1h_Coinbase.csv
+uv run hektor backtest data/market/raw/BTCUSD_1h_OKX.csv
 ```
 
 ### 4. LoRA eğitim verisi oluştur
 ```bash
-uv run achilles chain-dataset     # araştırma zincirleri → JSONL
-uv run achilles dataset           # toplam dataset özeti
-uv run achilles train --run       # gerçek LoRA eğitimi (MLX)
+uv run hektor chain-dataset     # araştırma zincirleri → JSONL
+uv run hektor dataset           # toplam dataset özeti
+uv run hektor train --run       # gerçek LoRA eğitimi (MLX)
 ```
 
 ## Başarı kriterleri

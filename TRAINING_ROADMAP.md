@@ -1,4 +1,4 @@
-# Eğitim Yol Haritası — Evrensel + Achilles Durumu
+# Eğitim Yol Haritası — Evrensel + Hektor Durumu
 
 > Kaynak: `İLGİLENECEĞİMİZ EĞİTİM TÜRLERİ.docx`  
 > Sıralama: pratikte en kolay kurulandan en zora doğru.  
@@ -9,12 +9,12 @@
 
 ## Özet Tablo
 
-| # | Yöntem | Zorluk | Achilles Durumu | Bir Sonraki Adım |
+| # | Yöntem | Zorluk | Hektor Durumu | Bir Sonraki Adım |
 |---|--------|--------|-----------------|-----------------|
 | 1 | **RAG** | ⭐ | ✅ Tamamlandı | Sorgu kütüphanesi otomasyonu (Görev D) |
 | 2 | **Tool Use Training** | ⭐⭐ | ✅ Tamamlandı | `tool_use_trainer.py` + `tool_use_dataset_builder.py` |
 | 3 | **SFT** | ⭐⭐⭐ | 🟡 Devam | Daha fazla onaylı kart biriktir |
-| 4 | **LoRA** | ⭐⭐⭐ | 🟡 Devam | `achilles_lora_v2` hazır, faz 2–3 bekliyor |
+| 4 | **LoRA** | ⭐⭐⭐ | 🟡 Devam | `hektor_lora_v2` hazır, faz 2–3 bekliyor |
 | 5 | **DPO** | ⭐⭐⭐⭐ | 🔴 Planlandı | 500+ onaylı kart gerekiyor |
 | 6 | **Verifiable Reward** | ⭐⭐⭐⭐ | ✅ Tamamlandı | `reward_signal.py` + `dpo_dataset_builder.py` |
 | 7 | **Agentic Training** | ⭐⭐⭐⭐⭐ | 🟡 MVP | OSS Agent → tam agentic döngü |
@@ -27,12 +27,12 @@
 **Avantaj:** Ucuz, güncellemesi kolay, kaynak gösterilebilir.  
 **Dezavantaj:** Modelin "düşünme karakterini" değiştirmez.
 
-### Achilles ✅
+### Hektor ✅
 - Advanced RAG katmanı: 37 modül, ChromaDB + SQLite
 - 7 PDF / 567 chunk indeksli, `rag_answerer.py` aktif
 
 ### Bekleyen
-- [x] **Görev D** ✅ — arXiv sorgu kütüphanesi (`achilles arxiv-sync`, 2026-06-07)
+- [x] **Görev D** ✅ — arXiv sorgu kütüphanesi (`hektor arxiv-sync`, 2026-06-07)
 - [ ] Scheduled RAG güncelleme (yeni makale → otomatik ingest)
 
 ---
@@ -42,19 +42,19 @@
 **Ne yapar:** LLM'in araçları (backtest, grafik, hesaplama, API) kullanmayı öğrenmesi.  
 **Finans için kritik:** Agent sadece konuşmamalı, test etmeli ve ölçmeli.
 
-### Achilles 🟡
+### Hektor 🟡
 - OSS Agent MVP araç altyapısı var (profiler, installer, benchmark)
 - CLI araçlar LLM tarafından çağrılabilir durumda
 
-### Achilles ✅ (2026-06-07)
+### Hektor ✅ (2026-06-07)
 - `app/training/tool_use_trainer.py` — THINK→CALL→OBSERVE→CONCLUDE döngüsü
 - `app/training/tool_use_dataset_builder.py` — DB→SFT JSONL dönüştürücü
 - `tool_use_examples` SQLite tablosu
-- CLI: `achilles tool-use-train` / `achilles tool-use-dataset`
+- CLI: `hektor tool-use-train` / `hektor tool-use-dataset`
 - 11 birim testi
 
 ### Bekleyen
-- [x] tool_use SFT → LoRA faz 2 besleme pipeline'ı ✅ (`achilles unified-dataset`, 2026-06-07)
+- [x] tool_use SFT → LoRA faz 2 besleme pipeline'ı ✅ (`hektor unified-dataset`, 2026-06-07)
 
 ---
 
@@ -62,9 +62,9 @@
 
 **Ne yapar:** `{instruction, input, output}` üçlüsüyle modeli "böyle cevap ver" diye eğitir.
 
-### Achilles 🟡
+### Hektor 🟡
 - `DatasetBuilder`: curriculum-aware (faz 1–4), lora_eligible filtresi
-- `achilles_lora_v2` eğitildi (300 iter, loss 0.028)
+- `hektor_lora_v2` eğitildi (300 iter, loss 0.028)
 
 ### Bekleyen
 - [ ] Faz 2 veri seti (daha fazla onaylı kart)
@@ -76,9 +76,9 @@
 
 **Ne yapar:** Büyük modeli dondurup üstüne küçük adaptör ağırlıkları eğitir. Ucuz ve taşınabilir.
 
-### Achilles 🟡
+### Hektor 🟡
 - `mlx_lora_train.py` (Apple Silicon, MLX-LM)
-- `achilles_lora_v2` mevcut (2 GB, faz 1)
+- `hektor_lora_v2` mevcut (2 GB, faz 1)
 
 ### Bekleyen
 - [ ] Faz 2 adaptörü
@@ -91,7 +91,7 @@
 
 **Ne yapar:** `{prompt, chosen, rejected}` üçlüsüyle tercih öğrenir. RLHF'den daha pratik.
 
-### Achilles 🔴
+### Hektor 🔴
 - **Engel:** 500+ onaylı bilgi kartı gerekiyor (şu an ~0 onaylı)
 
 ### Bekleyen
@@ -112,18 +112,18 @@ Finans'ta doğrulanabilir görevler:
 - [ ] Sharpe, MaxDD, CAGR doğru hesaplandı mı? → ✅/❌
 - [ ] Pozisyon sizing doğru mu? → ✅/❌
 
-### Achilles ✅ (2026-06-07)
+### Hektor ✅ (2026-06-07)
 - `app/training/reward_signal.py` — 6 kriter: execution, trade_count, sharpe, drawdown, return, win_rate
 - `app/training/dpo_dataset_builder.py` — reward → chosen/rejected çifti → DPO JSONL
 - `reward_signals` SQLite tablosu
 - `app/memory/sqlite_store.py`: `save_reward_signal`, `list_reward_signals`, `get_reward_signal`
-- CLI: `achilles reward-analyze [--session] [--build-dpo]`
+- CLI: `hektor reward-analyze [--session] [--build-dpo]`
 - 19 birim testi
 
 ### Paper Mastery — RAG kalite ölçümü ✅ (2026-06-07)
 - Paper Mastery Agent — 0-100 RAG kalite skoru
-- `achilles mastery-run/queue/score/report` CLI komutları
-- `achilles mastery-to-sft` — mastery → SFT eğitim verisi
+- `hektor mastery-run/queue/score/report` CLI komutları
+- `hektor mastery-to-sft` — mastery → SFT eğitim verisi
 
 ---
 
@@ -131,7 +131,7 @@ Finans'ta doğrulanabilir görevler:
 
 **Ne yapar:** Modeli tek cevap vermekten çıkarır, adım adım görev yürütmeyi öğretir.
 
-### Achilles 🟡 (MVP)
+### Hektor 🟡 (MVP)
 - OSS Agent MVP: profiler → advisor → installer → benchmark
 - Research orchestrator: hipotez → backtest → reflection
 
@@ -142,7 +142,7 @@ Finans'ta doğrulanabilir görevler:
 
 ---
 
-## Achilles Uygulama Sırası
+## Hektor Uygulama Sırası
 
 ```
 Şu an aktif:
@@ -166,7 +166,7 @@ Uzun vadeli (3+ ay):
 Bu dosyayı başka bir AI projesine uygularken:
 
 1. Dosyayı projenin kök dizinine kopyala
-2. "Achilles" referanslarını proje adıyla değiştir
+2. "Hektor" referanslarını proje adıyla değiştir
 3. Her satırı `🔴 Planlandı` ile başlat, tamamlandıkça güncelle
 4. "Bekleyen" listelerini projeye özel görevlerle doldur
 

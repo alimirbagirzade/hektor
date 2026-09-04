@@ -1,6 +1,6 @@
 """Runtime ön-uçuş (Phase 2.5) — taze makine için ajan-runtime hazırlık doğrulaması.
 
-``achilles init`` zaten ``SqliteStore`` kurar ve TÜM tabloları (agent_runs /
+``hektor init`` zaten ``SqliteStore`` kurar ve TÜM tabloları (agent_runs /
 agent_events / automation_tasks / approval_requests) ``Base.metadata.create_all``
 ile idempotent oluşturur. Bu modül bunu DOĞRULAR: manifest geçerli mi, runtime
 tabloları sorgulanabilir mi, STOP_ALL aktif mi.

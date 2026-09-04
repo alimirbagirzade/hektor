@@ -505,10 +505,10 @@ def train(cfg: PeftTrainConfig) -> dict:
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # CPU base dtype: fp32 (varsayılan, kararlı) veya bf16 (ACHILLES_TRAIN_DTYPE=bf16).
+    # CPU base dtype: fp32 (varsayılan, kararlı) veya bf16 (HEKTOR_TRAIN_DTYPE=bf16).
     # bf16: model 16→8GB, bellek trafiği yarı → bellek-bağımlı CPU'da potansiyel ~2×.
     # Uyarı: AVX512-BF16'sız CPU'da (örn. Tiger Lake) bf16 emüle edilir; önce ölç.
-    _want_bf16 = os.environ.get("ACHILLES_TRAIN_DTYPE", "fp32") == "bf16"
+    _want_bf16 = os.environ.get("HEKTOR_TRAIN_DTYPE", "fp32") == "bf16"
     cpu_dtype = torch.bfloat16 if _want_bf16 else torch.float32
     dtype = torch.float16 if device == "cuda" else cpu_dtype
     logger.info("PEFT LoRA egitimi basladi. Cihaz: %s, dtype: %s", device, dtype)
@@ -735,7 +735,7 @@ def generate_colab_notebook(
     cfg: PeftTrainConfig,
     out_path: Path,
     *,
-    hf_dataset_repo: str = "KULLANICI/achilles-lora-sft",
+    hf_dataset_repo: str = "KULLANICI/hektor-lora-sft",
     num_epochs: int = 2,
 ) -> Path:
     """Stage 2 bulut-GPU (Kaggle/Colab) eğitim notebook'u + Ollama Modelfile üretir.
@@ -797,7 +797,7 @@ if __name__ == "__main__":
     )  # tek beyin (Ollama qwen3:4b)
     parser.add_argument("--train", required=True)
     parser.add_argument("--valid", required=True)
-    parser.add_argument("--output", default="models/adapters/achilles_lora_peft")
+    parser.add_argument("--output", default="models/adapters/hektor_lora_peft")
     parser.add_argument("--iters", type=int, default=300)
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--colab", action="store_true")
@@ -812,7 +812,7 @@ if __name__ == "__main__":
     )
 
     if parsed.colab:
-        nb = generate_colab_notebook(cfg, Path(parsed.output) / "achilles_colab.ipynb")
+        nb = generate_colab_notebook(cfg, Path(parsed.output) / "hektor_colab.ipynb")
         print(f"Colab notebook: {nb}")
         sys.exit(0)
 

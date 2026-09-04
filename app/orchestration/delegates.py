@@ -198,10 +198,10 @@ def dry_run(ctx: RunContext) -> StageResult:
     settings = get_settings()
     model = ctx.run.get("model", "") or getattr(settings, "peft_base_model", "")
     profile = ctx.run.get("profile", "") or "discipline_safe_local"
-    adapter = ctx.run.get("adapter_name", "") or "achilles_lora"
+    adapter = ctx.run.get("adapter_name", "") or "hektor_lora"
     iters = int(ctx.params.get("iters", 0) or 0)
     n, _ = _count_sft_lines()
-    cmd = f"achilles train --run --backend peft --profile {profile} --adapter {adapter}"
+    cmd = f"hektor train --run --backend peft --profile {profile} --adapter {adapter}"
     out = {
         "command": cmd,
         "model": model,
@@ -268,7 +268,7 @@ def approval(ctx: RunContext) -> StageResult:
     return _result(
         StageStatus.blocked,
         (
-            "Gerçek eğitim TAZE onay gerektirir (Kural 8). Onay akışını 'achilles train --run' "
+            "Gerçek eğitim TAZE onay gerektirir (Kural 8). Onay akışını 'hektor train --run' "
             "başlatır (lora-trainer/train_run onayı oluşturur ve gerçek eğitim noktasında "
             "tüketir); onaylandıktan sonra orkestrasyonu sürdür."
         ),
@@ -282,9 +282,9 @@ def approval(ctx: RunContext) -> StageResult:
 
 def train_handoff(ctx: RunContext) -> StageResult:
     """Gerçek eğitimi gözetimsiz BAŞLATMAZ — detached devir talimatı verir (Kural 8)."""
-    adapter = ctx.run.get("adapter_name", "") or "achilles_lora"
+    adapter = ctx.run.get("adapter_name", "") or "hektor_lora"
     iters = int(ctx.params.get("iters", 300) or 300)
-    cmd = f"achilles train --run --adapter {adapter}"
+    cmd = f"hektor train --run --adapter {adapter}"
     from app.config import get_settings
 
     unattended = get_settings().unattended_training_enabled

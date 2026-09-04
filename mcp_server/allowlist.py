@@ -3,7 +3,7 @@
 Tasarım ilkesi: **varsayılan kapalı, açıkça izin ver.**
 
 ``FastMCP.from_openapi()`` kendisine verilen spec'teki HER operasyonu bir tool'a
-çevirir. Achilles web API'si 110+ operasyon sunar; bunların çoğu dış bir ajanın
+çevirir. Hektor web API'si 110+ operasyon sunar; bunların çoğu dış bir ajanın
 görmemesi gereken yazma/tetikleme uçlarıdır (eğitim, onay, kill-switch, autodrive).
 Bu yüzden spec, FastMCP'ye verilmeden ÖNCE burada budanır.
 

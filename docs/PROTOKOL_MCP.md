@@ -1,8 +1,8 @@
-# MCP SENKRON PROTOKOLÜ — Achilles Web → MCP
+# MCP SENKRON PROTOKOLÜ — Hektor Web → MCP
 
-> Achilles web API'sinin **salt-okuma alt kümesini** MCP tool'ları olarak dışarı açar;
-> başka Claude oturumları / araçlar Achilles ile **tool** üzerinden konuşabilir.
-> Sunucu: `mcp_server/achilles_mcp.py` · Skill: `/achilles-web`
+> Hektor web API'sinin **salt-okuma alt kümesini** MCP tool'ları olarak dışarı açar;
+> başka Claude oturumları / araçlar Hektor ile **tool** üzerinden konuşabilir.
+> Sunucu: `mcp_server/hektor_mcp.py` · Skill: `/hektor-web`
 
 ## Nasıl çalışır (otomatik senkron + allow-list)
 
@@ -12,20 +12,20 @@ app/web/server.py (FastAPI, 116 operasyon)
         ▼
 mcp_server/allowlist.py  ──filter_spec (VARSAYILAN KAPALI)──►  21 operasyon
         ▼
-mcp_server/achilles_mcp.py  ──FastMCP.from_openapi──►  21 MCP tool
-        │  httpx proxy + Authorization: Bearer <ACHILLES_API_TOKEN>
+mcp_server/hektor_mcp.py  ──FastMCP.from_openapi──►  21 MCP tool
+        │  httpx proxy + Authorization: Bearer <HEKTOR_API_TOKEN>
         ▼
 çalışan web sunucusu (http://127.0.0.1:8765)  ──►  gerçek iş
 ```
 
-- **Spec in-process üretilir** (`achilles_app.openapi()`) — web'e yeni route
+- **Spec in-process üretilir** (`hektor_app.openapi()`) — web'e yeni route
   eklendiğinde MCP **yeniden başlatıldığında** tool listesi otomatik güncellenir.
 - **Çağrılar çalışan web'e proxy'lenir** — MCP içinde uygulama yeniden init edilmez,
-  SQLite kilit çakışması olmaz. (Web sunucusu açık olmalı: `uv run achilles-web`.)
+  SQLite kilit çakışması olmaz. (Web sunucusu açık olmalı: `uv run hektor-web`.)
 
 ## Tool yüzeyi: varsayılan kapalı allow-list
 
-`FastMCP.from_openapi()` kendisine verilen spec'teki HER operasyonu tool yapar. Achilles
+`FastMCP.from_openapi()` kendisine verilen spec'teki HER operasyonu tool yapar. Hektor
 116 operasyon sunar; çoğu dış bir ajanın görmemesi gereken yazma/tetikleme ucudur. Bu
 yüzden spec, FastMCP'ye verilmeden **önce** `mcp_server/allowlist.py` ile budanır.
 
@@ -45,8 +45,8 @@ yeşil kalsın. Yazma/tetikleme uçları (onay, eğitim, kill-switch, autodrive)
 
 ## Kimlik doğrulama (token kısır döngüsü çözüldü)
 
-`ACHILLES_API_TOKEN` ayarlıysa proxy istemcisi istekleri `Authorization: Bearer ...`
-ile imzalar (`achilles_mcp.auth_headers()`). Bu olmadan token açıkken **tüm** MCP tool
+`HEKTOR_API_TOKEN` ayarlıysa proxy istemcisi istekleri `Authorization: Bearer ...`
+ile imzalar (`hektor_mcp.auth_headers()`). Bu olmadan token açıkken **tüm** MCP tool
 çağrıları 401 alırdı → "token aç, MCP kırılsın / MCP çalışsın, kapı açık kalsın".
 
 ⚠️ **Sınırın nerede olduğunu karıştırma.** MCP proxy'si token'ı **insan (human)**
@@ -116,17 +116,17 @@ bash scripts/sync-mcp.sh
 ## Kurulum / kayıt
 
 ```bash
-claude mcp add achilles -- uv run --project <repo-yolu> python mcp_server/achilles_mcp.py
-claude mcp list            # 'achilles' bağlı mı kontrol
+claude mcp add hektor -- uv run --project <repo-yolu> python mcp_server/hektor_mcp.py
+claude mcp list            # 'hektor' bağlı mı kontrol
 ```
 
 ## Kullanım
-Kayıt sonrası `achilles-*` tool'ları erişilebilir olur (örn. `api_status`,
-`api_ask`, `api_rag_mastery`, `api_synthesis_reports`...). Detaylı kullanım: `/achilles-web` skill.
+Kayıt sonrası `hektor-*` tool'ları erişilebilir olur (örn. `api_status`,
+`api_ask`, `api_rag_mastery`, `api_synthesis_reports`...). Detaylı kullanım: `/hektor-web` skill.
 
 ## Doğrulama
 ```bash
-uv run python -c "import asyncio; from mcp_server.achilles_mcp import mcp; \
+uv run python -c "import asyncio; from mcp_server.hektor_mcp import mcp; \
 import asyncio as a; print(a.run(mcp.list_tools().__await__().__next__) if False else len(a.run(mcp.list_tools())))"
 # beklenen: 68 (web route sayısıyla eşleşmeli)
 ```

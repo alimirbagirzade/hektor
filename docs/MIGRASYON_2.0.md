@@ -1,6 +1,11 @@
 # v1 → 2.0 Migrasyonu — ne çıkarıldı, ne onarıldı
 
-_2026-09-03 · Kaynak depo: `alimirbagirzade/achilles` (v1) · Hedef: `alimirbagirzade/achilles2.0`_
+_2026-09-03 · Kaynak depo: `alimirbagirzade/achilles` (v1) · Hedef: o tarihte
+`alimirbagirzade/achilles2.0`, 2026-09-04'ten beri `alimirbagirzade/hektor`_
+
+> **Not:** Bu belge v1 → 2.0 migrasyonunu anlatır. Proje 2026-09-04'te **Hektor** olarak
+> yeniden adlandırıldı; aşağıdaki `HEKTOR_*` değişken adları ve `hektor` komutları o
+> tarihte `ACHILLES_*` / `achilles` idi. Geriye dönük uyum: bkz. `HANDOFF.md`.
 
 Amaç: **çalışan sistemi taşımak, bayat ve gereksiz olanı taşımamak.** Bu belge her
 kaldırma ve onarım için gerekçeyi kaydeder; "neden yok?" sorusunun tek cevabıdır.
@@ -45,8 +50,8 @@ Google istemcileri duruyordu ve kurulum sihirbazının **varsayılan seçeneği*
   importu veya api-key ayarı geri gelirse test kırılır.
 
 **Yan bulgu (gerçek bug, düzeltildi):** kurulum sihirbazında yerel model seçilince
-`MODEL_ENV` varsayılanı `ACHILLES_OPENAI_MODEL`'de kalıyordu → `.env`'e
-`ACHILLES_OPENAI_MODEL=qwen3:8b` yazılıp `ACHILLES_LLM_MODEL` hiç ayarlanmıyordu. Yalnız
+`MODEL_ENV` varsayılanı `HEKTOR_OPENAI_MODEL`'de kalıyordu → `.env`'e
+`HEKTOR_OPENAI_MODEL=qwen3:8b` yazılıp `HEKTOR_LLM_MODEL` hiç ayarlanmıyordu. Yalnız
 varsayılan modeli (`qwen3:4b`) seçen kullanıcılar bunu fark etmiyordu.
 
 ### 1.3 Opsiyonel dış RLM motoru (alexzhang13/rlm)
@@ -60,7 +65,7 @@ Varsayılan kapalıydı, gerçek kullanımı API anahtarı + docker istiyordu ve
 - `ALLOWED_TOOL_NAMES` (deny-by-default araç allowlist'i) `app/rlm/tool_registry.py`'ye taşındı —
   artık tek gerçek-kaynak orası.
 - `GET /api/rlm/config` korundu ama sadeleşti (motor/model/üretim modu/izinli araçlar/seed);
-  `POST /api/rlm/test-adapter`, `achilles rlm-test-adapter` ve `rlm-answer --engine` kaldırıldı.
+  `POST /api/rlm/test-adapter`, `hektor rlm-test-adapter` ve `rlm-answer --engine` kaldırıldı.
 - **RLM sekmesi ve koşu tablosu korundu** (yalnız motor-seçim alt paneli sadeleşti).
 
 ### 1.4 Bayat oturum geçmişi ve raporlar
@@ -76,7 +81,7 @@ raporları depoya birikmez.
 
 | # | Hata | Etki | Düzeltme |
 |---|---|---|---|
-| 1 | **Testler gerçek `data/` ve `storage/` ağacına yazıyordu** | Her tam koşu `data/lora_sft/lora_sft.jsonl` + `train/valid.jsonl` üretiyor, sonraki koşuda data-gate GO verip orkestrasyon testini düşürüyordu (sıra-bağımlı flakiness). Geliştiricinin gerçek `lora_sft.jsonl`'ini 5 satırla ezme riski. | Tüm veri yolları `settings.root`'tan türer; `ACHILLES_ROOT_PATH` ile yönlendirilebilir. conftest kökü tmp'ye alır **ve** teardown'da gerçek ağaca sızıntı olursa paketi FAIL eder. |
+| 1 | **Testler gerçek `data/` ve `storage/` ağacına yazıyordu** | Her tam koşu `data/lora_sft/lora_sft.jsonl` + `train/valid.jsonl` üretiyor, sonraki koşuda data-gate GO verip orkestrasyon testini düşürüyordu (sıra-bağımlı flakiness). Geliştiricinin gerçek `lora_sft.jsonl`'ini 5 satırla ezme riski. | Tüm veri yolları `settings.root`'tan türer; `HEKTOR_ROOT_PATH` ile yönlendirilebilir. conftest kökü tmp'ye alır **ve** teardown'da gerçek ağaca sızıntı olursa paketi FAIL eder. |
 | 2 | **Testler gerçek abonelik motoru doğurabiliyordu** | `TestClient` lifespan'i tetikliyor, unattended supervisor bir koşu açıp `codex` motorunu başlatmaya çalışıyordu (kota + Kural 8). Koşu sonrası `storage/unattended_supervisor_state.json` `{"status":"backoff","engine":"codex"}` kalıyordu. | `background_loops_enabled` ayarı; testlerde `false` → hiçbir döngü başlamaz. Yan etki: test süresi 295 s → 99 s. |
 | 3 | **Durum dosyaları CWD'ye bağlıydı** (`Path("storage")/...`) | Süreç başka dizinden başlatılırsa (Windows servisi, detached eğitim) durum sessizce yanlış yere yazılır/okunurdu. 5 modül etkileniyordu. | Hepsi `settings.state_dir` kullanıyor. |
 | 4 | **Eval setleri CWD'ye bağlıydı** (`auto_pipeline`: `Path("evals")`) | Detached koşuda yanlış dizine bakıp sessizce `EVAL_SKIPPED` üretiyordu → terfi kapısı sessizce kapanıyordu. | `settings.eval_sets_dir` (kaynak kökü). |
@@ -122,6 +127,6 @@ Yeni türetilmiş yollar: `source_root`, `state_dir`, `eval_sets_dir`, `manifest
 | Aday | Durum |
 |---|---|
 | Phase-4 GitHub otomasyonu (`.github/workflows/claude-code-task.yml`, `docs/PHASE4*.md`, 2 yönetişim testi) | Hiç aktive edilmedi (`vars.ENABLE_CLAUDE_TASK` olmadan INERT) ve `ANTHROPIC_API_KEY` ister. Guard'lı ve testli olduğu için kaldırılmadı. |
-| `app/training/dataset_builder.py` | İkinci veri hattı (SQLite `training_examples`); web uçları kanonik `sft_assembly` yoluna taşındı, yalnız `achilles dataset` kullanıyor. Müfredat pacing (%60/30/10) yalnız burada. |
+| `app/training/dataset_builder.py` | İkinci veri hattı (SQLite `training_examples`); web uçları kanonik `sft_assembly` yoluna taşındı, yalnız `hektor dataset` kullanıyor. Müfredat pacing (%60/30/10) yalnız burada. |
 | Bulut-GPU eğitim hattı (`cloud_notebook.py`, `lora-cloud-prep`, `PROTOKOL_BULUT_EGITIM.md`) | Yerel küçük-model eğitimine pivot edildi ama kod çalışıyor ve testli; 4B için tek pratik yol. |
 | `docs/MIMARI_REFERANS.md` | v1 temizliğinden ÖNCE yazıldı; kaldırılan modülleri hâlâ anlatıyor. Dosya başında uyarı var. |

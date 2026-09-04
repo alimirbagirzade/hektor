@@ -1,19 +1,19 @@
 # tv-bridge — TradingView MCP Köprüsü
 
-Achilles'in ürettiği Pine Script'i canlı TradingView'a gönder, strateji testi sonuçlarını al.
+Hektor'in ürettiği Pine Script'i canlı TradingView'a gönder, strateji testi sonuçlarını al.
 
 ## Ne zaman kullan
 
-- `achilles pine` çalıştırıldıktan sonra kodu TV'ye göndermek istediğinde
+- `hektor pine` çalıştırıldıktan sonra kodu TV'ye göndermek istediğinde
 - Araştırma döngüsü → `PASS` → TV'de canlı doğrulama yapmak istediğinde
-- Achilles backtest sonuçlarını TradingView Strategy Tester ile karşılaştırmak istediğinde
+- Hektor backtest sonuçlarını TradingView Strategy Tester ile karşılaştırmak istediğinde
 
 ## Ön koşullar
 
 ```bash
 # TradingView Desktop kurulu olmalı
 # Bu skill çalışmadan önce:
-uv run achilles-web   # Achilles API aktif olmalı (8765)
+uv run hektor-web   # Hektor API aktif olmalı (8765)
 ```
 
 ## Adım 1 — TradingView'ı başlat
@@ -42,7 +42,7 @@ curl -s http://localhost:8765/api/backtest/<BACKTEST_ID>/pine | python3 -c "impo
 
 Seçenek B — Strateji adına göre:
 ```bash
-uv run achilles pine <strateji_adı>
+uv run hektor pine <strateji_adı>
 ```
 
 Seçenek C — Son PASS backtest (otomatik):
@@ -102,9 +102,9 @@ Dönen değerler: `net_profit`, `total_trades`, `win_rate`, `profit_factor`,
 
 ## Adım 7 — Sonuçları karşılaştır
 
-Achilles backtest ile TradingView sonuçlarını yan yana göster:
+Hektor backtest ile TradingView sonuçlarını yan yana göster:
 
-| Metrik         | Achilles | TradingView |
+| Metrik         | Hektor | TradingView |
 |----------------|----------|-------------|
 | Toplam getiri  | ?%       | ?%          |
 | Sharpe         | ?        | ?           |
@@ -128,7 +128,7 @@ region: "strategy_tester"
 | `api_available: false` | TV henüz yükleniyor, birkaç sn bekle ve health_check tekrarla |
 | Pine derleme hatası `undeclared identifier` | İndikatör adı yanlış; `ta.ema` → `ta.ema(close, period)` kontrol et |
 | Strategy Tester boş | Grafik yeterli bar yüklenmemiş; `chart_scroll_to_date` ile eski tarihe git |
-| Sonuçlar Achilles'ten çok farklı | Commission type/value uyuşmuyor; Pine'daki `commission_value` % mi? |
+| Sonuçlar Hektor'ten çok farklı | Commission type/value uyuşmuyor; Pine'daki `commission_value` % mi? |
 
 ## Tam örnek (BTCUSD 1H)
 

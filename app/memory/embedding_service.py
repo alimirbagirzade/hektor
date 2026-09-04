@@ -105,7 +105,7 @@ class EmbeddingService:
     def _fallback_mode(self) -> str:
         if not self.allow_fake:
             raise RuntimeError(
-                "Ollama'ya ulaşılamadı ve ACHILLES_ALLOW_FAKE_EMBEDDINGS=false. "
+                "Ollama'ya ulaşılamadı ve HEKTOR_ALLOW_FAKE_EMBEDDINGS=false. "
                 "Ollama'yı başlatın (ollama serve) veya fake embedding'e izin verin."
             )
         logger.warning(

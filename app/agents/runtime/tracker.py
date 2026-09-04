@@ -48,7 +48,7 @@ _EVENT_RETENTION_DAYS = 30
 
 # Mevcut koşu id'si (iç içe/asenkron bağlamlarda doğru taşınır).
 _current_run: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "achilles_current_agent_run", default=None
+    "hektor_current_agent_run", default=None
 )
 
 

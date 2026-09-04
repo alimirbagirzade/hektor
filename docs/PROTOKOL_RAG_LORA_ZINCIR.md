@@ -5,11 +5,11 @@ _Son güncelleme: 2026-06-16. Teknik detay: [`RAG_LORA_ENTEGRASYON.md`](RAG_LORA
 > **Tek cümle:** RAG ve LoRA **ayrı inşa edilir**, **zincir olarak birlikte kullanılır.**
 > RAG **bilgiyi** (makalelerden) sağlar, LoRA **üslubu/disiplini** sağlar.
 
-> **🧠 ANA FİKİR (anlama):** Achilles bir bilgiyi "anladı" demek = onu **doğru kullanıp**
+> **🧠 ANA FİKİR (anlama):** Hektor bir bilgiyi "anladı" demek = onu **doğru kullanıp**
 > ondan **test edilebilir yeni bir şey üretebildi** demektir. Anlama bir yüzdeyle değil bir
 > **sınavla** kanıtlanır: uygula (L3) → karşıolgu (L4) → yeni formül üret (L5) → matematik
 > geçerli + maliyet dahil backtest/OOS geçir. Geçmeyen "yeni formül" halüsinasyondur (Kural 2).
-> Okunabilir özet: README → "Achilles okuduğunu *anladı* mı?".
+> Okunabilir özet: README → "Hektor okuduğunu *anladı* mı?".
 
 ---
 
@@ -58,7 +58,7 @@ KULLANIM (zincir / "tek beyin")
 ### 3a · %100 Anlama (RAG tarafı)
 Hedef: her makale **içerikli bilgi kartına** dönüşsün + anlama skoru alsın.
 - Öğrenme döngüsü (`continuous-learning.sh`) kartsız makaleleri işler: `card` → içerikli
-  onay → `mastery-*` (anlama skoru). Dürüst metrik: `achilles rag-mastery` (kapsam/anlama %).
+  onay → `mastery-*` (anlama skoru). Dürüst metrik: `hektor rag-mastery` (kapsam/anlama %).
 - "İçeriksiz kabuk" kart eğitime/sentetik-veriye **girmez**.
 
 ### 3b · Sentez — Markov-zinciri indikatör fikirleri
@@ -83,11 +83,11 @@ sonraki dataset'e bu reçete karıştırılmalı.
 
 ### 3d · LoRA eğitim
 - Lokal CPU (detached): web/terminal kapansa da sürer. `keep_alive=0` (OOM önle).
-- Eğitim BAŞLATMA: web "▶ EĞİTİME HAZIR" tek-tık / `.\scripts\start-train.ps1` / `achilles train --run`.
+- Eğitim BAŞLATMA: web "▶ EĞİTİME HAZIR" tek-tık / `.\scripts\start-train.ps1` / `hektor train --run`.
 - Detay + ölçülen süreler: [`EGITIM_PROTOKOLU.md`](EGITIM_PROTOKOLU.md).
 
 ### 3e · Eval — dürüst gate (Kural 2)
-- `achilles lora-eval <adapter> --eval-set evals/discipline_core.jsonl` → **base vs adapter**
+- `hektor lora-eval <adapter> --eval-set evals/discipline_core.jsonl` → **base vs adapter**
   (adapter'ı gerçekten yükler). Adapter base'den **iyiyse** kabul, **kötüyse REDDET** (terfi etme).
 - Not: red-flag sezgisi negasyon-kör → ideal judge **LLM-judge** (yol haritası).
 
@@ -105,12 +105,12 @@ sonraki dataset'e bu reçete karıştırılmalı.
 
 ## 5. Komutlar (özet)
 ```bash
-uv run achilles rag-mastery            # anlama/kapsam % (dürüst)
+uv run hektor rag-mastery            # anlama/kapsam % (dürüst)
 bash scripts/continuous-learning.sh 72 # döngü: anla → sentez(Markov) → synth-qa
-uv run achilles lora-cloud-prep        # sentetik + kart → lora_sft.jsonl
-uv run achilles lora-split             # → train/valid
-uv run achilles train --run --backend peft --adapter-name <ad> --iterations <n>
-uv run achilles lora-eval <ad> --eval-set evals/discipline_core.jsonl  # base vs adapter
+uv run hektor lora-cloud-prep        # sentetik + kart → lora_sft.jsonl
+uv run hektor lora-split             # → train/valid
+uv run hektor train --run --backend peft --adapter-name <ad> --iterations <n>
+uv run hektor lora-eval <ad> --eval-set evals/discipline_core.jsonl  # base vs adapter
 ```
 
 İlgili: [`RAG_LORA_ENTEGRASYON.md`](RAG_LORA_ENTEGRASYON.md) · [`EGITIM_PROTOKOLU.md`](EGITIM_PROTOKOLU.md) · [`PROTOKOL_VERI_URETIM.md`](PROTOKOL_VERI_URETIM.md)

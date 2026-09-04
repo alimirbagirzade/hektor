@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Achilles Trader AI -- Linux/macOS autostart kurucu (web sunucusu acilista kalksin).
+# Hektor Trader AI -- Linux/macOS autostart kurucu (web sunucusu acilista kalksin).
 #
 # Windows'ta autostart .vbs + Task Scheduler ile (setup.ps1/start-server.ps1) yapilir;
 # bu script onun Linux/macOS karsiligidir. Kiralik/bulut CPU sunucusu yeniden
-# baslatildiginda `achilles-web`'in kendiliginden ayaga kalkmasini saglar.
+# baslatildiginda `hektor-web`'in kendiliginden ayaga kalkmasini saglar.
 #
 # Strateji (ilk uygun olan secilir):
 #   Linux : systemd KULLANICI servisi (enable-linger ile reboot'ta da calisir)
@@ -21,7 +21,7 @@ OS="$(uname -s)"
 ACTION="${1:-install}"
 
 UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
-SVC_NAME="achilles-web"
+SVC_NAME="hektor-web"
 
 info() { echo "  >>   $1"; }
 ok()   { echo "  [OK] $1"; }
@@ -32,13 +32,13 @@ install_systemd_user() {
     mkdir -p "$unit_dir"
     cat > "$unit_dir/$SVC_NAME.service" <<EOF
 [Unit]
-Description=Achilles Trader AI web sunucusu
+Description=Hektor Trader AI web sunucusu
 After=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=$PROJECT_DIR
-ExecStart=$UV run --project $PROJECT_DIR achilles-web
+ExecStart=$UV run --project $PROJECT_DIR hektor-web
 Restart=on-failure
 RestartSec=5
 Environment=UV_NO_SYNC=1
@@ -59,11 +59,11 @@ EOF
 }
 
 install_cron_reboot() {
-    local cmd="cd $PROJECT_DIR && UV_NO_SYNC=1 $UV run achilles-web >> $PROJECT_DIR/logs/web-autostart.log 2>&1"
+    local cmd="cd $PROJECT_DIR && UV_NO_SYNC=1 $UV run hektor-web >> $PROJECT_DIR/logs/web-autostart.log 2>&1"
     local line="@reboot $cmd"
-    ( crontab -l 2>/dev/null | grep -v "achilles-web" ; echo "$line" ) | crontab -
+    ( crontab -l 2>/dev/null | grep -v "hektor-web" ; echo "$line" ) | crontab -
     ok "cron @reboot kuruldu (autostart)"
-    info "Kaldir: crontab -e -> 'achilles-web' satirini sil"
+    info "Kaldir: crontab -e -> 'hektor-web' satirini sil"
 }
 
 uninstall_all() {
@@ -72,7 +72,7 @@ uninstall_all() {
         rm -f "$HOME/.config/systemd/user/$SVC_NAME.service"
         systemctl --user daemon-reload 2>/dev/null || true
     fi
-    crontab -l 2>/dev/null | grep -v "achilles-web" | crontab - 2>/dev/null || true
+    crontab -l 2>/dev/null | grep -v "hektor-web" | crontab - 2>/dev/null || true
     ok "Autostart kaldirildi (systemd + cron)"
 }
 
@@ -83,7 +83,7 @@ fi
 
 mkdir -p "$PROJECT_DIR/logs"
 echo ""
-echo "  Achilles autostart kurulumu ($OS)"
+echo "  Hektor autostart kurulumu ($OS)"
 
 case "$OS" in
   Linux)
@@ -93,19 +93,19 @@ case "$OS" in
         warn "systemd kullanici servisi yok -> cron @reboot kullaniliyor"
         install_cron_reboot
     else
-        warn "Ne systemd ne cron bulundu. Elle baslat:  $UV run achilles-web"
+        warn "Ne systemd ne cron bulundu. Elle baslat:  $UV run hektor-web"
     fi
     ;;
   Darwin)
     if command -v crontab >/dev/null 2>&1; then
         install_cron_reboot
-        info "macOS launchd alternatifi:  make web-start  (com.achilles.web.plist)"
+        info "macOS launchd alternatifi:  make web-start  (com.hektor.web.plist)"
     else
-        warn "Elle baslat:  $UV run achilles-web   (veya: make web-start)"
+        warn "Elle baslat:  $UV run hektor-web   (veya: make web-start)"
     fi
     ;;
   *)
     warn "Bu platformda otomatik autostart desteklenmiyor."
-    info "Elle baslat:  $UV run achilles-web"
+    info "Elle baslat:  $UV run hektor-web"
     ;;
 esac

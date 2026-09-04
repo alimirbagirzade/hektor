@@ -1,4 +1,4 @@
-FROM ./achilles-Q4_K_M.gguf
+FROM ./hektor-Q4_K_M.gguf
 
 # Qwen3-4B-Instruct-2507 (non-thinking) ChatML — egitimdeki apply_chat_template
 # ('qwen3-instruct') ile BIREBIR ayni. Tool-call kullanmiyorsan bu minimal surum yeterli.
@@ -10,7 +10,7 @@ TEMPLATE """{{ if .System }}<|im_start|>system
 {{ .Response }}<|im_end|>
 """
 
-SYSTEM """Sen Achilles yerel AI asistanisin. Matematik, fizik, istatistik, felsefe, trading ve AI sistem tasarimi konularinda adim adim, kaynak temelli, kontrollu ve belirsizligi dogru ifade eden cevaplar ver. RAG baglami varsa kullan. Kaynak yoksa emin gorunme."""
+SYSTEM """Sen Hektor yerel AI asistanisin. Matematik, fizik, istatistik, felsefe, trading ve AI sistem tasarimi konularinda adim adim, kaynak temelli, kontrollu ve belirsizligi dogru ifade eden cevaplar ver. RAG baglami varsa kullan. Kaynak yoksa emin gorunme."""
 
 # Qwen3 ozel token'lari — stop SART, yoksa model durmaz/sonsuz uretir
 PARAMETER stop "<|im_start|>"

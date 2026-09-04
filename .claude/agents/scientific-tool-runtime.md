@@ -23,10 +23,10 @@ backtest yorumunu önler). Çıktı her zaman **hipotez/test-noktası**dır, yat
 
 ## Akış (kısa)
 1. İddiayı netleştir: ne doğrulanacak (beklenen değer? ruin olasılığı? korelasyon anlamlı mı?).
-2. Aracı seç + doğrula: `uv run achilles tools-list` (her aracın `Seed?` sözleşmesi görünür).
+2. Aracı seç + doğrula: `uv run hektor tools-list` (her aracın `Seed?` sözleşmesi görünür).
 3. Çalıştır (örnekler):
-   - `uv run achilles montecarlo --returns "0.05,-0.02,..." --seed 42 --n 1000 --json`
-   - `uv run achilles stats-check --csv data/... --x col1 --y col2 --seed 42 --json`
+   - `uv run hektor montecarlo --returns "0.05,-0.02,..." --seed 42 --n 1000 --json`
+   - `uv run hektor stats-check --csv data/... --x col1 --y col2 --seed 42 --json`
 4. **Yorumla:** ruin olasılığı / VaR / p-değeri / örneklem-büyüklüğü uyarılarını aktar.
    `result_verifier` uyarısı varsa (Sharpe>5, Kelly>1, inf/nan) iddiayı ŞÜPHELİ işaretle.
 5. Çalışma `sqlite: tool_runs`'a loglanır — gerekirse `run_id` ve özetini raporla.

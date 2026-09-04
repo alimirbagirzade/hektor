@@ -1,6 +1,6 @@
 """Sürüm/sapma bilgisi — web header rozeti için (SALT-OKUMA, offline).
 
-`achilles doctor`'ın web karşılığı: bu makinenin `origin/main`'e göre ne kadar
+`hektor doctor`'ın web karşılığı: bu makinenin `origin/main`'e göre ne kadar
 geride/ileride olduğunu, `main` dalında olup olmadığını ve son güncelleme log
 satırını döndürür. Ağ YOK (origin/main yerel ref'ten okunur), git mutasyonu YOK.
 

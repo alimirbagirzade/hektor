@@ -3,7 +3,7 @@
 > **This command is report-only. It never starts training.**
 
 ## Purpose
-Achilles'in eğitim hazırlık durumunu **lokal, salt-okuma** olarak denetler ve bir rapor
+Hektor'in eğitim hazırlık durumunu **lokal, salt-okuma** olarak denetler ve bir rapor
 üretir. Amaç: gerçek eğitime geçmeden önce "hazır mıyız?" sorusunu objektif sinyallerle
 (veri, kalite kapısı, STOP_ALL, onaylar, AutoLoRA durumu) yanıtlamak — **hiçbir tehlikeli
 aksiyon başlatmadan**.
@@ -22,7 +22,7 @@ aksiyon başlatmadan**.
 
 ## What it never does
 - `detached_launch.launch()` **çağırmaz**.
-- `achilles train --run` / training subprocess **başlatmaz**.
+- `hektor train --run` / training subprocess **başlatmaz**.
 - `AutoLoRAPipeline.start_training()` **çağırmaz**.
 - `promote_to_production()` **çağırmaz** (adapter terfisi yok).
 - `require_fresh_approval()` **çağırmaz** → onay **tüketmez**, yeni pending onay açmaz.
@@ -32,10 +32,10 @@ aksiyon başlatmadan**.
 
 ## CLI usage
 ```bash
-uv run achilles local-training-audit                 # rapor üret + reports/ altına yaz
-uv run achilles local-training-audit --json          # makine-okunabilir JSON
-uv run achilles local-training-audit --out reports/local_training_orchestrator
-uv run achilles local-training-audit --no-write      # yazmadan yalnız ekrana
+uv run hektor local-training-audit                 # rapor üret + reports/ altına yaz
+uv run hektor local-training-audit --json          # makine-okunabilir JSON
+uv run hektor local-training-audit --out reports/local_training_orchestrator
+uv run hektor local-training-audit --no-write      # yazmadan yalnız ekrana
 ```
 Komut her durumda şunu basar:
 ```text
@@ -53,7 +53,7 @@ kaynağında **referans bile yoktur** (statik test ile doğrulanır).
 Onay **tek kullanımlıktır** (CLAUDE.md Kural 8). Bu denetim onayı yalnız **gözlemler**:
 - `has_fresh_approval("lora-trainer","train_run")` → taze onay VAR MI (tüketmeden).
 - `list_approvals(status="pending")` → bekleyen onaylar (raporlanır, tüketilmez).
-Gerçek eğitim için ayrı **taze manuel onay** + `achilles train --run` (ya da onaylı web
+Gerçek eğitim için ayrı **taze manuel onay** + `hektor train --run` (ya da onaylı web
 `/api/training/run`, Phase 4D-1) gerekir. Orkestratör bu kapıyı **açmaz**.
 
 ## STOP_ALL behavior
@@ -71,7 +71,7 @@ Gerçek eğitim için ayrı **taze manuel onay** + `achilles train --run` (ya da
 ## How this replaces cloud nightly automation
 GitHub cloud nightly audit (`nightly-automation-audit.yml`) **inert** (local-first karar).
 Onun yerine bu komut **lokal, on-demand** rapor-only denetim sağlar: kullanıcı dilediğinde
-`uv run achilles local-training-audit` çalıştırır, çıktıyı inceler. Otomatik tetik yok,
+`uv run hektor local-training-audit` çalıştırır, çıktıyı inceler. Otomatik tetik yok,
 secret yok, cloud yok. İstenirse Windows Task Scheduler ile periyodik **rapor-only** koşu
 ayarlanabilir (yine eğitim başlatmaz).
 

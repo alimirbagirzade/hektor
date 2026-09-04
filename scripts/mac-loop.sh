@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Achilles macOS MLX EĞİTİM DÖNGÜSÜ — Apple Silicon için.
+# Hektor macOS MLX EĞİTİM DÖNGÜSÜ — Apple Silicon için.
 #
 # Her tur:
 #   1) Kartsız makalelere kart üret (LLM)
@@ -47,7 +47,7 @@ for p in s.list_papers():
   log "1) Kartsız makale: $N"
   for pid in $PIDS; do
     log "   kart: $pid"
-    timeout 900 uv run achilles card "$pid" >> "$LOG" 2>&1 || log "   HATA: $pid"
+    timeout 900 uv run hektor card "$pid" >> "$LOG" 2>&1 || log "   HATA: $pid"
   done
 
   # --- 2) İçerikli pending kartları onayla -----------------------------------
@@ -66,13 +66,13 @@ print(f'2) Kart: {a} onaylandı, {k} içeriksiz atlandı')
 
   # --- 3) Sentetik QA üret (2 makale, 6 chunk, 3 soru/chunk) ----------------
   log "3) synth-qa üretiliyor (2 makale × 6 chunk × 3 soru)..."
-  timeout 3600 uv run achilles synth-qa \
+  timeout 3600 uv run hektor synth-qa \
     --per-chunk 3 --max-chunks 6 --max-papers 2 >> "$LOG" 2>&1 \
     || log "   synth-qa HATA/timeout"
 
   # --- 4) Dataset tazele (kart + synth-qa) -----------------------------------
   log "4) Dataset tazeleniyor..."
-  uv run achilles lora-dataset >> "$LOG" 2>&1
+  uv run hektor lora-dataset >> "$LOG" 2>&1
 
   NEXAMPLES=$(wc -l < data/lora_sft/lora_sft.jsonl 2>/dev/null || echo 0)
   log "   Dataset: $NEXAMPLES örnek"
@@ -83,7 +83,7 @@ print(f'2) Kart: {a} onaylandı, {k} içeriksiz atlandı')
   # train_status.json → web UI rozeti için adapter adını yaz
   printf '{"adapter":"%s","running":true}' "$ADAPTER" > storage/train_status.json
   # stderr → train-full-err.log (web UI canlı ilerleme buradan okur) + mac-loop.log
-  timeout 7200 uv run achilles train --run \
+  timeout 7200 uv run hektor train --run \
     --adapter-name "$ADAPTER" \
     --iterations 300 \
     --batch-size 2 \

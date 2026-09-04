@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Achilles Trader AI — tek komutla kurulum (macOS + Linux)
+# Hektor Trader AI — tek komutla kurulum (macOS + Linux)
 # Kullanim: bash setup.sh
 set -euo pipefail
 
@@ -15,7 +15,7 @@ link() { echo "       $1"; }
 
 echo ""
 echo "  ======================================================"
-echo "    Achilles Trader AI  -  Kurulum"
+echo "    Hektor Trader AI  -  Kurulum"
 echo "    Platform: $OS / $ARCH"
 echo "  ======================================================"
 echo ""
@@ -57,7 +57,7 @@ CHOICE="${CHOICE:-1}"
 
 # Bu proje YALNIZ yerel Ollama kullanir; API anahtari istemez.
 LLM_MODEL="qwen3:4b"
-MODEL_ENV="ACHILLES_LLM_MODEL"
+MODEL_ENV="HEKTOR_LLM_MODEL"
 NEED_OLLAMA=true
 OLLAMA_RAM=8
 OLLAMA_DSK=3
@@ -247,7 +247,7 @@ set_env() {
 set_env "$MODEL_ENV" "$LLM_MODEL"
 
 ok ".env guncellendi: yerel Ollama / $LLM_MODEL"
-uv run achilles init
+uv run hektor init
 ok "Veritabani hazir"
 
 # ==========================================================================
@@ -271,12 +271,12 @@ ACCESS="${ACCESS:-1}"
 API_TOKEN=""
 if [ "$ACCESS" = "2" ]; then
     API_TOKEN="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-    set_env "ACHILLES_WEB_HOST" "0.0.0.0"
-    set_env "ACHILLES_API_TOKEN" "$API_TOKEN"
+    set_env "HEKTOR_WEB_HOST" "0.0.0.0"
+    set_env "HEKTOR_API_TOKEN" "$API_TOKEN"
     ok "Uzaktan erisim: WEB_HOST=0.0.0.0 + API token uretildi (.env'e yazildi)"
     warn "Token olmadan aga acmak TEHLIKELIDIR — token uretildi, sakli tutun."
 else
-    set_env "ACHILLES_WEB_HOST" "127.0.0.1"
+    set_env "HEKTOR_WEB_HOST" "127.0.0.1"
     ok "Yerel erisim: yalniz 127.0.0.1 (guvenli varsayilan)"
 fi
 
@@ -316,7 +316,7 @@ fi
 echo "  ======================================================"
 echo ""
 echo "  Uygulamayi baslatmak icin:"
-echo "    uv run achilles-web"
+echo "    uv run hektor-web"
 echo ""
 if [ "$ACCESS" = "2" ]; then
     SRV_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
@@ -334,7 +334,7 @@ else
     echo "    http://127.0.0.1:8765"
 fi
 echo ""
-echo "  Baglanti testi (opsiyonel):  uv run achilles status"
+echo "  Baglanti testi (opsiyonel):  uv run hektor status"
 echo ""
 
 if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then

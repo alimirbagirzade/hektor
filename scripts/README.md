@@ -1,6 +1,6 @@
 # scripts/ — operasyon scriptleri
 
-Achilles'i kurma, doğrulama, çalıştırma ve PR akışı scriptleri.
+Hektor'i kurma, doğrulama, çalıştırma ve PR akışı scriptleri.
 Linux/macOS = `.sh`, Windows = `.ps1`.
 
 ## Kurulum & çalıştırma

@@ -15,14 +15,14 @@ LLM'e açık bir hesap sorusu sorma; **araca** sor. Hesap kritikse bu skill'i ku
 ## Araçlar (CLI)
 ```bash
 # Kayıtlı araçları + determinizm sözleşmesini listele
-uv run achilles tools-list
+uv run hektor tools-list
 
 # Monte Carlo equity simülasyonu + risk-of-ruin (seed ZORUNLU — Kural 6)
-uv run achilles montecarlo --returns "0.05,-0.02,0.03,-0.04,0.06" --seed 42 --n 1000 --json
-uv run achilles montecarlo --csv data/market/trades.csv --seed 42 --ruin 0.5
+uv run hektor montecarlo --returns "0.05,-0.02,0.03,-0.04,0.06" --seed 42 --n 1000 --json
+uv run hektor montecarlo --csv data/market/trades.csv --seed 42 --ruin 0.5
 
 # İstatistik: iki kolon → Pearson/Spearman + permütasyon p-değeri; tek → betimsel
-uv run achilles stats-check --csv data/x.csv --x ret_a --y ret_b --seed 42 --json
+uv run hektor stats-check --csv data/x.csv --x ret_a --y ret_b --seed 42 --json
 ```
 
 Programatik:

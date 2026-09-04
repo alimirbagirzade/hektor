@@ -23,7 +23,7 @@ from app.config import get_settings
 log = logging.getLogger(__name__)
 
 #: Gerçek eğitim komutu — YALNIZ METİN; bu modül ÇALIŞTIRMAZ.
-RECOMMENDED_COMMAND = "uv run achilles train --run"
+RECOMMENDED_COMMAND = "uv run hektor train --run"
 #: Onaylı web alternatifi (yalnız dokümante edilir).
 WEB_ALTERNATIVE = "Onaylı web: POST /api/training/run (Phase 4D-1) — otomatik değil, insan eylemi."
 
@@ -131,7 +131,7 @@ def build_handoff(
         result: dict[str, Any] = {
             **base,
             "status": "needs_dry_run",
-            "reason": "dry-run raporu yok — önce `uv run achilles local-training-dry-run`.",
+            "reason": "dry-run raporu yok — önce `uv run hektor local-training-dry-run`.",
             "note": _NOTE_NOEXEC,
         }
     elif _stop_all_active():
@@ -155,7 +155,7 @@ def build_handoff(
             **base,
             "status": "needs_approval",
             "reason": f"Approval not ready (status={appr_status}).",
-            "hint": f"Önce onayı ver: uv run achilles approval-approve {eff_approval_id or '<id>'}",
+            "hint": f"Önce onayı ver: uv run hektor approval-approve {eff_approval_id or '<id>'}",
             "note": _NOTE_NOEXEC,
         }
     else:

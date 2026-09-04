@@ -1,4 +1,4 @@
-# Achilles — Automation Manifest (Phase 0)
+# Hektor — Automation Manifest (Phase 0)
 #
 # Denetimde (audit) bulunan TÜM runtime-agent benzeri bileşenlerin tek,
 # bildirimsel kaynağı. `app/agents/runtime/registry.py` bunu okur.
@@ -67,7 +67,7 @@ agents:
       - "STOP_ALL aktifken preflight/approval blocked"
       - "checkpoint+resume: tamamlanan aşama tekrar koşmaz (session-limit'e dayanıklı)"
     approval_required: false
-    stop_method: "achilles orchestrate-recover (stale running → failed); cancel(run_id)"
+    stop_method: "hektor orchestrate-recover (stale running → failed); cancel(run_id)"
     status_location: "sqlite: orchestration_runs"
     known_failure_modes:
       - "delege istisnası → aşama failed + koşu failed (sessiz yutma yok)"
@@ -187,7 +187,7 @@ agents:
   - agent_id: training-guardian
     name: Training Guardian (Checkpoint ve Otomatik Tamir)
     file: scripts/training-watchdog.ps1
-    entrypoint: AchillesTrainingWatchdog scheduled task / PEFT auto-resume
+    entrypoint: HektorTrainingWatchdog scheduled task / PEFT auto-resume
     trigger: "Windows Task Scheduler (5 dk loop)"
     autonomy: autonomous
     dangerous: false
@@ -303,7 +303,7 @@ agents:
     default_enabled: false
     writes:
       - "docs/egitim/<konu>-watchlist.md (rag|lora|rlm|math-physics)"
-      - "gelen kutusu: ACHILLES_SCOUT_INBOX_DIR (yoksa data/literature_inbox/) — PDF + BULUNANLAR.md"
+      - "gelen kutusu: HEKTOR_SCOUT_INBOX_DIR (yoksa data/literature_inbox/) — PDF + BULUNANLAR.md"
     reads:
       - "arXiv (ağ, enjekte edilebilir searcher)"
       - docs/egitim/rag-watchlist.md
@@ -314,7 +314,7 @@ agents:
       - "idempotent: var olan dosya yeniden indirilmez, aday dedup edilir"
       - "çevrimdışı-güvenli (ağ hatası → boş rapor, çökme yok)"
     approval_required: false
-    stop_method: "Task Scheduler görevini kaldır (Achilles-LiteratureScout)"
+    stop_method: "Task Scheduler görevini kaldır (Hektor-LiteratureScout)"
     status_location: "gelen kutusu BULUNANLAR.md + docs/egitim/<konu>-watchlist.md"
     known_failure_modes:
       - "arXiv erişilemez → boş rapor"
@@ -338,7 +338,7 @@ agents:
       - "çevrimdışı-güvenli (ağ hatası → boş, çökme yok)"
       - "deterministik skorlama + idempotent dedup"
     approval_required: false
-    stop_method: "Task Scheduler görevini kaldır (Achilles-RAG-Scan)"
+    stop_method: "Task Scheduler görevini kaldır (Hektor-RAG-Scan)"
     status_location: "docs/egitim/rag-watchlist.md + logs/rag-scan-*.log"
     known_failure_modes:
       - "sorgu başına arama hatası yutulur"
@@ -614,7 +614,7 @@ agents:
       - "beklenmeyen hata → status=failed (try/except, dangling kalmaz)"
       - "dış-kill/SIGKILL → 'running' asılı; sonraki çağrıda reaper temizler"
 
-  # --- AI-brain ek modülleri (talimat: helix_achilles_ai_beyin_ek_moduller) ---
+  # --- AI-brain ek modülleri (talimat: helix_hektor_ai_beyin_ek_moduller) ---
   - agent_id: ingestion-quality-scorer
     name: Ingestion Quality Scorer
     file: app/ingestion/quality_scorer.py

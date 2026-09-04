@@ -172,7 +172,7 @@ def test_her_motorun_kota_uyarisi_var() -> None:
 
 
 def test_ozet_kimlik_bilgisi_alani_icermez() -> None:
-    """Achilles kimlik bilgisi TOPLAMAZ — özet şemasında böyle bir alan olmamalı."""
+    """Hektor kimlik bilgisi TOPLAMAZ — özet şemasında böyle bir alan olmamalı."""
     yasak = {"api_key", "token", "password", "sifre", "email", "mail", "secret", "credential"}
     for ozet in engines.describe_all(which=lambda _b: None):
         assert not (set(ozet) & yasak)

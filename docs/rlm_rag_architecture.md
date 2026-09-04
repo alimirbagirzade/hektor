@@ -1,6 +1,6 @@
-# RLM + RAG + Paper Mastery — Mimari (Achilles)
+# RLM + RAG + Paper Mastery — Mimari (Hektor)
 
-_Son güncelleme: 2026-06-23 · Kaynak talimat: `Desktop/RAG Kaynak/RLM/achilles_rlm_rag_paper_brain_claude_prompt.txt`_
+_Son güncelleme: 2026-06-23 · Kaynak talimat: `Desktop/RAG Kaynak/RLM/hektor_rlm_rag_paper_brain_claude_prompt.txt`_
 
 ## Amaç
 
@@ -13,7 +13,7 @@ Local LLM
   + Paper RAG Memory       (mevcut: app/memory, app/ingestion)
   + Paper Mastery Eval      (mevcut: app/learning, app/verification)
   + RLM Controller          (YENİ: app/rlm)
-  = Achilles Research Brain
+  = Hektor Research Brain
 ```
 
 ## Katmanlar
@@ -70,9 +70,9 @@ Guard, `settings.rlm_allow_live_trading_signal` bayrağını gerçekten okur (MU
 
 **CLI:**
 ```bash
-uv run achilles rlm-answer "Bu makalelere göre volatilite rejimi momentum'u nasıl etkiler?"
-uv run achilles rlm-answer "Bu makalenin metodolojisi?" --paper-ids paper_abc123
-uv run achilles rlm-runs
+uv run hektor rlm-answer "Bu makalelere göre volatilite rejimi momentum'u nasıl etkiler?"
+uv run hektor rlm-answer "Bu makalenin metodolojisi?" --paper-ids paper_abc123
+uv run hektor rlm-runs
 ```
 
 **API:**
@@ -82,7 +82,7 @@ GET  /api/rlm/runs              → son koşular
 GET  /api/rlm/runs/{run_id}     → run + steps + evidence + verification
 ```
 
-## Config (`app/config/settings.py`, env `ACHILLES_RLM_*`)
+## Config (`app/config/settings.py`, env `HEKTOR_RLM_*`)
 
 | Ayar | Vars. | Anlam |
 |------|------|-------|
@@ -107,9 +107,9 @@ GET  /api/rlm/runs/{run_id}     → run + steps + evidence + verification
 
 ## Mevcut altyapı ile eşleme (entegrasyon, sıfırdan değil)
 
-Talimatın çoğu bileşeni Achilles'te **zaten vardı**; RLM bunları orkestre eder:
+Talimatın çoğu bileşeni Hektor'te **zaten vardı**; RLM bunları orkestre eder:
 
-| Talimat bileşeni | Achilles karşılığı (mevcut) |
+| Talimat bileşeni | Hektor karşılığı (mevcut) |
 |---|---|
 | paper ingestion + content-hash id | `app/ingestion/`, `app/memory/paper_indexer.py` |
 | hibrit arama (dense+BM25+RRF+rerank) | `app/memory/reranking_retriever.py` |

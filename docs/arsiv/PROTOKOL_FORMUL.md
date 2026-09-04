@@ -11,7 +11,7 @@
 Ollama kapalıysa **`_rule_based_extract`** yedeği (`_KNOWN_INDICATORS` — ATR, RSI, EMA… `latex/plain=None`).
 
 ```bash
-uv run achilles extract-formulas [paper_id] [--force]   # CLI
+uv run hektor extract-formulas [paper_id] [--force]   # CLI
 # veya  POST /api/research/extract   (web Trader Beyin → Formül Çıkar)
 ```
 
@@ -31,7 +31,7 @@ Kategoriler: `momentum / trend / volatility / volume / risk / statistical`.
 **çapraz makale sentezi** yapar → daha önce denenmemiş indikatör/algoritma önerir →
 otomatik backtest (bkz. [PROTOKOL_BACKTEST.md](PROTOKOL_BACKTEST.md)) → sentez makalesi.
 
-Tetik: `uv run achilles research "..."` veya web Araştırma sekmesi.
+Tetik: `uv run hektor research "..."` veya web Araştırma sekmesi.
 
 ## 4. Bütünlük kuralları
 - **Kaynak zorunlu** — `paper_id` foreign key; kaynaksız formül kaydedilmez.

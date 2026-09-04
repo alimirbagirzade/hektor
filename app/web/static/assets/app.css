@@ -1,4 +1,4 @@
-/* ACHILLES — trading research · "Bronz Defter" tasarım: Spectral serif başlık,
+/* HEKTOR — trading research · "Bronz Defter" tasarım: Spectral serif başlık,
    Plus Jakarta Sans gövde, sıcak parşömen zemin, heritage yalnız tipografi
    karakterinde (bölüm numaraları bronz serif). CVD-güvenli Okabe-Ito semantik
    palet korundu: pass SOĞUK bluish-green+✓, fail SICAK vermillion+✕.
@@ -329,7 +329,7 @@ body {
 }
 
 /* ---------- heritage aksan: yalnız tipografi karakteri ---------- */
-.achilles-heel {
+.hektor-heel {
   margin: 10px 0 0;
   font-family: var(--display);
   font-size: 14px;

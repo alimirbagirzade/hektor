@@ -50,7 +50,7 @@ foreach ($seed in $seeds) {
     $logFile = Join-Path $LogDir "synth_qa_seed${seed}.log"
     Write-Host "$(Get-Date -Format 'HH:mm:ss') — seed=$seed başlatılıyor (hedef=$Target)…"
     $proc = Start-Process -FilePath $UvExe `
-        -ArgumentList "run","achilles","synth-qa-bulk","--seed","$seed","--target","$Target","--output",$Output,"--batch","$Batch" `
+        -ArgumentList "run","hektor","synth-qa-bulk","--seed","$seed","--target","$Target","--output",$Output,"--batch","$Batch" `
         -WorkingDirectory $ProjectRoot `
         -RedirectStandardOutput $logFile `
         -RedirectStandardError "$logFile.err" `
@@ -64,5 +64,5 @@ foreach ($seed in $seeds) {
 $finalCount = Get-CurrentCount
 Write-Host "$(Get-Date -Format 'HH:mm:ss') — TAMAMLANDI: $finalCount örnek"
 if ($finalCount -ge $Target) {
-    Write-Host "SONRAKI ADIM: uv run achilles lora-split — ardından Kaggle 'Run All' tıkla"
+    Write-Host "SONRAKI ADIM: uv run hektor lora-split — ardından Kaggle 'Run All' tıkla"
 }

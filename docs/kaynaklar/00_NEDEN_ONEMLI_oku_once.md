@@ -1,7 +1,7 @@
-# 📚 İndirilen Makaleler — neden önemli ve Achilles'e ne katar
+# 📚 İndirilen Makaleler — neden önemli ve Hektor'e ne katar
 
 > Bu klasördeki PDF'ler **gerçek arXiv makaleleridir** (uydurma değil, ID'leri
-> doğrulandı). Claude tarafından, Achilles'in geliştirme yönüne (Markov + entropi +
+> doğrulandı). Claude tarafından, Hektor'in geliştirme yönüne (Markov + entropi +
 > doğru LoRA reçetesi + anlama doğrulama) uygun seçildi.
 >
 > **Senin yapacağın:** Bu özeti oku → işine yarayanları **web arayüzünden makalelere
@@ -28,7 +28,7 @@ v5'i "pasaja göre cevapla" mantığıyla eğitmiştik → model olmayan pasaja 
 uydurdu (REDDEDİLDİ). RAFT, **doğru reçeteyi** veriyor: bağlamı kullan, distractor'ı
 reddet, alıntıla, uydurma.
 
-**Achilles'e ne katar:**
+**Hektor'e ne katar:**
 - Bir sonraki LoRA eğitiminin **veri reçetesini düzeltir** (bizim `raft_discipline_seed.jsonl`
   seed'imizin akademik temeli).
 - v5 regresyonunu önler → eğitim 47 saat boşa gitmez.
@@ -48,7 +48,7 @@ değişim noktalarında sinyal işaretini doğru yakalayabiliyor.
 çekirdeği. "No time-lagging" kısmı bizim için altın değerinde — çünkü CLAUDE.md
 Kural 4 (look-ahead yasak) ile çelişmeden rejim değişimi yakalamanın yolunu gösteriyor.
 
-**Achilles'e ne katar:**
+**Hektor'e ne katar:**
 - **L5 kompozisyon sınavı** için somut Markov indikatör tasarımı (rejim olasılığı → filtre).
 - `continuous-learning.sh` sentez konusu (HMM rejim değişimi) için kaynak materyal.
 - "Rejim Geçiş Entropisi (RTE)" fikrimizin HMM tarafını besler.
@@ -67,7 +67,7 @@ sinyali**.
 **Neden önemli:** Senin **"entropi"** vizyonunun pratik karşılığı. Entropi sadece bir
 kavram değil, **ölçülebilir bir rejim/risk göstergesi** olarak kullanılabiliyor.
 
-**Achilles'e ne katar:**
+**Hektor'e ne katar:**
 - **Entropi-temelli indikatör** hipotezi (L5): yüksek transfer entropi → rejim belirsiz →
   pozisyonu kıs.
 - Markov (rejim) + Entropi (belirsizlik) **birleşimi** = senin "olasılıksal istatistik
@@ -85,7 +85,7 @@ permütasyon entropisi) sistematik analizi — temel/referans niteliğinde.
 **Neden önemli:** Yukarıdaki uygulamalı makalelerin **matematiksel temeli**. Hangi entropi
 ölçüsü neyi yakalar, nasıl hesaplanır — bunu doğru kurmazsak indikatör yanlış olur.
 
-**Achilles'e ne katar:**
+**Hektor'e ne katar:**
 - L3/L4 sınavlarımıza **entropi referans hesapları** eklemek için formül kaynağı
   (`app/verification/exams/registry.py`'ye yeni gösterge olarak).
 - "Rejim Geçiş Entropisi" indikatörünün doğru entropi tanımı.

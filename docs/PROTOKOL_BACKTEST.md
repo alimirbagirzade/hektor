@@ -1,6 +1,6 @@
 # BACKTEST PROTOKOLÜ
 
-> Achilles'te bir strateji hipotezinin **disiplinli** test edilme süreci.
+> Hektor'te bir strateji hipotezinin **disiplinli** test edilme süreci.
 > İlke (CLAUDE.md): maliyet zorunlu, look-ahead yasak, out-of-sample şart,
 > determinizm seed ile. `verdict != pass` → çıktı **"aday"**, "hazır" değil.
 
@@ -16,8 +16,8 @@
 ## 1. Backtest nasıl çalıştırılır
 
 ```bash
-uv run achilles gen-data                 # sentetik OHLCV üret
-uv run achilles backtest <csv> [--strategy-json strateji.json]
+uv run hektor gen-data                 # sentetik OHLCV üret
+uv run hektor backtest <csv> [--strategy-json strateji.json]
 ```
 - **`POST /api/backtest`** — sentetik veri (`n_bars ∈ [200, 20000]`, `seed ∈ [0, 1e7]`).
 - **`POST /api/backtest/csv`** — gerçek CSV (≥50 bar; kolonlar: time, open, high, low, close[, volume]).
@@ -51,11 +51,11 @@ uv run achilles backtest <csv> [--strategy-json strateji.json]
 > orchestrator'a `persist_backtest` eklenebilir.
 
 ## 5. Sürekli öğrenme döngüsünde
-`scripts/continuous-learning.sh` her **3 turda** (`round % 3 == 1`) `achilles research`
+`scripts/continuous-learning.sh` her **3 turda** (`round % 3 == 1`) `hektor research`
 tetikler → hipotez → backtest → yansıma → sentez makalesi → LoRA dataset. Eğitimle sıralı.
 
 ## 6. Uygula (şimdi)
 ```bash
-uv run achilles gen-data && uv run achilles backtest data/market/raw/synthetic.csv
+uv run hektor gen-data && uv run hektor backtest data/market/raw/synthetic.csv
 curl -s http://127.0.0.1:8765/api/backtests
 ```

@@ -1,4 +1,4 @@
-"""Achilles Package exporter testleri (offline, Ollama gerektirmez)."""
+"""Hektor Package exporter testleri (offline, Ollama gerektirmez)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 from app.trading.backtester import _compute_columns, _position_series
 from app.trading.package_exporter import (
     ACHPKG_VERSION,
-    AchillesPackage,
+    HektorPackage,
     _ir_to_python,
     export_strategy,
 )
@@ -34,7 +34,7 @@ def simple_ir() -> StrategyIR:
 
 def test_export_returns_package(simple_ir: StrategyIR) -> None:
     pkg = export_strategy(simple_ir)
-    assert isinstance(pkg, AchillesPackage)
+    assert isinstance(pkg, HektorPackage)
     assert pkg.name == "test_strategy"
     assert pkg.package_type == "strategy"
     assert pkg.source == "achilles_research"

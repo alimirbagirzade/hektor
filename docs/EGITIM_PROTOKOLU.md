@@ -1,8 +1,8 @@
-# Achilles — Eğitim Protokolü (Windows / yerel)
+# Hektor — Eğitim Protokolü (Windows / yerel)
 
 _Bu makineye özel ölçülmüş değerlerle. Son güncelleme: 2026-06-14._
 
-Bu belge **bu bilgisayarda** Achilles LoRA eğitiminin nasıl çalıştığını,
+Bu belge **bu bilgisayarda** Hektor LoRA eğitiminin nasıl çalıştığını,
 donanım/model özelliklerini ve **ölçülmüş eğitim sürelerini** içerir.
 
 > İlke (CLAUDE.md): Gerçek ağır eğitim yalnızca açık `--run` ile başlar.
@@ -39,7 +39,7 @@ RAG çıkarımı ve LoRA eğitimi **aynı** modeldir (tek beyin mimarisi).
 
 - LoRA adapter **base-model'e özeldir** → eğitim ve çıkarım aynı model olmalı.
 - Daha büyük beyin (9B / 30B / 120B) → **Colab/GPU**'da eğitilir, aynı pipeline.
-- Ayar: `.env → ACHILLES_LLM_MODEL=qwen3:4b`, `ACHILLES_PEFT_BASE_MODEL=Qwen/Qwen3-4B`.
+- Ayar: `.env → HEKTOR_LLM_MODEL=qwen3:4b`, `HEKTOR_PEFT_BASE_MODEL=Qwen/Qwen3-4B`.
 
 ### LoRA hiperparametreleri (varsayılan)
 `r=8`, `alpha=16`, `dropout=0.05`, `lr=2e-4`, `max_seq_length=512`, `batch_size=1`.
@@ -82,16 +82,16 @@ Yeni yol: **`app/training/detached_launch.py`** (`launch()` / `training_status()
 ### Veri akışı — TEK doğru kaynak
 ```
 data/lora_sft/lora_sft.jsonl   (synth-qa + kart birleşik, ~1266 örnek; lora-cloud-prep üretir)
-        │   achilles lora-split   (seed=42, valid_ratio=0.05 → train≈1203 + valid≈63)
+        │   hektor lora-split   (seed=42, valid_ratio=0.05 → train≈1203 + valid≈63)
         ▼
-data/training/jsonl/{train,valid}.jsonl   ← "achilles train --run" BUNU okur
+data/training/jsonl/{train,valid}.jsonl   ← "hektor train --run" BUNU okur
 ```
 - ⚠️ **CLOBBER tuzağı (kapatıldı):** `DatasetBuilder.build()` (kart-DB tabanlı, cılız
   `{prompt,completion}`) aynı `train.jsonl`'e yazıp zengin birleşik veriyi ezerdi
   (DB'de uygun örnek yoksa **0/cılız satıra**). Web uçları (`/api/training/dataset`,
   `dry-run`, `colab-notebook`) artık `detached_launch.build_training_split()` ile
   KANONİK `lora_sft.jsonl`'den böler → CLI ile aynı format/sayı (iki-hat drifti yok).
-  `DatasetBuilder` yalnız manuel `achilles dataset` (SQLite inceleme) için kaldı.
+  `DatasetBuilder` yalnız manuel `hektor dataset` (SQLite inceleme) için kaldı.
 - **Clobber-proof:** hem `launch()` hem `start-train.ps1`, başlatmadan ÖNCE `lora-split`
   çalıştırır → boş/eski `train.jsonl` otomatik onarılır.
 
@@ -135,7 +135,7 @@ tek checkpoint, `pin_memory=False`. Sonuç: **~2× hızlanma**.
 Per-adım ~76 sn'nin asıl sebebi: **4B fp32 (16GB) bellek-bağımlı** (örnekler kısa,
 medyan 253 token → seq sorun değil). Denenenler:
 - **IPEX (Intel oneDNN):** Windows'ta **wheel YOK** (yalnız Linux). Colab/Linux'ta çalışır.
-- **bf16 (`ACHILLES_TRAIN_DTYPE=bf16`):** Tiger Lake'te AVX512-BF16 olmadığından **emüle**;
+- **bf16 (`HEKTOR_TRAIN_DTYPE=bf16`):** Tiger Lake'te AVX512-BF16 olmadığından **emüle**;
   ölçüldü **95–117 sn/adım — fp32'den YAVAŞ**. (Sapphire Rapids gibi BF16'lı CPU'da işe yarar.)
 - **Thread:** torch zaten 4 (fiziksel çekirdek) — optimal.
 
@@ -174,7 +174,7 @@ Sabit "her saat" yerine **makine kapasitesine** göre:
 
 - CPU sürekli %100'de kalmasın diye döngüler arası **2-3 dk cooldown**.
 - Yeni onaylı kart geldikçe dataset büyür → her döngü daha anlamlı.
-- Auto-pipeline: `.env → ACHILLES_AUTO_LORA_*` (varsayılan kapalı, güvenli).
+- Auto-pipeline: `.env → HEKTOR_AUTO_LORA_*` (varsayılan kapalı, güvenli).
 
 ---
 
@@ -200,7 +200,7 @@ CPU eğitimi **saatler/günler** sürer. Bu uzun pencerede sistem boş beklememe
 - **OOM riski** (boş RAM < 2 GB): Ollama modelini boşalt (`ollama stop <model>` — Ollama'yı
   öldürmez, sorgu gelince yeniden yükler), eğitimi önceliklendir.
 - **Eğitim süreçlerine DOKUNMA.** Web yeniden başlatmak güvenlidir (ayrı süreç, detached
-  eğitimi öldürmez) ama `achilles train --run` süreçlerini durdurma.
+  eğitimi öldürmez) ama `hektor train --run` süreçlerini durdurma.
 - Değişiklikler küçük commit'lerle; ağır/riskli refactor eğitim bitince.
 
 **Sağlık nöbeti (periyodik):** `logs/train-full-err.log` ilerliyor mu (≤45 dk tazelik),
@@ -211,16 +211,16 @@ boş RAM > 2 GB, web (8765) + Ollama ayakta. Müdahale edersen ne yaptığını 
 ## 6. Komutlar
 
 ```bash
-uv run achilles lora-status          # genel durum
-uv run achilles lora-audit           # Gate 0-7
+uv run hektor lora-status          # genel durum
+uv run hektor lora-audit           # Gate 0-7
 # SENTETİK veri yolu (önerilen, ~1266 örnek):
-uv run achilles lora-cloud-prep      # synth-qa + kart → data/lora_sft/lora_sft.jsonl
-uv run achilles lora-split           # lora_sft.jsonl → data/training/jsonl/{train,valid}
+uv run hektor lora-cloud-prep      # synth-qa + kart → data/lora_sft/lora_sft.jsonl
+uv run hektor lora-split           # lora_sft.jsonl → data/training/jsonl/{train,valid}
 # Eğitim (detached başlatıcılar lora-split'i zaten otomatik çalıştırır):
-uv run achilles train --run --backend peft \
+uv run hektor train --run --backend peft \
     --adapter-name <ad> --iterations <n>   # gerçek eğitim (CPU); iters yoksa 1 epoch
 .\scripts\start-train.ps1            # DETACHED (önerilen; kapansa da sürer)
-uv run achilles lora-registry        # adapter listesi
+uv run hektor lora-registry        # adapter listesi
 ```
 
 > ⚠️ `lora-dataset` (kart-DB → JSONL) `train.jsonl`'i **EZER**; sentetik veri yolunda
@@ -294,8 +294,8 @@ Protokol makineden bağımsızdır — yalnız şu düğmeler değişir:
 | Tur süresi | ~1.5-2 sa | ~20-30 dk | ~10 dk | ~5 dk |
 | Anlama skoru | seçili makale | tüm korpus | tüm korpus | tüm korpus + judge kalibrasyon |
 
-Taşıma adımları: repo'yu klonla → `.env`'de `ACHILLES_PEFT_BASE_MODEL` +
-`ACHILLES_LLM_MODEL`'i makineye göre seç (base ↔ Ollama tag EŞLEŞMELİ) →
+Taşıma adımları: repo'yu klonla → `.env`'de `HEKTOR_PEFT_BASE_MODEL` +
+`HEKTOR_LLM_MODEL`'i makineye göre seç (base ↔ Ollama tag EŞLEŞMELİ) →
 `bash scripts/continuous-learning.sh 72`. Hepsi bu.
 
 ## 9. Sınırlar ve uyarılar

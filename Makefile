@@ -1,4 +1,4 @@
-# Achilles Trader AI — geliştirme hedefleri
+# Hektor Trader AI — geliştirme hedefleri
 # uv varsa onu, yoksa pip/python'u kullanır.
 
 UV := $(shell command -v uv 2> /dev/null)
@@ -71,28 +71,28 @@ endif
 
 gen-data:
 ifdef UV
-	uv run achilles gen-data
+	uv run hektor gen-data
 else
-	achilles gen-data
+	hektor gen-data
 endif
 
 web:
 ifdef UV
-	uv run achilles-web
+	uv run hektor-web
 else
-	achilles-web
+	hektor-web
 endif
 
 web-start:
-	@launchctl load ~/Library/LaunchAgents/com.achilles.web.plist 2>/dev/null; \
-	sleep 2 && curl -sf http://localhost:8765/api/status > /dev/null && echo "Achilles Web calisiyor: http://localhost:8765" || echo "Baslatiliyor..."
+	@launchctl load ~/Library/LaunchAgents/com.hektor.web.plist 2>/dev/null; \
+	sleep 2 && curl -sf http://localhost:8765/api/status > /dev/null && echo "Hektor Web calisiyor: http://localhost:8765" || echo "Baslatiliyor..."
 
 web-stop:
-	@launchctl unload ~/Library/LaunchAgents/com.achilles.web.plist 2>/dev/null; \
-	lsof -ti:8765 | xargs kill -9 2>/dev/null; echo "Achilles Web durduruldu."
+	@launchctl unload ~/Library/LaunchAgents/com.hektor.web.plist 2>/dev/null; \
+	lsof -ti:8765 | xargs kill -9 2>/dev/null; echo "Hektor Web durduruldu."
 
 web-log:
-	@tail -f ~/Library/Logs/achilles-web.log
+	@tail -f ~/Library/Logs/hektor-web.log
 
 clean:
 	rm -rf .pytest_cache .ruff_cache .mypy_cache **/__pycache__ build dist *.egg-info

@@ -1,11 +1,11 @@
 [project]
-name = "achilles2.0-trader-ai"
+name = "hektor-trader-ai"
 version = "0.1.0"
 description = "Local-first AI trading research system (RAG + knowledge cards + LoRA + backtest) for macOS Apple Silicon."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "Achilles Trader AI" }]
+authors = [{ name = "Hektor Trader AI" }]
 keywords = ["trading", "research", "rag", "lora", "backtest", "local-first"]
 
 dependencies = [
@@ -33,7 +33,7 @@ dependencies = [
     # io / web (paper sourcing)
     "requests>=2.32",
     "httpx>=0.27",
-    # web server — achilles-web entry point (tüm platformlarda gerekli)
+    # web server — hektor-web entry point (tüm platformlarda gerekli)
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "python-multipart>=0.0.9",
@@ -50,8 +50,8 @@ train = ["mlx-lm>=0.16; platform_system == 'Darwin' and platform_machine == 'arm
 train-cpu = ["torch>=2.2", "transformers>=4.40", "peft>=0.10", "accelerate>=0.29"]
 # Egitim dokumanlarini PDF e cevirmek icin: uv pip install -e ".[docs]" (scripts/gen_egitim_pdf.py)
 docs = ["markdown-pdf>=1.13"]
-# OPSIYONEL: mcp_server/achilles_mcp.py (FastMCP proxy) icin. Bu extra kurulmadan
-# `python mcp_server/achilles_mcp.py` ModuleNotFoundError ile duser.
+# OPSIYONEL: mcp_server/hektor_mcp.py (FastMCP proxy) icin. Bu extra kurulmadan
+# `python mcp_server/hektor_mcp.py` ModuleNotFoundError ile duser.
 # Kuran taraf: scripts/sync-mcp.sh
 mcp = ["fastmcp>=2.0"]
 dev = [
@@ -64,8 +64,8 @@ dev = [
 ]
 
 [project.scripts]
-achilles = "app.main:app"
-achilles-web = "app.web.server:run"
+hektor = "app.main:app"
+hektor-web = "app.web.server:run"
 
 [build-system]
 requires = ["hatchling"]

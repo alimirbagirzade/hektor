@@ -16,8 +16,8 @@ def _build(tmp_path: Path) -> Path:
     out = tmp_path / "nb.ipynb"
     return build_stage2_notebook(
         base_model="Qwen/Qwen3-4B-Instruct-2507",
-        adapter_name="achilles_test",
-        hf_dataset_repo="user/achilles-lora-sft",
+        adapter_name="hektor_test",
+        hf_dataset_repo="user/hektor-lora-sft",
         max_seq_length=2048,
         lora_r=16,
         learning_rate=2e-4,
@@ -53,8 +53,8 @@ def test_injected_values_present(tmp_path: Path) -> None:
     out = _build(tmp_path)
     text = out.read_text(encoding="utf-8")
     assert "Qwen/Qwen3-4B-Instruct-2507" in text  # base model
-    assert "achilles_test" in text  # adapter name
-    assert "user/achilles-lora-sft" in text  # hf repo
+    assert "hektor_test" in text  # adapter name
+    assert "user/hektor-lora-sft" in text  # hf repo
 
 
 def test_base_model_pinned_to_2507(tmp_path: Path) -> None:
@@ -69,5 +69,5 @@ def test_write_modelfile(tmp_path: Path) -> None:
     mf = write_modelfile(tmp_path)
     assert mf.name == "Modelfile"
     content = mf.read_text(encoding="utf-8")
-    assert content.startswith("FROM ./achilles-Q4_K_M.gguf")
+    assert content.startswith("FROM ./hektor-Q4_K_M.gguf")
     assert "<|im_end|>" in content  # stop token şart

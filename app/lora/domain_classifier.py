@@ -11,7 +11,7 @@ from enum import StrEnum
 
 
 class Domain(StrEnum):
-    """Achilles eğitim alanları."""
+    """Hektor eğitim alanları."""
 
     MATHEMATICS = "mathematics"
     PHYSICS = "physics"

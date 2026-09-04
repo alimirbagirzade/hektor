@@ -1,4 +1,4 @@
-"""Durable reconciler that keeps the Achilles motor attached without a human operator."""
+"""Durable reconciler that keeps the Hektor motor attached without a human operator."""
 
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ class UnattendedSupervisor:
         return orch.start(
             model=settings.peft_base_model,
             profile="discipline_safe_local",
-            adapter_name="achilles_lora",
+            adapter_name="hektor_lora",
             params={"iters": 300, "hunt_ack": False, "unattended": True},
         )
 

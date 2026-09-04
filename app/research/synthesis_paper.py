@@ -38,7 +38,7 @@ def synthesis_reports_dir() -> Path:
 def synthesis_mirror_dir() -> Path | None:
     """Sentezlerin aynalandığı (kopyalandığı) ek dizin — yapılandırılmamışsa None.
 
-    Ayar `ACHILLES_SYNTHESIS_MIRROR_DIR` (config: ``synthesis_mirror_dir``) ile
+    Ayar `HEKTOR_SYNTHESIS_MIRROR_DIR` (config: ``synthesis_mirror_dir``) ile
     verilir. Boşsa aynalama kapalıdır.
     """
     raw = (get_settings().synthesis_mirror_dir or "").strip()
@@ -148,7 +148,7 @@ def generate_synthesis_paper(
     lines: list[str] = [
         f"# Sentez Makalesi — {question}",
         "",
-        f"_Üretim: {now.strftime('%Y-%m-%d %H:%M')} · Achilles Trader AI · Durum: **{status}**_",
+        f"_Üretim: {now.strftime('%Y-%m-%d %H:%M')} · Hektor Trader AI · Durum: **{status}**_",
         "",
         "> ⚠ **Bu bir araştırma çıktısıdır — yatırım tavsiyesi DEĞİLDİR.** Tüm öneriler",
         "> test edilmesi gereken hipotezlerdir; out-of-sample doğrulama olmadan hiçbir",

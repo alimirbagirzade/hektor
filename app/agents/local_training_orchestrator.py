@@ -1,9 +1,9 @@
 """Lokal eğitim-denetim orkestratörü (Phase 5A) — SALT RAPOR.
 
-Bu modül Achilles'in eğitim hazırlık durumunu **okur** ve bir rapor üretir.
+Bu modül Hektor'in eğitim hazırlık durumunu **okur** ve bir rapor üretir.
 GERÇEK EĞİTİM BAŞLATMAZ. Tasarım gereği şunları HİÇBİR ZAMAN çağırmaz:
 ``detached_launch.launch`` · ``AutoLoRAPipeline.start_training`` ·
-``promote_to_production`` · ``achilles train --run``. Onay TÜKETMEZ (yalnız listeler).
+``promote_to_production`` · ``hektor train --run``. Onay TÜKETMEZ (yalnız listeler).
 Cloud/Kaggle/Colab tetiklemez. Korumalı yollara (data/storage/vector_db/models/.env)
 YAZMAZ; yalnız ``reports/`` altına markdown + json rapor yazar.
 
@@ -260,7 +260,7 @@ def run_audit(out_dir: Path | None = None, *, write: bool = True) -> TrainingAud
     notes = [
         REPORT_ONLY_BANNER,
         "Bu denetim onay TÜKETMEZ; bekleyen onaylar yalnız listelenir.",
-        "Gerçek eğitim için açık taze onay + `achilles train --run` (ya da onaylı web) gerekir.",
+        "Gerçek eğitim için açık taze onay + `hektor train --run` (ya da onaylı web) gerekir.",
     ]
     report = TrainingAuditReport(
         generated_at=_utcnow_iso(),

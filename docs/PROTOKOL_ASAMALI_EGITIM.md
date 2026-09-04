@@ -1,4 +1,4 @@
-# Achilles — Aşamalı Eğitim Protokolü (master)
+# Hektor — Aşamalı Eğitim Protokolü (master)
 
 > Tek cümle: **Önce lokal veri üret (Stage 1), eşik dolunca bulut-GPU'da gerçek
 > LoRA eğit (Stage 2).** CPU sürekli-eğitimi yok (haftalar sürer + overfit).
@@ -28,18 +28,18 @@
 3. **Onay:** kullanıcı açıkça "Stage 2 / bulut-eğitim" dedi (CLAUDE.md kural 8:
    gerçek eğitim yalnız açık komutla).
 
-Eşik durumu: `uv run achilles lora-readiness` (nicelik) + `uv run achilles rag-mastery`.
+Eşik durumu: `uv run hektor lora-readiness` (nicelik) + `uv run hektor rag-mastery`.
 
 ## Hızlı komut haritası
 | Aşama | Komut |
 |---|---|
-| 1 | `uv run achilles synth-qa` — sentetik QA üret (birikir) |
+| 1 | `uv run hektor synth-qa` — sentetik QA üret (birikir) |
 | 1 | `bash scripts/continuous-learning.sh 72` — sürekli üretim döngüsü |
-| 1 | `uv run achilles lora-readiness` — Stage 2 eşik durumu |
-| GATE | `uv run achilles lora-audit` — Gate 0-7 kalite denetimi |
-| 2 | `uv run achilles lora-cloud-prep` — notebook + veri paketi üret |
+| 1 | `uv run hektor lora-readiness` — Stage 2 eşik durumu |
+| GATE | `uv run hektor lora-audit` — Gate 0-7 kalite denetimi |
+| 2 | `uv run hektor lora-cloud-prep` — notebook + veri paketi üret |
 | 2 | (bulutta) notebook'u çalıştır → GGUF indir |
-| 2 | `ollama create achilles-lora -f Modelfile` → eval → promote |
+| 2 | `ollama create hektor-lora -f Modelfile` → eval → promote |
 
 İlgili skiller: `/veri-uretim-protokolu`, `/bulut-egitim-protokolu`,
 `/lora-training-control-plane`.

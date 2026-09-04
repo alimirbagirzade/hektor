@@ -1,25 +1,79 @@
 """Central configuration via pydantic-settings.
 
-All settings can be overridden by environment variables prefixed with ``ACHILLES_``
+All settings can be overridden by environment variables prefixed with ``HEKTOR_``
 or by a local ``.env`` file. Paths are resolved relative to the project root.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+log = logging.getLogger(__name__)
+
 # Project root = two levels up from this file (app/config/settings.py -> root)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+ENV_PREFIX = "HEKTOR_"
+# Proje Achilles → Hektor olarak yeniden adlandırıldı. Mevcut makinelerdeki .env ve
+# kabuk değişkenleri sessizce ETKİSİZ kalmasın diye eski önek okunmaya devam eder.
+LEGACY_ENV_PREFIX = "ACHILLES_"
+
+# Yeniden adlandırma öncesi/sonrası SQLite dosya adları (bkz. Settings.sqlite_file).
+_DEFAULT_SQLITE_PATH = Path("storage/sqlite/hektor_trader_ai.db")
+_LEGACY_SQLITE_PATH = Path("storage/sqlite/achilles_trader_ai.db")
+
+
+def _promote_legacy_env(env_file: Path) -> list[str]:
+    """Eski ``ACHILLES_*`` ayarlarını ``HEKTOR_*`` karşılığına taşı (yalnız boşsa).
+
+    Hem süreç ortamını hem ``.env`` dosyasını tarar. Yeni önek zaten tanımlıysa ASLA
+    ezilmez — açık ayar her zaman kazanır. Taşınan her anahtar bir kez uyarı loglar;
+    böylece geçiş sessiz değil, görünür olur.
+    """
+    legacy: dict[str, str] = {
+        k: v for k, v in os.environ.items() if k.startswith(LEGACY_ENV_PREFIX)
+    }
+    if env_file.is_file():
+        try:
+            for raw in env_file.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                if key.startswith(LEGACY_ENV_PREFIX):
+                    # Süreç ortamı .env'i ezer (pydantic-settings ile aynı öncelik).
+                    legacy.setdefault(key, value.strip().strip("\"'"))
+        except OSError:  # pragma: no cover - okunamayan .env ayarları engellememeli
+            pass
+
+    promoted: list[str] = []
+    for key, value in sorted(legacy.items()):
+        new_key = ENV_PREFIX + key[len(LEGACY_ENV_PREFIX) :]
+        if os.environ.get(new_key) is None:
+            os.environ[new_key] = value
+            promoted.append(key)
+    if promoted:
+        log.warning(
+            "Eski %s* ortam değişkenleri kullanılıyor (%s). Proje Hektor olarak "
+            "yeniden adlandırıldı; lütfen %s* önekine geçin — eski önek desteği "
+            "geçicidir.",
+            LEGACY_ENV_PREFIX,
+            ", ".join(promoted),
+            ENV_PREFIX,
+        )
+    return promoted
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="ACHILLES_",
+        env_prefix=ENV_PREFIX,
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
@@ -32,7 +86,7 @@ class Settings(BaseSettings):
     llm_model: str = "qwen3:4b"
     # Modeli sorgu sonrası ne kadar yüklü tutsun. RAM darsa (ör. aynı anda LoRA eğitimi)
     # "0" → hemen boşalt (eğitimle ~7GB çakışmayı önler). Varsayılan "30s"; büyük
-    # makinede ".env: ACHILLES_OLLAMA_KEEP_ALIVE=5m" hızlı ardışık sorgu için.
+    # makinede ".env: HEKTOR_OLLAMA_KEEP_ALIVE=5m" hızlı ardışık sorgu için.
     ollama_keep_alive: str = "30s"
     embed_model: str = "nomic-embed-text"
 
@@ -46,7 +100,7 @@ class Settings(BaseSettings):
     peft_base_model: str = "Qwen/Qwen3-4B-Instruct-2507"
 
     # --- Storage ---
-    sqlite_path: Path = Field(default=Path("storage/sqlite/achilles_trader_ai.db"))
+    sqlite_path: Path = Field(default=_DEFAULT_SQLITE_PATH)
     chroma_path: Path = Field(default=Path("vector_db/chroma"))
 
     # --- RAG ---
@@ -61,16 +115,16 @@ class Settings(BaseSettings):
     # kurulur; boşsa sessizce dense-only kalır → çevrimdışı testlerde davranış değişmez.
     rag_hybrid: bool = True
     # Cross-encoder reranker (Faz A8): en yüksek etkili sıralayıcı ama ağır (model
-    # indirme + CPU latency). OPT-IN. Açmak için: ACHILLES_RAG_CROSS_ENCODER=true +
+    # indirme + CPU latency). OPT-IN. Açmak için: HEKTOR_RAG_CROSS_ENCODER=true +
     # `uv pip install sentence-transformers`. Model yoksa heuristik reranker'a düşer.
     rag_cross_encoder: bool = False
     # Varsayılan hafif baz model (~280MB, ağırlıklı zh/en). Gerçek çok-dillilik (TR dahil
     # 100+ dil) için `BAAI/bge-reranker-v2-m3` önerilir (daha ağır ~2GB; modest CPU'da
-    # latency artar). Modeli ACHILLES_RAG_CROSS_ENCODER_MODEL ile değiştir.
+    # latency artar). Modeli HEKTOR_RAG_CROSS_ENCODER_MODEL ile değiştir.
     rag_cross_encoder_model: str = "BAAI/bge-reranker-base"
     # FlashRank reranker (ONNX-int8 cross-encoder, torch GEREKMEZ): bge-reranker CPU'da
     # >15s/sorgu (kullanılamaz) iken FlashRank ~30-100ms (web-araştırma; bkz. roadmap Zincir 3).
-    # OPT-IN, cross_encoder'a göre ÖNCELİKLİ. Açmak için ACHILLES_RAG_FLASHRANK=true +
+    # OPT-IN, cross_encoder'a göre ÖNCELİKLİ. Açmak için HEKTOR_RAG_FLASHRANK=true +
     # `uv pip install flashrank`. Model yoksa heuristiğe düşer. A/B ile doğrulanmalı.
     rag_flashrank: bool = False
     rag_flashrank_model: str = "ms-marco-MiniLM-L-12-v2"
@@ -78,14 +132,14 @@ class Settings(BaseSettings):
     # skor normalize etmeden sıra-tabanlı birleştirir (heuristik rerank yerine). Skor
     # kalibrasyonu gerektirmez → karşılaştırılamaz skorlu kaynaklarda sağlam. LLM-free,
     # deterministik. Varsayılan kapalı (alpha/rerank davranışı değişmez); açmak için
-    # ACHILLES_RAG_RRF=true. RRF sabiti `rag_rrf_k` (yaygın varsayılan 60).
+    # HEKTOR_RAG_RRF=true. RRF sabiti `rag_rrf_k` (yaygın varsayılan 60).
     rag_rrf: bool = False
     rag_rrf_k: int = 60
     # Graf-tabanlı retrieval (SPRIG-lite, opt-in): term–chunk bipartite graf üzerinde
     # dense-hit'lerden tohumlanmış Personalized PageRank ile çok-hop ilgili chunk'ları
     # yüzeye çıkarır; sonucu dense ile RRF ile füzyonlar. LLM-free, deterministik, CPU-only.
     # Dense'in kaçırdığı (paylaşılan terimle bağlı) chunk'ları getirebilir. Varsayılan kapalı
-    # → mevcut retrieval davranışı değişmez. Açmak için ACHILLES_RAG_GRAPH=true.
+    # → mevcut retrieval davranışı değişmez. Açmak için HEKTOR_RAG_GRAPH=true.
     rag_graph: bool = False
     rag_graph_damping: float = 0.85  # PageRank yayılma katsayısı (1-damping = restart)
     rag_graph_iters: int = 20  # sabit iterasyon (determinizm)
@@ -97,7 +151,7 @@ class Settings(BaseSettings):
     rag_router_alpha: float = 0.7  # konveks füzyon dense ağırlığı (0.7-0.9 dense-favori önerilir)
     # Contextual Retrieval (Faz P2): chunk'ı embed etmeden önce "başlık / bölüm:" ön-eki
     # ekler (orijinal metin Chroma document'ında korunur). Tutarlılık için TÜM korpus
-    # aynı ayarla embed edilmeli → açmadan önce `achilles reindex-contextual` çalıştır.
+    # aynı ayarla embed edilmeli → açmadan önce `hektor reindex-contextual` çalıştır.
     # Varsayılan kapalı (yarı-prefix'li korpus tutarsızlık yaratırdı).
     rag_contextual_embed: bool = False
 
@@ -139,7 +193,7 @@ class Settings(BaseSettings):
     rag_verify_citations: bool = True
     # CRAG-lite güven kapısı: retrieval ZAYIFSA (alakasız/belirsiz) cevap üretmeden ABSTAIN
     # (Kural 7 — uydurma yok). Eşikler korpusa göre KALİBRE edilmeli → varsayılan KAPALI
-    # (over-abstain riskini önlemek için opt-in; aç: ACHILLES_RAG_ABSTAIN=true).
+    # (over-abstain riskini önlemek için opt-in; aç: HEKTOR_RAG_ABSTAIN=true).
     rag_abstain: bool = False
     # cosine benzerlik tabanı (1−distance); en iyi chunk bunun altındaysa alakasız sayılır.
     # KALİBRE EDİLDİ (2026-06-20, temiz ortam, 2 örnek): nomic benzerlikleri sıkışık —
@@ -160,13 +214,13 @@ class Settings(BaseSettings):
     # --- Sentez aynalama (synthesis mirror) ---
     # Üretilen her sentez makalesi (reports/synthesis/sentez_*.md) bu dizine de
     # kopyalanır. Boşsa aynalama kapalıdır (varsayılan → test/CI davranışı değişmez).
-    # Makineye özel yol .env içinde verilir: ACHILLES_SYNTHESIS_MIRROR_DIR=...
+    # Makineye özel yol .env içinde verilir: HEKTOR_SYNTHESIS_MIRROR_DIR=...
     synthesis_mirror_dir: str = ""
 
     # --- Literatür keşif ajanı (literature scout) ---
     # Bulunan makalelerin PDF'lerinin indirileceği "gelen kutusu" kökü. Boşsa repo-içi
     # `data/literature_inbox/` kullanılır (test/CI davranışı değişmez, Desktop'a yazmaz).
-    # Makineye özel yol .env içinde: ACHILLES_SCOUT_INBOX_DIR=C:\...\Gerekli kaynaklar\_yeni
+    # Makineye özel yol .env içinde: HEKTOR_SCOUT_INBOX_DIR=C:\...\Gerekli kaynaklar\_yeni
     scout_inbox_dir: str = ""
 
     # --- Auto-LoRA Pipeline ---
@@ -195,7 +249,7 @@ class Settings(BaseSettings):
     # Yükleme uçlarına (PDF/CSV) ek, daha sıkı limit — ağ DoS / disk doldurma.
     # Toplu kütüphane içe-aktarımı için 60/dk (eski 20/dk normal sürükle-bırak'ta
     # bir kısım dosyayı 429'a düşürüyordu). Üst sınır aşılırsa frontend bekleyip
-    # yeniden dener; gerekirse ACHILLES_UPLOAD_RATE_LIMIT_PER_MIN ile değiştir.
+    # yeniden dener; gerekirse HEKTOR_UPLOAD_RATE_LIMIT_PER_MIN ile değiştir.
     upload_rate_limit_per_min: int = 60
     # Host-header saldırısı: boş = kısıt yok (lokal). Ağa açarken "alanadi.com,1.2.3.4" ver.
     trusted_hosts: str = ""
@@ -216,7 +270,7 @@ class Settings(BaseSettings):
 
     # --- Derived dirs ---
     # TÜM veri/rapor/durum yolları `root`'tan türer. `root` env ile değiştirilebilir
-    # (ACHILLES_ROOT_PATH) → test oturumu tmp'ye yönlendirir ve GERÇEK ağaca yazamaz.
+    # (HEKTOR_ROOT_PATH) → test oturumu tmp'ye yönlendirir ve GERÇEK ağaca yazamaz.
     # Eskiden yollar modül-seviyesi PROJECT_ROOT'a sabitti; testler her tam koşuda
     # data/lora_sft/lora_sft.jsonl + data/training/jsonl/*.jsonl üretip bir sonraki
     # koşuyu (data-gate GO → train handoff) kirletiyordu.
@@ -242,7 +296,26 @@ class Settings(BaseSettings):
 
     @property
     def sqlite_file(self) -> Path:
-        return self._under_root(self.sqlite_path)
+        """SQLite dosyası — yeniden adlandırma öncesi veritabanını öksüz bırakmaz.
+
+        Achilles → Hektor geçişinde varsayılan dosya adı ``achilles_trader_ai.db``'den
+        ``hektor_trader_ai.db``'ye döndü. Mevcut kurulumda YALNIZ eski dosya varsa ona
+        düşülür (yeni dosya oluşup korpus/kart geçmişi kaybolmuş gibi görünmesin diye).
+        Açık ``HEKTOR_SQLITE_PATH`` ayarı her zaman kazanır.
+        """
+        path = self._under_root(self.sqlite_path)
+        if path.exists() or self.sqlite_path != _DEFAULT_SQLITE_PATH:
+            return path
+        legacy = self._under_root(_LEGACY_SQLITE_PATH)
+        if legacy.exists():
+            log.warning(
+                "Eski veritabanı kullanılıyor: %s. Hektor'a geçiş için dosyayı "
+                "%s olarak yeniden adlandırabilirsiniz (WAL/SHM dosyalarıyla birlikte).",
+                legacy,
+                path.name,
+            )
+            return legacy
+        return path
 
     @property
     def chroma_dir(self) -> Path:
@@ -326,6 +399,9 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    # Eski ACHILLES_* önekini Settings kurulmadan ÖNCE taşı; aksi halde
+    # yeniden adlandırma sonrası mevcut .env sessizce yok sayılırdı.
+    _promote_legacy_env(Path.cwd() / ".env")
     return Settings()
 
 

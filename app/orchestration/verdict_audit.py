@@ -1,7 +1,7 @@
 """verdict_audit.py — av (hunt) verdict'inin BAĞIMSIZ doğrulaması (Kural 8 sertleştirme).
 
 SORUN (P8, doğrulanmış): `driver.parse_hunt_verdict` verdict'i TAMAMEN motorun kendi
-stdout'unun son satırından okur (``ACHILLES_HUNT_VERDICT: PASS``). Bu satır, ZORUNLU
+stdout'unun son satırından okur (``HEKTOR_HUNT_VERDICT: PASS``). Bu satır, ZORUNLU
 Kademe-2 derin av kapısının (her eğitimden önce, CLAUDE.md Kural 8) TEK dayanağıdır. Motor
 derin avı HİÇ yapmadan son satıra ``PASS`` yazsa hat açılırdı → **motor kendi başarısının
 tek kaynağı**. Fail-closed korumalar (satır yoksa FAIL, sahte-binary savunması, Write/Edit
@@ -63,7 +63,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Motorun yapılandırılmış kanıt bloğunu başlatan işaretçi. Verdict satırından AYRIDIR:
 # verdict son satırdadır (parse_hunt_verdict onu okur), kanıt ondan ÖNCE gelir.
-EVIDENCE_MARKER = "ACHILLES_HUNT_EVIDENCE"
+EVIDENCE_MARKER = "HEKTOR_HUNT_EVIDENCE"
 
 # Asgari kapsama eşikleri — "hiç bakmadan PASS yaz" sınıfını yakalamak için taban.
 # Derin av alt-sistem başına paralel tarar → gerçek bir av bunların çok üstündedir; bunlar
@@ -286,7 +286,7 @@ def audit_hunt_evidence(output: str | None, *, root: Path | None = None) -> dict
     evidence = extract_evidence(output)
     if evidence is None:
         result["reason"] = (
-            "Yapılandırılmış kanıt bloğu (ACHILLES_HUNT_EVIDENCE) yok ya da bozuk — "
+            "Yapılandırılmış kanıt bloğu (HEKTOR_HUNT_EVIDENCE) yok ya da bozuk — "
             "motorun öz-beyanı tek kanıt olamaz (Kural 8)."
         )
         return result

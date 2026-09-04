@@ -1,6 +1,6 @@
 # Scope izolasyonu — sürücü motoru vs insan yetkisi
 
-**Amaç:** Achilles kendi motorunu doğurur (`app/orchestration/driver.py` → headless
+**Amaç:** Hektor kendi motorunu doğurur (`app/orchestration/driver.py` → headless
 `claude -p`). Bu motorun **kendi eğitimini onaylaması** ve **kill-switch'i temizlemesi**
 engellenmelidir. CLAUDE.md **Kural 8** ancak bu ayrım varsa anlamlıdır.
 
@@ -19,7 +19,7 @@ Denetim öncesi durum:
 ## İki kimlik seviyesi
 
 - **`human`** — web UI / CLI. Varsayılan; başlık göndermeyen her istek.
-- **`driver`** — doğurulan motor. `X-Achilles-Driver-Token` + `X-Achilles-Run-Id`
+- **`driver`** — doğurulan motor. `X-Hektor-Driver-Token` + `X-Hektor-Run-Id`
   başlıklarıyla kendini tanıtır.
 
 `require_human` kapısı olan uçlarda `driver` **403** alır. Sürücü token'ı
@@ -46,7 +46,7 @@ scope izolasyonunu tek başına **tiyatro** haline getiriyordu:
 
 ### 1. CLI, kimlik doğrulamasını tamamen atlar
 
-`uv run achilles approval-approve <id>` ve `clear-stop-all`, doğrudan
+`uv run hektor approval-approve <id>` ve `clear-stop-all`, doğrudan
 `approvals.approve()` / `supervisor.clear_stop_all()` çağırır — **hiçbir token
 kontrolü yoktur**. Bash aracı olan bir motor HTTP'ye hiç dokunmadan aynı sonuca ulaşır.
 
@@ -68,8 +68,8 @@ Araç deny-list'i **tek başına yetmez**. Claude Code'un *özelleştirme* kanal
 katmanının dışında çalışır; iki ayrı denetim turunda ikisi de somut olarak bulundu:
 
 **MCP:** `--disallowedTools` yalnız **yerleşik** araç adlarını yasaklar, `mcp__*`
-araçlarını **değil**. Proje kapsamında kayıtlı `achilles` MCP sunucusu
-(`mcp_server/achilles_mcp.py`), Achilles OpenAPI'sinden tool üretip
+araçlarını **değil**. Proje kapsamında kayıtlı `hektor` MCP sunucusu
+(`mcp_server/hektor_mcp.py`), Hektor OpenAPI'sinden tool üretip
 `127.0.0.1:8765`'e `httpx` ile proxy'ler — yani **Bash olmadan HTTP isteği atan bir
 kanal**. Üstelik bu proxy sürücü başlığı göndermediği için istekleri `human` scope'una
 düşerdi.
@@ -78,7 +78,7 @@ düşerdi.
 Claude Code tarafından **doğrudan kabukta** çalıştırılır — `Bash` *aracı* üzerinden
 değil. `-p` modunda güven (trust) diyaloğu atlandığı için **onaysız** koşarlar ve
 deny-list bunları hiç görmez. Depoya hook ekleyen bir PR/enjeksiyon, motor doğduğu
-anda tek bir araç çağrısı bile yapmadan `curl`/`achilles approval-approve`
+anda tek bir araç çağrısı bile yapmadan `curl`/`hektor approval-approve`
 çalıştırabilirdi.
 
 **Düzeltme (sınıf-düzeyi):** spawn'a **`--safe-mode`** eklendi — CLAUDE.md, skill'ler,
@@ -97,7 +97,7 @@ plugin'ler, **hook'lar**, **MCP sunucuları**, özel komut/ajanlar ve diğer tü
 araç-kısıtı **doğrulanmadı**.
 
 Kısıtsız bir motor doğurulursa bu katman **tamamen delinir** (araç kısıtı olmadan
-auth'suz `achilles approval-approve` çağrılabilir). Bu yüzden `Engine.hardened`
+auth'suz `hektor approval-approve` çağrılabilir). Bu yüzden `Engine.hardened`
 bayrağı eklendi ve **AutoDriver yalnız `hardened=True` motoru doğurur** — aksi halde
 **fail-closed** reddeder.
 
@@ -131,7 +131,7 @@ Koşu başlatmanın kendisi serbest kalır (yalnız beyan kapılıdır).
 
 ### 2. `.env` fallback, ortam temizliğini etkisiz kılıyordu
 
-`Settings` `env_file=".env"` kullanır. `os.environ`'dan `ACHILLES_API_TOKEN`'ı
+`Settings` `env_file=".env"` kullanır. `os.environ`'dan `HEKTOR_API_TOKEN`'ı
 **silmek yetmez** — çocuk süreç aynı `cwd`'de çalıştığı için token'ı dotenv'den geri
 okur. Deneyle doğrulandı:
 
@@ -143,7 +143,7 @@ anahtar ""ye ezilmiş -> ''                  # ← doğru
 **Düzeltme:** `build_child_env` anahtarı silmez, açıkça **boş string'e ezer** (env
 kaynağı pydantic-settings'te dotenv'den önceliklidir).
 
-## Achilles nerede ajan doğurur? (üç spawn noktası)
+## Hektor nerede ajan doğurur? (üç spawn noktası)
 
 Scope katmanı ilk turda yalnız AutoDriver'ı kapsıyordu; aynı tehdit sınıfındaki diğer
 iki spawn noktası kapsam dışı kalmıştı. Üçünün **bilinçli olarak farklı** rejimi var:
@@ -156,7 +156,7 @@ iki spawn noktası kapsam dışı kalmıştı. Üçünün **bilinçli olarak far
 
 `weekly-bug-scan.ps1`'de kısıt eskiden yalnız **prompt'taydı** ("DO NOT edit code, DO NOT
 run git"). Bu tarama commit diff'lerini okur → düşmanca bir commit içeriği ajanı
-yönlendirebilir (prompt-injection) ve Bash'iyle auth'suz `achilles approval-approve`
+yönlendirebilir (prompt-injection) ve Bash'iyle auth'suz `hektor approval-approve`
 çalıştırabilirdi. Artık kısıt **teknik**.
 
 ### ⚠️ Kuşatılamayan ajan — `rag-research-loop.ps1`
@@ -165,7 +165,7 @@ Bu ajanın işi kod entegre etmek, test koşmak ve **commit+push** etmektir;
 `Bash`/`Edit`/`Write` **işlevsel şarttır**. Dolayısıyla araç kısıtı **uygulanamaz** —
 uygulanırsa script'in işi biter.
 
-**Açıkça kabul edilen sonuç:** bu ajan `uv run achilles approval-approve` çalıştırıp
+**Açıkça kabul edilen sonuç:** bu ajan `uv run hektor approval-approve` çalıştırıp
 **kendi eğitimini onaylayabilir.** Hiçbir bayrak bunu engellemez. Buraya sahte bir kısıt
 eklemek, bu dokümanın baştan beri reddettiği **overclaim** olurdu; bu yüzden eklenmedi
 ve bir test (`test_research_loop_does_not_claim_tool_restriction`) bu bilinçli farkı
@@ -221,7 +221,7 @@ Bu yüzden koruma **katmanlıdır** ve gücü şuna bağlıdır:
 Bu nedenle sunucu, `api_token` boşken başlangıçta **WARNING** loglar — sessiz "auth
 kapalı" durumu belirgin hale getirilir.
 
-**Öneri:** ağa açmıyor olsan bile `ACHILLES_API_TOKEN` ata; sürücü izolasyonu ancak o
+**Öneri:** ağa açmıyor olsan bile `HEKTOR_API_TOKEN` ata; sürücü izolasyonu ancak o
 zaman gerçek bir sınır olur.
 
 ### `include_in_schema=False` bir güvenlik kontrolü DEĞİLDİR

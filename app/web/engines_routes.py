@@ -6,7 +6,7 @@ SÖZLEŞME (üçü de test'le sabitlenmiştir — bkz. tests/test_engines_api.py
 1. **Salt-okuma** — hiçbir uç süreç doğurmaz, eğitim başlatmaz, dosya yazmaz. PATH yoklaması
    (`shutil.which`) tek yan etkidir ve o da cache'lidir.
 2. **Kimlik bilgisi DÖNMEZ** — token / e-posta / API anahtarı / oturum çerezi ASLA. Motorlar
-   kendi CLI oturumlarıyla girişlidir; Achilles bu bilgiye ne bakar ne de sahiptir
+   kendi CLI oturumlarıyla girişlidir; Hektor bu bilgiye ne bakar ne de sahiptir
    (CLAUDE.md + [[no-api-local-subscription-only]]).
 3. **Giriş durumu uydurulmaz** — `logged_in` daima `null`. Bir CLI'nin abonelik oturumu
    ancak çalıştırılınca anlaşılır; yoklamak için spawn gerekirdi (kota yakar + salt-okuma

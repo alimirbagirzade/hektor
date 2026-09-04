@@ -65,10 +65,10 @@ def require_auth(request: Request) -> None:
     """API token ayarlıysa geçerli bir bearer token **ya da** sürücü token'ı zorunludur.
 
     Token boşsa (varsayılan yerel mod) doğrulama atlanır — sunucu zaten yalnız
-    localhost'a bağlıdır. Ağa açmak için ACHILLES_API_TOKEN ata.
+    localhost'a bağlıdır. Ağa açmak için HEKTOR_API_TOKEN ata.
 
     SÜRÜCÜ KİMLİĞİ (bkz. driver_scope + docs/SCOPE_ISOLATION.md): doğurulan motorun
-    ``ACHILLES_API_TOKEN``'ı bilinçli olarak BOŞALTILIR (insan sırrı çocuğa sızmasın —
+    ``HEKTOR_API_TOKEN``'ı bilinçli olarak BOŞALTILIR (insan sırrı çocuğa sızmasın —
     ``driver.py:_HUMAN_SECRET_ENV``). Bu kapı yalnız insan sırrını tanısaydı, api_token
     ayarlı kurulumda motor HER çağrıda 401 alır ve MCP üzerinden hiçbir iş yapamazdı.
     Bu yüzden geçerli bir sürücü token'ı da **kimlik** olarak kabul edilir.
@@ -115,8 +115,8 @@ Scope = Literal["human", "driver"]
 def resolve_scope(request: Request) -> Scope:
     """İsteğin kimlik seviyesini çöz: ``"human"`` (UI/CLI) veya ``"driver"`` (motor).
 
-    - ``X-Achilles-Driver-Token`` başlığı VARSA doğrulanır; geçersiz/süresi dolmuş ya
-      da ``X-Achilles-Run-Id`` ile eşleşmiyorsa **401** atılır — sessizce ``human``'a
+    - ``X-Hektor-Driver-Token`` başlığı VARSA doğrulanır; geçersiz/süresi dolmuş ya
+      da ``X-Hektor-Run-Id`` ile eşleşmiyorsa **401** atılır — sessizce ``human``'a
       DÜŞÜLMEZ (aksi halde geçersiz token göndermek yetki yükseltmesi olurdu).
     - Başlık yoksa ``human``.
     """
@@ -139,7 +139,7 @@ def resolve_scope(request: Request) -> Scope:
 def require_human(request: Request) -> None:
     """İnsan-yalnız uçlar için kapı: ``driver`` scope **403** alır (CLAUDE.md Kural 8).
 
-    Achilles kendi motorunu doğurduğu için (``app/orchestration/driver.py``), motorun
+    Hektor kendi motorunu doğurduğu için (``app/orchestration/driver.py``), motorun
     kendi eğitimini onaylaması / kill-switch'i temizlemesi engellenmelidir. Bu kapı
     yetki kararlarını insana saklar.
     """
@@ -162,10 +162,10 @@ def warn_if_auth_disabled() -> bool:
     if get_settings().api_token.strip():
         return True
     log.warning(
-        "GÜVENLİK: ACHILLES_API_TOKEN BOŞ — API kimlik doğrulaması KAPALI. "
+        "GÜVENLİK: HEKTOR_API_TOKEN BOŞ — API kimlik doğrulaması KAPALI. "
         "Sunucuya erişebilen her yerel süreç insan yetkisiyle istek atabilir; "
         "sürücü (driver) scope izolasyonu bu modda yalnız DERİNLEMESİNE SAVUNMADIR, "
-        "kriptografik sınır DEĞİLDİR. Gerçek sınır için ACHILLES_API_TOKEN ata."
+        "kriptografik sınır DEĞİLDİR. Gerçek sınır için HEKTOR_API_TOKEN ata."
     )
     return False
 

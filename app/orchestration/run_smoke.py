@@ -171,9 +171,9 @@ class RunPipelineSmoke:
 
         cfg = driver.build_mcp_config()
         servers = cfg.get("mcpServers") or {}
-        if "achilles" not in servers:
+        if "hektor" not in servers:
             return RunCheck(
-                "mcp-config", "fail", f"MCP config'te 'achilles' sunucusu yok: {list(servers)}"
+                "mcp-config", "fail", f"MCP config'te 'hektor' sunucusu yok: {list(servers)}"
             )
         blob = repr(cfg).lower()
         for sir in ("token", "api_key", "apikey", "password", "secret", "authorization"):
@@ -331,7 +331,7 @@ class RunPipelineSmoke:
         """⚡ RUN gerçekten MCP'li "sür" motoru mu doğuruyor, yoksa MCP'siz av motoru mu?
 
         Bu ayrım kritiktir: av modu `--safe-mode` ile doğar ve o bayrak MCP sunucularını
-        da KAPATIR. Yani av motoru Achilles MCP araçlarını GÖREMEZ — veri hattını
+        da KAPATIR. Yani av motoru Hektor MCP araçlarını GÖREMEZ — veri hattını
         ilerletemez, yalnız rapor üretir. "RUN → ajanlar sürülüyor" iddiası ancak (a)
         AutoDriver'ın sür yolu `build_drive_command`'i çağırıyor VE (b) ⚡ RUN ucu
         varsayılan olarak sür moduna gidiyorsa doğrudur (P7).
@@ -362,7 +362,7 @@ class RunPipelineSmoke:
                 "SÜR MODU TAM BAĞLI DEĞİL "
                 f"(sür_yolu={sur_yolu_var}, uç_varsayılan={uc_varsayilani!r}). "
                 "Av motoru `--safe-mode` ile başlar ve bu bayrak MCP'yi de KAPATIR → motor "
-                "Achilles MCP araçlarını GÖRMEZ ve veri hattını İLERLETEMEZ."
+                "Hektor MCP araçlarını GÖRMEZ ve veri hattını İLERLETEMEZ."
             ),
         )
 
@@ -378,7 +378,7 @@ class RunPipelineSmoke:
                 f"Gerçek motor spawn'ı YOKLANMADI (motor kurulu={kurulu}). Duman testi kota "
                 "yakmaz: PR#122 doğrulamasında kazara 5 `claude -p` süreci doğmuştu. "
                 "MCP araçlarının canlı görünürlüğü bu komutla KANITLANMAZ — elle, kapılı "
-                "`achilles orchestrate-drive-live --allow-live-spawn` ile denetimli koşulur."
+                "`hektor orchestrate-drive-live --allow-live-spawn` ile denetimli koşulur."
             ),
         )
 
@@ -388,21 +388,21 @@ class RunPipelineSmoke:
 # elle çalıştırıp "sür motoru gerçekten MCP araçlarını görüyor mu" kanıtını görür. Gerçek
 # `claude -p` doğurur → abonelik kotası yakar; bu yüzden açık `--allow-live-spawn` şarttır.
 _LIVE_PROBE_PROMPT = (
-    "Sen bir Achilles SÜR-MODU DUMAN TEST ajanısın. YALNIZ şunları yap, BAŞKA HİÇBİR ŞEY: "
-    "(1) sana MCP üzerinden sunulan Achilles araçlarını (adları `mcp__` ile başlar) say ve "
-    "adlarını yaz; (2) salt-okuma `mcp__achilles__*status*` benzeri bir durum aracını BİR kez "
+    "Sen bir Hektor SÜR-MODU DUMAN TEST ajanısın. YALNIZ şunları yap, BAŞKA HİÇBİR ŞEY: "
+    "(1) sana MCP üzerinden sunulan Hektor araçlarını (adları `mcp__` ile başlar) say ve "
+    "adlarını yaz; (2) salt-okuma `mcp__hektor__*status*` benzeri bir durum aracını BİR kez "
     "çağırıp döndüğünü doğrula. EĞİTİM BAŞLATMA, ONAY VERME, DOSYAYA YAZMA. Çıktının SON "
     "SATIRI tam olarak şu olmalı:\n"
-    "ACHILLES_DRIVE_VERDICT: PASS   (en az bir mcp__ aracı gördüysen)\n"
-    "ACHILLES_DRIVE_VERDICT: FAIL   (hiç MCP aracı görünmüyorsa)"
+    "HEKTOR_DRIVE_VERDICT: PASS   (en az bir mcp__ aracı gördüysen)\n"
+    "HEKTOR_DRIVE_VERDICT: FAIL   (hiç MCP aracı görünmüyorsa)"
 )
 
 
 class LiveDriveSmoke:
     """Kapılı, elle tetiklenen canlı sür duman adımı — TEK motor doğurur, sonra biter.
 
-    Kanıtladığı: (a) sür (drive) argv'siyle doğan motor Achilles MCP araçlarını GERÇEKTEN
-    görüyor (çıktıda `mcp__` + ``ACHILLES_DRIVE_VERDICT: PASS``); (b) motor süreci
+    Kanıtladığı: (a) sür (drive) argv'siyle doğan motor Hektor MCP araçlarını GERÇEKTEN
+    görüyor (çıktıda `mcp__` + ``HEKTOR_DRIVE_VERDICT: PASS``); (b) motor süreci
     ``engine_procs``'a KAYITLI doğar → ⛔ DURDUR onu kesebilir (kesme mekanizması otomatik
     smoke'un ``stop-kills-engine`` yoklamasıyla ayrıca kanıtlanır). ``runner``/``web_check``
     enjekte edilebilir → gerçek spawn olmadan test edilebilir.
@@ -449,7 +449,7 @@ class LiveDriveSmoke:
                 RunCheck(
                     "live-drive",
                     "skip",
-                    "Web sunucusu (ACHILLES_WEB_URL) erişilemedi — önce `uv run achilles-web` "
+                    "Web sunucusu (HEKTOR_WEB_URL) erişilemedi — önce `uv run hektor-web` "
                     "başlat; MCP araçları çalışan web'e proxy'lenir.",
                 )
             )
@@ -503,11 +503,11 @@ class LiveDriveSmoke:
 
     @staticmethod
     def _web_reachable() -> bool:
-        """ACHILLES_WEB_URL/api/healthz'e kısa bir GET dene (spawn öncesi ucuz kontrol)."""
+        """HEKTOR_WEB_URL/api/healthz'e kısa bir GET dene (spawn öncesi ucuz kontrol)."""
         import os
         import urllib.request
 
-        base = os.environ.get("ACHILLES_WEB_URL", "http://127.0.0.1:8765").rstrip("/")
+        base = os.environ.get("HEKTOR_WEB_URL", "http://127.0.0.1:8765").rstrip("/")
         try:
             with urllib.request.urlopen(f"{base}/api/healthz", timeout=3) as resp:
                 return 200 <= resp.status < 500

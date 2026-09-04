@@ -83,7 +83,7 @@ def test_recommended_command_is_string(tmp_path: Path) -> None:
     dr = _write_dryrun(tmp_path)
     with patch(_SUP, return_value=False), patch(_GET_APPROVAL, return_value=_appr()):
         res = lth.build_handoff(dryrun_json=dr, out_dir=tmp_path, write=False)
-    assert res["recommended_command"] == "uv run achilles train --run"
+    assert res["recommended_command"] == "uv run hektor train --run"
 
 
 def test_stop_all_blocked(tmp_path: Path) -> None:
@@ -164,4 +164,4 @@ def test_source_never_references_dangerous_calls() -> None:
     # Onay yalnız READ-ONLY okunur.
     assert "get_approval(" in _MODULE_SRC
     # Gerçek eğitim komutu YALNIZ string olarak var.
-    assert "uv run achilles train --run" in _MODULE_SRC
+    assert "uv run hektor train --run" in _MODULE_SRC

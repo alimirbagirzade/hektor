@@ -1,4 +1,4 @@
-# Achilles — pre-commit kancaları (güvenlik + temel hijyen).
+# Hektor — pre-commit kancaları (güvenlik + temel hijyen).
 # Kurulum (bir kez):  uv run pre-commit install
 # Elle hepsini çalıştır:  uv run pre-commit run --all-files
 # Sürümleri güncelle:  uv run pre-commit autoupdate

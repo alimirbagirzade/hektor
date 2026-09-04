@@ -1,6 +1,6 @@
 """Script spawn sertleştirmesi — doğurulan ajanlar araç-seviyesinde kısıtlı mı?
 
-Achilles üç yerde ajan doğurur; ikisi bu testlerin konusu (üçüncüsü AutoDriver,
+Hektor üç yerde ajan doğurur; ikisi bu testlerin konusu (üçüncüsü AutoDriver,
 `tests/test_scope_isolation.py`):
 
 - `scripts/weekly-bug-scan.ps1` — SALT RAPOR. Eskiden kısıt yalnız PROMPT'taydı
@@ -116,4 +116,4 @@ def test_research_loop_warns_on_bypass_permissions() -> None:
 def test_research_loop_blanks_human_token() -> None:
     """İnsan API token'ı çocuğa sızmaz (tam sınır değil, hijyen)."""
     text = _read(_LOOP)
-    assert 'ACHILLES_API_TOKEN = ""' in text
+    assert 'HEKTOR_API_TOKEN = ""' in text

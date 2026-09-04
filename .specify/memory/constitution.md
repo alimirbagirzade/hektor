@@ -1,4 +1,4 @@
-# Achilles Trader AI Constitution
+# Hektor Trader AI Constitution
 
 > Yerel-öncelikli AI trading **araştırma** sistemi: PDF literatür → RAG/bilgi kartı
 > → (opsiyonel LoRA) → disiplinli backtest. **Canlı bot değil, tavsiye değil.**

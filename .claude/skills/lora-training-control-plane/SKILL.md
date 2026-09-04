@@ -1,7 +1,7 @@
 ---
 name: lora-training-control-plane
-description: Controlled LoRA training lifecycle for Achilles. Dataset audit, curriculum classification, validation gates, smoke tests, LoRA config preparation, eval, adapter registry, and safe promotion. Use for any LoRA pipeline task.
-when_to_use: Use when preparing, validating, testing, evaluating, registering, or promoting any LoRA adapter or dataset in Achilles.
+description: Controlled LoRA training lifecycle for Hektor. Dataset audit, curriculum classification, validation gates, smoke tests, LoRA config preparation, eval, adapter registry, and safe promotion. Use for any LoRA pipeline task.
+when_to_use: Use when preparing, validating, testing, evaluating, registering, or promoting any LoRA adapter or dataset in Hektor.
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 
@@ -23,10 +23,10 @@ allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 - Gate 8: Dataset Split (train/valid/test sızıntı yok mu?)
 
 ## Komutlar
-- `uv run achilles lora-audit` — Gate 0-7
-- `uv run achilles lora-dataset` — JSONL üret
-- `uv run achilles lora-registry` — adapter listesi
-- `uv run achilles lora-status` — genel durum
+- `uv run hektor lora-audit` — Gate 0-7
+- `uv run hektor lora-dataset` — JSONL üret
+- `uv run hektor lora-registry` — adapter listesi
+- `uv run hektor lora-status` — genel durum
 
 ## Kullanıcı Onayı Gerektiren İşler
 - Smoke test başlatma (200+ örnek)

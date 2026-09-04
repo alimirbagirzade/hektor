@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Achilles Trader AI -- Linux/macOS cevrimdisi kurulum dogrulama kapisi.
+# Hektor Trader AI -- Linux/macOS cevrimdisi kurulum dogrulama kapisi.
 #
 # Amac: autostart KURULMADAN / "hazir" denmeden ONCE "sistem gercekten ayaga
 # kalkiyor mu" kanitla. verify-install.ps1'in (Windows) bire-bir bash karsiligi:
@@ -40,9 +40,9 @@ UV="$(find_uv)" || {
 
 # ---------------------------------------------------------------- cevrimdisi mod
 # Fake embedding: Ollama/ag olmadan RAG/embedding kod yollari calisabilsin.
-export ACHILLES_ALLOW_FAKE_EMBEDDINGS=true
+export HEKTOR_ALLOW_FAKE_EMBEDDINGS=true
 
-echo "Achilles cevrimdisi kurulum dogrulamasi"
+echo "Hektor cevrimdisi kurulum dogrulamasi"
 echo "  Proje : $PROJECT_DIR"
 echo "  uv    : $UV"
 
@@ -74,10 +74,10 @@ run_step() {
 }
 
 # ---------------------------------------------------------------- duman testi zinciri
-run_step "Sistem baslat (init)"      run --no-sync achilles init
-run_step "Durum (status)"            run --no-sync achilles status
-run_step "Sentetik veri (gen-data)"  run --no-sync achilles gen-data
-run_step "Backtest (ornek strateji)" run --no-sync achilles backtest data/market/raw/synthetic.csv
+run_step "Sistem baslat (init)"      run --no-sync hektor init
+run_step "Durum (status)"            run --no-sync hektor status
+run_step "Sentetik veri (gen-data)"  run --no-sync hektor gen-data
+run_step "Backtest (ornek strateji)" run --no-sync hektor backtest data/market/raw/synthetic.csv
 run_step "Testler (offline)"         run --no-sync pytest -q -m "not ollama and not slow" --basetemp .pytest_tmp
 
 # ---------------------------------------------------------------- sonuc

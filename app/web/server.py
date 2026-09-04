@@ -1,10 +1,10 @@
-"""Achilles Trader AI — güvenlikli yerel web arayüzü (FastAPI).
+"""Hektor Trader AI — güvenlikli yerel web arayüzü (FastAPI).
 
 Mevcut çekirdek motoru (ingestion, RAG, backtest) saran ince bir katmandır.
 Motoru YENİDEN YAZMAZ; yalnız HTTP üzerinden erişilebilir kılar.
 
 Çalıştır:
-    achilles-web                     # veya: uvicorn app.web.server:app
+    hektor-web                     # veya: uvicorn app.web.server:app
 Varsayılan: http://127.0.0.1:8765 (yalnız localhost).
 """
 
@@ -109,7 +109,7 @@ async def _lifespan(app: FastAPI):
     import numpy as _numpy
 
     logger.debug("NumPy preload tamamlandi: %s", _numpy.__version__)
-    logger.info("Achilles web başladı — host=%s port=%s", _settings.web_host, _settings.web_port)
+    logger.info("Hektor web başladı — host=%s port=%s", _settings.web_host, _settings.web_port)
     # api_token boşsa auth KAPALIDIR — bu sessiz kalmamalı (scope izolasyonu da bu
     # modda yalnız derinlemesine savunmadır, kriptografik sınır değil).
     security.warn_if_auth_disabled()
@@ -124,9 +124,9 @@ async def _lifespan(app: FastAPI):
     from app.monitoring.self_heal import get_self_healer
     from app.orchestration.unattended_supervisor import get_unattended_supervisor
 
-    isolate_chroma = _os.environ.get("ACHILLES_WEB_ISOLATE_CHROMA") == "1"
+    isolate_chroma = _os.environ.get("HEKTOR_WEB_ISOLATE_CHROMA") == "1"
 
-    # Arka plan döngüleri tek bayrakla kapatılabilir (ACHILLES_BACKGROUND_LOOPS_ENABLED).
+    # Arka plan döngüleri tek bayrakla kapatılabilir (HEKTOR_BACKGROUND_LOOPS_ENABLED).
     # Testler bunu kapatır: TestClient lifespan'i tetiklediğinde unattended supervisor
     # gerçek bir abonelik motoru doğurmaya çalışıyordu (kota + Kural 8).
     if not _settings.background_loops_enabled:
@@ -171,13 +171,13 @@ async def _lifespan(app: FastAPI):
 # gereksiz bir keşif yüzeyidir → kapatılır.
 #
 # Kırılma riski yok (doğrulandı): web arayüzü bu uçlara hiç başvurmaz ve MCP sunucusu
-# spec'i HTTP'den değil IN-PROCESS üretir (`achilles_app.openapi()`).
+# spec'i HTTP'den değil IN-PROCESS üretir (`hektor_app.openapi()`).
 # NOT: bu bir derinlemesine-savunma önlemidir, erişim kontrolü DEĞİL — uçların kendisi
 # zaten `api_auth` ile korunur; şema gizlemek onları korumaz.
 _expose_schema = not _settings.api_token.strip()
 
 app = FastAPI(
-    title="Achilles Trader AI",
+    title="Hektor Trader AI",
     description="Yerel-öncelikli trading araştırma sistemi — web arayüzü.",
     version="0.1.0",
     docs_url="/api/docs" if _expose_schema else None,
@@ -243,7 +243,7 @@ async def _security_middleware(request: Request, call_next):
 # ====================== API ======================
 api_auth = Depends(security.require_auth)
 
-# İNSAN-YALNIZ kapı (CLAUDE.md Kural 8): sürücü (driver) scope 403 alır. Achilles kendi
+# İNSAN-YALNIZ kapı (CLAUDE.md Kural 8): sürücü (driver) scope 403 alır. Hektor kendi
 # `claude -p` motorunu doğurduğu için, motorun kendi eğitimini onaylaması / kill-switch'i
 # temizlemesi engellenir. `api_auth` ile BİRLİKTE kullanılır (kimlik + scope).
 # NOT: bu uçlarda ayrıca `include_in_schema=False` var — bu bir GÜVENLİK KONTROLÜ DEĞİL,
@@ -283,7 +283,7 @@ def api_status() -> StatusResponse:
     store = SqliteStore()
     emb = EmbeddingService()
     llm = LocalLLM()
-    if os.environ.get("ACHILLES_WEB_ISOLATE_CHROMA") == "1":
+    if os.environ.get("HEKTOR_WEB_ISOLATE_CHROMA") == "1":
         n_chunks = 0
     else:
         try:
@@ -1226,7 +1226,7 @@ def api_training_dataset() -> DatasetBuildResponse:
             content_hash="",
             message=(
                 "Kanonik eğitim verisi yok (lora_sft.jsonl boş). Önce üret: "
-                "`uv run achilles synth-qa` veya `uv run achilles lora-cloud-prep`."
+                "`uv run hektor synth-qa` veya `uv run hektor lora-cloud-prep`."
             ),
         )
     return DatasetBuildResponse(
@@ -1347,10 +1347,7 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
 
     decision = authorize_training_action(
         "train_run",
-        (
-            f"Gerçek LoRA eğitimi (web): {req.adapter_name or 'achilles_lora'} "
-            f"({req.iterations} adım)"
-        ),
+        (f"Gerçek LoRA eğitimi (web): {req.adapter_name or 'hektor_lora'} ({req.iterations} adım)"),
         agent_id="lora-trainer",
     )
     if decision.mode == "stop_all":
@@ -1364,7 +1361,7 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
             ok=False,
             status="needs_approval",
             approval_id=decision.approval_id,
-            approve_command=f"uv run achilles approval-approve {decision.approval_id}",
+            approve_command=f"uv run hektor approval-approve {decision.approval_id}",
             message=(
                 "Gerçek eğitim TAZE manuel onay gerektirir (standing yetki yok). "
                 f"Onay isteği oluşturuldu: {decision.approval_id}. Onayla, sonra eğitimi "
@@ -1376,7 +1373,7 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
     from app.training.detached_launch import launch
 
     res = launch(
-        adapter_name=req.adapter_name or "achilles_lora",
+        adapter_name=req.adapter_name or "hektor_lora",
         iterations=req.iterations,
         base_model=req.base_model or None,
     )
@@ -1430,15 +1427,15 @@ def api_training_colab_notebook() -> Response:
         base_model=s.peft_base_model,
         train_jsonl=train_path,
         valid_jsonl=valid_path,
-        adapter_output_path=s.adapters_dir / f"achilles_lora_colab_{ts}",
+        adapter_output_path=s.adapters_dir / f"hektor_lora_colab_{ts}",
     )
-    out = s.reports_dir / f"achilles_colab_{ts}.ipynb"
+    out = s.reports_dir / f"hektor_colab_{ts}.ipynb"
     generate_colab_notebook(cfg, out)
     content = out.read_bytes()
     return FR(
         content=content,
         media_type="application/json",
-        headers={"Content-Disposition": f"attachment; filename=achilles_colab_{ts}.ipynb"},
+        headers={"Content-Disposition": f"attachment; filename=hektor_colab_{ts}.ipynb"},
     )
 
 
@@ -2578,7 +2575,7 @@ if _STATIC_DIR.exists():
 
 
 def run() -> None:
-    """`achilles-web` giriş noktası."""
+    """`hektor-web` giriş noktası."""
     import uvicorn
 
     s = get_settings()

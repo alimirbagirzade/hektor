@@ -1,4 +1,4 @@
-# Achilles Trader AI — Yeniden Yazım Rehberi (Tam Teknik Anatomi)
+# Hektor Trader AI — Yeniden Yazım Rehberi (Tam Teknik Anatomi)
 
 _Üretim tarihi: 2026-09-02 · Kaynak: depo `alimirbagirzade/achilles`, dal `main` (son merge PR#136) · Bu belge, projeyi sıfırdan yeniden yazacak birinin ihtiyaç duyacağı her şeyi tek yerde toplar: felsefe, mimari, her paket, her ajan, her tablo, her kural, her kapı, her test sözleşmesi, operasyon ve tarihçe._
 
@@ -35,7 +35,7 @@ _Üretim tarihi: 2026-09-02 · Kaynak: depo `alimirbagirzade/achilles`, dal `mai
 
 ## 1.1 Ne?
 
-Achilles Trader AI, **yerel-öncelikli (local-first) bir AI trading araştırma sistemidir**. Akademik finans makalelerini (PDF) okur, bunlardan bilgi kartları ve formüller çıkarır, formülleri birleştirerek yeni strateji hipotezleri üretir, hipotezleri disiplinli backtest'ten geçirir, sonuçtan öğrenir ve isteğe bağlı olarak küçük bir LoRA adaptörü eğitir. macOS Apple Silicon, Windows 10/11 ve Linux'ta çalışır.
+Hektor Trader AI, **yerel-öncelikli (local-first) bir AI trading araştırma sistemidir**. Akademik finans makalelerini (PDF) okur, bunlardan bilgi kartları ve formüller çıkarır, formülleri birleştirerek yeni strateji hipotezleri üretir, hipotezleri disiplinli backtest'ten geçirir, sonuçtan öğrenir ve isteğe bağlı olarak küçük bir LoRA adaptörü eğitir. macOS Apple Silicon, Windows 10/11 ve Linux'ta çalışır.
 
 Kısa formül: **PDF literatür → RAG / bilgi kartı → (opsiyonel LoRA) → disiplinli backtest.**
 
@@ -130,7 +130,7 @@ Kademe-2'nin her eğitimden önce zorunlu olmasının sebebi **v5 regresyonu**du
 
 ## 2.3 İki depo, tek anahtar
 
-SQLite kaynaktır, Chroma türevdir. İkisi `chunk_id = f"{paper_id}_c{index:04d}"` ile bağlıdır. SQLite dosyası (`storage/sqlite/achilles_trader_ai.db`) dört ayrı store tarafından paylaşılır (SqliteStore, MasteryStore, RlmStore, OrchestrationStore + SentinelStore + FeedbackStore); her biri bağlantıda `PRAGMA journal_mode=WAL` + `busy_timeout=30000` açar. SQLite FK enforcement **bilerek kapalıdır**; ebeveyn doğrulaması uygulama seviyesinde yapılır.
+SQLite kaynaktır, Chroma türevdir. İkisi `chunk_id = f"{paper_id}_c{index:04d}"` ile bağlıdır. SQLite dosyası (`storage/sqlite/hektor_trader_ai.db`) dört ayrı store tarafından paylaşılır (SqliteStore, MasteryStore, RlmStore, OrchestrationStore + SentinelStore + FeedbackStore); her biri bağlantıda `PRAGMA journal_mode=WAL` + `busy_timeout=30000` açar. SQLite FK enforcement **bilerek kapalıdır**; ebeveyn doğrulaması uygulama seviyesinde yapılır.
 
 ## 2.4 Otomasyon zinciri (topolojik)
 
@@ -150,8 +150,8 @@ dataset-quality-gate → model-data-registry (requires_approval → supervisor B
 
 ## 3.1 pyproject.toml
 
-- `name = "achilles-trader-ai"`, `version = "0.1.0"`, `requires-python = ">=3.12"`, MIT, build backend hatchling, `packages = ["app"]`.
-- **Entry points:** `achilles = "app.main:app"` (Typer) · `achilles-web = "app.web.server:run"` (uvicorn).
+- `name = "hektor-trader-ai"`, `version = "0.1.0"`, `requires-python = ">=3.12"`, MIT, build backend hatchling, `packages = ["app"]`.
+- **Entry points:** `hektor = "app.main:app"` (Typer) · `hektor-web = "app.web.server:run"` (uvicorn).
 - `uv.lock` (814 KB) bilerek commit'lenir.
 
 **Zorunlu bağımlılıklar:** pandas≥2.2, numpy≥1.26, pyarrow≥16.0 (kodda import edilmez; chromadb transitif), pydantic≥2.7, pydantic-settings≥2.3, sqlalchemy≥2.0, chromadb≥0.5, pymupdf≥1.24, pypdf≥4.2, typer≥0.12, rich≥13.7, anthropic≥0.40, google-genai≥1.0, requests≥2.32, httpx≥0.27, fastapi≥0.110, uvicorn[standard]≥0.29, python-multipart≥0.0.9, psutil≥6.0.
@@ -166,7 +166,7 @@ dataset-quality-gate → model-data-registry (requires_approval → supervisor B
 | `train-cpu` | torch≥2.2, transformers≥4.40, peft≥0.10, accelerate≥0.29 | Windows/Linux PEFT; HF `datasets` kullanılmaz |
 | `docs` | markdown-pdf≥1.13 | `scripts/gen_egitim_pdf.py` |
 | `rlm` | rlms≥0.1.2 | Opsiyonel alexzhang13/rlm motoru |
-| `mcp` | fastmcp≥2.0 | `mcp_server/achilles_mcp.py`; CI'da zorunlu |
+| `mcp` | fastmcp≥2.0 | `mcp_server/hektor_mcp.py`; CI'da zorunlu |
 | `dev` | pytest≥8.2, pytest-cov≥5.0, ruff≥0.5, mypy≥1.10, pre-commit≥3.7, types-requests | pytest/ruff/mypy **yalnız** bu extra ile gelir → `uv run/sync --extra dev` şart |
 
 ## 3.2 Araç ayarları
@@ -184,11 +184,11 @@ dataset-quality-gate → model-data-registry (requires_approval → supervisor B
 
 | Rol | Varsayılan | Env |
 |---|---|---|
-| LLM (Ollama) | `qwen3:4b` (8 GB RAM); 16 GB → `qwen3:8b`; 32 GB → `qwen3:14b`; eğitimde `qwen2.5:1.5b` | `ACHILLES_LLM_MODEL` |
-| Embedding | `nomic-embed-text` (Ollama `/api/embed`, 64'lük batch) | `ACHILLES_EMBED_MODEL` |
-| PEFT base | `Qwen/Qwen3-4B-Instruct-2507` (1.5B pivotunda `Qwen/Qwen2.5-1.5B-Instruct`) | `ACHILLES_PEFT_BASE_MODEL` |
-| MLX base | `mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit` (settings) / `models/mlx/Qwen3-4B-4bit` (.env.example) | `ACHILLES_MLX_BASE_MODEL` |
-| Ollama host | `http://127.0.0.1:11434` (localhost DEĞİL, Windows IPv6) | `ACHILLES_OLLAMA_HOST` |
+| LLM (Ollama) | `qwen3:4b` (8 GB RAM); 16 GB → `qwen3:8b`; 32 GB → `qwen3:14b`; eğitimde `qwen2.5:1.5b` | `HEKTOR_LLM_MODEL` |
+| Embedding | `nomic-embed-text` (Ollama `/api/embed`, 64'lük batch) | `HEKTOR_EMBED_MODEL` |
+| PEFT base | `Qwen/Qwen3-4B-Instruct-2507` (1.5B pivotunda `Qwen/Qwen2.5-1.5B-Instruct`) | `HEKTOR_PEFT_BASE_MODEL` |
+| MLX base | `mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit` (settings) / `models/mlx/Qwen3-4B-4bit` (.env.example) | `HEKTOR_MLX_BASE_MODEL` |
+| Ollama host | `http://127.0.0.1:11434` (localhost DEĞİL, Windows IPv6) | `HEKTOR_OLLAMA_HOST` |
 | Uzun vade | Lokal 120B OSS model; tek değişiklik `.env` | — |
 
 ---
@@ -198,15 +198,15 @@ dataset-quality-gate → model-data-registry (requires_approval → supervisor B
 Toplam `app/` Python: **48.290 satır, 22 paket**. Test: **180 dosya, 1.657 test fonksiyonu** (parametrize ile son tam koşu 1755 passed, 4 skipped).
 
 ```
-achilles/
+hektor/
 ├── CLAUDE.md                 # Claude Code bağlayıcı kurallar (8 kural, kadans, seans protokolü)
 ├── HANDOFF.md (1431)         # Seans devir defteri — kronolojik tarih + "YENİ SEANS BAŞLANGICI"
 ├── README.md                 # Kullanıcı kılavuzu (sıfır-varsayım, kopyala-yapıştır)
 ├── SECURITY.md               # Tehdit modeli + ağa açma checklist'i
-├── TRAINING_ROADMAP.md       # Evrensel eğitim yöntemleri şablonu + Achilles durumu
+├── TRAINING_ROADMAP.md       # Evrensel eğitim yöntemleri şablonu + Hektor durumu
 ├── automation_manifest.yaml  # 28 runtime ajanının tek bildirimsel kaynağı + chain
 ├── pyproject.toml / uv.lock / Makefile
-├── .env.example              # 38 ACHILLES_* anahtarı
+├── .env.example              # 38 HEKTOR_* anahtarı
 ├── setup.sh / setup.ps1 / install.ps1 / update.sh / update.ps1
 ├── app/                      # 48.290 satır
 │   ├── main.py (4838)        # Typer CLI, ~118 komut
@@ -233,11 +233,11 @@ achilles/
 │   ├── training/ (20, 4073)  # peft_lora_train (828), mlx_lora_train, detached_launch (623), adapter_eval, dataset_builder, dataset_quality, discipline_dataset, sft_assembly, unified_dataset, synthetic (brain'de), reward_signal, dpo_dataset_builder, tool_use_trainer, tool_use_dataset_builder, mastery_sft_builder, evaluate_model, cloud_notebook, backend, adapter_registry, unattended_policy
 │   ├── verification/ (19, 2540) # citation_verifier, grounding_verifier, context_sufficiency, contradiction_detector, confidence_scorer, abstention_policy, comprehension_scorer, rag_mastery, exams/{safe_eval, reference_oracle, registry, l3_application, l4_counterfactual, l5_composition, discipline_exam, understanding_score, understanding_record}
 │   └── web/ (16, 4984)       # server.py (2625), schemas, security, driver_scope, sse_tickets, version_info, training_manager, lora_chat_service, agent_graph(+routes), engines_routes, orchestration_routes, feedback_routes, sentinel_routes, ai_brain_routes, static/{index.html, ai_brain.html, assets/app.js (5250), app.css (3020), canli.*, fonts/*.woff2}
-├── mcp_server/               # achilles_mcp.py (FastMCP proxy), allowlist.py (21 uç)
+├── mcp_server/               # hektor_mcp.py (FastMCP proxy), allowlist.py (21 uç)
 ├── configs/lora/lora_profiles.yaml   # 6 profil
 ├── evals/                    # discipline_core / overfit_awareness / risk_management .jsonl
 ├── strategies/{pine,mql5,python}/    # rezerve, kod yazmaz
-├── notebooks/                # achilles_lora_stage2.ipynb, Modelfile, KAGGLE_EGITIM_ADIM_ADIM.md
+├── notebooks/                # hektor_lora_stage2.ipynb, Modelfile, KAGGLE_EGITIM_ADIM_ADIM.md
 ├── scripts/ (35)             # kurulum/doğrulama/eğitim/döngü/PR/tarama scriptleri
 ├── docs/ (30 md + egitim/ + examples/ + kaynaklar/ + arsiv/)
 ├── tests/ (180)
@@ -253,7 +253,7 @@ achilles/
 
 ## 5.1 `app/config/settings.py` — tüm alanlar
 
-`Settings(BaseSettings)`, prefix `ACHILLES_`, `.env` okunur, `get_settings()` `lru_cache`'li (testler `cache_clear()` yapar). `ensure_dirs()` şu dizinleri oluşturur: sqlite dizini, chroma_dir, raw_pdf_dir, market_raw_dir, adapters_dir, `reports/{papers,training,backtests,evals,agent_runs}`.
+`Settings(BaseSettings)`, prefix `HEKTOR_`, `.env` okunur, `get_settings()` `lru_cache`'li (testler `cache_clear()` yapar). `ensure_dirs()` şu dizinleri oluşturur: sqlite dizini, chroma_dir, raw_pdf_dir, market_raw_dir, adapters_dir, `reports/{papers,training,backtests,evals,agent_runs}`.
 
 | Alan | Varsayılan | Açıklama |
 |---|---|---|
@@ -267,7 +267,7 @@ achilles/
 | `google_api_key/model` | `""` / `gemini-2.0-flash` | Opsiyonel |
 | `mlx_base_model` | `mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit` | |
 | `peft_base_model` | `Qwen/Qwen3-4B-Instruct-2507` | |
-| `sqlite_path` | `storage/sqlite/achilles_trader_ai.db` | |
+| `sqlite_path` | `storage/sqlite/hektor_trader_ai.db` | |
 | `chroma_path` | `vector_db/chroma` | |
 | `rag_top_k` | 6 | |
 | `chunk_size` / `chunk_overlap` | 1200 / 200 | |
@@ -313,13 +313,13 @@ achilles/
 
 | Değişken | Nerede | Amaç |
 |---|---|---|
-| `UV_NO_SYNC=1` | start-train.ps1, train-loop.ps1, run-web-service.ps1, verify-install, continuous-learning.sh, systemd unit | `uv run` senkronunun çalışan web `achilles-web.exe`'yi kilitleyip `os error 32` vermesini önler |
-| `ACHILLES_TRAIN_DTYPE` | start-train.ps1 | bf16/fp32 |
-| `ACHILLES_TRAIN_SUPERVISED=1` | start-train.ps1, `launch()` alt sürecine | Üst katman onay tüketti → iç onay kapısı atlanır; STOP_ALL yine geçerli |
-| `ACHILLES_WEB_ISOLATE_CHROMA=1` | run-web-service.ps1 | Windows Chroma native crash izolasyonu; `/api/status` n_chunks=0, RAG döngüsü başlamaz |
+| `UV_NO_SYNC=1` | start-train.ps1, train-loop.ps1, run-web-service.ps1, verify-install, continuous-learning.sh, systemd unit | `uv run` senkronunun çalışan web `hektor-web.exe`'yi kilitleyip `os error 32` vermesini önler |
+| `HEKTOR_TRAIN_DTYPE` | start-train.ps1 | bf16/fp32 |
+| `HEKTOR_TRAIN_SUPERVISED=1` | start-train.ps1, `launch()` alt sürecine | Üst katman onay tüketti → iç onay kapısı atlanır; STOP_ALL yine geçerli |
+| `HEKTOR_WEB_ISOLATE_CHROMA=1` | run-web-service.ps1 | Windows Chroma native crash izolasyonu; `/api/status` n_chunks=0, RAG döngüsü başlamaz |
 | `OPENBLAS/OMP/MKL_NUM_THREADS=1` | run-web-service.ps1 | NumPy stabilizasyonu |
-| `ACHILLES_WEB_URL` | MCP proxy | Hedef web (varsayılan 127.0.0.1:8765) |
-| `ACHILLES_DRIVER_TOKEN` / `ACHILLES_DRIVER_RUN_ID` | `build_child_env` → motor → MCP proxy | Sürücü kimliği |
+| `HEKTOR_WEB_URL` | MCP proxy | Hedef web (varsayılan 127.0.0.1:8765) |
+| `HEKTOR_DRIVER_TOKEN` / `HEKTOR_DRIVER_RUN_ID` | `build_child_env` → motor → MCP proxy | Sürücü kimliği |
 | `CLAUDE_CODE_MANAGED_SETTINGS_PATH` / `_REMOTE_SETTINGS_PATH` / `_MOCK_REMOTE_SETTINGS` | `build_child_env` SİLER | Ayar-ezme kanalı |
 | `PYTEST_DEBUG_TEMPROOT` | test | Windows Temp izin sorunu; alternatif `--basetemp=.pytest_tmp` |
 | `RAG_AB_LIMIT` / `RAG_KW_LIMIT` | rag_ab_*.py | A/B sorgu sınırı |
@@ -373,7 +373,7 @@ Ortak: `_utcnow()` ISO-8601 string; `_sqlite_pragmas` connect listener (WAL + bu
 | `OrchestrationStore` (`app/orchestration/store.py`) | `orchestration_runs` (`orc_`), `orchestration_stages` (`orst_`; `claim_stage_running` CAS, `heartbeat_at`), `orchestration_events` (`orev_`) |
 | `SentinelStore` (`app/monitoring/store.py`) | `sentinel_checks` (keep_last=1000 budama) |
 | `FeedbackStore` (`app/feedback/store.py`) | `feedback_corrections` |
-| Learning memory (`app/agents/learning/memory.py`) | **Ayrı dosya** `storage/achilles_learning.db`: `model_trials`, `error_patterns`, `rule_suggestions` |
+| Learning memory (`app/agents/learning/memory.py`) | **Ayrı dosya** `storage/hektor_learning.db`: `model_trials`, `error_patterns`, `rule_suggestions` |
 
 ## 6.3 Chroma
 
@@ -416,7 +416,7 @@ Dizin `vector_db/chroma`; koleksiyon `paper_chunks`; `hnsw:space=cosine`; id = `
 | `storage/self_heal_state.json`, `storage/unattended_supervisor_state.json` | Tamir/reconciler durumu | monitoring, orchestration |
 | `storage/orchestration/regression_baseline.json` | Regresyon baseline | regression.py |
 | `storage/mcp/drive-<run_id>.json` | Sür modu MCP config (sır içermez) | driver.py |
-| `logs/{achilles-web, train-full, train-full-err, train-loop, update, synth_qa_seed*, rag-scan-*}.log` | Loglar (ignore) | scriptler |
+| `logs/{hektor-web, train-full, train-full-err, train-loop, update, synth_qa_seed*, rag-scan-*}.log` | Loglar (ignore) | scriptler |
 | `.web.pid` | Web PID | start-server/update |
 
 ---
@@ -578,7 +578,7 @@ Kural tabanlı iyileştirme promptu (az işlem → eşik düşür; aşırı DD �
 Güncel RAG yöntemlerini arXiv'de tarar → `docs/egitim/rag-watchlist.md` (deterministik skor, id dedup, `|`→`/`).
 
 ### synthesis_paper.py
-`research_sessions`'tan sentez makalesi `reports/synthesis/sentez_*.md`; `ACHILLES_SYNTHESIS_MIRROR_DIR` aynası best-effort (OSError yükselmez).
+`research_sessions`'tan sentez makalesi `reports/synthesis/sentez_*.md`; `HEKTOR_SYNTHESIS_MIRROR_DIR` aynası best-effort (OSError yükselmez).
 
 ## 7.5 `app/learning/` — Paper Mastery (8 dosya, 962 satır)
 
@@ -748,7 +748,7 @@ Apple Silicon `python -m mlx_lm.lora` sarmalayıcı (dry-run varsayılan); `dete
 ### detached_launch.py (623)
 - `_SPLIT_SEED=42`, `_VALID_RATIO=0.05`, `_LAUNCH_LOCK_TTL=120`.
 - `ensure_train_split(settings)`: `lora_sft.jsonl` → `train/valid` (kaynak boşsa mevcut korunur = clobber guard); `build_training_split()` (kaynak yoksa `assemble_sft_lines` ile bir kez üret) + `_auto_register_dataset` (DatasetVersion pending, best-effort); `readiness()`; `training_status()` (web/CLI/detached fark etmez); `is_running()`.
-- `_build_train_cmd(...)` test edilebilir; **`launch(adapter_name, iterations, base_model, profile="discipline_safe_local", max_examples)`** — profil varsayılanı v5 fix'i (`profile=""` bilinçli vanilya kaçışı); atomik kilit; `ACHILLES_TRAIN_SUPERVISED` alt sürece; `storage/train_status.json` (pid dahil); detached spawn.
+- `_build_train_cmd(...)` test edilebilir; **`launch(adapter_name, iterations, base_model, profile="discipline_safe_local", max_examples)`** — profil varsayılanı v5 fix'i (`profile=""` bilinçli vanilya kaçışı); atomik kilit; `HEKTOR_TRAIN_SUPERVISED` alt sürece; `storage/train_status.json` (pid dahil); detached spawn.
 - `read_detached_training_status`, `_pid_alive`, `is_detached_training_running(root)` (log-tazeliği yedeği root'a bağlı), `_terminate_tree`, `request_stop_detached_training` (pid kill + `STOP_TRAINING`).
 
 ### adapter_eval.py — dürüst gate
@@ -829,7 +829,7 @@ Apple Silicon `python -m mlx_lm.lora` sarmalayıcı (dry-run varsayılan); `dete
 | 5A | `local_training_orchestrator.py` | Eğitim-hazırlık denetimi (skor ≥70 READY; <500 satır risk); DAİMA salt-rapor |
 | 5B | `local_training_request.py` | Onay-kapılı İSTEK; `--create-approval` yalnız PENDING oluşturur, TÜKETMEZ |
 | 5C | `local_training_dryrun.py` | Onayı READ-ONLY okur, adapter-eval MOCK, execution planı |
-| 5D | `local_training_handoff.py` | Gerçek komutu YAZDIRIR (`uv run achilles train --run`), çalıştırmaz; `ready_for_human_execution` |
+| 5D | `local_training_handoff.py` | Gerçek komutu YAZDIRIR (`uv run hektor train --run`), çalıştırmaz; `ready_for_human_execution` |
 | 5E | `local_training_postcheck.py` | Eğitim sonrası READ-ONLY; `promotion_recommendation` DAİMA `human_review_required` |
 Raporlar `reports/local_training_orchestrator/<ts>_{audit,request,dryrun,handoff,postcheck}.{md,json}`.
 
@@ -840,7 +840,7 @@ Raporlar `reports/local_training_orchestrator/<ts>_{audit,request,dryrun,handoff
 | `model_advisor/advisor.py` | `recommend(profile, task, top_k)` → RAM/VRAM sert reddleri; `/api/recommend` |
 | `installer/ollama_installer.py` | Yalnız güvenli whitelist komutlar; `pull_model` timeout 600 s |
 | `benchmark/runner.py` | tps>15∧q>0.7 / tps>5∧q>0.5 / tps>2 eşikleri |
-| `learning/memory.py` | Ayrı `storage/achilles_learning.db` (model_trials, error_patterns, rule_suggestions) |
+| `learning/memory.py` | Ayrı `storage/hektor_learning.db` (model_trials, error_patterns, rule_suggestions) |
 | `learning/rules_updater.py` | Başarısız trial'lardan kural önerisi (`_MIN_FAILURES_FOR_BLACKLIST=3`, `_THROTTLE=2`, `_MIN_ERROR_OCCURRENCES=2`, `_MIN_TPS=5.0`); `pending_review`; `--approve` STOP_ALL + taze onay ister; HİÇBİR şeyi otomatik uygulamaz |
 
 ## 7.17 `app/orchestration/` (14 dosya, 4405 satır)
@@ -858,10 +858,10 @@ Raporlar `reports/local_training_orchestrator/<ts>_{audit,request,dryrun,handoff
 `preflight` (STOP_ALL, veri, bağımlılık) · `collision` · `smoke` · `deep_hunt` (**hunt_ack yoksa blocked**) · `data_gate` (`audit_dataset` GO?) · `curriculum` · `dry_run` (komut önizleme) · `regression` · `approval` (`authorize_training_action("train_run", gates_passed=True)`; STOP_ALL → blocked; unattended ∧ gates → completed; aksi `has_fresh_approval`? — **tüketmez**) · `train_handoff` (unattended? completed : blocked) · `eval_handoff` / `registry_handoff` (skipped; auto_pipeline devralır). `default_delegates()`.
 
 ### driver.py — AutoDriver (claude -p / codex / gemini)
-- Sabitler: `HUNT_TIMEOUT_S=1800`, `DRIVE_TIMEOUT_S=3600`, `DRIVE_TOKEN_TTL_S=3900`, `STOPPED_RC=-99`, `STOP_POLL_S=1.0`, `_HUMAN_SECRET_ENV=("ACHILLES_API_TOKEN",)`, `_SETTINGS_OVERRIDE_ENV` (3 `CLAUDE_CODE_*`).
+- Sabitler: `HUNT_TIMEOUT_S=1800`, `DRIVE_TIMEOUT_S=3600`, `DRIVE_TOKEN_TTL_S=3900`, `STOPPED_RC=-99`, `STOP_POLL_S=1.0`, `_HUMAN_SECRET_ENV=("HEKTOR_API_TOKEN",)`, `_SETTINGS_OVERRIDE_ENV` (3 `CLAUDE_CODE_*`).
 - `drive(run_id, execute=False, engine=None, mode="hunt"|"drive")`:
-  - **hunt:** hardened motor şart; koşu deep-hunt@blocked mi; `driver_scope.mint(run_id, ttl=2100)`; `build_child_env` (insan token'ı BOŞ, override env silinir, sürücü token+run_id eklenir); `_default_runner`: `Popen(argv, shell=False, cwd=_REPO_ROOT)` + `engine_procs.register` + 1 s STOP_ALL yoklama → `terminate_run` → rc=-99 → `stopped=True`; `parse_hunt_verdict` (son satır `ACHILLES_HUNT_VERDICT: PASS|FAIL`, yoksa FAIL); `verdict_audit.audit_hunt_evidence`; **PASS ∧ audit.ok → `hunt_ack=true` → `run_until_blocked`** (onay kapısında durur); `finally revoke_run`.
-  - **drive:** `drive_hardened` şart; `write_mcp_config(storage/mcp/drive-<safe_run_id>.json)` (sır yazmaz); `mint(ttl=3900)`; `--tools Read,Grep,Glob --mcp-config <path>`; `parse_drive_verdict` (`ACHILLES_DRIVE_VERDICT`) — **hunt_ack YAZMAZ**; config unlink.
+  - **hunt:** hardened motor şart; koşu deep-hunt@blocked mi; `driver_scope.mint(run_id, ttl=2100)`; `build_child_env` (insan token'ı BOŞ, override env silinir, sürücü token+run_id eklenir); `_default_runner`: `Popen(argv, shell=False, cwd=_REPO_ROOT)` + `engine_procs.register` + 1 s STOP_ALL yoklama → `terminate_run` → rc=-99 → `stopped=True`; `parse_hunt_verdict` (son satır `HEKTOR_HUNT_VERDICT: PASS|FAIL`, yoksa FAIL); `verdict_audit.audit_hunt_evidence`; **PASS ∧ audit.ok → `hunt_ack=true` → `run_until_blocked`** (onay kapısında durur); `finally revoke_run`.
+  - **drive:** `drive_hardened` şart; `write_mcp_config(storage/mcp/drive-<safe_run_id>.json)` (sır yazmaz); `mint(ttl=3900)`; `--tools Read,Grep,Glob --mcp-config <path>`; `parse_drive_verdict` (`HEKTOR_DRIVE_VERDICT`) — **hunt_ack YAZMAZ**; config unlink.
   - Prompt (hunt): SALT-RAPOR, kod/git/eğitim yasak, weekly-bug-scan deseni; (drive): eğitimi yasaklar, MCP kullan, dosya düzenleme yok, 403'ü aşmaya çalışma, CLAUDE.md oku.
 - `_resolve_executable` (PATH'ten cwd çıkarılır, mutlak yol) — sahte binary savunması.
 
@@ -875,7 +875,7 @@ Raporlar `reports/local_training_orchestrator/<ts>_{audit,request,dryrun,handoff
 Canlı motor süreç kaydı (`run_id` başına): `register/unregister`, `is_run_live`, `live_count`, `terminate_run`, `terminate_all(grace=5.0)`.
 
 ### verdict_audit.py — bağımsız verdict oracle (P8 + P9)
-- `EVIDENCE_MARKER="ACHILLES_HUNT_EVIDENCE"` JSON bloğu: `scanned_files: [{path, line, quote}]`, `subsystems`, `findings: [{severity,...}]`.
+- `EVIDENCE_MARKER="HEKTOR_HUNT_EVIDENCE"` JSON bloğu: `scanned_files: [{path, line, quote}]`, `subsystems`, `findings: [{severity,...}]`.
 - `extract_evidence` **her istisnada None** (RecursionError dahil; fail-closed).
 - `audit_hunt_evidence(evidence, verdict)`: ≥`MIN_SCANNED_FILES=5` var olan dosya (yol-geçişi reddi, tekil), ≥`MIN_SUBSYSTEMS=2`, PASS + `_BLOCKING_SEVERITIES={HIGH,BLOCKER,CRITICAL,SEVERE}` bulgu → iç-tutarsız red; **okuma-kanıtı:** ≥`MIN_READ_PROVEN=5` dosya için `lines[line-1].strip()==quote.strip()` (`MIN_QUOTE_LEN=12`, `line:true` bool sayılmaz, aynı alıntı+dosya bir kez, `MAX_PROOF_FILE_BYTES=5_000_000` satır-satır okuma).
 - Sınır: "hiç açmadan PASS" kapatıldı; "açtı ama düşünmedi" ikinci LLM doğrulayıcı ister (ertelendi).
@@ -903,14 +903,14 @@ Desired-state reconciler (web lifespan 60 s): STOP_ALL? → motor canlı? → ba
 
 ### security.py
 - `require_auth` (`api_auth`): token boş → geç; Bearer/X-Api-Token `compare_digest`; geçerli **sürücü token'ı da kimlik olarak kabul** (motor ortamında insan token'ı boş); aksi 401.
-- `resolve_scope`: `X-Achilles-Driver-Token` yoksa `human`; varsa `driver_scope.verify(token, run_id)` → geçersiz → **401** (human'a düşmez).
+- `resolve_scope`: `X-Hektor-Driver-Token` yoksa `human`; varsa `driver_scope.verify(token, run_id)` → geçersiz → **401** (human'a düşmez).
 - `require_human` (`human_only`): scope driver → **403**.
 - `SECURITY_HEADERS`: nosniff, `X-Frame-Options: DENY`, no-referrer, Permissions-Policy, COOP same-origin, CSP `default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'` (inline script yasak; fontlar self-host).
 - `RateLimiter` (IP başına 60 s kayan pencere, 60 s'de sweep; proxy başlıklarına güvenmez).
 - `validate_pdf_upload` (`.pdf`, boş, boyut, `%PDF-`), `validate_csv_upload` (`.csv`, ilk 8 KB decode, OHLC başlık), `sanitize_filename` (NFKD, 128 kırpma), `safe_destination` (traversal).
 
 ### driver_scope.py / sse_tickets.py
-- Driver token: `sha256(token) → (run_id, expires_at)`; `mint(run_id, ttl_s=2100)` (önceki iptal), `verify` (tüketmez; run_id `compare_digest`), `revoke_run`, `reset`; restart → tümü geçersiz. Header'lar `x-achilles-driver-token`, `x-achilles-run-id`.
+- Driver token: `sha256(token) → (run_id, expires_at)`; `mint(run_id, ttl_s=2100)` (önceki iptal), `verify` (tüketmez; run_id `compare_digest`), `revoke_run`, `reset`; restart → tümü geçersiz. Header'lar `x-hektor-driver-token`, `x-hektor-run-id`.
 - SSE bileti: `DEFAULT_TTL_S=60`, `mint()` (`token_urlsafe(32)`), `consume()` (tek kullanım). `/api/training/stream?ticket=` — insan api_token query'de **kabul edilmez**.
 
 ### Route envanteri (A = api_auth, H = human_only)
@@ -939,7 +939,7 @@ Desired-state reconciler (web lifespan 60 s): STOP_ALL? → motor canlı? → ba
 
 ## 7.19 `mcp_server/` — MCP proxy
 
-- `achilles_mcp.py`: spec **in-process** `app.web.server.app.openapi()`'den; çağrılar `httpx.AsyncClient(base_url=ACHILLES_WEB_URL, timeout=120, headers={**auth_headers(), **driver_headers()})` ile çalışan web'e proxy. `auth_headers()` → Bearer (token boşsa yok); `driver_headers(env)` → sürücü token/run_id başlıkları (kimlik aklama önlemi). `_warn_if_token_leaves_loopback` (stderr). **Tembel `__getattr__`** ile `mcp` (import fastmcp gerektirmez). Çalıştırma: `uv sync --extra mcp` + `uv run python mcp_server/achilles_mcp.py`; `claude mcp add achilles -- uv run --project <repo> python mcp_server/achilles_mcp.py`; `scripts/sync-mcp.sh`.
+- `hektor_mcp.py`: spec **in-process** `app.web.server.app.openapi()`'den; çağrılar `httpx.AsyncClient(base_url=HEKTOR_WEB_URL, timeout=120, headers={**auth_headers(), **driver_headers()})` ile çalışan web'e proxy. `auth_headers()` → Bearer (token boşsa yok); `driver_headers(env)` → sürücü token/run_id başlıkları (kimlik aklama önlemi). `_warn_if_token_leaves_loopback` (stderr). **Tembel `__getattr__`** ile `mcp` (import fastmcp gerektirmez). Çalıştırma: `uv sync --extra mcp` + `uv run python mcp_server/hektor_mcp.py`; `claude mcp add hektor -- uv run --project <repo> python mcp_server/hektor_mcp.py`; `scripts/sync-mcp.sh`.
 - `allowlist.py`: **varsayılan kapalı** spec budama (route_maps yerine). `ALLOWED` (21): `POST /api/ask`, `GET /api/rag-loop/status`, `POST /api/rag-loop/run-once`, `GET /api/cards/pending`, `GET /api/cards/approved`, `GET /api/card/{paper_id}`, `GET /api/backtests`, `GET /api/backtest/{id}/pine`, `GET /api/status`, `/healthz`, `/version`, `/profile`, `GET /api/sentinel/history`, `GET /api/agents`, `/agents/graph`, `/agents/runs`, `/agents/runs/{run_id}`, `GET /api/papers`, `GET /api/learning/summary`, `GET /api/rag-mastery`, `GET /api/understanding-score/history`. Dışarıda: `/backtest/{id}/risk`, `/sentinel/overview`, `/understanding-score` (yazan GET'ler). `FORBIDDEN_SUBSTRINGS` (12): approvals, stop-all, clear-stop-all, training/run, orchestration/{autodrive,start,resume}, auto-lora/{promote,train,enable}, rag-loop/{enable,config}. `verify_allowlist` (drift), `filter_spec`, `AllowlistError` (fail-closed).
 
 ## 7.20 `app/main.py` — Typer CLI (~118 komut)
@@ -969,7 +969,7 @@ Desired-state reconciler (web lifespan 60 s): STOP_ALL? → motor canlı? → ba
 
 # 8. Ajanlar
 
-Achilles'te "ajan" üç ayrı katmanda yaşar: (a) **runtime ajanları** — `automation_manifest.yaml`'de kayıtlı, kodda çalışan 28 bileşen; (b) **Claude ajan tanımları** — `.claude/agents/*.md`, geliştirme oturumunda alt-ajan olarak çalışır (19); (c) **skill'ler** — `.claude/skills/*/SKILL.md`, prosedür paketleri (20). Ayrıca AutoDriver'ın doğurduğu **motorlar** (claude/codex/gemini/local) vardır.
+Hektor'te "ajan" üç ayrı katmanda yaşar: (a) **runtime ajanları** — `automation_manifest.yaml`'de kayıtlı, kodda çalışan 28 bileşen; (b) **Claude ajan tanımları** — `.claude/agents/*.md`, geliştirme oturumunda alt-ajan olarak çalışır (19); (c) **skill'ler** — `.claude/skills/*/SKILL.md`, prosedür paketleri (20). Ayrıca AutoDriver'ın doğurduğu **motorlar** (claude/codex/gemini/local) vardır.
 
 ## 8.1 Runtime ajanları (automation_manifest.yaml — 28)
 
@@ -1054,7 +1054,7 @@ Kimlik toplanmaz/saklanmaz; `logged_in` daima `null`.
 | `/codegen-review` | Yeni indikatör/strateji kodu | registry'ye ekle + test; ruff+mypy+pytest |
 | `/rlm-answer` | Kaynaklı+doğrulanmış cevap | çok-tur retrieval → iddia doğrula → çekimser; `rlm-runs` |
 | `/rlm-integration` | RLM/RAG/Mastery/adapter kodu değişikliği | native varsayılan; OpenAI default değil; local exec yasak |
-| `/achilles-web` | Web API'yi MCP tool olarak kullan | web değişince MCP'yi senkronla (`sync-mcp.sh`) |
+| `/hektor-web` | Web API'yi MCP tool olarak kullan | web değişince MCP'yi senkronla (`sync-mcp.sh`) |
 | `/tv-bridge` | TradingView MCP köprüsü | Pine export ↔ TV karşılaştırma (>%10 fark uyarısı) |
 | `/lora-training-control-plane` | Her LoRA hattı işi | audit, curriculum, gates, smoke, config, eval, registry, safe promote |
 | `/veri-uretim-protokolu` | Stage 1 | sentetik QA 15→1000+, gece döngüsü, eşik izleme; CPU eğitimi YAPMAZ |
@@ -1096,10 +1096,10 @@ Ağa açarken: P0 token (`openssl rand -hex 32`) + VPN/SSH tüneli (en iyi) veya
 
 ## 9.2 Kimlik ve scope
 
-- İki kimlik seviyesi: **human** (UI/CLI, api_token) ve **driver** (doğurulan motor; `X-Achilles-Driver-Token` + `X-Achilles-Run-Id`, sha256-hash'li, run_id-bağlı, TTL'li, koşu bitince iptal).
+- İki kimlik seviyesi: **human** (UI/CLI, api_token) ve **driver** (doğurulan motor; `X-Hektor-Driver-Token` + `X-Hektor-Run-Id`, sha256-hash'li, run_id-bağlı, TTL'li, koşu bitince iptal).
 - `require_human` ile korunan uçlar (driver → 403): onay ver/reddet, kart onayla/reddet, feedback approve/reject/export, `training/run`, `auto-lora/train|promote`, `clear-stop-all`, `orchestration/autodrive`, `hunt_ack=true` içeren start/resume. `stop-all` kasıtlı olarak human_only **değil** (motor kendini durdurabilir, frenini çözemez).
 - Sürücünün açtığı `automation/tasks` zorla `requires_approval=True`.
-- **Dürüstlük sınırı:** `api_token` boşken bu katman kriptografik sınır değildir; öneri `ACHILLES_API_TOKEN` atamak. `include_in_schema=False` koruma değildir.
+- **Dürüstlük sınırı:** `api_token` boşken bu katman kriptografik sınır değildir; öneri `HEKTOR_API_TOKEN` atamak. `include_in_schema=False` koruma değildir.
 
 ## 9.3 Doğurulan motora karşı asıl sınır = araç kısıtı
 
@@ -1143,7 +1143,7 @@ Clobber guard üç katmanlı; `train.jsonl` her başlatmada `lora_sft.jsonl`'den
 ```
 İNSAN ⚡ RUN (15·AJAN HARİTASI) veya CLI orchestrate-start
   → preflight (STOP_ALL?) → collision (git) → smoke (Ollama canlı?) → deep-hunt [BLOCKED: hunt_ack yok]
-  → [insan: 12·ORKESTRASYON "Otonom AV" (mode=hunt)] AutoDriver → claude -p (safe-mode) → ACHILLES_HUNT_VERDICT + EVIDENCE
+  → [insan: 12·ORKESTRASYON "Otonom AV" (mode=hunt)] AutoDriver → claude -p (safe-mode) → HEKTOR_HUNT_VERDICT + EVIDENCE
   → verdict_audit bağımsız doğrular → hunt_ack=true
   → data-gate (audit_dataset GO?) → curriculum → dry-run → regression (baseline kıyası) → approval [BLOCKED: taze onay yok]
   → [insan: approval-approve <id> veya UI "✅ ONAYLA VE EĞİTİMİ BAŞLAT" (iki-tık)]
@@ -1156,13 +1156,13 @@ Clobber guard üç katmanlı; `train.jsonl` her başlatmada `lora_sft.jsonl`'den
 Sür modu (⚡ RUN varsayılan) veri hattını (carding→RLM→curate→assemble) MCP araçlarıyla ilerletir; eğitim adımında **onay kapısında durur**; `hunt_ack` yazmaz.
 
 ## 10.4 v5 dersi (neden bu kadar kapı var)
-`achilles_lora_v5` (Qwen3-4B, CPU PEFT, 1203 adım, 46.75 saat) base'den DAHA KÖTÜ çıktı: tekrar döngüsü, "pasaja göre" ezberi, maliyetsiz rakam uydurma. Kökler: (1) sentetik QA one-shot'ında her cevaba "Pasaja göre" öneki (%68 açılış ezberi), (2) adversarial disiplin örneği yok, (3) prompt maskeleme yok (assistant_only_loss=False), (4) eval adapter'ı yüklemiyordu (base Ollama'yı ölçüyordu), (5) eval n=1 ile sahte accept. Her biri ayrı kapıyla kapatıldı: sızıntı öneki kaldırıldı, 432 disiplin örneği, `build_masked_labels`, `evaluate_adapter` gerçek PEFT yükleme, `_MIN_EVAL_N=5`, `pretrain-gate` açılış-bigram bloğu, `regression.py` `top_opening_share`, profile-drop fix (`discipline_safe_local` varsayılan), `empty_answer` vetosu, `load_base_of` (elmayla-elma). İlk 1.5B eğitimi (`achilles_lora_15b_v1`, 400 adım, loss 2.63→1.54) eval'de base 0.125 → adapter 1.0 ile **ACCEPT** aldı.
+`hektor_lora_v5` (Qwen3-4B, CPU PEFT, 1203 adım, 46.75 saat) base'den DAHA KÖTÜ çıktı: tekrar döngüsü, "pasaja göre" ezberi, maliyetsiz rakam uydurma. Kökler: (1) sentetik QA one-shot'ında her cevaba "Pasaja göre" öneki (%68 açılış ezberi), (2) adversarial disiplin örneği yok, (3) prompt maskeleme yok (assistant_only_loss=False), (4) eval adapter'ı yüklemiyordu (base Ollama'yı ölçüyordu), (5) eval n=1 ile sahte accept. Her biri ayrı kapıyla kapatıldı: sızıntı öneki kaldırıldı, 432 disiplin örneği, `build_masked_labels`, `evaluate_adapter` gerçek PEFT yükleme, `_MIN_EVAL_N=5`, `pretrain-gate` açılış-bigram bloğu, `regression.py` `top_opening_share`, profile-drop fix (`discipline_safe_local` varsayılan), `empty_answer` vetosu, `load_base_of` (elmayla-elma). İlk 1.5B eğitimi (`hektor_lora_15b_v1`, 400 adım, loss 2.63→1.54) eval'de base 0.125 → adapter 1.0 ile **ACCEPT** aldı.
 
 ---
 
 # 11. Web arayüzü (15 sekme)
 
-`uv run achilles-web` → `http://127.0.0.1:8765`. Statik `index.html` + `app.js` (5250) + `app.css` (3020); CSP nedeniyle inline script/onclick yok; fontlar self-host (Spectral, Plus Jakarta Sans, JetBrains Mono); Okabe-Ito renk-körü-güvenli palet (pass `#0a7d55`, fail `#cf4014`) + ✓/✕/≈ şekil ipuçları; WCAG AA.
+`uv run hektor-web` → `http://127.0.0.1:8765`. Statik `index.html` + `app.js` (5250) + `app.css` (3020); CSP nedeniyle inline script/onclick yok; fontlar self-host (Spectral, Plus Jakarta Sans, JetBrains Mono); Okabe-Ito renk-körü-güvenli palet (pass `#0a7d55`, fail `#cf4014`) + ✓/✕/≈ şekil ipuçları; WCAG AA.
 
 **Üst şerit:** canlılık rozeti (4 s), bağlantı/embed/makale sayısı (30 s), RAG ustalık %, "obj. anlama" (tıkla → tam merdiven + kayıt), eğitim göstergesi (🔴 çalışıyor / ▶ EĞİTİME HAZIR — BAŞLAT / yok; 15 s), sürüm/sapma rozeti, disclaimer.
 
@@ -1198,36 +1198,36 @@ Sür modu (⚡ RUN varsayılan) veri hattını (carding→RLM→curate→assembl
 
 ## 12.1 Kurulum zinciri
 
-**Windows:** `install.ps1` (tek satır `irm … | iex`; Git yoksa winget; hedef `%USERPROFILE%\achilles`; mevcut checkout'u `main`'e ff-only günceller, yabancı kopya tespiti) → `setup.ps1` (Python/uv/Ollama winget, 18 model menüsü, `ollama pull` model + `nomic-embed-text`, `.env`, `achilles init`) → `scripts\start-server.ps1 -Install` (önce `verify-install.ps1` kapısı; HKCU Run `AchillesWeb` + Task Scheduler `AchillesUpdate` 03:00 + `AchillesTrainingWatchdog` 5 dk).
+**Windows:** `install.ps1` (tek satır `irm … | iex`; Git yoksa winget; hedef `%USERPROFILE%\hektor`; mevcut checkout'u `main`'e ff-only günceller, yabancı kopya tespiti) → `setup.ps1` (Python/uv/Ollama winget, 18 model menüsü, `ollama pull` model + `nomic-embed-text`, `.env`, `hektor init`) → `scripts\start-server.ps1 -Install` (önce `verify-install.ps1` kapısı; HKCU Run `HektorWeb` + Task Scheduler `HektorUpdate` 03:00 + `HektorTrainingWatchdog` 5 dk).
 **macOS/Linux:** `setup.sh` (uv → uv sync → Ollama/Homebrew → `.env` → init → erişim modu [yerel | uzaktan: `0.0.0.0` + otomatik token] → `verify-install.sh` → opsiyonel `install-autostart.sh` systemd/launchd/cron).
 
 **verify-install:** init → status → gen-data → backtest → pytest (offline); exit 0/1/2; autostart yalnız geçerse.
 
 ## 12.2 Güncelleme (`update.ps1` / `update.sh`)
-Web'i durdur (pid/port 8765) → `git fetch origin main` → dal main değilse `git switch main` (kirliyse ve `-Force` yoksa HATA; main başka worktree'de ise HATA) → `git pull --ff-only` (ıraksaksa AUTO-MERGE YOK; `-Force` → `reset --hard origin/main`, yalnız izlenen kod; veriler silinmez) → drift raporu → `uv sync --extra dev` → web'i başlat → sağlık → "Ctrl+Shift+R". **Eğitime dokunmaz.** Teşhis: `uv run achilles doctor` (sapma → exit 2); Windows görev yolu onarımı `start-server.ps1 -Repair`.
+Web'i durdur (pid/port 8765) → `git fetch origin main` → dal main değilse `git switch main` (kirliyse ve `-Force` yoksa HATA; main başka worktree'de ise HATA) → `git pull --ff-only` (ıraksaksa AUTO-MERGE YOK; `-Force` → `reset --hard origin/main`, yalnız izlenen kod; veriler silinmez) → drift raporu → `uv sync --extra dev` → web'i başlat → sağlık → "Ctrl+Shift+R". **Eğitime dokunmaz.** Teşhis: `uv run hektor doctor` (sapma → exit 2); Windows görev yolu onarımı `start-server.ps1 -Repair`.
 
 ## 12.3 Zamanlanmış görevler (Windows)
 
 | Görev | Kuran | Sıklık | Çalıştırır |
 |---|---|---|---|
-| `AchillesWeb` (HKCU Run) | `start-server.ps1 -Install` | Logon | `achilles-autostart.vbs` → web |
-| `AchillesLoop` (HKCU Run) | `start-loop.ps1 -Install` | Logon | sürekli öğrenme döngüsü |
-| `AchillesUpdate` | `start-server.ps1 -Install/-Repair` | Günlük 03:00 | `update.ps1` |
-| `AchillesTrainingWatchdog` | `start-server.ps1` | 5 dk | `training-watchdog.ps1` |
-| `Achilles-WeeklyBugScan` | `install-bug-scan-task.ps1` | Pzt 09:00 | `weekly-bug-scan.ps1` (Kademe-1) |
-| `Achilles-LiteratureScout` | `install-literature-scout-task.ps1` | Günlük 08:30 | `literature-scout.ps1` |
-| `Achilles-RAG-Scan` | `rag-research-loop.ps1 -Mode Scan -Register` | 24 s | `rag-scan` |
-| `Achilles-RAG-Integrate` | `rag-research-loop.ps1 -Mode Integrate -Register` | 168 s | entegrasyon turu |
+| `HektorWeb` (HKCU Run) | `start-server.ps1 -Install` | Logon | `hektor-autostart.vbs` → web |
+| `HektorLoop` (HKCU Run) | `start-loop.ps1 -Install` | Logon | sürekli öğrenme döngüsü |
+| `HektorUpdate` | `start-server.ps1 -Install/-Repair` | Günlük 03:00 | `update.ps1` |
+| `HektorTrainingWatchdog` | `start-server.ps1` | 5 dk | `training-watchdog.ps1` |
+| `Hektor-WeeklyBugScan` | `install-bug-scan-task.ps1` | Pzt 09:00 | `weekly-bug-scan.ps1` (Kademe-1) |
+| `Hektor-LiteratureScout` | `install-literature-scout-task.ps1` | Günlük 08:30 | `literature-scout.ps1` |
+| `Hektor-RAG-Scan` | `rag-research-loop.ps1 -Mode Scan -Register` | 24 s | `rag-scan` |
+| `Hektor-RAG-Integrate` | `rag-research-loop.ps1 -Mode Integrate -Register` | 168 s | entegrasyon turu |
 
-macOS: `launchctl` `com.achilles.web.plist`; Linux: systemd kullanıcı servisi `achilles-web.service` (`Restart=on-failure`, linger).
+macOS: `launchctl` `com.hektor.web.plist`; Linux: systemd kullanıcı servisi `hektor-web.service` (`Restart=on-failure`, linger).
 
 ## 12.4 Scriptler (35)
 
 | Script | Amaç |
 |---|---|
-| `start-server.ps1` | `-Install/-Restart/-Repair/-Uninstall/-Stop/-Status`; pid `.web.pid`; loglar `logs/achilles-web*.log` |
+| `start-server.ps1` | `-Install/-Restart/-Repair/-Uninstall/-Stop/-Status`; pid `.web.pid`; loglar `logs/hektor-web*.log` |
 | `run-web-service.ps1` | `.venv\Scripts\python.exe -c "from app.web.server import run; run()"` + `UV_NO_SYNC`, thread=1, `ISOLATE_CHROMA=1` |
-| `start-train.ps1` | Detached eğitim: `-Adapter -Iterations -Dtype -Profile discipline_safe_local -Stop -Status`; `lora-split` önce; `ACHILLES_TRAIN_SUPERVISED=1`; `train_status.json` (pid'siz) |
+| `start-train.ps1` | Detached eğitim: `-Adapter -Iterations -Dtype -Profile discipline_safe_local -Stop -Status`; `lora-split` önce; `HEKTOR_TRAIN_SUPERVISED=1`; `train_status.json` (pid'siz) |
 | `train-loop.ps1` | assemble_sft → lora-split → train --run döngüsü (STOP_TRAINING ile durur; `--profile` GEÇMEZ — kusur) |
 | `training-watchdog.ps1` | Mutex + log-tazeliği (10 dk) → ölmüşse `start-train.ps1 … -Profile discipline_safe_local` |
 | `assemble_sft.py` | `assemble_sft_lines` → `lora_sft.jsonl`; eğitim başlatmaz |
@@ -1270,7 +1270,7 @@ macOS: `launchctl` `com.achilles.web.plist`; Linux: systemd kullanıcı servisi 
 | `LOCAL_TRAINING_{REQUEST_FLOW,DRYRUN_PIPELINE,HANDOFF,POSTCHECK}.md` | Phase 5B-5E |
 | `PHASE4_GITHUB_AUTOMATION.md`, `PHASE4B_DRYRUN.md`, `PHASE4C_ACTIVATION.md` | GitHub otomasyonu (testlerle zorunlu yönetişim belgeleri) |
 | `rlm_rag_architecture.md`, `rlm_runtime_modes.md`, `rlm_security_model.md`, `rlm_alexzhang_integration.md` | RLM |
-| `HANDOFF_2026-08-03.md` | `achilles_lora_v5_durable` bf16 discipline_safe_local hedef 2406, 25/2406 checkpoint |
+| `HANDOFF_2026-08-03.md` | `hektor_lora_v5_durable` bf16 discipline_safe_local hedef 2406, 25/2406 checkpoint |
 | `egitim/` | `LORA_EGITIM_DETAYLI_ANLATIM.md/.pdf`, `RAG_EGITIM_DETAYLI_ANLATIM.md/.pdf` (sürümlü), `LORA_ARASTIRMA_LOG.md`, `rag-watchlist.md` |
 | `examples/raft_discipline_seed.jsonl`, `kaynaklar/00_NEDEN_ONEMLI_oku_once.md`, `arsiv/` (6 eski belge) | |
 
@@ -1279,7 +1279,7 @@ macOS: `launchctl` `com.achilles.web.plist`; Linux: systemd kullanıcı servisi 
 # 13. Test stratejisi
 
 - **180 dosya, 1657 test fonksiyonu; %100 çevrimdışı** (fake embedding, sentetik OHLCV, enjekte stub'lar, `tmp_path`). Ollama gerektiren 2 test `@pytest.mark.ollama`.
-- `conftest.py`: `_ollama_running()` → yoksa ollama testleri skip; `_isolate_storage` (session, autouse: `ACHILLES_SQLITE_PATH/CHROMA_PATH` tmp, `ALLOW_FAKE_EMBEDDINGS=true`, `get_settings.cache_clear()`); `_reset_web_rate_limiter` (function, autouse: `_rate_limiter._hits.clear()`); `store` fixture.
+- `conftest.py`: `_ollama_running()` → yoksa ollama testleri skip; `_isolate_storage` (session, autouse: `HEKTOR_SQLITE_PATH/CHROMA_PATH` tmp, `ALLOW_FAKE_EMBEDDINGS=true`, `get_settings.cache_clear()`); `_reset_web_rate_limiter` (function, autouse: `_rate_limiter._hits.clear()`); `store` fixture.
 - Windows: `--basetemp=.pytest_tmp` (WinError 5) veya `PYTEST_DEBUG_TEMPROOT`; `uv run --extra dev` şart.
 - Kategoriler: orkestrasyon/motor (~180), güvenlik/scope (~90), LoRA/gate (~180), veri hattı (~110), eğitim/eval (~70), 5A-5E (70), runtime (~110), izleme (~35), RAG retrieval (~120), RAG kalite (~100), anlama merdiveni (~70), RLM (~90), trading (~120), web/UI (~130), depolama (~50), araştırma (~70), yönetişim (34).
 - **Yönetişim testleri:** `test_phase4b_dryrun_docs.py`, `test_phase4c_activation_docs.py`, `test_github_workflows_static.py` dokümanları/YAML'ları zorunlu kılar (doküman silmeden önce `tests/` içinde ara).
@@ -1306,14 +1306,14 @@ macOS: `launchctl` `com.achilles.web.plist`; Linux: systemd kullanıcı servisi 
 | 06-23 | Kademe-2 (8 finder) → 5 fix (root izolasyonu, Gate 7 alanlar, concept seed, Kelly şişme, min-graded) |
 | 06-24 | alexzhang RLM opsiyonel adapter (4 PR); AI Brain 4 modül (registry, tools, eval_runner, quality_scorer; ~16 PR, 3 tur bug-fix); assistant_only_loss maskeleme + 1.5B pivotu + web LoRA chat |
 | 06-25 | Çok-makine yakınsama (update main'e geçer, doctor, sürüm rozeti; PR#54-58); Web UI redesign 5 PR (nav, Türkçe, Okabe-Ito) |
-| 06-26 | Kademe-2 av (PR#67) → **ilk 1.5B LoRA ACCEPT** (`achilles_lora_15b_v1`, base 0.125 → 1.0); 71 arXiv ingest |
+| 06-26 | Kademe-2 av (PR#67) → **ilk 1.5B LoRA ACCEPT** (`hektor_lora_15b_v1`, base 0.125 → 1.0); 71 arXiv ingest |
 | 06-29 | Orkestrasyon Faz-1 (PR#72, 9 aşama), Echo (PR#74), AutoDriver (PR#79); Kademe-2 → #75/#76/#77/#82 |
 | 06-30 | Faz-4 SmokeRunner; Faz-5 Collision + Regression (PR#86); 12 aşama; graph_corpus cache bulgusu |
 | 07-03 | Faz-6 Sentinel (PR#90); eğitim-öncesi Kademe-2: profile-drop, boş-cevap sahte-kabul, 4B-vs-1.5B (PR#95); veri hattı KAPANDI (2000 örnek, GO); UTF-8 fix; 6 arXiv |
 | 07-04 | 15·AJAN HARİTASI (PR#101), worktree hazard (PR#102), UI declutter (PR#103), kart yerleşimi (PR#105) |
 | 07-21 | Genel temizlik (PR#106: 17 ölü modül; PR#107: make install, fastmcp, CORS sahte-guard); Motor bağlama roadmap; **Scope izolasyonu** (PR#116/117/118); MCP allow-list 116→21 (PR#119); literature-scout (PR#120); sür-modu safe-mode çelişkisi (PR#121); RUN onay kapısı (PR#122); P6 E2E (DURDUR fix, yazan GET'ler, mutlak yol) |
 | 07-22 | P7 sür modu fişe (PR#125), SSE bilet; P8 bağımsız verdict (PR#126); P9 okuma-kanıtı (PR#129); 1755 passed |
-| 08-03 | Unattended training handoff (`achilles_lora_v5_durable`), training guardian, self-heal, unattended supervisor (PR#136 "codex drive subscription") |
+| 08-03 | Unattended training handoff (`hektor_lora_v5_durable`), training guardian, self-heal, unattended supervisor (PR#136 "codex drive subscription") |
 
 ## 14.2 Kanonik dersler
 
@@ -1366,7 +1366,7 @@ macOS: `launchctl` `com.achilles.web.plist`; Linux: systemd kullanıcı servisi 
 20. `formula-and-argument-integrity` skill'i var olmayan modüllere atıf yapar; `rlm-answer` skill'i timeout 300 der (kod 600).
 21. `automation_manifest.yaml` `phase: 1`, `literature-scout` eksik alanlar; `agents/runtime/__init__.py` "Phase 2 HENÜZ YOK"; `driver.py` "19 uç" (21).
 22. `app/pipeline/__init__.py` boş; `app/reliability/__init__.py` docstring'i fazla modül sayar; `strategies/` kullanılmıyor.
-23. `reports/bug-scan/` gitignore kararı bekliyor; "test var ama üretim yolu yok" dosyalar: query_expander, multi_query_retriever, hybrid_retriever, regression_runner, answer_eval, golden_generator (kanıt ve silme komutu SADELESTIRME_RAPORU.md §B). Not: `ollama_installer` ölü DEĞİL (`achilles install` kullanır); `self_refining_rag` diye bir dosya yok.
+23. `reports/bug-scan/` gitignore kararı bekliyor; "test var ama üretim yolu yok" dosyalar: query_expander, multi_query_retriever, hybrid_retriever, regression_runner, answer_eval, golden_generator (kanıt ve silme komutu SADELESTIRME_RAPORU.md §B). Not: `ollama_installer` ölü DEĞİL (`hektor install` kullanır); `self_refining_rag` diye bir dosya yok.
 
 ---
 
@@ -1401,8 +1401,8 @@ Her adımda Kademe-0 kapısı (`make format && make lint && make typecheck && ma
 - **Motor bağlama P1-P9 KAPANDI.** ⚡ RUN sür modunda motor doğuruyor; MCP 21 uç; av verdict'i bağımsız + okuma-kanıtlı; DURDUR gerçekten kesiyor. Kalan: DOK (doküman senkronu).
 - **Veri hattı KAPALI:** carding ✅ (185 makale; 483 onaylı / 3 bekleyen / 26 red), RLM ✅ (33 answered, 10 abstained, 5 §16 aday), curate ✅ (40 çok-versiyon düştü, 183 kanonik), assemble ✅ (**2000 örnek = 1324 synth-qa + 176 kart + 500 disiplin**), split ✅ (1900/100), pretrain-gate **GO** (2 epoch), Sentinel 9/9.
 - **Audit uyarıları (bloklamaz):** Gate 0: 98 orphan → elendi; Gate 5: 57 performans iddiası (review); Gate 6: 94 felsefe (review); Gate 7: 1 red → elendi.
-- **Sıradaki (insan kararları, Kural 8):** (1) 3 bekleyen kartı 06·ONAY'dan onayla/reddet; (2) `uv run achilles approval-approve <id>`; (3) `scripts/start-train.ps1 -Profile discipline_safe_local` (DETACHED); eğitim sonrası `evaluate_adapter` → registry ADAY → terfi insan onayı.
-- 2026-08-03 handoff: `achilles_lora_v5_durable` (bf16, discipline_safe_local, hedef 2406 adım, checkpoint-25) unattended training guardian ile sürüyordu.
+- **Sıradaki (insan kararları, Kural 8):** (1) 3 bekleyen kartı 06·ONAY'dan onayla/reddet; (2) `uv run hektor approval-approve <id>`; (3) `scripts/start-train.ps1 -Profile discipline_safe_local` (DETACHED); eğitim sonrası `evaluate_adapter` → registry ADAY → terfi insan onayı.
+- 2026-08-03 handoff: `hektor_lora_v5_durable` (bf16, discipline_safe_local, hedef 2406 adım, checkpoint-25) unattended training guardian ile sürüyordu.
 - Açık kararlar: `reports/bug-scan/` gitignore; graph_corpus count-only cache (chip); Contradiction Broker / Artemis RAG-drift ajan adayları (öncelik değil).
 
 ---
@@ -1461,30 +1461,30 @@ Cormack/Clarke/Büttcher 2009 (RRF) · Raudaschl 2024 (RAG-Fusion) · Bruch et a
 # Ek C — Komut hızlı referansı
 ```bash
 # kurulum / doğrulama
-bash setup.sh | irm .../install.ps1 | iex ; uv run achilles init ; uv run achilles status ; uv run achilles doctor
+bash setup.sh | irm .../install.ps1 | iex ; uv run hektor init ; uv run hektor status ; uv run hektor doctor
 make format && make lint && make typecheck && make test      # Kademe-0 kapısı
 uv run pytest -q --basetemp=.pytest_tmp                        # Windows
 
 # web / mcp
-uv run achilles-web                                            # http://127.0.0.1:8765
-uv sync --extra mcp && uv run python mcp_server/achilles_mcp.py
+uv run hektor-web                                            # http://127.0.0.1:8765
+uv sync --extra mcp && uv run python mcp_server/hektor_mcp.py
 
 # içerik
-uv run achilles ingest ; uv run achilles arxiv "momentum" --max-results 5 ; uv run achilles ask "..."
-uv run achilles rlm-answer "..." ; uv run achilles card <paper_id> ; uv run achilles research "..."
+uv run hektor ingest ; uv run hektor arxiv "momentum" --max-results 5 ; uv run hektor ask "..."
+uv run hektor rlm-answer "..." ; uv run hektor card <paper_id> ; uv run hektor research "..."
 
 # veri hattı
-uv run achilles synth-qa-bulk --target 1000 ; uv run achilles lora-curate --run
-uv run python scripts/assemble_sft.py ; uv run achilles lora-audit ; uv run achilles pretrain-gate
-uv run achilles lora-split ; uv run achilles lora-readiness
+uv run hektor synth-qa-bulk --target 1000 ; uv run hektor lora-curate --run
+uv run python scripts/assemble_sft.py ; uv run hektor lora-audit ; uv run hektor pretrain-gate
+uv run hektor lora-split ; uv run hektor lora-readiness
 
 # orkestrasyon / eğitim (Kural 8)
-uv run achilles orchestrate-start ; uv run achilles orchestrate-smoke
-uv run achilles orchestrate-autodrive <run_id> --execute       # av (hunt) veya web ⚡ RUN (drive)
-uv run achilles approval-approve <id> ; uv run achilles train --run --profile discipline_safe_local
+uv run hektor orchestrate-start ; uv run hektor orchestrate-smoke
+uv run hektor orchestrate-autodrive <run_id> --execute       # av (hunt) veya web ⚡ RUN (drive)
+uv run hektor approval-approve <id> ; uv run hektor train --run --profile discipline_safe_local
 .\scripts\start-train.ps1 -Profile discipline_safe_local      # detached
-uv run achilles lora-eval <adapter> --n 8 ; uv run achilles registry-promote-dataset --version <id> --approver <kim>
+uv run hektor lora-eval <adapter> --n 8 ; uv run hektor registry-promote-dataset --version <id> --approver <kim>
 
 # izleme
-uv run achilles sentinel ; uv run achilles stop-all ; uv run achilles clear-stop-all
+uv run hektor sentinel ; uv run hektor stop-all ; uv run hektor clear-stop-all
 ```

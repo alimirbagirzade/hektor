@@ -1,4 +1,4 @@
-# 🏛️ Achilles Trader AI
+# 🏛️ Hektor Trader AI
 
 > **Yerel-öncelikli AI araştırma sistemi** — macOS · Windows · Linux.
 > Akademik finans makalelerini okur, trade hipotezleri üretir, backtest eder, sonuçtan öğrenir.
@@ -24,10 +24,10 @@
 **Gereksinimler:** Mac bilgisayar (M çipli) · internet bağlantısı
 
 ```bash
-git clone https://github.com/alimirbagirzade/achilles2.0.git
-cd achilles2.0
+git clone https://github.com/alimirbagirzade/hektor.git
+cd hektor
 bash setup.sh       # uv + model seçimi + Ollama + init — tek komut
-uv run achilles-web # → http://127.0.0.1:8765
+uv run hektor-web # → http://127.0.0.1:8765
 ```
 
 Kurulum açılır ve **9 yerel model seçeneği** sunar (hepsi internetsiz ve ücretsiz;
@@ -53,16 +53,16 @@ API anahtarı istenmez):
 1. **Terminal**'i aç → `Cmd + Boşluk` tuşla, "**Terminal**" yaz, **Enter**.
 2. Aşağıdaki **iki satırı** kopyala, Terminal'e yapıştır, **Enter**:
    ```bash
-   cd ~/achilles
+   cd ~/hektor
    bash update.sh
    ```
 3. Bittiğinde tarayıcıda **`Cmd + Shift + R`** yap (sayfayı tazele).
 
-**Güncelleme olmuyorsa / hata veriyorsa** (ör. `cd ~/achilles` "no such file" diyorsa) —
-şu **tek satırı** kopyala-yapıştır. Achilles klasörünü **kendisi bulur**, girer ve günceller
+**Güncelleme olmuyorsa / hata veriyorsa** (ör. `cd ~/hektor` "no such file" diyorsa) —
+şu **tek satırı** kopyala-yapıştır. Hektor klasörünü **kendisi bulur**, girer ve günceller
 (her şeyi düzeltir, verilerin silinmez, izin/`chmod` gerekmez):
 ```bash
-cd "$(find ~ -type d -name achilles 2>/dev/null | head -1)" && bash update.sh --force
+cd "$(find ~ -type d -name hektor 2>/dev/null | head -1)" && bash update.sh --force
 ```
 
 ---
@@ -72,10 +72,10 @@ cd "$(find ~ -type d -name achilles 2>/dev/null | head -1)" && bash update.sh --
 **Gereksinimler:** 64-bit Linux · Python 3.12+ · internet bağlantısı
 
 ```bash
-git clone https://github.com/alimirbagirzade/achilles2.0.git
-cd achilles2.0
+git clone https://github.com/alimirbagirzade/hektor.git
+cd hektor
 bash setup.sh       # uv + backend seçimi + modeller + init
-uv run achilles-web # → http://127.0.0.1:8765
+uv run hektor-web # → http://127.0.0.1:8765
 ```
 
 Kurulum başında 9 yerel model seçeneği çıkar; RAM/disk kontrolü yapılır ve Ollama + seçilen model otomatik indirilir (kurulum `sudo` gerektirebilir, systemd servisi oluşturur).
@@ -86,7 +86,7 @@ Kurulum başında 9 yerel model seçeneği çıkar; RAM/disk kontrolü yapılır
 
 **🔄 Sonradan güncelleme** (kurduğun klasörde): `bash update.sh` (takılırsa
 `bash update.sh --force` — `main`'e geçip `origin/main`'e eşitler). Makine güncel mi:
-`uv run achilles doctor`. Detay: **[docs/GUNCELLEME_KILAVUZU.md](docs/GUNCELLEME_KILAVUZU.md)**.
+`uv run hektor doctor`. Detay: **[docs/GUNCELLEME_KILAVUZU.md](docs/GUNCELLEME_KILAVUZU.md)**.
 
 ---
 
@@ -98,26 +98,26 @@ Kurulum başında 9 yerel model seçeneği çıkar; RAM/disk kontrolü yapılır
 **Tek komutla kurulum** — PowerShell'i ac, asagidaki satiri kopyalayip yapistir:
 
 ```powershell
-Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; irm https://raw.githubusercontent.com/alimirbagirzade/achilles2.0/main/install.ps1 | iex
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; irm https://raw.githubusercontent.com/alimirbagirzade/hektor/main/install.ps1 | iex
 ```
 
 Bu komut her seyi halleder:
 - Git yoksa otomatik kurar
-- Projeyi her zaman `C:\Users\<kullaniciadiniz>\achilles` konumuna indirir
+- Projeyi her zaman `C:\Users\<kullaniciadiniz>\hektor` konumuna indirir
 - Kurulum sihirbazini baslatir (backend secimi, model indirme, veritabani)
 
 **Kurulumdan sonra sunucuyu baslatmak:**
 
 ```powershell
-cd "$env:USERPROFILE\achilles"
-uv run achilles-web
+cd "$env:USERPROFILE\hektor"
+uv run hektor-web
 # Tarayicide ac: http://127.0.0.1:8765
 ```
 
 **Sunucuyu Windows açılışında otomatik başlatmak (önerilen):**
 
 ```powershell
-cd "$env:USERPROFILE\achilles"
+cd "$env:USERPROFILE\hektor"
 .\scripts\start-server.ps1 -Install
 ```
 
@@ -127,17 +127,17 @@ Bu komut şunları yapar: web servisi login'de otomatik başlar + her gece **03:
 
 > 📘 **Birden fazla bilgisayar mı var, "bir makinede güncel diğerinde değil" mi yaşıyorsun?**
 > Tam adım-adım çözüm: **[docs/GUNCELLEME_KILAVUZU.md](docs/GUNCELLEME_KILAVUZU.md)**
-> (ilk-seferlik onarım · `achilles doctor` teşhisi · Windows otomatik görev onarımı).
+> (ilk-seferlik onarım · `hektor doctor` teşhisi · Windows otomatik görev onarımı).
 
 **Windows (PowerShell):**
 ```powershell
-cd "$env:USERPROFILE\achilles"
+cd "$env:USERPROFILE\hektor"
 .\update.ps1
 ```
 
 **macOS / Linux (bash terminal):**
 ```bash
-cd ~/achilles            # Achilles'in kurulu olduğu klasör
+cd ~/hektor            # Hektor'in kurulu olduğu klasör
 bash update.sh
 ```
 
@@ -164,7 +164,7 @@ adapter'lar) git'te izlenmediği için **silinmez**. Salt-kopya kurulumlarda gü
 **Makinen güncel mi, emin değil misin?** Hiçbir şeyi değiştirmeyen teşhis komutu:
 
 ```bash
-uv run achilles doctor   # dal=main mi? origin/main ile aynı mı? (Windows'ta görev yolu doğru mu?)
+uv run hektor doctor   # dal=main mi? origin/main ile aynı mı? (Windows'ta görev yolu doğru mu?)
 ```
 
 Sapma varsa ne yapılacağını söyler. **Windows'ta** açılış/gece-03:00 güncelleme görevleri yanlış
@@ -177,16 +177,16 @@ Tam kılavuz: **[docs/GUNCELLEME_KILAVUZU.md](docs/GUNCELLEME_KILAVUZU.md)**.
 > Terminal'i aç: `Cmd + Boşluk` → "**Terminal**" yaz → Enter. Sonra aşağıdakileri kopyala-yapıştır.
 
 ```bash
-cd ~/achilles                  # Achilles klasörü (başka yerdeyse oraya gir)
+cd ~/hektor                  # Hektor klasörü (başka yerdeyse oraya gir)
 bash update.sh --force         # main'e geç + GitHub'a eşitle (yalnız KOD; verilerin SİLİNMEZ)
                                # bundan sonra her güncellemede sadece: bash update.sh
 ```
 
-**`cd ~/achilles` "no such file or directory" diyorsa** (klasör başka yerde) — şu **tek satır**
+**`cd ~/hektor` "no such file or directory" diyorsa** (klasör başka yerde) — şu **tek satır**
 klasörü kendisi bulur, girer ve günceller (kopyala-yapıştır, izin/`chmod` gerekmez):
 
 ```bash
-cd "$(find ~ -type d -name achilles 2>/dev/null | head -1)" && bash update.sh --force
+cd "$(find ~ -type d -name hektor 2>/dev/null | head -1)" && bash update.sh --force
 ```
 
 Eğer `not a git repository` veya `no such file or directory` hatası alırsan, o klasör git deposu
@@ -194,8 +194,8 @@ değildir (ör. ZIP olarak indirilmiş) — **sıfırdan temiz indir:**
 
 ```bash
 cd ~
-git clone https://github.com/alimirbagirzade/achilles2.0.git
-cd achilles2.0
+git clone https://github.com/alimirbagirzade/hektor.git
+cd hektor
 bash setup.sh                  # kurulum sihirbazı (backend/model/veritabanı)
 ```
 
@@ -207,7 +207,7 @@ bash setup.sh                  # kurulum sihirbazı (backend/model/veritabanı)
 
 ### 1) Web arayüzünü aç
 Tarayıcıda şunu yaz:  **http://127.0.0.1:8765**
-(Açılmıyorsa terminalde: `uv run achilles-web` yaz, sonra tekrar aç.)
+(Açılmıyorsa terminalde: `uv run hektor-web` yaz, sonra tekrar aç.)
 
 ### 2) Makale ekle (kendi PDF'lerin)
 - Üstte **02 · MAKALELER** sekmesine tıkla.
@@ -275,9 +275,9 @@ Soru → RAG ilgili makale parçalarını getirir → (base model + LoRA) cevapl
 
 ---
 
-## 🧠 Achilles okuduğunu *anladı* mı? (Anlama Doğrulama)
+## 🧠 Hektor okuduğunu *anladı* mı? (Anlama Doğrulama)
 
-**Ana fikir:** "Anlama" bir yüzdeyle ölçülmez, **kanıtlanır.** Achilles bir bilgiyi
+**Ana fikir:** "Anlama" bir yüzdeyle ölçülmez, **kanıtlanır.** Hektor bir bilgiyi
 "anladı" demek = o bilgiyi **doğru kullanıp**, ondan **test edilebilir yeni bir şey
 üretebildi** demektir. Web panelindeki "anlama %" yalnızca kaba bir gösterge sayacıdır —
 gerçek kanıt aşağıdaki sınavdır.
@@ -285,7 +285,7 @@ gerçek kanıt aşağıdaki sınavdır.
 > ℹ️ **Bu merdiven nereden geliyor?** Aşağıdaki basamaklar, `CLAUDE.md` kuralları ile
 > [`docs/PROTOKOL_RAG_LORA_ZINCIR.md`](docs/PROTOKOL_RAG_LORA_ZINCIR.md) ilkelerinin
 > **gündelik bir okuması**dır; protokolün resmî numaralandırması değildir. Protokolün
-> kendi terimleri şunlardır: **"%100 ANLA / anlama skoru"** (`achilles rag-mastery`),
+> kendi terimleri şunlardır: **"%100 ANLA / anlama skoru"** (`hektor rag-mastery`),
 > **"RAFT veri reçetesi"** ve **"dürüst gate (Kural 2)"**. Aşağıdaki "Taban · Dürüstlük"
 > basamağı protokoldeki **RAFT reddet** disiplinine, "Kompozisyon" basamağı ise
 > protokol aşama 3b'deki **Markov-zinciri indikatör sentezi → backtest** fikrine karşılık gelir.
@@ -362,7 +362,7 @@ Arka planda çalışan, sistemi sürekli geliştiren döngü. **Her turda sıray
 | 📚 PDF → RAG | ✅ | PDF yükle → chunk → ChromaDB · Ollama embedding |
 | 🧠 Trader Beyin | ✅ | Formül çıkarımı → sentez → backtest → yansıma |
 | 📈 Backtest | ✅ | Sentetik / gerçek CSV · komisyon + slippage dahil |
-| 📝 Pine Script | ✅ | `achilles pine` → TradingView v5 taslak |
+| 📝 Pine Script | ✅ | `hektor pine` → TradingView v5 taslak |
 | 🎓 LoRA Eğitimi | ✅ | Web UI'dan tek tık · macOS MLX + Windows PEFT · SSE stream |
 | 📊 Paper Mastery | ✅ | 0-100 RAG kalite skoru · deterministik · LLM gerektirmez |
 | 🧪 Makale Anlama Skoru | ✅ | A+B+C üç katman · kart kalitesini anında gösterir |
@@ -398,7 +398,7 @@ Arka planda çalışan, sistemi sürekli geliştiren döngü. **Her turda sıray
 
 ## 🔍 RAG mı, LoRA mı? (İkisi de var, farklı şeyler yapar)
 
-Bu iki kavram sıkça karıştırılır. Achilles her ikisini birlikte kullanır — ama **farklı amaçlarla**.
+Bu iki kavram sıkça karıştırılır. Hektor her ikisini birlikte kullanır — ama **farklı amaçlarla**.
 
 ### RAG (Retrieval-Augmented Generation) — Anlık Bellek
 
@@ -427,7 +427,7 @@ Cevap + kaynak (hangi makalenin kaçıncı parçası)
 | Çıktı | Dosya/Tablo |
 |-------|-------------|
 | Makale vektörleri | `vector_db/chroma/` (ChromaDB) |
-| Makale metadata | `storage/sqlite/achilles_trader_ai.db` → `papers` tablosu |
+| Makale metadata | `storage/sqlite/hektor_trader_ai.db` → `papers` tablosu |
 | RAG sorgu geçmişi | `storage/sqlite/...` → `rag_queries` tablosu |
 
 **Sınırı:** Makale yoksa "bilmiyorum" der. Model zayıfsa iyi sentez yapamaz.
@@ -445,16 +445,16 @@ CPU'da çok yavaştır → **bulut-GPU önerilir** (Kaggle T4×2, ~15-20 dk); bk
 ```
 Onaylı bilgi kartları (06 ONAY sekmesi)
          │
-         ▼ achilles dataset
+         ▼ hektor dataset
 data/training/jsonl/train.jsonl   (instruction/output çiftleri)
 data/training/jsonl/valid.jsonl   (doğrulama seti)
          │
-         ▼ achilles train --run
+         ▼ hektor train --run
 mlx-lm lora  (Apple Silicon GPU, ~0.17% parametre eğitilir)
          │
          ▼
-models/adapters/achilles_lora_v3/   ← adapter ağırlıkları
-models/adapters/achilles_lora_v3.meta.json  ← versiyon + hash
+models/adapters/hektor_lora_v3/   ← adapter ağırlıkları
+models/adapters/hektor_lora_v3.meta.json  ← versiyon + hash
          │
          ▼
 01 ARAŞTIRMA → "model" menüsünden seç → LoRA ile cevap al
@@ -481,7 +481,7 @@ models/adapters/achilles_lora_v3.meta.json  ← versiyon + hash
 │ Seçim                           │ Ne olur                                  │
 ├─────────────────────────────────┼──────────────────────────────────────────┤
 │ OpenAI / Ollama (varsayılan)    │ Saf RAG: genel model + makale parçaları  │
-│ achilles_lora_v3                │ LoRA + RAG: ince-ayarlı + makale parçaları│
+│ hektor_lora_v3                │ LoRA + RAG: ince-ayarlı + makale parçaları│
 └─────────────────────────────────┴──────────────────────────────────────────┘
 ```
 
@@ -494,13 +494,13 @@ models/adapters/achilles_lora_v3.meta.json  ← versiyon + hash
 
 ## ⚡ MOTOR BAĞLAMA — "RUN" butonunu çalışır hale getirmek
 
-> **Motor nedir?** Achilles'in senin yerine düşünmesi için kullandığı **abonelikli
+> **Motor nedir?** Hektor'in senin yerine düşünmesi için kullandığı **abonelikli
 > yapay zekâ komut satırı aracı** (Claude Code, Codex CLI, Gemini CLI).
-> Achilles onu kendi başlatır ve **derin hata avını** ona yaptırır.
+> Hektor onu kendi başlatır ve **derin hata avını** ona yaptırır.
 
-> 💳 **Para/anahtar İSTENMEZ.** Achilles senden **e-posta, şifre, API anahtarı
+> 💳 **Para/anahtar İSTENMEZ.** Hektor senden **e-posta, şifre, API anahtarı
 > İSTEMEZ ve SAKLAMAZ.** Motorlar kendi aboneliğinle, kendi terminalinde giriş
-> yapar. Achilles yalnız "kurulu mu?" diye bakar.
+> yapar. Hektor yalnız "kurulu mu?" diye bakar.
 
 ### 1) Bir motor kur (bir kez)
 
@@ -519,12 +519,12 @@ claude
 ```
 
 Açılan ekranda **kendi aboneliğinle** giriş yap, sonra `/exit` yazıp çık.
-Bu adımı Achilles yapamaz — giriş bilgisi yalnız sende kalır.
+Bu adımı Hektor yapamaz — giriş bilgisi yalnız sende kalır.
 
-### 3) Achilles motoru görüyor mu, kontrol et
+### 3) Hektor motoru görüyor mu, kontrol et
 
 ```bash
-uv run achilles orchestrate-smoke --skip-runtime
+uv run hektor orchestrate-smoke --skip-runtime
 ```
 
 Şu satırı görmelisin:
@@ -538,7 +538,7 @@ uv run achilles orchestrate-smoke --skip-runtime
 ### 4) Web arayüzünde motoru seç
 
 ```bash
-uv run achilles-web
+uv run hektor-web
 ```
 
 Tarayıcıda **<http://127.0.0.1:8765>** → **15 · AJAN HARİTASI** sekmesi →
@@ -549,7 +549,7 @@ Gri (seçilemez) görünüyorsa altındaki sebep yazar (ör. "PATH'te bulunamad�
 
 Karşına **atlanamaz bir onay kutusu** çıkar: hangi motorun koşacağını ve
 **abonelik kotandan yiyeceğini** görürsün. Kutuyu işaretleyip onayla.
-⚡ RUN artık **sür (drive) modunu** doğurur: motor Achilles MCP araçlarıyla
+⚡ RUN artık **sür (drive) modunu** doğurur: motor Hektor MCP araçlarıyla
 veri hattını (carding→RLM→curate→assemble) ilerletir. Eğitim adımına gelince
 **onay kapısında durur** (Kural 8).
 
@@ -566,11 +566,11 @@ kaç sürecin kesildiği yanıtta raporlanır.
 ### 7) (İsteğe bağlı) Sür motorunun MCP araçlarını GERÇEKTEN gördüğünü kanıtla
 
 Bu tek, **elle tetiklenen** adım gerçek bir motor doğurur (abonelik kotası yakar),
-motorun Achilles MCP araçlarını (`mcp__*`) gördüğünü kanıtlar, sonra durur.
-Önce `uv run achilles-web` açık olmalı (MCP çalışan web'e bağlanır):
+motorun Hektor MCP araçlarını (`mcp__*`) gördüğünü kanıtlar, sonra durur.
+Önce `uv run hektor-web` açık olmalı (MCP çalışan web'e bağlanır):
 
 ```bash
-uv run achilles orchestrate-drive-live --allow-live-spawn
+uv run hektor orchestrate-drive-live --allow-live-spawn
 ```
 
 Bayrak olmadan **hiçbir şey doğurmaz** (varsayılan güvenli). Otomatik testler /
@@ -610,7 +610,7 @@ PASS'i zorunlu av kapısını (`hunt_ack`) AÇMAZ ve motor onay ucunu çağırı
 > Komut satırı bilmene gerek yok.
 
 ```bash
-uv run achilles-web
+uv run hektor-web
 ```
 
 Tarayıcında `http://127.0.0.1:8765` aç. Sağ üstte 🟢 **"ollama bağlı"** yazıyorsa hazırsın.
@@ -765,7 +765,7 @@ Adapter kaydedilir → 01 ARAŞTIRMA'da "model" menüsünden seçilir
 ```
 
 > ▶ **Web'den tek tıkla** (üst-bar "EĞİTİME HAZIR" rozeti / sekmedeki BAŞLAT, onay sorulur)
-> **veya terminalden** (`uv run achilles train --run` · Windows'ta `.\scripts\start-train.ps1`)
+> **veya terminalden** (`uv run hektor train --run` · Windows'ta `.\scripts\start-train.ps1`)
 > başlatılır. Eğitim her durumda **DETACHED** çalışır — başlatan pencere kapansa da sürer.
 > Backend otomatik seçilir: macOS Apple Silicon → MLX, Windows/Linux → PEFT/CPU.
 
@@ -846,15 +846,15 @@ Retrieval (15) + Citation (15) + Grounding (15) + Abstention (10) + Formül (5) 
 
 ```bash
 # Tek makale testi
-uv run achilles mastery-run <paper_id>
+uv run hektor mastery-run <paper_id>
 
 # Tüm makaleleri test et
-uv run achilles mastery-queue --enqueue-all
-uv run achilles mastery-queue --run-all
+uv run hektor mastery-queue --enqueue-all
+uv run hektor mastery-queue --run-all
 
 # Skor ve rapor
-uv run achilles mastery-score <paper_id>
-uv run achilles mastery-report <paper_id>
+uv run hektor mastery-score <paper_id>
+uv run hektor mastery-report <paper_id>
 ```
 
 ---
@@ -874,21 +874,21 @@ uv run achilles mastery-report <paper_id>
 uv sync
 
 # 2. Dizinleri ve veritabanını hazırla
-uv run achilles init
+uv run hektor init
 
 # 3. Ortam değişkenlerini ayarla
 cp .env.example .env
-# .env → ACHILLES_LLM_BACKEND=ollama     (varsayılan; API anahtarı gerekmez)
+# .env → HEKTOR_LLM_BACKEND=ollama     (varsayılan; API anahtarı gerekmez)
 
 # 4. Ollama modelini indir
 ollama pull qwen3:4b         # 8 GB RAM için önerilen
 ollama pull nomic-embed-text # embedding modeli
 
 # 5. Web arayüzünü başlat
-uv run achilles-web
+uv run hektor-web
 ```
 
-**Ollama RAM profilleri** (`.env` → `ACHILLES_LLM_MODEL`):
+**Ollama RAM profilleri** (`.env` → `HEKTOR_LLM_MODEL`):
 
 | RAM | Model | Hız |
 |:---:|-------|-----|
@@ -896,7 +896,7 @@ uv run achilles-web
 | 16 GB | `qwen3:8b` | Dengeli |
 | 32 GB | `qwen3:14b` | Güçlü |
 
-> **Ollama yoksa:** Embedding için deterministik hash yedek devreye girer (`ACHILLES_ALLOW_FAKE_EMBEDDINGS=true`); LLM cevabı üretilmez, yalnız kaynak parçaları gösterilir.
+> **Ollama yoksa:** Embedding için deterministik hash yedek devreye girer (`HEKTOR_ALLOW_FAKE_EMBEDDINGS=true`); LLM cevabı üretilmez, yalnız kaynak parçaları gösterilir.
 > Bulut sağlayıcı (OpenAI/Anthropic/Google) desteği kodda **opsiyonel** kalır ve bu projede kullanılmaz (bkz. `.env.example`).
 
 ---
@@ -906,14 +906,14 @@ uv run achilles-web
 ### Temel Akış
 
 ```bash
-uv run achilles init                    # kurulum (bir kez)
-uv run achilles status                  # sistem durumunu gör
-uv run achilles doctor                  # sürüm/sapma teşhisi: bu makine origin/main'de mi? (salt-okuma)
+uv run hektor init                    # kurulum (bir kez)
+uv run hektor status                  # sistem durumunu gör
+uv run hektor doctor                  # sürüm/sapma teşhisi: bu makine origin/main'de mi? (salt-okuma)
 ```
 
 > `doctor`, çok-makineli kurulumlarda **"güncelleme neden oturmuyor"** sorusunu yanıtlar:
 > mevcut dalı, HEAD'i, `origin/main`'e göre ahead/behind'ı, push'lanmamış yerel dalları ve
-> (Windows'ta) `AchillesWeb`/`AchillesUpdate` zamanlanmış görevlerinin bu repoyu mu yoksa ölü bir
+> (Windows'ta) `HektorWeb`/`HektorUpdate` zamanlanmış görevlerinin bu repoyu mu yoksa ölü bir
 > yolu mu işaret ettiğini raporlar. Sapma varsa çıkış kodu `2` döner (CI/kapı yakalayabilir).
 > Hiçbir şey çekmez/birleştirmez/değiştirmez. Bu makineyi `origin/main`'e zorla eşitlemek için:
 > `update.ps1 -Force` (Windows) · `./update.sh --force` (mac/Linux).
@@ -921,12 +921,12 @@ uv run achilles doctor                  # sürüm/sapma teşhisi: bu makine orig
 ### Makaleler
 
 ```bash
-uv run achilles ingest                  # data/papers/raw_pdf/ klasöründeki PDF'leri indeksle
-uv run achilles arxiv "sorgu terimi"    # arXiv'de ara → indir → indeksle
-uv run achilles arxiv "sorgu" --search-only   # sadece ara, indirme
-uv run achilles papers                  # indekslenmiş makaleleri listele
-uv run achilles rag-scan                # güncel RAG yöntemlerini arXiv'de tara → izleme listesine aday ekle
-uv run achilles rag-scan --dry-run      # sadece listele, izleme listesine yazma
+uv run hektor ingest                  # data/papers/raw_pdf/ klasöründeki PDF'leri indeksle
+uv run hektor arxiv "sorgu terimi"    # arXiv'de ara → indir → indeksle
+uv run hektor arxiv "sorgu" --search-only   # sadece ara, indirme
+uv run hektor papers                  # indekslenmiş makaleleri listele
+uv run hektor rag-scan                # güncel RAG yöntemlerini arXiv'de tara → izleme listesine aday ekle
+uv run hektor rag-scan --dry-run      # sadece listele, izleme listesine yazma
 ```
 
 > `rag-scan`, güncel-RAG araştırma döngüsünün **ucuz tarama** katmanıdır (projeye yerleşik
@@ -936,18 +936,18 @@ uv run achilles rag-scan --dry-run      # sadece listele, izleme listesine yazma
 ### Araştırma & Soru-Cevap
 
 ```bash
-uv run achilles ask "soru"              # RAG ile kaynaklı yanıt (tek-tur)
-uv run achilles rlm-answer "soru"       # RLM: çok-adımlı + iddia-doğrulamalı kaynaklı cevap
-uv run achilles rlm-answer "soru" --engine alexzhang  # opsiyonel motor (yoksa native'e düşer)
-uv run achilles rlm-runs                # RLM koşu geçmişi (görev/durum/kanıt/güven)
-uv run achilles rlm-engine              # RLM motor config (provider/güvenlik; salt-okuma)
-uv run achilles rlm-tools               # RLM güvenli tool allowlist'i (deny-by-default)
-uv run achilles rlm-lora-candidates     # §16 LoRA adayları (salt-okuma; eğitim YOK, onay şart)
-uv run achilles card <paper_id>         # bilgi kartı üret
-uv run achilles extract-formulas        # tüm makalelerden formül çıkar
-uv run achilles formulas                # çıkarılan formülleri listele
-uv run achilles research "soru"         # tam araştırma döngüsü
-uv run achilles research-sessions       # araştırma geçmişi
+uv run hektor ask "soru"              # RAG ile kaynaklı yanıt (tek-tur)
+uv run hektor rlm-answer "soru"       # RLM: çok-adımlı + iddia-doğrulamalı kaynaklı cevap
+uv run hektor rlm-answer "soru" --engine alexzhang  # opsiyonel motor (yoksa native'e düşer)
+uv run hektor rlm-runs                # RLM koşu geçmişi (görev/durum/kanıt/güven)
+uv run hektor rlm-engine              # RLM motor config (provider/güvenlik; salt-okuma)
+uv run hektor rlm-tools               # RLM güvenli tool allowlist'i (deny-by-default)
+uv run hektor rlm-lora-candidates     # §16 LoRA adayları (salt-okuma; eğitim YOK, onay şart)
+uv run hektor card <paper_id>         # bilgi kartı üret
+uv run hektor extract-formulas        # tüm makalelerden formül çıkar
+uv run hektor formulas                # çıkarılan formülleri listele
+uv run hektor research "soru"         # tam araştırma döngüsü
+uv run hektor research-sessions       # araştırma geçmişi
 ```
 
 > **`ask` vs `rlm-answer`:** `ask` tek-tur RAG verir (hızlı). `rlm-answer`
@@ -958,9 +958,9 @@ uv run achilles research-sessions       # araştırma geçmişi
 ### Backtest & Strateji
 
 ```bash
-uv run achilles gen-data                # test için sentetik OHLCV CSV üret
-uv run achilles backtest <csv>          # CSV ile backtest
-uv run achilles pine [strateji-adı]     # StrategyIR → TradingView Pine Script v5
+uv run hektor gen-data                # test için sentetik OHLCV CSV üret
+uv run hektor backtest <csv>          # CSV ile backtest
+uv run hektor pine [strateji-adı]     # StrategyIR → TradingView Pine Script v5
 ```
 
 ### Eğitim
@@ -968,65 +968,65 @@ uv run achilles pine [strateji-adı]     # StrategyIR → TradingView Pine Scrip
 **Aşamalı eğitim** (CPU sürekli-eğitimi YOK — bkz. `docs/PROTOKOL_ASAMALI_EGITIM.md`):
 ```bash
 # Stage 1 — lokal veri üret (büyüme motoru)
-uv run achilles synth-qa                # chunk'lardan sentetik grounded QA üret (Ollama)
-uv run achilles synth-qa-bulk           # TÜM korpustan checkpoint'li bulk üretim (1000'e hızlı)
-uv run achilles discipline-dataset      # adversarial disiplin örnekleri üret/önizle (LLM-free)
-uv run achilles lora-curate             # orphan + çok-versiyon kartları eğitimden çıkar (--run uygular)
-uv run achilles pretrain-gate           # eğitim-ÖNCESİ kalite kapısı: GO/NO-GO (LLM-free, #3)
-uv run achilles lora-readiness          # Stage 2 eşik durumu (≥1000 örnek mi?)
+uv run hektor synth-qa                # chunk'lardan sentetik grounded QA üret (Ollama)
+uv run hektor synth-qa-bulk           # TÜM korpustan checkpoint'li bulk üretim (1000'e hızlı)
+uv run hektor discipline-dataset      # adversarial disiplin örnekleri üret/önizle (LLM-free)
+uv run hektor lora-curate             # orphan + çok-versiyon kartları eğitimden çıkar (--run uygular)
+uv run hektor pretrain-gate           # eğitim-ÖNCESİ kalite kapısı: GO/NO-GO (LLM-free, #3)
+uv run hektor lora-readiness          # Stage 2 eşik durumu (≥1000 örnek mi?)
 bash scripts/continuous-learning.sh 72  # sürekli üretim döngüsü (eğitim DEĞİL)
 
 # Stage 2 — bulut-GPU LoRA (eşik dolunca, kullanıcı onayıyla)
-uv run achilles lora-cloud-prep         # veri paketle (+%25 disiplin) + notebook + Modelfile
-#   → notebook'u Kaggle/Colab'da çalıştır → GGUF indir → ollama create achilles
+uv run hektor lora-cloud-prep         # veri paketle (+%25 disiplin) + notebook + Modelfile
+#   → notebook'u Kaggle/Colab'da çalıştır → GGUF indir → ollama create hektor
 
 # Yardımcı / klasik
-uv run achilles dataset                 # bilgi kartlarından eğitim JSONL üret
-uv run achilles lora-dataset            # LoRA SFT JSONL + train/valid split üret
-uv run achilles rag-mastery             # RAG "ne kadar öğrendi" ustalık panosu (LLM-free)
-uv run achilles train                   # LoRA — SADECE ÖNIZLEME (çalıştırmaz)
-uv run achilles train --run             # LoRA — yerel (smoke; ağır 4B için bulut tercih et)
-uv run achilles evaluate <eval.jsonl>   # modeli failure-mode eval setiyle test et
-uv run achilles local-training-audit    # eğitim-HAZIRLIK denetimi — SALT RAPOR (eğitim başlatmaz, 5A)
-uv run achilles local-training-request  # onay-kapılı eğitim İSTEĞİ — onay oluşturabilir, eğitim/onay-tüketimi YOK (5B)
-uv run achilles local-training-dry-run  # onaylı isteği READ-ONLY simüle et — eğitim/onay-tüketimi YOK (5C)
-uv run achilles local-training-handoff  # insan-kapılı handoff — gerçek eğitim komutunu YAZDIRIR, çalıştırmaz (5D)
-uv run achilles local-training-postcheck # eğitim-SONRASI READ-ONLY denetim — terfi YOK, human_review_required (5E)
+uv run hektor dataset                 # bilgi kartlarından eğitim JSONL üret
+uv run hektor lora-dataset            # LoRA SFT JSONL + train/valid split üret
+uv run hektor rag-mastery             # RAG "ne kadar öğrendi" ustalık panosu (LLM-free)
+uv run hektor train                   # LoRA — SADECE ÖNIZLEME (çalıştırmaz)
+uv run hektor train --run             # LoRA — yerel (smoke; ağır 4B için bulut tercih et)
+uv run hektor evaluate <eval.jsonl>   # modeli failure-mode eval setiyle test et
+uv run hektor local-training-audit    # eğitim-HAZIRLIK denetimi — SALT RAPOR (eğitim başlatmaz, 5A)
+uv run hektor local-training-request  # onay-kapılı eğitim İSTEĞİ — onay oluşturabilir, eğitim/onay-tüketimi YOK (5B)
+uv run hektor local-training-dry-run  # onaylı isteği READ-ONLY simüle et — eğitim/onay-tüketimi YOK (5C)
+uv run hektor local-training-handoff  # insan-kapılı handoff — gerçek eğitim komutunu YAZDIRIR, çalıştırmaz (5D)
+uv run hektor local-training-postcheck # eğitim-SONRASI READ-ONLY denetim — terfi YOK, human_review_required (5E)
 
 # Dayanıklı eğitim orkestrasyonu (checkpoint/resume; insan-kapılı, Kural 8)
-uv run achilles orchestrate-start          # tek-tık hattı başlat → insan kapısında durur
-uv run achilles orchestrate-collision      # eşzamanlı oturum/worktree ÇAKIŞMASI taraması (git durumu)
-uv run achilles orchestrate-smoke          # gerçek runtime DUMAN TESTİ (Ollama+RAG+LLM canlı mı; "stub≠runtime")
-uv run achilles orchestrate-regression     # GERİLEME denetimi: aday veri vs son geçen baseline (--commit ile baseline kur)
-uv run achilles orchestrate-status <id>    # koşu aşama durumu (+--timeline)
-uv run achilles orchestrate-resume <id>    # bloke/başarısız koşuyu sürdür (tamamlanan aşamalar atlanır)
-uv run achilles orchestrate-autodrive <id> # deep-hunt'ı headless claude -p ile otonom sür (--execute)
+uv run hektor orchestrate-start          # tek-tık hattı başlat → insan kapısında durur
+uv run hektor orchestrate-collision      # eşzamanlı oturum/worktree ÇAKIŞMASI taraması (git durumu)
+uv run hektor orchestrate-smoke          # gerçek runtime DUMAN TESTİ (Ollama+RAG+LLM canlı mı; "stub≠runtime")
+uv run hektor orchestrate-regression     # GERİLEME denetimi: aday veri vs son geçen baseline (--commit ile baseline kur)
+uv run hektor orchestrate-status <id>    # koşu aşama durumu (+--timeline)
+uv run hektor orchestrate-resume <id>    # bloke/başarısız koşuyu sürdür (tamamlanan aşamalar atlanır)
+uv run hektor orchestrate-autodrive <id> # deep-hunt'ı headless claude -p ile otonom sür (--execute)
 ```
 
 ### Anlama Doğrulama (L3/L4/L5 — objektif sınav)
 
 "Anlama"yı kaba %'yle değil, **test edilebilir sınavla** ölçer (bkz. yukarıdaki
-"🧠 Achilles okuduğunu *anladı* mı?" bölümü). Referans daima güvenli `compute_indicator`;
+"🧠 Hektor okuduğunu *anladı* mı?" bölümü). Referans daima güvenli `compute_indicator`;
 LLM yoksa sınav `skipped` döner (sahte pass yok). L5 kompozisyon yalnız matematik +
 yenilik + maliyet-dahil backtest/OOS geçerse "aday" verir.
 
 ```bash
-uv run achilles understanding-score      # objektif ANLAMA SKORU (L3+L4 geçme oranı)
-uv run achilles exam-l3 --indicator SMA  # L3 UYGULAMA: formülü tutulan sayıya doğru uyguladı mı
-uv run achilles exam-l4 --indicator EMA  # L4 KARŞIOLGU: parametre değişiminin yönünü bildi mi
-uv run achilles exam-l5                  # L5 KOMPOZİSYON: math+novelty+backtest kapısı (aday/red)
+uv run hektor understanding-score      # objektif ANLAMA SKORU (L3+L4 geçme oranı)
+uv run hektor exam-l3 --indicator SMA  # L3 UYGULAMA: formülü tutulan sayıya doğru uyguladı mı
+uv run hektor exam-l4 --indicator EMA  # L4 KARŞIOLGU: parametre değişiminin yönünü bildi mi
+uv run hektor exam-l5                  # L5 KOMPOZİSYON: math+novelty+backtest kapısı (aday/red)
 ```
 
 ### Paper Mastery
 
 ```bash
-uv run achilles mastery-run <paper_id>            # tek makale testi (0-100 skor)
-uv run achilles mastery-queue                     # kuyruğu göster
-uv run achilles mastery-queue --enqueue-all       # tüm makaleleri kuyruğa ekle
-uv run achilles mastery-queue --run-next          # sıradaki makaleyi test et
-uv run achilles mastery-queue --run-all           # tüm kuyruğu işle
-uv run achilles mastery-score <paper_id>          # son skoru göster
-uv run achilles mastery-report <paper_id>         # JSON/MD raporu göster
+uv run hektor mastery-run <paper_id>            # tek makale testi (0-100 skor)
+uv run hektor mastery-queue                     # kuyruğu göster
+uv run hektor mastery-queue --enqueue-all       # tüm makaleleri kuyruğa ekle
+uv run hektor mastery-queue --run-next          # sıradaki makaleyi test et
+uv run hektor mastery-queue --run-all           # tüm kuyruğu işle
+uv run hektor mastery-score <paper_id>          # son skoru göster
+uv run hektor mastery-report <paper_id>         # JSON/MD raporu göster
 ```
 
 ### Ajan Runtime & Otomasyon (Phase 2)
@@ -1036,22 +1036,22 @@ adapter terfisi) **tek-kullanımlık taze onay** ister (CLAUDE.md Kural 8). Mani
 `automation_manifest.yaml`; tasarım: `docs/AGENT_RUNTIME_OBSERVER.md`.
 
 ```bash
-uv run achilles runtime-init             # ön-uçuş: manifest + Phase-2 tabloları + STOP_ALL doğrula
-uv run achilles chain-status             # çalıştırma zinciri (topolojik sıra + onay kapıları)
-uv run achilles chain-status --live      #   + her adımın ŞU ANKİ supervisor kapı durumu
-uv run achilles agents-list              # manifest'teki runtime ajanları
-uv run achilles agents-runs              # son ajan koşuları
-uv run achilles agents-log <run_id>      # bir koşunun olay günlüğü
-uv run achilles task-create --agent <id> --title "..."   # otomasyon görevi oluştur (pending)
-uv run achilles tasks-list               # görevleri listele
-uv run achilles tasks-run                # bekleyen görevleri denetimli yürüt (executor)
-uv run achilles tasks-run --retry-blocked  #   önce blocked_* görevleri yeniden kuyruğa al
-uv run achilles task-cancel <task_id>    # görevi iptal et
-uv run achilles approvals-list           # onay isteklerini listele
-uv run achilles approval-approve <id>    # taze onay ver (tek kullanımlık — standing yetki yok)
-uv run achilles approval-reject <id>     # onayı reddet
-uv run achilles stop-all                 # KÜRESEL acil-durdurma (tüm tehlikeli aksiyonları blokla)
-uv run achilles clear-stop-all           # acil-durdurmayı kaldır
+uv run hektor runtime-init             # ön-uçuş: manifest + Phase-2 tabloları + STOP_ALL doğrula
+uv run hektor chain-status             # çalıştırma zinciri (topolojik sıra + onay kapıları)
+uv run hektor chain-status --live      #   + her adımın ŞU ANKİ supervisor kapı durumu
+uv run hektor agents-list              # manifest'teki runtime ajanları
+uv run hektor agents-runs              # son ajan koşuları
+uv run hektor agents-log <run_id>      # bir koşunun olay günlüğü
+uv run hektor task-create --agent <id> --title "..."   # otomasyon görevi oluştur (pending)
+uv run hektor tasks-list               # görevleri listele
+uv run hektor tasks-run                # bekleyen görevleri denetimli yürüt (executor)
+uv run hektor tasks-run --retry-blocked  #   önce blocked_* görevleri yeniden kuyruğa al
+uv run hektor task-cancel <task_id>    # görevi iptal et
+uv run hektor approvals-list           # onay isteklerini listele
+uv run hektor approval-approve <id>    # taze onay ver (tek kullanımlık — standing yetki yok)
+uv run hektor approval-reject <id>     # onayı reddet
+uv run hektor stop-all                 # KÜRESEL acil-durdurma (tüm tehlikeli aksiyonları blokla)
+uv run hektor clear-stop-all           # acil-durdurmayı kaldır
 ```
 
 ### AI Brain ek modülleri (registry · tools · ingestion · eval)
@@ -1061,28 +1061,28 @@ yatırım tavsiyesi üretmez (çıktı her zaman hipotez/test-noktası).
 
 ```bash
 # Bilimsel araç çalışma zamanı — hesabı LLM "kafadan" değil deterministik araçla doğrula
-uv run achilles tools-list                       # kayıtlı araçlar + determinizm sözleşmesi
-uv run achilles montecarlo --returns "0.05,-0.02,0.03" --seed 42   # Monte Carlo + risk-of-ruin
-uv run achilles stats-check --csv x.csv --x a --y b --seed 42      # korelasyon + permütasyon p-değeri
+uv run hektor tools-list                       # kayıtlı araçlar + determinizm sözleşmesi
+uv run hektor montecarlo --returns "0.05,-0.02,0.03" --seed 42   # Monte Carlo + risk-of-ruin
+uv run hektor stats-check --csv x.csv --x a --y b --seed 42      # korelasyon + permütasyon p-değeri
 
 # İçe-alım kalite skoru (100 puan; salt-skor, eğitim başlatmaz)
-uv run achilles ingestion-quality --paper-id <id>     # tek makale skoru (bileşen kırılımı)
-uv run achilles ingestion-quality-scan --record       # tüm korpus: dağılım + en zayıflar
+uv run hektor ingestion-quality --paper-id <id>     # tek makale skoru (bileşen kırılımı)
+uv run hektor ingestion-quality-scan --record       # tüm korpus: dağılım + en zayıflar
 
 # Hipotez & eval — fikir "sinyal" değil test-edilebilir mi? + ReleaseGate
-uv run achilles eval-runner --type trading-hypothesis --input hyps.jsonl   # --strict ile kapı
+uv run hektor eval-runner --type trading-hypothesis --input hyps.jsonl   # --strict ile kapı
 
 # Model/veri kayıt defteri + terfi (Kural 8: dataset onayı eğitimden ÖNCE; promote İNSAN ONAYI)
-uv run achilles registry-snapshot                     # RAG indeks + embedding sürüm anlık görüntüsü
-uv run achilles registry-register-dataset --path lora_sft.jsonl --name v1   # hash+sayı otomatik
-uv run achilles registry-list --kind datasets         # datasets|rag-indices|embeddings|rewards|decisions
-uv run achilles registry-promote-dataset --version <id> --approver <kim>    # onayla (veya --reject)
+uv run hektor registry-snapshot                     # RAG indeks + embedding sürüm anlık görüntüsü
+uv run hektor registry-register-dataset --path lora_sft.jsonl --name v1   # hash+sayı otomatik
+uv run hektor registry-list --kind datasets         # datasets|rag-indices|embeddings|rewards|decisions
+uv run hektor registry-promote-dataset --version <id> --approver <kim>    # onayla (veya --reject)
 ```
 
-> **Web dashboard:** `uv run achilles-web` → tarayıcıda **`/ai-brain`** (registry/tools/ingestion/eval
+> **Web dashboard:** `uv run hektor-web` → tarayıcıda **`/ai-brain`** (registry/tools/ingestion/eval
 > tek sayfada; salt-okuma/hesap). Bu modüller otomasyon **zincirine** de bağlıdır
 > (`automation_manifest.yaml`): `ingestion-quality-scorer`, `scientific-tool-runtime`,
-> `hypothesis-evaluator`, `model-data-registry` (`achilles chain-status` ile görülür).
+> `hypothesis-evaluator`, `model-data-registry` (`hektor chain-status` ile görülür).
 
 ---
 
@@ -1090,24 +1090,24 @@ uv run achilles registry-promote-dataset --version <id> --approver <kim>    # on
 
 ```bash
 # ── 1. Kurulum ──────────────────────────────────────────────
-uv run achilles init
+uv run hektor init
 cp ~/Downloads/makale.pdf data/papers/raw_pdf/
-uv run achilles ingest
+uv run hektor ingest
 
 # ── 2. Araştırma ────────────────────────────────────────────
-uv run achilles ask "Momentum anomalisi düşük likiditede güçlenir mi?"
-uv run achilles card paper_abc123         # bilgi kartı üret
-uv run achilles research "RSI + ATR kombinasyonu işe yarar mı?"
+uv run hektor ask "Momentum anomalisi düşük likiditede güçlenir mi?"
+uv run hektor card paper_abc123         # bilgi kartı üret
+uv run hektor research "RSI + ATR kombinasyonu işe yarar mı?"
 
 # ── 3. Backtest ─────────────────────────────────────────────
-uv run achilles backtest data/market/raw/BTCUSD_1h_Binance.csv
+uv run hektor backtest data/market/raw/BTCUSD_1h_Binance.csv
 
 # ── 4. RAG Kalite Kontrolü ──────────────────────────────────
-uv run achilles mastery-run paper_abc123  # bu makaleyi ne kadar öğrendik?
+uv run hektor mastery-run paper_abc123  # bu makaleyi ne kadar öğrendik?
 
 # ── 5. (Opsiyonel) LoRA Eğitimi ─────────────────────────────
-uv run achilles dataset
-uv run achilles train --run               # macOS Apple Silicon gerekli
+uv run hektor dataset
+uv run hektor train --run               # macOS Apple Silicon gerekli
 ```
 
 ---
@@ -1117,16 +1117,16 @@ uv run achilles train --run               # macOS Apple Silicon gerekli
 | Sorun | Çözüm |
 |-------|-------|
 | Sayfa eski veya boş | **Cmd+Shift+R** (Mac) / **Ctrl+Shift+R** (Win) — önbellek temizle |
-| "Bu siteye ulaşılamıyor" | Sunucu kapalı → `uv run achilles-web` çalıştır |
+| "Bu siteye ulaşılamıyor" | Sunucu kapalı → `uv run hektor-web` çalıştır |
 | 🔴 "Ollama yok" uyarısı | `brew services start ollama` → tarayıcıyı yenile |
-| Kart üretimi çok uzun | OpenAI kullan (çok daha hızlı) veya `.env` → `ACHILLES_LLM_MODEL=qwen3:4b` |
+| Kart üretimi çok uzun | OpenAI kullan (çok daha hızlı) veya `.env` → `HEKTOR_LLM_MODEL=qwen3:4b` |
 | 🔴 "LLM yok" uyarısı | `ollama serve` çalıştır, sonra `ollama pull qwen3:4b` |
-| 50 MB az geldi | `.env` → `ACHILLES_MAX_UPLOAD_MB=200` → sunucuyu yeniden başlat |
+| 50 MB az geldi | `.env` → `HEKTOR_MAX_UPLOAD_MB=200` → sunucuyu yeniden başlat |
 | "Yetkisiz" hatası | Token ayarlıysa **08 SİSTEM** → token gir → KAYDET bas |
 | Backtest FAIL ama getiri pozitif | OOS kısmı başarısız — bu kasıtlı, overfit koruması |
-| **Güncelledim ama yeni özellik gelmedi** | Yanlış dalda parklanma → `bash update.sh --force` (Win: `.\update.ps1 -Force`), sonra `uv run achilles doctor`. Kılavuz: [GUNCELLEME_KILAVUZU](docs/GUNCELLEME_KILAVUZU.md) |
+| **Güncelledim ama yeni özellik gelmedi** | Yanlış dalda parklanma → `bash update.sh --force` (Win: `.\update.ps1 -Force`), sonra `uv run hektor doctor`. Kılavuz: [GUNCELLEME_KILAVUZU](docs/GUNCELLEME_KILAVUZU.md) |
 | **Diğer makinede eski sürüm / gece güncellemesi çalışmıyor** (Win) | Görev ölü yola bağlı → `.\scripts\start-server.ps1 -Repair`, sonra `-Status` ile **[ESLESIYOR]** doğrula |
-| **"Bu makine güncel mi?" emin değilim** | `uv run achilles doctor` — dal/HEAD vs origin/main + Windows görev yolu (sapma varsa exit 2) |
+| **"Bu makine güncel mi?" emin değilim** | `uv run hektor doctor` — dal/HEAD vs origin/main + Windows görev yolu (sapma varsa exit 2) |
 
 ---
 
@@ -1169,7 +1169,7 @@ Sistem bu kuralları hiçbir zaman çiğnemez:
 ## 🔒 Güvenlik
 
 - **Sadece kendi bilgisayarında çalışır** (`127.0.0.1`) — internetten erişilemez
-- İstersen **şifre** ekle: `.env` → `ACHILLES_API_TOKEN=güçlü-rastgele-şifre`
+- İstersen **şifre** ekle: `.env` → `HEKTOR_API_TOKEN=güçlü-rastgele-şifre`
 - PDF doğrulaması var — sahte dosya geçemez
 - IP başına hız sınırı — spam koruması
 - CSP başlıkları aktif — XSS koruması
@@ -1194,14 +1194,14 @@ CI: Her push/PR'da — `ruff` + `mypy` + `pytest` (çevrimdışı) — Ubuntu + 
 
 | | |
 |-|-|
-| 📦 Repo | https://github.com/alimirbagirzade/achilles2.0 |
+| 📦 Repo | https://github.com/alimirbagirzade/hektor |
 | 🌐 Web UI | `http://127.0.0.1:8765` _(çalışırken)_ |
 | 📖 API Docs | `http://127.0.0.1:8765/api/docs` _(çalışırken)_ |
 | 🧪 Test | `uv run pytest` |
 
 ```bash
-git clone https://github.com/alimirbagirzade/achilles2.0.git
-cd achilles && uv sync && uv run achilles init
+git clone https://github.com/alimirbagirzade/hektor.git
+cd hektor && uv sync && uv run hektor init
 ```
 
 ---

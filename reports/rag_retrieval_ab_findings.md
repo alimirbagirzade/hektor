@@ -33,7 +33,7 @@ Donanım: i7-1165G7, **GPU yok**. Çevrimdışı, deterministik (Kural 2/6).
 > akademik aday (≤1200 char) ile **TEMİZ koşulda bile ~12,4 s/sorgu** VE recall@1 dense'den
 > DÜŞÜK (67.5 < 70.0). Sonuç KESİN: **bu donanımda hiçbir cross-encoder reranking (bge >15s,
 > FlashRank ~12s) kullanılamaz** — dense-only kazanır. FlashRank opt-in olarak KODDA (GPU
-> gelirse / kısa chunk'larda işe yarayabilir) ama KAPALI. `ACHILLES_RAG_FLASHRANK`.
+> gelirse / kısa chunk'larda işe yarayabilir) ama KAPALI. `HEKTOR_RAG_FLASHRANK`.
 
 ## 3. Sonuç ve karar
 
@@ -41,7 +41,7 @@ Bu korpus + GPU'suz donanımda **dense-only hem en hızlı hem en doğru**:
 - hibrit/rerank/RRF kaliteyi düşürüp ~2.2s ekliyor (uzun sorgularda BM25 araması yavaş).
 - cross-encoder CPU'da sorgu başına >15s → kullanılamaz (kalite kazancı olsa bile hız ihlali).
 
-**Karar:** canlı sistemde `ACHILLES_RAG_RERANK=false` + `ACHILLES_RAG_HYBRID=false`
+**Karar:** canlı sistemde `HEKTOR_RAG_RERANK=false` + `HEKTOR_RAG_HYBRID=false`
 (dense-only). Her sorgu ~234ms, BM25 soğuk-başlatma yok. **Geri alınabilir** (.env satırlarını kaldır).
 BM25 sayfalama fix'i kodda kalıcı (hibrit ileride açılırsa veya başka kullananlar için doğru).
 
@@ -82,5 +82,5 @@ Yani 12.6s = **dense sorgu-embed'inin Ollama'da döngünün qwen3:4b kart-üreti
 TEMİZ ortamda router gecikmesi ≈ dense (~370ms) + BM25 (~3ms) + füzyon ≈ **~370ms (hızlı)**.
 
 **DÜZELTİLMİŞ KARAR:** BM25S GEREKMEZ. Router keyword'de hem DAHA İYİ (recall@10 +20p) hem
-HIZLI (warm) → **ENABLE** (.env ACHILLES_RAG_ROUTER=true). Tek operasyonel not: ilk lexical
+HIZLI (warm) → **ENABLE** (.env HEKTOR_RAG_ROUTER=true). Tek operasyonel not: ilk lexical
 sorgu BM25'i kurar (~171s, tek-seferlik/process) → startup warm-up follow-up önerilir.

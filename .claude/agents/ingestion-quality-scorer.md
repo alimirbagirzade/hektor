@@ -25,7 +25,7 @@ parse 15 · metadata 10 · section 15 · formula 15 · table 15 · figure 10 · 
 - **Sezgisel.** Yer-doğrusu yok; formül/tablo YOKLUĞU parse başarılıysa nötr puanlanır.
 
 ## Akış (kısa)
-1. `uv run achilles ingestion-quality --paper-id <id> --json` → toplam + bileşen kırılımı + durum.
+1. `uv run hektor ingestion-quality --paper-id <id> --json` → toplam + bileşen kırılımı + durum.
 2. KALICI yap (gerekirse): `--record` → `paper_ingestion_runs` + `papers.quality_score/ingest_status`.
 3. **Yorumla:** `failed`/`unstable` ise makaleyi human-review / yeniden-parse adayı olarak işaretle;
    bileşen düşükse (ör. `parse`/`ocr` düşük) sebebi (taranmış PDF / düşük yoğunluk) belirt.

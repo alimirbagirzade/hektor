@@ -19,7 +19,7 @@ ile nazikçe durur). Web panosu: http://127.0.0.1:8765.
 
 ## Sentetik QA üretici (`synth-qa`)
 ```bash
-uv run achilles synth-qa --per-chunk 5 --max-chunks 12 --max-papers 0 --seed 0
+uv run hektor synth-qa --per-chunk 5 --max-chunks 12 --max-papers 0 --seed 0
 # --append (vars.): mevcut dosyaya birikir; --overwrite: sıfırdan
 ```
 **Ne yapar:** her chunk'tan N grounded soru-cevap üretir.
@@ -42,8 +42,8 @@ uv run achilles synth-qa --per-chunk 5 --max-chunks 12 --max-papers 0 --seed 0
 
 ## İlerleme ve eşik takibi
 ```bash
-uv run achilles lora-readiness   # sentetik örnek sayısı + ≥1000 eşik durumu
-uv run achilles rag-mastery      # RAG kapsama/anlama/hazırlık panosu (LLM-free)
+uv run hektor lora-readiness   # sentetik örnek sayısı + ≥1000 eşik durumu
+uv run hektor rag-mastery      # RAG kapsama/anlama/hazırlık panosu (LLM-free)
 ```
 
 ## Kalite ilkeleri (Stage 2'ye temiz veri geçsin)

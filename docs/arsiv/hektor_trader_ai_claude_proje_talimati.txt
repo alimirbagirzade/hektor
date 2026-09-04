@@ -1,11 +1,11 @@
-PROJE ŞARTNAMESİ — Achilles TRADER AI
+PROJE ŞARTNAMESİ — Hektor TRADER AI
 Claude Code’a Verilecek Ana Talimat Dosyası
 
 ============================================================
 1. PROJE TANIMI
 ============================================================
 
-Proje adı: Achilles Trader AI
+Proje adı: Hektor Trader AI
 
 Amaç:
 Mac üzerinde local-first çalışan, finans/trading alanında akademik makaleleri okuyabilen, bu makaleleri kalıcı hafızaya alabilen, RAG sistemiyle kaynaklı cevap verebilen, zamanla LoRA fine-tuning ile finans/trading karakteri kazanabilen ve ürettiği strateji fikirlerini backtest disiplininden geçiren bir araştırma yapay zekası geliştirmek.
@@ -144,7 +144,7 @@ RAG
 
 Aşağıdaki klasör yapısı kurulmalı:
 
-achilles-trader-ai/
+hektor-trader-ai/
   README.md
   CLAUDE.md
   pyproject.toml
@@ -222,7 +222,7 @@ achilles-trader-ai/
 
   storage/
     sqlite/
-      achilles_trader_ai.db
+      hektor_trader_ai.db
 
   models/
     adapters/
@@ -528,7 +528,7 @@ Her modül küçük, okunabilir ve test edilebilir olsun.
 
 Aşağıdaki içeriği proje kök dizinine CLAUDE.md olarak koy:
 
-# Achilles Trader AI — Claude Instructions
+# Hektor Trader AI — Claude Instructions
 
 ## Project Goal
 

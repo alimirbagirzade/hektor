@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Achilles otomatik zincir (Windows Git Bash / Linux):
+# Hektor otomatik zincir (Windows Git Bash / Linux):
 #   kartsız makalelere kart üret (LLM) → içerikli pending kartları onayla
 #   → anlama skorları hesapla (web API, LLM) → Markov araştırması (hipotez+backtest)
 #   → sentez makalesi üret → dataset tazele → 24 saatlik eğitim döngüsünü başlat.
@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.." || exit 1
 LOG=logs/auto-chain.log
 mkdir -p logs
 # uv her `uv run`'da paketi yeniden senkronlayip calisan web sunucusunun kilitledigi
-# achilles-web.exe'yi silmeye ugrasir -> "os error 32" -> adimlar sessizce coker.
+# hektor-web.exe'yi silmeye ugrasir -> "os error 32" -> adimlar sessizce coker.
 # Senkronu kapat; bagimliliklar zaten kurulu. (bkz. continuous-learning.sh)
 export UV_NO_SYNC=1
 log(){ echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
@@ -31,7 +31,7 @@ N=$(printf '%s' "$PIDS" | grep -c . || true)
 log "1) Kartsız makale: $N"
 for pid in $PIDS; do
   log "   kart üretiliyor: $pid"
-  timeout 900 uv run achilles card "$pid" >> "$LOG" 2>&1 || log "   kart HATA: $pid"
+  timeout 900 uv run hektor card "$pid" >> "$LOG" 2>&1 || log "   kart HATA: $pid"
 done
 
 # --- 2) İçerikli pending kartları onayla (boş kabuk kartlar onaylanmaz) -----
@@ -69,18 +69,18 @@ done
 
 # --- 4) Markov odaklı agentic araştırma (hipotez + backtest + yansıma) ------
 log "4) Markov araştırması başlıyor (2 iterasyon)"
-timeout 5400 uv run achilles research \
+timeout 5400 uv run hektor research \
   "Markov zinciri rejim degisimi (regime-switching) sinyalleri momentum ve volatilite gostergeleriyle nasil birlestirilir? Rejim gecis olasiligina dayali yeni bir indikator oner ve test et." \
   --iterations 2 >> "$LOG" 2>&1 || log "   research HATA/timeout"
 
 # --- 5) Sentez makalesi üret (web'den indirilebilir) ------------------------
 log "5) Sentez makalesi üretiliyor"
-uv run achilles synth-paper >> "$LOG" 2>&1
+uv run hektor synth-paper >> "$LOG" 2>&1
 
 # --- 6) Dataset tazele -------------------------------------------------------
 log "6) LoRA dataset tazeleniyor"
-uv run achilles lora-dataset >> "$LOG" 2>&1
-uv run achilles rag-mastery >> "$LOG" 2>&1
+uv run hektor lora-dataset >> "$LOG" 2>&1
+uv run hektor rag-mastery >> "$LOG" 2>&1
 
 # --- 7) 24 saatlik eğitim döngüsü --------------------------------------------
 log "7) === EĞİTİM DÖNGÜSÜ BAŞLIYOR (24h, iters=40, cooldown=120sn) ==="
@@ -90,8 +90,8 @@ cycle=0
 while [ ! -f storage/STOP_TRAINING ] && [ "$(date +%s)" -lt "$END" ]; do
   cycle=$((cycle+1))
   log "   Eğitim döngü $cycle"
-  uv run achilles lora-dataset >> "$LOG" 2>&1
-  uv run achilles train --run --backend peft --adapter-name achilles_auto --iterations 40 >> "$LOG" 2>&1
+  uv run hektor lora-dataset >> "$LOG" 2>&1
+  uv run hektor train --run --backend peft --adapter-name hektor_auto --iterations 40 >> "$LOG" 2>&1
   for i in $(seq 1 24); do [ -f storage/STOP_TRAINING ] && break; sleep 5; done
 done
 log "Eğitim döngüsü bitti ($cycle döngü). ZİNCİR TAMAM."

@@ -1,7 +1,7 @@
 """Graf-tabanlı retrieval — term–chunk bipartite graf + Personalized PageRank (SPRIG-lite).
 
 CPU-only, LLM'siz, deterministik bir GraphRAG dilimi. SPRIG ("Democratizing GraphRAG:
-Linear, CPU-Only Graph Retrieval", arXiv:2602.23372) reçetesini Achilles verisiyle uygular:
+Linear, CPU-Only Graph Retrieval", arXiv:2602.23372) reçetesini Hektor verisiyle uygular:
 pahalı LLM graf-inşası yerine **hafif term co-occurrence** ile entity–doküman (term–chunk)
 bipartite grafı kurar; sorgu/dense-hit'lerden **tohumlanmış Personalized PageRank** ile
 çok-hop ilgili chunk'ları yüzeye çıkarır. Dense'in kaçırdığı (ama paylaşılan terimlerle

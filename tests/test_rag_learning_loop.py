@@ -37,7 +37,7 @@ def _make(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RagLearningLoop:
     from app.config import settings as settings_mod
 
     (tmp_path / "storage").mkdir(exist_ok=True)
-    monkeypatch.setenv("ACHILLES_ROOT_PATH", str(tmp_path))
+    monkeypatch.setenv("HEKTOR_ROOT_PATH", str(tmp_path))
     settings_mod.get_settings.cache_clear()
     return RagLearningLoop()
 

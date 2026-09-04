@@ -239,7 +239,7 @@ def test_compare_understanding_regression() -> None:
     assert abs(c["delta"] + 0.3) < 1e-9
 
     # farklı model → kıyas güvenilmez, regresyon hesaplanmaz
-    curr2 = {**curr, "context": {"llm_model": "achilles-v6"}}
+    curr2 = {**curr, "context": {"llm_model": "hektor-v6"}}
     c2 = compare_understanding(prev, curr2)
     assert c2["comparable"] is False
     assert c2["regressed"] is False

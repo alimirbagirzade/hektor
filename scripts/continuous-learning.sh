@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Achilles SÜREKLİ ÖĞRENME DÖNGÜSÜ — "trader uzmanı" protokolü.
+# Hektor SÜREKLİ ÖĞRENME DÖNGÜSÜ — "trader uzmanı" protokolü.
 #
 #   ZENGİNLEŞTİR (arXiv: psikoloji/belirsizlik/felsefe/trading, dönüşümlü konu)
 #     → KAVRA (kart üret + içerikli onayla + anlama skorla)
@@ -21,7 +21,7 @@ STATE=storage/learning_topic_index
 STOP=storage/STOP_LEARNING
 mkdir -p logs storage
 # uv, her `uv run` cagrisinda paketi yeniden senkronlamaya calisir; bu da calisan
-# web sunucusunun kilitledigi achilles-web.exe'yi silmeye ugrasip "os error 32" ile
+# web sunucusunun kilitledigi hektor-web.exe'yi silmeye ugrasip "os error 32" ile
 # patlar -> dongunun TUM adimlari sessizce coker (research/synth-qa HATA). Cozum:
 # senkronu kapat; bagimliliklar zaten kurulu, dongu yalniz mevcut ortami kullanir.
 export UV_NO_SYNC=1
@@ -38,11 +38,11 @@ log "=== SÜREKLİ ÖĞRENME BAŞLADI (max ${MAX_HOURS}sa) ==="
 is_training_running() {
   if command -v pgrep >/dev/null 2>&1; then
     pgrep -f 'peft_lora_train' >/dev/null 2>&1 && return 0
-    pgrep -f 'achilles.*train.*--run' >/dev/null 2>&1 && return 0
+    pgrep -f 'hektor.*train.*--run' >/dev/null 2>&1 && return 0
     return 1
   elif command -v powershell >/dev/null 2>&1; then
     powershell -NoProfile -Command \
-      "if (Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { \$_.CommandLine -like '*peft_lora_train*' -or (\$_.CommandLine -like '*achilles*' -and \$_.CommandLine -like '*train*--run*') }) { exit 0 } else { exit 1 }" \
+      "if (Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { \$_.CommandLine -like '*peft_lora_train*' -or (\$_.CommandLine -like '*hektor*' -and \$_.CommandLine -like '*train*--run*') }) { exit 0 } else { exit 1 }" \
       >/dev/null 2>&1 && return 0
     return 1
   fi
@@ -82,7 +82,7 @@ for p in s.list_papers():
   for pid in $PIDS; do
     pid="${pid//$'\r'/}"   # Windows: python stdout CRLF -> pid'e takilan \r dosya adina sizip Errno 22 yapar
     [ -z "$pid" ] && continue
-    timeout 900 uv run achilles card "$pid" >> "$LOG" 2>&1 || log "   kart HATA: $pid"
+    timeout 900 uv run hektor card "$pid" >> "$LOG" 2>&1 || log "   kart HATA: $pid"
   done
   uv run python -c "
 from app.memory.sqlite_store import SqliteStore
@@ -121,10 +121,10 @@ for pid in sorted(p for p in pids if p):
   # --- 3) SENTEZLE: her 3 turda hipotez + makale ----------------------------
   if [ $(( round % 3 )) -eq 1 ]; then
     log "3) Research + sentez makalesi"
-    timeout 3600 uv run achilles research \
+    timeout 3600 uv run hektor research \
       "Markov zinciri / gizli Markov modeli (HMM) ile piyasa REJIM DEGISIMINI (trend / yatay / yuksek-volatilite gecisleri) modelleyen YENI bir trading indikatoru veya filtresi oner; davranissal yanlilik ve belirsizlik kavramlariyla birlestir; backtest ile test et (maliyet dahil, look-ahead yok)." \
       --iterations 1 >> "$LOG" 2>&1 || log "   research HATA/timeout"
-    uv run achilles synth-paper >> "$LOG" 2>&1
+    uv run hektor synth-paper >> "$LOG" 2>&1
   fi
 
   # --- 4) VERİ-ÜRET: kart dataset'i tazele + sentetik QA üret ---------------
@@ -139,11 +139,11 @@ for pid in sorted(p for p in pids if p):
   log "4) Sentetik QA üret (bu turun yeni makaleleri)"
   # En yeni 2 makaleyi sentetik QA'ya çevir; dosyaya BİRİKİR (append). CPU'da
   # ~100sn/chunk; 2 makale × 6 chunk × 3 QA ~ 20-25dk → 3600sn timeout'a rahat sığar.
-  timeout 3600 uv run achilles synth-qa --per-chunk 3 --max-chunks 6 --max-papers 2 \
+  timeout 3600 uv run hektor synth-qa --per-chunk 3 --max-chunks 6 --max-papers 2 \
     >> "$LOG" 2>&1 || log "   synth-qa HATA/timeout (devam)"
 
   # Tur özeti (rag-mastery LLM'siz)
-  uv run achilles rag-mastery >> "$LOG" 2>&1
+  uv run hektor rag-mastery >> "$LOG" 2>&1
   log "──── TUR $round bitti — 120sn dinlenme ────"
   for i in $(seq 1 24); do [ -f "$STOP" ] && break; sleep 5; done
 done

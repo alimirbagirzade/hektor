@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Achilles RAG guncel-arastirma turunu headless Claude Code ile calistirir;
+    Hektor RAG guncel-arastirma turunu headless Claude Code ile calistirir;
     istege bagli olarak periyodik bir Windows Scheduled Task kurar/kaldirir.
 
     Iki mod (iki-katmanli, esik-tetikli tasarim):
@@ -46,7 +46,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ScriptPath = Join-Path $PSScriptRoot 'rag-research-loop.ps1'
-$TaskName = "Achilles-RAG-$Mode"
+$TaskName = "Hektor-RAG-$Mode"
 $PromptFile = if ($Mode -eq 'Scan') { 'rag-research-scan.md' } else { 'rag-research-cycle.md' }
 $PromptPath = Join-Path $PSScriptRoot $PromptFile
 
@@ -63,13 +63,13 @@ function New-LogPath {
 }
 
 function Invoke-ScanCycle {
-    # UCUZ tarama: projeye yerleşik 'achilles rag-scan' (Claude/kota YOK). arXiv'de RAG
+    # UCUZ tarama: projeye yerleşik 'hektor rag-scan' (Claude/kota YOK). arXiv'de RAG
     # yontemi arar, adaylari docs/egitim/rag-watchlist.md'ye isler; watchlist'i best-effort
     # push eder (git hatasi turu cokertmez).
     Set-Location $RepoRoot
     $log = New-LogPath
-    Write-Host "[$(Get-Date -Format o)] RAG tarama (achilles rag-scan) -> $log"
-    & uv run achilles rag-scan *>> $log
+    Write-Host "[$(Get-Date -Format o)] RAG tarama (hektor rag-scan) -> $log"
+    & uv run hektor rag-scan *>> $log
     $code = $LASTEXITCODE
     $wl = 'docs/egitim/rag-watchlist.md'
     try {
@@ -112,13 +112,13 @@ function Invoke-IntegrateCycle {
     # etmektir; Bash/Edit/Write ISLEVSEL SARTTIR. Bu yuzden AutoDriver'daki arac-kisiti
     # (--disallowedTools) buraya UYGULANAMAZ -- uygulanirsa script'in isi biter.
     #
-    # ACIKCA KABUL EDILEN SONUC: bu ajan `uv run achilles approval-approve` calistirip
+    # ACIKCA KABUL EDILEN SONUC: bu ajan `uv run hektor approval-approve` calistirip
     # KENDI egitimini onaylayabilir. Hicbir bayrak bunu engellemez. Gercek kontrol,
     # dongunun NE okudugu (arXiv icerigi = prompt-injection yuzeyi) ve ciktinin insan
     # tarafindan gozden gecirilmesidir.
     #
     # Yine de bedava olan kapatilir: --strict-mcp-config => hic MCP sunucusu yuklenmez
-    # (`achilles` MCP proxy'si 127.0.0.1:8765'e ayri bir kanal aciyordu). Islevsel maliyet YOK.
+    # (`hektor` MCP proxy'si 127.0.0.1:8765'e ayri bir kanal aciyordu). Islevsel maliyet YOK.
     # --safe-mode BILEREK eklenmedi: CLAUDE.md oto-kesfini ve skill'leri kapatir; bu ajan
     # ise tam olarak o proje konvansiyonlarina gore kod yazar.
     if ($PermissionMode -eq 'bypassPermissions') {
@@ -127,13 +127,13 @@ function Invoke-IntegrateCycle {
 
     # Insan API token'ini cocuga sizdirma (bkz. app/orchestration/driver.py build_child_env).
     # NOT: ajanin Read araci var, .env dosyasini okuyabilir -- bu TAM BIR SINIR DEGIL, hijyen.
-    $prevToken = $env:ACHILLES_API_TOKEN
-    $env:ACHILLES_API_TOKEN = ""
+    $prevToken = $env:HEKTOR_API_TOKEN
+    $env:HEKTOR_API_TOKEN = ""
     try {
         & $claude.Source -p $prompt --permission-mode $PermissionMode --strict-mcp-config *>> $log
     }
     finally {
-        $env:ACHILLES_API_TOKEN = $prevToken
+        $env:HEKTOR_API_TOKEN = $prevToken
     }
     $code = $LASTEXITCODE
     Write-Host "[$(Get-Date -Format o)] Entegrasyon bitti (exit=$code). Log: $log"
@@ -152,7 +152,7 @@ function Register-Loop {
         -RepetitionInterval (New-TimeSpan -Hours $IntervalHours)
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2)
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-        -Settings $settings -Description "Achilles RAG $Mode turu (her $IntervalHours saat)" `
+        -Settings $settings -Description "Hektor RAG $Mode turu (her $IntervalHours saat)" `
         -Force | Out-Null
     Write-Host "Gorev kuruldu: '$TaskName' -- her $IntervalHours saatte bir."
     Write-Host "Kaldirmak icin: .\scripts\rag-research-loop.ps1 -Mode $Mode -Unregister"

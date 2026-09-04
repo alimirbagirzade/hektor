@@ -1,11 +1,11 @@
-# Achilles LoRA Eğitimi — Adım Adım (ÜCRETSİZ, Kaggle T4×2)
+# Hektor LoRA Eğitimi — Adım Adım (ÜCRETSİZ, Kaggle T4×2)
 
 > Bu kılavuz teknik bilgi varsaymaz. Sırayla, hiçbir adımı atlamadan yap.
 > **Hugging Face hesabına GEREK YOK.** Sadece ücretsiz bir Kaggle hesabı yeter.
 > Tahmini süre: hesap kurulumu ~5 dk + eğitim ~15-20 dk.
 
 Elinde HAZIR olan 2 dosya (bu klasörde):
-- `notebooks/achilles_lora_stage2.ipynb` ← eğitim defteri
+- `notebooks/hektor_lora_stage2.ipynb` ← eğitim defteri
 - `data/lora_sft/lora_sft.jsonl` ← eğitim verisi (671 örnek, kalite kapısı: GO)
 
 ---
@@ -24,20 +24,20 @@ Elinde HAZIR olan 2 dosya (bu klasörde):
 ## ADIM 3 — Eğitim verisini Kaggle'a yükle (Dataset olarak) (~2 dk)
 1. Sol menü **Create** (veya **+**) > **New Dataset**.
 2. Açılan pencereye bilgisayarından şu dosyayı **sürükle-bırak**:
-   `C:\Users\sevinc\Development\achilles\data\lora_sft\lora_sft.jsonl`
-3. Üstteki başlık (Title) kutusuna yaz: **achilles-lora-sft**
+   `C:\Users\sevinc\Development\hektor\data\lora_sft\lora_sft.jsonl`
+3. Üstteki başlık (Title) kutusuna yaz: **hektor-lora-sft**
 4. Sağ üst **Create** > yükleme bitsin (yeşil onay).
 
 ## ADIM 4 — Eğitim defterini yükle (~1 dk)
 1. Sol menü **Create** > **New Notebook**.
 2. Açılan notebook'ta üst menü **File** > **Import Notebook** > **Upload**.
-3. Şu dosyayı seç: `C:\Users\sevinc\Development\achilles\notebooks\achilles_lora_stage2.ipynb`
+3. Şu dosyayı seç: `C:\Users\sevinc\Development\hektor\notebooks\hektor_lora_stage2.ipynb`
 
 ## ADIM 5 — GPU + İnternet + Veriyi bağla (~1 dk)
 Sağ panelde (görünmüyorsa sağ üstteki **⟩** okuyla aç):
 1. **Settings > Accelerator** > **GPU T4 x2** seç.
 2. **Settings > Internet** > **On** (açık) yap.
-3. **Input** bölümü > **Add Input** > **Datasets** sekmesi > arama kutusuna `achilles-lora-sft` yaz > kendi yüklediğin dataset'e **+** ile ekle.
+3. **Input** bölümü > **Add Input** > **Datasets** sekmesi > arama kutusuna `hektor-lora-sft` yaz > kendi yüklediğin dataset'e **+** ile ekle.
 
 ## ADIM 6 — Çalıştır (~15-20 dk, beklerken bir şey yapma)
 1. Üst menü **Run** > **Run All** (veya ▶▶ "Run All" düğmesi).
@@ -47,25 +47,25 @@ Sağ panelde (görünmüyorsa sağ üstteki **⟩** okuyla aç):
 ## ADIM 7 — Sonucu indir (~1 dk)
 Eğitim bitince çıktı dosyalarını bilgisayarına indir:
 - **Yol A (Colab değil, Kaggle):** sağ panel **Output** sekmesi > şu 2 dosyayı indir:
-  - `achilles-Q4_K_M.gguf`  (~2.5 GB — model)
+  - `hektor-Q4_K_M.gguf`  (~2.5 GB — model)
   - `Modelfile`             (küçük metin)
-- İkisini de **aynı klasöre** koy, örn: `C:\Users\sevinc\Downloads\achilles-gguf\`
+- İkisini de **aynı klasöre** koy, örn: `C:\Users\sevinc\Downloads\hektor-gguf\`
 
 ## ADIM 8 — Modeli yerelde kur (Ollama)
 > Ollama kurulu olmalı (zaten var). Bu klasöre gir ve modeli oluştur.
 PowerShell'de:
 ```powershell
-cd C:\Users\sevinc\Downloads\achilles-gguf
-ollama create achilles -f Modelfile
+cd C:\Users\sevinc\Downloads\hektor-gguf
+ollama create hektor -f Modelfile
 ```
 "success" görürsen model kuruldu.
 
 ## ADIM 9 — Eğitildi mi diye SINA (CLAUDE.md kural 2: kurmak ≠ çalışıyor)
 PowerShell'de proje klasöründe:
 ```powershell
-cd C:\Users\sevinc\Development\achilles
-$env:ACHILLES_LLM_MODEL='achilles'
-uv run achilles evaluate evals/discipline_core.jsonl
+cd C:\Users\sevinc\Development\hektor
+$env:HEKTOR_LLM_MODEL='hektor'
+uv run hektor evaluate evals/discipline_core.jsonl
 ```
 Bu, modelin disiplin kurallarına (garanti vaadi yok, maliyet, backtest şartı) uyup
 uymadığını ölçer. Sonucu bana getir — **geçerse** koşullu terfi (base ile kıyas),

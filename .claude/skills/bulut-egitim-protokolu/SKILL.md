@@ -11,16 +11,16 @@ Amaç: ≥1000 örnekle ücretsiz T4'te Qwen3-4B LoRA → GGUF Q4_K_M → Ollama
 haftalar süren iş burada ~30-90 dk. Detay: `docs/PROTOKOL_BULUT_EGITIM.md`.
 
 ## ÖN KOŞUL — geçişten önce DOĞRULA (hepsi)
-1. `uv run achilles lora-readiness` → ≥1000 örnek.
-2. `uv run achilles lora-audit` → Gate 0-7 geçti.
+1. `uv run hektor lora-readiness` → ≥1000 örnek.
+2. `uv run hektor lora-audit` → Gate 0-7 geçti.
 3. **Kullanıcı açık onayı** (gerçek eğitim yalnız açık komutla — CLAUDE.md kural 8).
 Eksikse Stage 2'ye GEÇME; `/veri-uretim-protokolu` ile üretime devam et.
 
 ## Hazırlık (lokal)
 ```bash
-uv run achilles lora-cloud-prep --hf-repo KULLANICI/achilles-lora-sft --lora-r 16 --epochs 2
+uv run hektor lora-cloud-prep --hf-repo KULLANICI/hektor-lora-sft --lora-r 16 --epochs 2
 ```
-Üretir: `data/lora_sft/lora_sft.jsonl` + `notebooks/achilles_lora_stage2.ipynb` +
+Üretir: `data/lora_sft/lora_sft.jsonl` + `notebooks/hektor_lora_stage2.ipynb` +
 `notebooks/Modelfile`. Notebook doğrulanmış unsloth şablonudur (5 hata düzeltilmiş).
 
 ## Akış
@@ -30,7 +30,7 @@ uv run achilles lora-cloud-prep --hf-repo KULLANICI/achilles-lora-sft --lora-r 1
 | 2 | HF READ token → Kaggle Secrets / Colab userdata (ad=HF_TOKEN, GÖMME YOK) | lokal |
 | 3 | Kaggle T4×2 (Internet ON) / Colab T4 → Run All | bulut |
 | 4 | GGUF Q4_K_M + Modelfile üret (HÜCRE 12; bozuksa 12B fallback) | bulut |
-| 5 | İndir → `ollama create achilles -f Modelfile` | lokal |
+| 5 | İndir → `ollama create hektor -f Modelfile` | lokal |
 | 6 | Eval gate: `evaluate evals/discipline_core.jsonl` (score=1.0, flags=0) | lokal |
 | 7 | Registry promote (yalnız kullanıcı onayıyla) | lokal |
 

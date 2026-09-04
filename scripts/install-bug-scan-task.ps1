@@ -1,9 +1,9 @@
-# Registers the Achilles weekly bug-hunt scan (Tier 1, report-only) as a Windows
+# Registers the Hektor weekly bug-hunt scan (Tier 1, report-only) as a Windows
 # Scheduled Task.  ASCII-only (Windows PS 5.1 safe).
 #
 #   Install:   powershell -ExecutionPolicy Bypass -File scripts\install-bug-scan-task.ps1
 #   Uninstall: powershell -ExecutionPolicy Bypass -File scripts\install-bug-scan-task.ps1 -Uninstall
-#   Test now:  schtasks /Run /TN Achilles-WeeklyBugScan
+#   Test now:  schtasks /Run /TN Hektor-WeeklyBugScan
 #
 # Runs scripts\weekly-bug-scan.ps1 every Monday 09:00. The scan does NOT edit code or
 # push -- it only writes reports\bug-scan\. User-level task (no admin needed).
@@ -12,7 +12,7 @@ param([switch]$Uninstall)
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
-$taskName = "Achilles-WeeklyBugScan"
+$taskName = "Hektor-WeeklyBugScan"
 $scanScript = Join-Path $repo "scripts\weekly-bug-scan.ps1"
 
 if ($Uninstall) {

@@ -1,7 +1,7 @@
-"""Achilles Web MCP sunucusu — web API'sini MCP tool'larına çevirir.
+"""Hektor Web MCP sunucusu — web API'sini MCP tool'larına çevirir.
 
 Tasarım (otomatik senkron):
-- OpenAPI spec'i Achilles FastAPI uygulamasından IN-PROCESS üretilir
+- OpenAPI spec'i Hektor FastAPI uygulamasından IN-PROCESS üretilir
   (`app.web.server.app.openapi()`), böylece web'e her yeni route eklendiğinde
   MCP yeniden başlatıldığında otomatik yansır — elle güncelleme gerekmez.
 - Tool çağrıları ise ÇALIŞAN web sunucusuna (http://127.0.0.1:8765) httpx ile
@@ -14,10 +14,10 @@ Gereksinim: ``fastmcp`` — opsiyonel ``mcp`` extra'sındadır::
 Bu extra kurulmadan aşağıdaki komutlar ``ModuleNotFoundError`` ile düşer.
 
 Çalıştırma (stdio MCP):
-    uv run python mcp_server/achilles_mcp.py
+    uv run python mcp_server/hektor_mcp.py
 
 Kayıt:
-    claude mcp add achilles -- uv run --project <repo> python mcp_server/achilles_mcp.py
+    claude mcp add hektor -- uv run --project <repo> python mcp_server/hektor_mcp.py
 
 Senkron protokolü: web (app/web/server.py) değişince → MCP'yi yeniden başlat
 (veya Claude Code'u). Spec her başlangıçta taze üretildiği için tool listesi güncellenir.
@@ -35,14 +35,14 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-BASE_URL = os.environ.get("ACHILLES_WEB_URL", "http://127.0.0.1:8765")
+BASE_URL = os.environ.get("HEKTOR_WEB_URL", "http://127.0.0.1:8765")
 
 # Sürücü kimliği başlıkları — app/web/driver_scope.py ile AYNI adlar (tek kaynak orada).
 # Buraya elle yazılır çünkü bu modül `app` paketi kurulu olmadan da içe aktarılabilmelidir.
-_DRIVER_TOKEN_ENV = "ACHILLES_DRIVER_TOKEN"
-_DRIVER_RUN_ID_ENV = "ACHILLES_DRIVER_RUN_ID"
-_DRIVER_TOKEN_HEADER = "x-achilles-driver-token"
-_RUN_ID_HEADER = "x-achilles-run-id"
+_DRIVER_TOKEN_ENV = "HEKTOR_DRIVER_TOKEN"
+_DRIVER_RUN_ID_ENV = "HEKTOR_DRIVER_RUN_ID"
+_DRIVER_TOKEN_HEADER = "x-hektor-driver-token"
+_RUN_ID_HEADER = "x-hektor-run-id"
 
 
 def driver_headers(env: dict[str, str] | None = None) -> dict[str, str]:
@@ -74,7 +74,7 @@ def driver_headers(env: dict[str, str] | None = None) -> dict[str, str]:
 def auth_headers() -> dict[str, str]:
     """Web API'sine gidecek kimlik başlıkları.
 
-    ``ACHILLES_API_TOKEN`` ayarlıysa proxy istekleri ``Authorization: Bearer ...``
+    ``HEKTOR_API_TOKEN`` ayarlıysa proxy istekleri ``Authorization: Bearer ...``
     ile imzalanır. Bu olmadan token açıkken TÜM MCP tool çağrıları 401 alırdı →
     "token aç, MCP kırılsın / MCP çalışsın, kapı açık kalsın" kısır döngüsü.
     Token boşsa (varsayılan yerel mod) başlık gönderilmez; web tarafı da doğrulamaz.
@@ -89,14 +89,14 @@ def auth_headers() -> dict[str, str]:
     except Exception:  # ayar katmanı yüklenemezse ham env'e düş
         token = ""
     if not token:
-        token = os.environ.get("ACHILLES_API_TOKEN", "").strip()
+        token = os.environ.get("HEKTOR_API_TOKEN", "").strip()
     if token:
         _warn_if_token_leaves_loopback()
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def _warn_if_token_leaves_loopback() -> None:
-    """``ACHILLES_WEB_URL`` loopback dışıysa stderr'e uyar (token o host'a gider).
+    """``HEKTOR_WEB_URL`` loopback dışıysa stderr'e uyar (token o host'a gider).
 
     Sert hata DEĞİL bilinçli olarak: token ayarlamanın amacı zaten ağa açmaktır ve
     web sunucusu meşru biçimde başka bir makinede olabilir. Ama bearer token'ın
@@ -108,14 +108,14 @@ def _warn_if_token_leaves_loopback() -> None:
     host = (urlparse(BASE_URL).hostname or "").lower()
     if host not in {"127.0.0.1", "localhost", "::1", "[::1]"}:
         print(
-            f"GÜVENLİK UYARISI: ACHILLES_WEB_URL loopback değil ({BASE_URL}) — "
-            "API token'ı bu host'a gönderilecek. Kasıtlı değilse ACHILLES_WEB_URL'i düzelt.",
+            f"GÜVENLİK UYARISI: HEKTOR_WEB_URL loopback değil ({BASE_URL}) — "
+            "API token'ı bu host'a gönderilecek. Kasıtlı değilse HEKTOR_WEB_URL'i düzelt.",
             file=sys.stderr,
         )
 
 
 def build_mcp():
-    """Achilles OpenAPI'sinden FastMCP sunucusu kur (proxy → çalışan web).
+    """Hektor OpenAPI'sinden FastMCP sunucusu kur (proxy → çalışan web).
 
     Spec, FastMCP'ye verilmeden ÖNCE ``allowlist.filter_spec`` ile budanır:
     yalnız açıkça izin verilen salt-okuma uçları tool olur (varsayılan kapalı).
@@ -124,9 +124,9 @@ def build_mcp():
     from fastmcp import FastMCP
     from mcp_server.allowlist import filter_spec
 
-    from app.web.server import app as achilles_app
+    from app.web.server import app as hektor_app
 
-    spec = filter_spec(achilles_app.openapi())  # varsayılan-kapalı budama
+    spec = filter_spec(hektor_app.openapi())  # varsayılan-kapalı budama
     # Kimlik başlıkları: insan bearer token'ı + (varsa) sürücü kimliği.
     # İkisi ÇAKIŞMAZ (farklı başlık adları) ve birlikte doğru davranırlar: bearer
     # `require_auth`'u geçirir, sürücü başlığı ise `require_human` kapısında 403'e yol
@@ -139,7 +139,7 @@ def build_mcp():
     return FastMCP.from_openapi(
         openapi_spec=spec,
         client=client,
-        name="achilles-web",
+        name="hektor-web",
     )
 
 
@@ -151,7 +151,7 @@ def __getattr__(name: str):
     ``auth_headers``'ı test etmek bile opsiyonel ``mcp`` extra'sını gerektiriyordu
     (CI ``--extra dev`` ile kurduğu için `ModuleNotFoundError: fastmcp` veriyordu).
 
-    ``mcp`` niteliği hâlâ erişilebilir (``from mcp_server.achilles_mcp import mcp``)
+    ``mcp`` niteliği hâlâ erişilebilir (``from mcp_server.hektor_mcp import mcp``)
     — yalnız ilk erişimde kurulur. PEP 562 modül düzeyi ``__getattr__``.
     """
     if name == "mcp":

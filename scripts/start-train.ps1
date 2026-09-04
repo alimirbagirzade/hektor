@@ -1,7 +1,7 @@
-# Achilles LoRA egitimi -- DETACHED (Claude Code/terminal kapansa da surer; PC acik kaldikca)
+# Hektor LoRA egitimi -- DETACHED (Claude Code/terminal kapansa da surer; PC acik kaldikca)
 #
 # Kullanim:
-#   .\scripts\start-train.ps1                         -- bf16, achilles_lora_v5, 1 epoch (1203)
+#   .\scripts\start-train.ps1                         -- bf16, hektor_lora_v5, 1 epoch (1203)
 #   .\scripts\start-train.ps1 -Iterations 2406        -- 2 epoch
 #   .\scripts\start-train.ps1 -Dtype fp32             -- fp32 (hizli ama web/Ollama kapatilmali)
 #   .\scripts\start-train.ps1 -Stop                   -- egitimi durdur
@@ -12,7 +12,7 @@
 # kullanici oturumu acik kalmali (logoff egitimi durdurur).
 
 param(
-    [string]$Adapter = "achilles_lora_v5",
+    [string]$Adapter = "hektor_lora_v5",
     [int]$Iterations = 1203,
     [string]$Dtype = "bf16",
     # LoRA recete profili. VARSAYILAN discipline_safe_local (assistant_only_loss maskeleme +
@@ -26,7 +26,7 @@ param(
 
 $ErrorActionPreference = "Continue"
 # uv her `uv run`'da paketi yeniden senkronlar; calisan web sunucusunun kilitledigi
-# achilles-web.exe'yi silmeye ugrasip "os error 32" ile patlar -> egitim baslamaz.
+# hektor-web.exe'yi silmeye ugrasip "os error 32" ile patlar -> egitim baslamaz.
 # Senkronu kapat; bagimliliklar zaten kurulu. (bkz. continuous-learning.sh)
 $env:UV_NO_SYNC = "1"
 $ScriptDir  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -77,14 +77,14 @@ $uv = Find-Uv
 if (-not $uv) { Write-Host "  [HATA] uv bulunamadi." -ForegroundColor Red; exit 1 }
 
 $null = New-Item -ItemType Directory -Path (Split-Path $LogOut) -Force
-$env:ACHILLES_TRAIN_DTYPE = $Dtype
+$env:HEKTOR_TRAIN_DTYPE = $Dtype
 # Bu script yalnız merkezi unattended eğitim servisi tarafından kullanılır. STOP_ALL
 # yine CLI içinde zorunludur; tekrar başlatmalarda tek kullanımlık insan onayı aranmaz.
-$env:ACHILLES_TRAIN_SUPERVISED = "1"
+$env:HEKTOR_TRAIN_SUPERVISED = "1"
 # Egitim verisi: lora_sft.jsonl -> train/valid (clobber-proof; bos train.jsonl onarilir)
-& $uv run --project "$ProjectDir" achilles lora-split | Out-Null
+& $uv run --project "$ProjectDir" hektor lora-split | Out-Null
 # Temel argumanlar + (profil verildiyse) --profile. Profil bos ise EKLENMEZ (vanilya).
-$trainArgs = @("run", "--project", "`"$ProjectDir`"", "achilles", "train", "--run",
+$trainArgs = @("run", "--project", "`"$ProjectDir`"", "hektor", "train", "--run",
                "--backend", "peft", "--adapter-name", $Adapter, "--iterations", "$Iterations")
 if ($Profile -and $Profile.Trim() -ne "") { $trainArgs += @("--profile", $Profile) }
 Start-Process -FilePath $uv `

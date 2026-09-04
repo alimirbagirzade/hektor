@@ -60,7 +60,7 @@ def test_stop_all_and_clear(monkeypatch, tmp_path) -> None:
 def test_train_run_blocked_without_approval(monkeypatch) -> None:
     """train --run taze onay olmadan eğitim BAŞLATMAZ (exit 3 + onay isteği)."""
     monkeypatch.setenv("COLUMNS", "300")
-    monkeypatch.delenv("ACHILLES_TRAIN_SUPERVISED", raising=False)
+    monkeypatch.delenv("HEKTOR_TRAIN_SUPERVISED", raising=False)
     # STOP_ALL etkisini ayır: bu test onay kapısını sınar
     monkeypatch.setattr("app.agents.runtime.supervisor.is_stop_all_active", lambda root=None: False)
     r = runner.invoke(

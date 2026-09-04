@@ -99,7 +99,7 @@ safe-refactor
 - [ ] tam olarak tek docs dosyası değişti
 - [ ] `data/ storage/ vector_db/ models/` YOK
 - [ ] `.env` YOK
-- [ ] log'da eğitim komutu YOK (`train --run`, `achilles lora` vb.)
+- [ ] log'da eğitim komutu YOK (`train --run`, `hektor lora` vb.)
 - [ ] auto-merge YOK
 - [ ] CI yeşil
 - [ ] protected-path guard GEÇTİ

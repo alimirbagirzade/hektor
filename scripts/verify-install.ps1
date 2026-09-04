@@ -1,4 +1,4 @@
-# Achilles Trader AI -- Windows cevrimdisi kurulum dogrulama kapisi.
+# Hektor Trader AI -- Windows cevrimdisi kurulum dogrulama kapisi.
 #
 # Amac: autostart KURULMADAN ONCE "sistem gercekten ayaga kalkiyor mu" kanitla.
 # bootstrap.sh'in Windows karsiligi: Ollama GEREKTIRMEZ -- fake embedding +
@@ -50,12 +50,12 @@ if (-not $UvPath) {
 
 # ---------------------------------------------------------------- cevrimdisi mod
 # Fake embedding: Ollama/ag olmadan RAG/embedding kod yollari calisabilsin.
-$env:ACHILLES_ALLOW_FAKE_EMBEDDINGS = "true"
+$env:HEKTOR_ALLOW_FAKE_EMBEDDINGS = "true"
 
 # CWD'yi proje koküne sabitle (backtest goreli yol 'data/market/raw/synthetic.csv' icin sart).
 Set-Location -Path $ProjectDir
 
-Write-Host "Achilles cevrimdisi kurulum dogrulamasi" -ForegroundColor White
+Write-Host "Hektor cevrimdisi kurulum dogrulamasi" -ForegroundColor White
 Write-Host "  Proje : $ProjectDir" -ForegroundColor Gray
 Write-Host "  uv    : $UvPath" -ForegroundColor Gray
 
@@ -93,14 +93,14 @@ if (-not $SkipSync) {
     }
 }
 # Sonraki `uv run` cagrilari yeniden senkron DENEMESIN: calisan bir sunucu
-# achilles-web.exe'yi kilitliyse 'os error 32' ile patlar (start-server.ps1 dersi).
+# hektor-web.exe'yi kilitliyse 'os error 32' ile patlar (start-server.ps1 dersi).
 $env:UV_NO_SYNC = "1"
 
 # ---------------------------------------------------------------- duman testi zinciri
-Invoke-Step "Sistem baslat (init)"       @("run", "--no-sync", "achilles", "init")
-Invoke-Step "Durum (status)"             @("run", "--no-sync", "achilles", "status")
-Invoke-Step "Sentetik veri (gen-data)"   @("run", "--no-sync", "achilles", "gen-data")
-Invoke-Step "Backtest (ornek strateji)"  @("run", "--no-sync", "achilles", "backtest", "data/market/raw/synthetic.csv")
+Invoke-Step "Sistem baslat (init)"       @("run", "--no-sync", "hektor", "init")
+Invoke-Step "Durum (status)"             @("run", "--no-sync", "hektor", "status")
+Invoke-Step "Sentetik veri (gen-data)"   @("run", "--no-sync", "hektor", "gen-data")
+Invoke-Step "Backtest (ornek strateji)"  @("run", "--no-sync", "hektor", "backtest", "data/market/raw/synthetic.csv")
 # --basetemp: pytest'in varsayilan global Temp'i (AppData\Local\Temp\pytest-of-*)
 # Windows'ta 'WinError 5 erisim engellendi' verebilir; proje-yerel .pytest_tmp
 # bu workaround icin .gitignore'da zaten tanimli (commit'e sizmaz).

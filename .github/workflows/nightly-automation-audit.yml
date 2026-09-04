@@ -49,7 +49,7 @@ jobs:
         continue-on-error: true
         run: |
           {
-            echo "## Achilles Nightly Audit"
+            echo "## Hektor Nightly Audit"
             echo ""
             echo '### CI gate'
             echo '```'
@@ -68,13 +68,13 @@ jobs:
             echo ''
             echo '### Understanding score (objective, offline)'
             echo '```'
-            uv run achilles understanding-score --record 2>&1 | tail -20 || echo "n/a"
-            uv run achilles understanding-history --compare 2>&1 | tail -20 || echo "n/a"
+            uv run hektor understanding-score --record 2>&1 | tail -20 || echo "n/a"
+            uv run hektor understanding-history --compare 2>&1 | tail -20 || echo "n/a"
             echo '```'
             echo ''
             echo '### Pretrain gate (GO/NO-GO, LLM-free)'
             echo '```'
-            uv run achilles pretrain-gate 2>&1 | tail -20 || echo "n/a"
+            uv run hektor pretrain-gate 2>&1 | tail -20 || echo "n/a"
             echo '```'
           } >> audit-report.md
 

@@ -40,7 +40,7 @@ BLOCKED = [
     "cert.pem",
     "keystore.p12",
     "foo.sqlite",
-    "storage/sqlite/achilles.db",
+    "storage/sqlite/hektor.db",
 ]
 
 

@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" && head -40 HANDOFF.md 2>/dev/null && echo '---' && echo 'Proje: Achilles 2.0 | Kapi: make ci | Durum: uv run achilles status'"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" && head -40 HANDOFF.md 2>/dev/null && echo '---' && echo 'Proje: Hektor | Kapi: make ci | Durum: uv run hektor status'"
           }
         ]
       }

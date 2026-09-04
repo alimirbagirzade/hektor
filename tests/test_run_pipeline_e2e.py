@@ -163,7 +163,7 @@ def test_drive_durdurulunca_stopped_raporlar(monkeypatch, tmp_path):
     run_id = d.orch.store.create_run(
         model="qwen2.5-1.5b",
         profile="discipline_safe",
-        adapter_name="achilles_lora",
+        adapter_name="hektor_lora",
         params={"iters": 1},
     )
     # deep-hunt'a kadar ilerlet.
@@ -229,7 +229,7 @@ def test_motor_depo_kokunde_kosar(monkeypatch):
             return 0
 
         def communicate(self, timeout=None):
-            return ("ACHILLES_HUNT_VERDICT: PASS", "")
+            return ("HEKTOR_HUNT_VERDICT: PASS", "")
 
     def sahte_popen(command, **kwargs):
         yakalanan.update(kwargs)
@@ -255,7 +255,7 @@ def test_kurulu_olmayan_motor_temiz_503(monkeypatch):
     with TestClient(app) as client:
         # Önce bir koşu yarat (404 yerine 503 alalım).
         r0 = client.post(
-            "/api/orchestration/start", json={"adapter_name": "achilles_lora", "iters": 1}
+            "/api/orchestration/start", json={"adapter_name": "hektor_lora", "iters": 1}
         )
         assert r0.status_code == 200, r0.text
         run_id = r0.json()["run_id"]
@@ -272,7 +272,7 @@ def test_bilinmeyen_motor_400():
 
     with TestClient(app) as client:
         r0 = client.post(
-            "/api/orchestration/start", json={"adapter_name": "achilles_lora", "iters": 1}
+            "/api/orchestration/start", json={"adapter_name": "hektor_lora", "iters": 1}
         )
         run_id = r0.json()["run_id"]
         r = client.post(
@@ -361,7 +361,7 @@ def test_autodrive_varsayilan_sur_modu_dry_run():
 
     with TestClient(app) as client:
         run_id = client.post(
-            "/api/orchestration/start", json={"adapter_name": "achilles_lora", "iters": 1}
+            "/api/orchestration/start", json={"adapter_name": "hektor_lora", "iters": 1}
         ).json()["run_id"]
         r = client.post(f"/api/orchestration/autodrive/{run_id}", json={"execute": False})
     assert r.status_code == 200, r.text
@@ -412,7 +412,7 @@ def test_live_drive_enjekte_runner_ile_mcp_gorunurlugu(monkeypatch):
     def sahte_runner(command, timeout, env=None):
         # Sür argv'si + MCP config gerçekten kuruluyor mu?
         assert "--mcp-config" in command and "--safe-mode" not in command
-        return 0, "araçlar: mcp__achilles__status\nACHILLES_DRIVE_VERDICT: PASS\n"
+        return 0, "araçlar: mcp__hektor__status\nHEKTOR_DRIVE_VERDICT: PASS\n"
 
     res = LiveDriveSmoke().run(allow_live_spawn=True, web_check=lambda: True, runner=sahte_runner)
     assert res.verdict == "pass", [c.to_dict() for c in res.checks]

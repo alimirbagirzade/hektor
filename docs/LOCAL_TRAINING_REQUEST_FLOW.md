@@ -18,11 +18,11 @@ isteği oluşturur** ve kullanıcıya onay komutunu gösterir. Onay verilse bile
 
 ## CLI usage
 ```bash
-uv run achilles local-training-request                 # default: audit + ÖN İZLEME (onay yok)
-uv run achilles local-training-request --create-approval  # READY ise PENDING onay isteği oluştur
-uv run achilles local-training-request --preview          # her zaman yalnız ön izleme
-uv run achilles local-training-request --json             # makine-okunabilir JSON
-uv run achilles local-training-request --out reports/local_training_orchestrator
+uv run hektor local-training-request                 # default: audit + ÖN İZLEME (onay yok)
+uv run hektor local-training-request --create-approval  # READY ise PENDING onay isteği oluştur
+uv run hektor local-training-request --preview          # her zaman yalnız ön izleme
+uv run hektor local-training-request --json             # makine-okunabilir JSON
+uv run hektor local-training-request --out reports/local_training_orchestrator
 ```
 
 ## Preview mode (güvenli varsayılan)
@@ -41,7 +41,7 @@ audit çalışır, readiness raporlanır, **onay oluşturulmaz**, eğitim başla
   "readiness_score": 82,
   "readiness_verdict": "READY",
   "risks": [],
-  "approve_command": "uv run achilles approval-approve apr_…",
+  "approve_command": "uv run hektor approval-approve apr_…",
   "note": "No training was started."
 }
 ```
@@ -61,7 +61,7 @@ STOP_ALL aktifse audit kararı `BLOCKED` olur → istek akışı `blocked` döne
 oluşturmaz**. (STOP_ALL ayrıca tüm gerçek tehlikeli aksiyonları zaten bloklar.)
 
 ## What it never does
-- `detached_launch.launch()` çağırmaz · `achilles train --run`/subprocess başlatmaz.
+- `detached_launch.launch()` çağırmaz · `hektor train --run`/subprocess başlatmaz.
 - `AutoLoRAPipeline.start_training()` / `promote_to_production()` çağırmaz.
 - `require_fresh_approval()` çağırmaz → **onay tüketmez**.
 - Cloud/Kaggle/Colab tetiklemez · model/adapter yazmaz · korumalı yollara yazmaz.
@@ -72,8 +72,8 @@ oluşturmaz**. (STOP_ALL ayrıca tüm gerçek tehlikeli aksiyonları zaten blokl
 
 ## How to move from request to real training later
 1. `local-training-request --create-approval` → PENDING `approval_id`.
-2. **İnsan** inceler → `uv run achilles approval-approve <approval_id>` (onayı verir).
-3. **İnsan** gerçek eğitimi açıkça başlatır: `uv run achilles train --run` (taze onayı o
+2. **İnsan** inceler → `uv run hektor approval-approve <approval_id>` (onayı verir).
+3. **İnsan** gerçek eğitimi açıkça başlatır: `uv run hektor train --run` (taze onayı o
    adımda CLI **tüketir**) veya onaylı web `/api/training/run` (Phase 4D-1).
    Bu 5B akışı 2. ve 3. adımları **yapmaz**; yalnız 1. adımı (istek/öneri) üretir.
 

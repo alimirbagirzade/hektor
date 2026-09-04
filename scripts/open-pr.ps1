@@ -1,4 +1,4 @@
-# Achilles -- TEK KOMUTLA PR (Windows). open-pr.sh'in PowerShell karsiligi.
+# Hektor -- TEK KOMUTLA PR (Windows). open-pr.sh'in PowerShell karsiligi.
 #
 # Mevcut daldaki isi push eder ve otomatik PR acar. VARSAYILAN: CI gecince
 # otomatik squash-merge. -NoMerge ile sadece PR acar (merge'i sen yaparsin).

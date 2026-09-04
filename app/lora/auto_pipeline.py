@@ -244,7 +244,7 @@ class AutoLoRAPipeline:
                 "approval_id": decision.approval_id,
                 "reason": (
                     "Gerçek eğitim TAZE onay gerektirir. Onayla: "
-                    f"achilles approval-approve {decision.approval_id}, sonra tekrar başlat."
+                    f"hektor approval-approve {decision.approval_id}, sonra tekrar başlat."
                 ),
             }
 
@@ -537,7 +537,7 @@ class AutoLoRAPipeline:
                 "approval_id": decision.approval_id,
                 "reason": (
                     "Terfi TAZE onay gerektirir. Onayla: "
-                    f"achilles approval-approve {decision.approval_id}, sonra tekrar dene."
+                    f"hektor approval-approve {decision.approval_id}, sonra tekrar dene."
                 ),
             }
 
@@ -579,7 +579,7 @@ class AutoLoRAPipeline:
                     await self.check_and_prepare()
                 if self._state.stage == PipelineStage.READY_TO_TRAIN:
                     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d_%H%M%S")
-                    await self.start_training(f"achilles_auto_{stamp}")
+                    await self.start_training(f"hektor_auto_{stamp}")
                 elif self._state.stage == PipelineStage.EVAL_PASSED:
                     await self.promote_to_production()
             await asyncio.sleep(self.check_interval_min * 60)

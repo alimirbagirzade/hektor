@@ -1,4 +1,4 @@
-"""Achilles agent runtime — gözlem (Phase 1) + kontrol düzlemi (Phase 2/2.5).
+"""Hektor agent runtime — gözlem (Phase 1) + kontrol düzlemi (Phase 2/2.5).
 
 İçerik:
   * ``schemas``    — AgentSpec / AgentRun / AgentEvent / Task / Approval + enum'lar

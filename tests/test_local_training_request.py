@@ -66,7 +66,7 @@ def test_create_approval_when_ready_creates_pending() -> None:
         res = ltr.build_request(create_approval=True, write=False)
     assert res["status"] == "approval_required"
     assert res["approval_id"] == "apr_abc123"
-    assert res["approve_command"] == "uv run achilles approval-approve apr_abc123"
+    assert res["approve_command"] == "uv run hektor approval-approve apr_abc123"
     m_request.assert_called_once()
     m_require.assert_not_called()  # onay TÜKETİLMEDİ
 
@@ -166,7 +166,7 @@ def test_approval_id_and_command_format() -> None:
     ):
         res = ltr.build_request(create_approval=True, write=False)
     assert res["approval_id"].startswith("apr_")
-    assert res["approve_command"] == f"uv run achilles approval-approve {res['approval_id']}"
+    assert res["approve_command"] == f"uv run hektor approval-approve {res['approval_id']}"
 
 
 def test_writes_only_under_out_dir(tmp_path: Path) -> None:

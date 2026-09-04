@@ -22,4 +22,4 @@ train_examples, eval_score, status, created_at, notes
 - Eski production → archived olur
 
 ## Komutlar
-`uv run achilles lora-registry` — tüm adapter'ları listele
+`uv run hektor lora-registry` — tüm adapter'ları listele

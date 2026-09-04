@@ -84,7 +84,7 @@ def _build_valid_evidence() -> str:
     used: set[str] = set()
     scanned = [_distinctive_proof(rel, used) for rel in _HUNT_FILES]
     payload = {"scanned_files": scanned, "subsystems": ["orchestration", "web"], "findings": []}
-    return f"ACHILLES_HUNT_EVIDENCE\n{json.dumps(payload, ensure_ascii=False)}\n"
+    return f"HEKTOR_HUNT_EVIDENCE\n{json.dumps(payload, ensure_ascii=False)}\n"
 
 
 _VALID_EVIDENCE = _build_valid_evidence()
@@ -93,20 +93,20 @@ _VALID_EVIDENCE = _build_valid_evidence()
 def _fake_pass(
     command: list[str], timeout: int, env: dict[str, str] | None = None
 ) -> tuple[int, str]:
-    return 0, f"denetim raporu...\nciddi bulgu yok\n{_VALID_EVIDENCE}ACHILLES_HUNT_VERDICT: PASS\n"
+    return 0, f"denetim raporu...\nciddi bulgu yok\n{_VALID_EVIDENCE}HEKTOR_HUNT_VERDICT: PASS\n"
 
 
 def _fake_pass_no_evidence(
     command: list[str], timeout: int, env: dict[str, str] | None = None
 ) -> tuple[int, str]:
     """Motor derin avı yapmadan sadece 'PASS' yazar (P8'in kapatması gereken sınıf)."""
-    return 0, "denetim raporu...\nciddi bulgu yok\nACHILLES_HUNT_VERDICT: PASS\n"
+    return 0, "denetim raporu...\nciddi bulgu yok\nHEKTOR_HUNT_VERDICT: PASS\n"
 
 
 def _fake_fail(
     command: list[str], timeout: int, env: dict[str, str] | None = None
 ) -> tuple[int, str]:
-    return 0, "BLOCKER: x\nACHILLES_HUNT_VERDICT: FAIL bir sorun var\n"
+    return 0, "BLOCKER: x\nHEKTOR_HUNT_VERDICT: FAIL bir sorun var\n"
 
 
 # ── saf yardımcılar ───────────────────────────────────────────────────────────
@@ -120,8 +120,8 @@ def test_build_command_is_claude_p() -> None:
 
 
 def test_parse_verdict() -> None:
-    assert parse_hunt_verdict("...\nACHILLES_HUNT_VERDICT: PASS")["passed"] is True
-    assert parse_hunt_verdict("...\nACHILLES_HUNT_VERDICT: FAIL x")["passed"] is False
+    assert parse_hunt_verdict("...\nHEKTOR_HUNT_VERDICT: PASS")["passed"] is True
+    assert parse_hunt_verdict("...\nHEKTOR_HUNT_VERDICT: FAIL x")["passed"] is False
     assert parse_hunt_verdict("verdict yok")["passed"] is False  # güvenli taraf
 
 
@@ -247,7 +247,7 @@ def test_default_runner_decodes_utf8_engine_output() -> None:
     yerel kod sayfasını kullanıyordu. Motorun UTF-8 çıktısındaki tek bir bayt
     `_readerthread`'i `UnicodeDecodeError` ile düşürüyor, `communicate()` BOŞ string
     ve returncode 0 döndürüyordu → sürücü "çalıştı ama çıktı yok" görüp
-    `ACHILLES_DRIVE_VERDICT` satırını bulamıyor ve her koşuyu FAIL sayıyordu.
+    `HEKTOR_DRIVE_VERDICT` satırını bulamıyor ve her koşuyu FAIL sayıyordu.
     """
     import sys
 

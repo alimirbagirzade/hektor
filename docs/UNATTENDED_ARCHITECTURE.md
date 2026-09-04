@@ -1,4 +1,4 @@
-# Achilles Unattended Architecture
+# Hektor Unattended Architecture
 
 Amaç: kullanıcı motor hesabını bir kez bağlar; bundan sonra eğitim işletimine müdahale etmez.
 

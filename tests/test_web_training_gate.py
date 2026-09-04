@@ -1,7 +1,7 @@
 """Phase 4D-1 — /api/training/run taze-onay kapısı (offline; GERÇEK eğitim YOK).
 
 Audit bulgusu (4D-0): web `/api/training/run` → `launch()` doğrudan çağırıyordu →
-spawn edilen `train --run` `ACHILLES_TRAIN_SUPERVISED=1` ile fresh-approval gate'i
+spawn edilen `train --run` `HEKTOR_TRAIN_SUPERVISED=1` ile fresh-approval gate'i
 bypass ediyordu. Bu testler endpoint'in artık CLI ile AYNI kapıdan geçtiğini
 doğrular: STOP_ALL bloklar, onay yoksa eğitim BAŞLAMAZ (needs_approval), onay
 varsa launch çağrılır. `launch` her zaman MOCK'lanır — hiçbir testte gerçek eğitim

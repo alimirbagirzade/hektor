@@ -1,6 +1,6 @@
 # Ithaka — Yerel-Öncelikli Trading Araştırma Sistemi · Proje Spesifikasyonu
 
-_Sürüm 1.0 · 2026-09-02 · Bu belge, sıfırdan yazılacak yeni projenin tam tasarım sözleşmesidir. Achilles Trader AI'ın kanıtlanmış mimarisinden türetilmiş, ölü/çelişik parçalar atılmış ve bilinen kusurlar tasarıma düzeltilmiş hâliyle gömülmüştür._
+_Sürüm 1.0 · 2026-09-02 · Bu belge, sıfırdan yazılacak yeni projenin tam tasarım sözleşmesidir. Hektor Trader AI'ın kanıtlanmış mimarisinden türetilmiş, ölü/çelişik parçalar atılmış ve bilinen kusurlar tasarıma düzeltilmiş hâliyle gömülmüştür._
 
 > **Ad:** "Ithaka" çalışma adıdır. Paket `ithaka`, CLI `ithaka`, web `ithaka-web`, ortam değişkeni öneki `ITHAKA_`. Başka ad seçilirse bu dört yer toplu değiştirilir.
 
@@ -23,7 +23,7 @@ _Sürüm 1.0 · 2026-09-02 · Bu belge, sıfırdan yazılacak yeni projenin tam 
 13. Test stratejisi
 14. İnşa sırası
 - Ek A: Sabitler
-- Ek B: Achilles'ten bilinçli çıkarılanlar
+- Ek B: Hektor'ten bilinçli çıkarılanlar
 - Ek C: Akademik referanslar
 
 ---
@@ -38,7 +38,7 @@ Kısa formül: **PDF → RAG / bilgi kartı → hipotez → backtest → (opsiyo
 ## 1.2 Sınırlar (ne DEĞİL)
 - **Canlı bot değil.** Borsa bağlantısı, emir, canlı sinyal yok. `allow_live_trading_signal` ayarı yoktur; kod yolu hiç yazılmaz.
 - **Yatırım tavsiyesi değil.** Her çıktı "hipotez + test noktası"dır; tavsiye dili tespit edilip reddedilir.
-- **Bulut API ürünü değil.** Çalışma zamanı LLM'i yalnız yerel Ollama'dır. OpenAI/Anthropic/Google istemcisi **yazılmaz** (Achilles'teki opsiyonel bulut kodu ve alexzhang adapter'ı bilinçli olarak dışarıda bırakıldı; bkz. Ek B). Geliştirme yardımı abonelikli CLI motorlarıyla (Claude Code, Codex CLI) yapılır.
+- **Bulut API ürünü değil.** Çalışma zamanı LLM'i yalnız yerel Ollama'dır. OpenAI/Anthropic/Google istemcisi **yazılmaz** (Hektor'teki opsiyonel bulut kodu ve alexzhang adapter'ı bilinçli olarak dışarıda bırakıldı; bkz. Ek B). Geliştirme yardımı abonelikli CLI motorlarıyla (Claude Code, Codex CLI) yapılır.
 
 ## 1.3 Sekiz mutlak kural ve kodda karşılıkları
 
@@ -199,7 +199,7 @@ ithaka/
 └── .github/workflows/ {ci.yml, weekly-audit.yml}
 ```
 
-Achilles'e göre farklar: `app/cli` boş paketi ve `strategies/` gitti; `agents/` → `runtime/` (local_training_5A-5E, benchmark, installer, rules_updater çıkarıldı — orkestrasyon aşamaları aynı işi yapıyor); `pipeline/` → `research/auto_researcher`; `reliability/` → `evals/release_gate`; iki `AdapterRegistry` → `registry/adapter_registry` (tek); `promotion_gates` sır/PII regex'i → `guards/secrets_pii`; ölü `query_expander`/`multi_query_retriever`/`hybrid_retriever`/`regression_runner`/`answer_eval`/`golden_generator` yok; cross-encoder reranker yok (FlashRank yeterli, CPU'da >15 s olan bge kaldırıldı).
+Hektor'e göre farklar: `app/cli` boş paketi ve `strategies/` gitti; `agents/` → `runtime/` (local_training_5A-5E, benchmark, installer, rules_updater çıkarıldı — orkestrasyon aşamaları aynı işi yapıyor); `pipeline/` → `research/auto_researcher`; `reliability/` → `evals/release_gate`; iki `AdapterRegistry` → `registry/adapter_registry` (tek); `promotion_gates` sır/PII regex'i → `guards/secrets_pii`; ölü `query_expander`/`multi_query_retriever`/`hybrid_retriever`/`regression_runner`/`answer_eval`/`golden_generator` yok; cross-encoder reranker yok (FlashRank yeterli, CPU'da >15 s olan bge kaldırıldı).
 
 ---
 
@@ -229,7 +229,7 @@ Achilles'e göre farklar: `app/cli` boş paketi ve `strategies/` gitti; `agents/
 | `default_market` / `default_timeframe` | `XAUUSD` / `15m` | |
 | `allow_fake_embeddings` | True | False → Ollama yoksa `RuntimeError` |
 | `synthesis_mirror_dir` / `scout_inbox_dir` | `""` / `""` | Boş = kapalı / `data/literature_inbox` |
-| `unattended_training_enabled` | **False** | Eğitim yetkisinin tek politika anahtarı (Achilles'te True'ydu; yeni projede kapalı başlar) |
+| `unattended_training_enabled` | **False** | Eğitim yetkisinin tek politika anahtarı (Hektor'te True'ydu; yeni projede kapalı başlar) |
 | `unattended_engine` | `"claude"` | Unattended supervisor motoru (kod içinde sabit değil) |
 | `auto_lora_min_cards` / `auto_lora_check_interval_min` / `auto_lora_eval_threshold` / `auto_lora_eval_sample_n` | 20 / 60 / 0.5 / 8 | |
 | `background_loops_enabled` | True | Test oturumu **False** yapar → web lifespan hiçbir döngü başlatmaz |
@@ -357,7 +357,7 @@ Her alt bölüm: amaç → ana tipler/fonksiyonlar → invaryantlar. Sabitler Ek
 - `status_manager`: 14 durum, tarihçeden türetilir. `report_generator`: `{paper_id}_mastery_report.{json,md}`, idempotent. `paper_mastery_agent.run`: 6 adım; rapor ayrı try/except; `LearningQueue.run_next/run_all`.
 
 ## 7.7 `verification/`
-- `citation_verifier` (`[paper:chunk(, s.N)]`), `grounding_verifier` (SUPPORTED / PARTIALLY / UNSUPPORTED / SPECULATIVE), `context_sufficiency.classify(query, chunks)` — **sorgu-bağlam token örtüşmesi hesaba katılır** (Achilles'te parametre kullanılmıyordu), `contradiction_detector`, `confidence_scorer` (context 0.25 / citation 0.30 / grounding 0.30 / formula 0.15; abstain <0.40, warn <0.70 — **tek güven formülü**, `answer_eval` yok), `abstention_policy`.
+- `citation_verifier` (`[paper:chunk(, s.N)]`), `grounding_verifier` (SUPPORTED / PARTIALLY / UNSUPPORTED / SPECULATIVE), `context_sufficiency.classify(query, chunks)` — **sorgu-bağlam token örtüşmesi hesaba katılır** (Hektor'te parametre kullanılmıyordu), `contradiction_detector`, `confidence_scorer` (context 0.25 / citation 0.30 / grounding 0.30 / formula 0.15; abstain <0.40, warn <0.70 — **tek güven formülü**, `answer_eval` yok), `abstention_policy`.
 - `comprehension_scorer`: A kart doluluk (7 alan) 0.30 · B RAG precision@5 0.40 · C LLM anahtar-kelime 0.30 (seed 7, temp 0; LLM yoksa 0.5); `use_llm=False` hızlı mod.
 - `rag_mastery`: `0.40·coverage + 0.30·comprehension + 0.30·min(1, n_examples/50)`.
 - `exams/`: `safe_eval` (whitelist AST); `reference_oracle` = `compute_indicator`; `registry` (her gösterge için parametreler — **`compute_indicator` ile aynı küme**; L5 `_REGISTRY` ayrı tutulmaz, registry'den okunur); `l3_application` (`np.allclose`, LLM yoksa skipped); `l4_counterfactual` (yön koddan; olumsuzluk farkında; belirgin yön yoksa `no_data`); `l5_composition` (math + novelty ≥2 tip/kopya yok + maliyet-dahil backtest+OOS → `candidate`; test-edilemez backtest → `skipped`); `discipline_exam` (`evals/*.jsonl`); `understanding_score` (`pass_rate = passed/(passed+failed)`, `MIN_GRADED_FOR_SCORE=3`, 2 ardışık LLM hatasında bail, `llm=` ile adapter ölçümü, `l5_results_from_sessions` öncelikli); `understanding_record` (DB + JSON, `compare_understanding` aynı model → `regressed`).
@@ -773,7 +773,7 @@ Her adımda `make ci` yeşil; bir alt sistem tamamlanınca Kademe-2 adversarial 
 | MCP allow-list / forbidden | 21 / 12 | mcp_server/allowlist |
 | Mastery queue attempts / RAG loop rebuild | 3 / 3 | memory/mastery_store, research/rag_learning_loop |
 
-# Ek B — Achilles'ten bilinçli çıkarılanlar
+# Ek B — Hektor'ten bilinçli çıkarılanlar
 | Parça | Neden |
 |---|---|
 | OpenAI / Anthropic / Google LLM istemcileri, ilgili ayarlar ve bağımlılıklar, kurulum menüsündeki 9 bulut seçeneği | "Bulut API asla" kuralıyla çelişiyordu; hiç kullanılmıyordu |

@@ -13,18 +13,18 @@ Dataset / RAG-indeks / embedding / RLM-ödül **sürümlerini** kaydeder ve terf
 ## Komutlar
 ```bash
 # Sürümleri listele
-uv run achilles registry-list --kind datasets        # dataset_versions (+approval_status)
-uv run achilles registry-list --kind indices         # rag_index_versions
-uv run achilles registry-list --kind embeddings      # embedding_model_versions
-uv run achilles registry-list --kind rewards         # rlm_reward_versions (sır/PII bayrağı)
-uv run achilles registry-list --kind decisions       # promotion_decisions (denetim izi)
+uv run hektor registry-list --kind datasets        # dataset_versions (+approval_status)
+uv run hektor registry-list --kind indices         # rag_index_versions
+uv run hektor registry-list --kind embeddings      # embedding_model_versions
+uv run hektor registry-list --kind rewards         # rlm_reward_versions (sır/PII bayrağı)
+uv run hektor registry-list --kind decisions       # promotion_decisions (denetim izi)
 
 # Mevcut RAG indeks + embedding anlık görüntüsü (SQLite sayımından; ChromaDB/ağ gerekmez)
-uv run achilles registry-snapshot
+uv run hektor registry-snapshot
 
 # Dataset TERFİSİ — İNSAN ONAYI (Kural 8)
-uv run achilles registry-promote-dataset --version ds_abc123 --approver ali
-uv run achilles registry-promote-dataset --version ds_abc123 --approver ali --reject --reason "kalite düşük"
+uv run hektor registry-promote-dataset --version ds_abc123 --approver ali
+uv run hektor registry-promote-dataset --version ds_abc123 --approver ali --reject --reason "kalite düşük"
 ```
 
 Programatik:

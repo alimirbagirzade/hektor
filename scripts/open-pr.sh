@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Achilles -- TEK KOMUTLA PR (elle GitHub web'e girmeye son).
+# Hektor -- TEK KOMUTLA PR (elle GitHub web'e girmeye son).
 #
 # Mevcut daldaki işi push eder ve otomatik PR açar (başlık/gövde commit'lerden
 # doldurulur). İstersen CI yeşil olunca otomatik squash-merge ayarlar.

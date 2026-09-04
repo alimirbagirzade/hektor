@@ -8,8 +8,8 @@ geri getiriyor mu, hangi sırada?
 Ölçülenler: recall@1/3/5/10 (makale-düzeyi), MRR ve sorgu başına gecikme (ms).
 recall@10 doysa bile recall@1/MRR reranker farkını ayırt eder; gecikme "hız" sinyalidir.
 
-Config tamamen ortam değişkenleriyle kontrol edilir (ACHILLES_RAG_RRF,
-ACHILLES_RAG_CROSS_ENCODER, ACHILLES_RAG_CONTEXTUAL_EMBED ...) → her A/B koşusu AYRI
+Config tamamen ortam değişkenleriyle kontrol edilir (HEKTOR_RAG_RRF,
+HEKTOR_RAG_CROSS_ENCODER, HEKTOR_RAG_CONTEXTUAL_EMBED ...) → her A/B koşusu AYRI
 süreçte çalıştırılır (get_settings cache'i bayatlamaz). Çıktı tek satır JSON.
 
 Kullanım:

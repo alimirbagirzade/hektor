@@ -5,7 +5,7 @@ genelleştirir: her motor için ad, PATH yoklama komutu, argv şablonu ve insan-
 Yeni motor eklemek `_ENGINES` içine TEK SATIR.
 
 ⛔ KİMLİK BİLGİSİ YOK (kalıcı kısıt — CLAUDE.md + [[no-api-local-subscription-only]]):
-Achilles hiçbir motorun mail/şifre/API anahtarını TOPLAMAZ, SAKLAMAZ, İSTEMEZ. Motorlar
+Hektor hiçbir motorun mail/şifre/API anahtarını TOPLAMAZ, SAKLAMAZ, İSTEMEZ. Motorlar
 kendi CLI oturumlarıyla (abonelik OAuth) girişlidir; bizim işimiz yalnız "PATH'te kurulu mu"
 tespiti. Bu yüzden `available()` KURULU-MU der, GİRİŞLİ-Mİ diyemez — giriş durumu ancak
 motorun kendisi çalıştırılınca anlaşılır. Yalnız API anahtarıyla çalışan bir motor bu
@@ -33,10 +33,10 @@ log = logging.getLogger(__name__)
 
 # argv şablonunda prompt'un yerini tutan sentinel. Kullanıcı metniyle çakışması önemsizdir:
 # değişim şablonun ÖĞELERİ üzerinde tam eşleşmeyle yapılır, prompt içeriğinde arama yapılmaz.
-PROMPT = "\x00ACHILLES_PROMPT\x00"
+PROMPT = "\x00HEKTOR_PROMPT\x00"
 
 # "Sür" modunda üretilen MCP config dosyasının yolunu tutan sentinel (aynı tam-eşleşme kuralı).
-MCP_CONFIG = "\x00ACHILLES_MCP_CONFIG\x00"
+MCP_CONFIG = "\x00HEKTOR_MCP_CONFIG\x00"
 
 # PATH yoklama cache ömrü (saniye). Motor oturum ortasında kurulabilir → sonsuz cache yanlış.
 PROBE_TTL_S = 60.0
@@ -59,7 +59,7 @@ class Engine:
     spawns: bool = True
     # "Nasıl kurulur" ipucu — UI'da kurulu OLMAYAN motorun altında gösterilir.
     # ⛔ Bu bir KİMLİK FORMU DEĞİLDİR: yalnız kullanıcının kendi terminalinde çalıştıracağı
-    # kurulum/giriş komutunu tarif eder. Achilles giriş bilgisini ne ister ne de taşır.
+    # kurulum/giriş komutunu tarif eder. Hektor giriş bilgisini ne ister ne de taşır.
     install_hint: str = ""
     # "Sür" (drive) modu argv şablonu — MCP erişimi GEREKTİRİR, bu yüzden av modundan
     # AYRI bir sertleştirme profili kullanır (bkz. _CLAUDE_DRIVE_ARGV). Boş = motor sür
@@ -70,7 +70,7 @@ class Engine:
     drive_hardened: bool = False
     # Doğurulan ajan ARAÇ SEVİYESİNDE kısıtlanarak mı başlatılıyor?
     # AutoDriver YALNIZ hardened motorları doğurur (bkz. docs/SCOPE_ISOLATION.md):
-    # kısıtsız bir motor, auth'suz yerel CLI'yi (`achilles approval-approve`) ya da
+    # kısıtsız bir motor, auth'suz yerel CLI'yi (`hektor approval-approve`) ya da
     # 127.0.0.1:8765'i çağırıp KENDİ eğitimini onaylayabilir → Kural 8 delinir.
     # Sertleştirme bayrakları motora ÖZGÜdür, bu yüzden motor bazında işaretlenir.
     hardened: bool = False
@@ -139,7 +139,7 @@ _CLAUDE_ARGV: tuple[str, ...] = (
 
 # ── Sertleştirme — "sür" (drive) modu ───────────────────────────────────────────────────
 # ⚠️ NEDEN AV MODUNDAN FARKLI: `claude --help`, `--safe-mode`'un devre dışı bıraktıkları
-# arasında **MCP sunucularını** açıkça sayar. Sür modunun TÜM amacı Achilles MCP araçlarına
+# arasında **MCP sunucularını** açıkça sayar. Sür modunun TÜM amacı Hektor MCP araçlarına
 # erişim olduğundan `--safe-mode` KULLANILAMAZ — kullanılsaydı ajan araçsız kalırdı.
 # `--bare` de ELENDİ: yardım metnine göre kimlik doğrulamayı "strictly ANTHROPIC_API_KEY"e
 # indirger (OAuth/keychain okunmaz) → projenin KALICI "API ASLA" kısıtını ihlal ederdi
@@ -158,7 +158,7 @@ _CLAUDE_ARGV: tuple[str, ...] = (
 # ⚠️ ARTIK RİSK (dürüst ol): `--tools` yalnız YERLEŞİK araç kümesini kapsar; MCP araçları
 # (`mcp__*`) bu listeye TABİ DEĞİLDİR. Sür modunda MCP yüzeyinin sınırı ARAÇ katmanında
 # değil, SUNUCU tarafındadır: `require_human` + sürücü token'ı (bkz. mcp_server/
-# achilles_mcp.py:driver_headers ve docs/SCOPE_ISOLATION.md).
+# hektor_mcp.py:driver_headers ve docs/SCOPE_ISOLATION.md).
 DRIVE_ALLOWED_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob")
 
 # ⚠️ SIRA ÖNEMLİ: hem `--tools` hem `--mcp-config` VARIADIC'tir (`<tools...>`, `<configs...>`).
@@ -181,7 +181,7 @@ _CLAUDE_DRIVE_ARGV: tuple[str, ...] = (
 
 # Codex non-interactive modu kayıtlı ChatGPT abonelik oturumunu kullanır. Dosya ve kabuk
 # tarafı read-only sandbox + never approval ile kapanır; tek yazma yüzeyi server-side driver
-# scope ve allow-list ile kısıtlanan Achilles MCP'dir. Kullanıcı config/rules yüklenmez.
+# scope ve allow-list ile kısıtlanan Hektor MCP'dir. Kullanıcı config/rules yüklenmez.
 _CODEX_DRIVE_ARGV: tuple[str, ...] = (
     "codex",
     "exec",
@@ -211,7 +211,7 @@ _ENGINES: tuple[Engine, ...] = (
         drive_hardened=True,
         install_hint=(
             "Kur: `npm install -g @anthropic-ai/claude-code` → sonra kendi terminalinde "
-            "bir kez `claude` çalıştırıp aboneliğinle giriş yap. Achilles giriş bilgisi "
+            "bir kez `claude` çalıştırıp aboneliğinle giriş yap. Hektor giriş bilgisi "
             "istemez ve saklamaz."
         ),
     ),
@@ -297,18 +297,18 @@ def build_drive_command(name: str, prompt: str, mcp_config_path: str) -> list[st
             "--extra",
             "mcp",
             "python",
-            str(repo_root / "mcp_server" / "achilles_mcp.py"),
+            str(repo_root / "mcp_server" / "hektor_mcp.py"),
         ]
 
         overrides = (
             "-c",
             "mcp_servers={}",
             "-c",
-            f"mcp_servers.achilles.command={json.dumps(command)}",
+            f"mcp_servers.hektor.command={json.dumps(command)}",
             "-c",
-            f"mcp_servers.achilles.args={json.dumps(args)}",
+            f"mcp_servers.hektor.args={json.dumps(args)}",
             "-c",
-            "mcp_servers.achilles.required=true",
+            "mcp_servers.hektor.required=true",
         )
         command_line: list[str] = []
         for part in get_engine(name).drive_argv_template:
@@ -365,7 +365,7 @@ def available(
 # uydurma yok): alan üç-durumlu ve şimdilik daima "bilinmiyor".
 LOGIN_UNKNOWN_NOTE = (
     "Giriş durumu yoklanamaz — abonelik oturumu ancak motor çalıştırılınca anlaşılır. "
-    "Achilles kimlik bilgisi istemez, saklamaz ve göstermez."
+    "Hektor kimlik bilgisi istemez, saklamaz ve göstermez."
 )
 
 

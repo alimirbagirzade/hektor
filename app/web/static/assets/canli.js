@@ -1,4 +1,4 @@
-// ACHILLES — bağımsız canlılık izleme. Aynı-köken /api/status yoklar.
+// HEKTOR — bağımsız canlılık izleme. Aynı-köken /api/status yoklar.
 // CSP uyumlu (eval/inline yok). Sunucu ölünce fetch başarısız → KAPALI'ya döner.
 "use strict";
 
@@ -59,7 +59,7 @@ function onOk(data, latencyMs) {
   setCell("mFails", "0");
 
   $("lastErr").textContent = "";
-  document.title = "🟢 CANLI · ACHILLES";
+  document.title = "🟢 CANLI · HEKTOR";
 }
 
 function onFail(err) {
@@ -72,7 +72,7 @@ function onFail(err) {
   setCell("mLastOk", lastOkAt ? fmtTime(lastOkAt) : "—");
   setCell("mFails", String(failCount), "bad");
   $("lastErr").textContent = "hata: " + (err && err.message ? err.message : err);
-  document.title = "🔴 KAPALI · ACHILLES";
+  document.title = "🔴 KAPALI · HEKTOR";
 }
 
 async function poll() {

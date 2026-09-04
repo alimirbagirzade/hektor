@@ -1,7 +1,7 @@
 # LoRA eğitim profilleri — hiperparametre ön ayarları.
 # Bu dosya yalnızca config sağlar; eğitim başlatmaz.
 # Yükleme: app.training.peft_lora_train.load_lora_profile(<ad>) → PeftTrainConfig alanları.
-# CLI: `achilles train --profile <ad>` profili uygular.
+# CLI: `hektor train --profile <ad>` profili uygular.
 #
 # Alan sözlüğü (araştırma entegrasyonu, doküman v1.2):
 #   r/alpha/dropout/epochs/max_seq_length/learning_rate/target_modules — temel.
@@ -133,4 +133,4 @@ discipline_safe_kl:
   kl_reg_beta: 0.01
   max_examples: 300
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
-  note: "DENEYSEL — discipline_safe_local + KL-regularized SFT (arXiv:2512.22337, β=0.01). Base-model'e karşı KL cezası forgetting'i azaltır (makale bulgusu); Achilles'te henüz bulut eğitim + adapter_eval gate'iyle DOĞRULANMADI. Kural 2: hipotez."
+  note: "DENEYSEL — discipline_safe_local + KL-regularized SFT (arXiv:2512.22337, β=0.01). Base-model'e karşı KL cezası forgetting'i azaltır (makale bulgusu); Hektor'te henüz bulut eğitim + adapter_eval gate'iyle DOĞRULANMADI. Kural 2: hipotez."

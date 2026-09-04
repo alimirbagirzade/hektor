@@ -1,4 +1,4 @@
-# Achilles RAG Eğitimi — Detaylı Anlatım
+# Hektor RAG Eğitimi — Detaylı Anlatım
 
 Sürüm: v1.4 · 2026-06-17
 
@@ -10,7 +10,7 @@ Sürüm: v1.4 · 2026-06-17
 | v1.1 | 2026-06-16 | Denetim düzeltmeleri: embedding boyutu (256-d yalnız fake yedek; nomic-embed-text boyutu Ollama modeli tarafından belirlenir), `chunk_size`/`overlap` doğru satır referansı (settings.py:77-78), hayali "~8000 chunk_size çelişkisi" kaldırıldı, test kapsamı doğru yansıtıldı (BM25/cross-encoder ve L3/L4/L5 testleri mevcut), auto-chain eğitim çağrısı doğru tarif edildi (doğrudan CLI, web subprocess değil). |
 | v1.4 | 2026-06-17 | **Güncel araştırma entegrasyonu (3. tur) — CPU-only GraphRAG.** SPRIG-lite (arXiv:2602.23372) reçetesi eklendi: yeni `app/memory/graph_retriever.py` (term–chunk bipartite graf + deterministik Personalized PageRank) + `app/memory/graph_corpus.py` (Chroma'dan lazy korpus grafı) + `RerankingRetriever` opt-in `rag_graph` modu (dense-hit'lerden tohumlanmış PPR → dense ile RRF füzyonu; çok-hop recall). LLM-free, deterministik, CPU-only; varsayılan kapalı (canlı davranış değişmez). 15 yeni test. Önceki GraphRAG ertelemesi bu hafif/offline dilimle açıldı. |
 | v1.3 | 2026-06-17 | **Güncel araştırma entegrasyonu (2. tur).** Offline RAGAS-tarzı RAG metrikleri eklendi: yeni `app/evals/rag_ragas_offline.py` — `faithfulness` (cevap cümlelerinin bağlamca desteklenme oranı), `context_precision` (çekilen bağlamın gürültü azlığı), `context_recall` (referans cevabın bağlamca kapsanması). Hepsi LLM'siz, deterministik, golden-id gerektirmez; canlı RAG cevabında ucuz kalite/uydurma sinyali. 9 yeni test. `rag-scan` ajanı backlog'u ~40 adaya büyüttü (CPU-only GraphRAG, Adaptive Chunking, Self-RAG, Blended RAG dahil). |
-| v1.2 | 2026-06-17 | **Güncel araştırma entegrasyonu (1. tur).** Reciprocal Rank Fusion (RRF / RAG-Fusion) eklendi: yeni `app/memory/rank_fusion.py` (saf, deterministik) + `MultiQueryRetriever` artık naif dedup yerine RRF füzyonu kullanıyor + `RerankingRetriever`'a opt-in `rag_rrf` modu (dense+BM25 sıra-füzyonu). Cross-encoder reranker modeli yapılandırılabilir hale getirildi ve yanıltıcı "çok dilli" yorumu düzeltildi (gerçek çok-dilli için `bge-reranker-v2-m3` önerisi). Yeni "Güncel Araştırma Entegrasyonu (Sürüm Günlüğü)" bölümü: taranan 14 teknik (late chunking, CRAG, Self-RAG, HyDE, GraphRAG/LightRAG/HippoRAG, RAGAS, RbFT/ALoFTRAG, Matryoshka embeddings…) Achilles koduna eşlendi; her biri için adopt/belgele/ertele gerekçesi + kaynak atıfları. |
+| v1.2 | 2026-06-17 | **Güncel araştırma entegrasyonu (1. tur).** Reciprocal Rank Fusion (RRF / RAG-Fusion) eklendi: yeni `app/memory/rank_fusion.py` (saf, deterministik) + `MultiQueryRetriever` artık naif dedup yerine RRF füzyonu kullanıyor + `RerankingRetriever`'a opt-in `rag_rrf` modu (dense+BM25 sıra-füzyonu). Cross-encoder reranker modeli yapılandırılabilir hale getirildi ve yanıltıcı "çok dilli" yorumu düzeltildi (gerçek çok-dilli için `bge-reranker-v2-m3` önerisi). Yeni "Güncel Araştırma Entegrasyonu (Sürüm Günlüğü)" bölümü: taranan 14 teknik (late chunking, CRAG, Self-RAG, HyDE, GraphRAG/LightRAG/HippoRAG, RAGAS, RbFT/ALoFTRAG, Matryoshka embeddings…) Hektor koduna eşlendi; her biri için adopt/belgele/ertele gerekçesi + kaynak atıfları. |
 
 > Not: Yeni eğitim geliştirmesinde sürüm numarası artırılır ve değişiklik buraya eklenir.
 
@@ -18,7 +18,7 @@ Sürüm: v1.4 · 2026-06-17
 
 ## Amaç ve Kapsam
 
-Bu doküman, Achilles araştırma sisteminin **RAG (Retrieval-Augmented Generation) eğitim hattını** uçtan uca, dosya:satır referansıyla anlatır. Achilles, CLAUDE.md'de tanımlandığı gibi **yerel-öncelikli bir AI trading araştırma sistemidir**: canlı bot değil, yatırım tavsiyesi değil. Çıktılar her zaman _hipotez_ + _test noktası_ biçimindedir.
+Bu doküman, Hektor araştırma sisteminin **RAG (Retrieval-Augmented Generation) eğitim hattını** uçtan uca, dosya:satır referansıyla anlatır. Hektor, CLAUDE.md'de tanımlandığı gibi **yerel-öncelikli bir AI trading araştırma sistemidir**: canlı bot değil, yatırım tavsiyesi değil. Çıktılar her zaman _hipotez_ + _test noktası_ biçimindedir.
 
 Kapsam, aşağıdaki bileşenlerin tamamını içerir:
 
@@ -37,7 +37,7 @@ Kapsam, aşağıdaki bileşenlerin tamamını içerir:
 ## Mimari Genel Bakış
 
 ```
-                              ACHILLES RAG EĞİTİM HATTI
+                              HEKTOR RAG EĞİTİM HATTI
                               =========================
 
   [PDF Dosyaları]              data/papers/raw_pdf/*.pdf
@@ -228,7 +228,7 @@ soru → RerankingRetriever.retrieve(query, top_k)
 
 **Heuristik reranker (`reranker.py:86-137`):** Dört faktör — `final = 0.4·semantic + 0.3·keyword + 0.2·section + 0.1·formula`. Semantic = `1 - distance/2`; keyword = token kesişim oranı; section = `_SECTION_PRIORITY` (abstract=1.0, references=0.1); formula = LaTeX deseni varsa 1. `tanh(final·2)/tanh(2)` normalize, azalan sıralama.
 
-**Cross-encoder (`cross_encoder_reranker.py:52-92`):** (soru, chunk) çiftini birlikte puanlar. Model `BAAI/bge-reranker-base` (çok dilli, ~280MB). Model/indirme/prediction hatası → graceful olarak heuristik `Reranker`'a düşer. Opt-in: `ACHILLES_RAG_CROSS_ENCODER=true` + `sentence-transformers`.
+**Cross-encoder (`cross_encoder_reranker.py:52-92`):** (soru, chunk) çiftini birlikte puanlar. Model `BAAI/bge-reranker-base` (çok dilli, ~280MB). Model/indirme/prediction hatası → graceful olarak heuristik `Reranker`'a düşer. Opt-in: `HEKTOR_RAG_CROSS_ENCODER=true` + `sentence-transformers`.
 
 **BM25 (`bm25_index.py:18-108`):** Saf Python (dependency yok), `k1=1.5, b=0.75`. IDF `log((N-df+0.5)/(df+0.5)+1)`. Corpus lazy olarak Chroma'dan kurulur, modül-düzey cache; chunk sayısı değişince yeniden kurulur (`bm25_corpus.py:21-62`). Chroma boş/erişilemezse dense-only'a düşer.
 
@@ -238,7 +238,7 @@ soru → RerankingRetriever.retrieve(query, top_k)
 
 **Self-refining RAG (`self_refining_rag.py:44-114`):** Çok turlu — bağlam kalitesinde sorun varsa (`has_incomplete_formula`/`has_incomplete_argument`) `top_k += 3` ile genişletip yeniden çeker.
 
-**Kontrol bayrakları (`settings.py:76-110`):** `rag_top_k=6` (satır 76), `chunk_size=1200`/`chunk_overlap=200` (satır 77-78), `rag_rerank=True` (satır 81), `rag_overfetch=4` (satır 82), `rag_hybrid=True` (satır 85), `rag_cross_encoder=False` (satır 89), `rag_cross_encoder_model="BAAI/bge-reranker-base"` (satır 93; çok-dilli için `bge-reranker-v2-m3` önerilir, `ACHILLES_RAG_CROSS_ENCODER_MODEL` ile değiştir), `rag_rrf=False` (satır 99, opt-in), `rag_rrf_k=60` (satır 100), `rag_graph=False` (opt-in SPRIG-lite graf modu; açıksa dense→PPR→RRF), `rag_graph_damping=0.85`, `rag_graph_iters=20`, `rag_contextual_embed=False`.
+**Kontrol bayrakları (`settings.py:76-110`):** `rag_top_k=6` (satır 76), `chunk_size=1200`/`chunk_overlap=200` (satır 77-78), `rag_rerank=True` (satır 81), `rag_overfetch=4` (satır 82), `rag_hybrid=True` (satır 85), `rag_cross_encoder=False` (satır 89), `rag_cross_encoder_model="BAAI/bge-reranker-base"` (satır 93; çok-dilli için `bge-reranker-v2-m3` önerilir, `HEKTOR_RAG_CROSS_ENCODER_MODEL` ile değiştir), `rag_rrf=False` (satır 99, opt-in), `rag_rrf_k=60` (satır 100), `rag_graph=False` (opt-in SPRIG-lite graf modu; açıksa dense→PPR→RRF), `rag_graph_damping=0.85`, `rag_graph_iters=20`, `rag_contextual_embed=False`.
 
 ---
 
@@ -317,11 +317,11 @@ Bu katman **objektif sayısal kıyas + regex** kullanır; `eval`/`exec` hiçbir 
 | **continuous-learning** (`scripts/continuous-learning.sh:1-130`) | Elle başlatma | kart→approve→comprehension→(3 turda bir research+synth)→synth-qa→rag-mastery | ~120 sn dinlenme, max 72 saat | Bash loop (OS); detached **değil** |
 | **auto-chain** (`scripts/auto-chain.sh:1-95`) | Elle başlatma | 7 aşama: kart→...→lora-dataset→24h eğitim döngüsü | tek koşu + 24h iç döngü | Bash loop (OS); eğitimi doğrudan CLI komutuyla çağırır (web subprocess değil) |
 | **mac-loop** (`scripts/mac-loop.sh:1-107`) | Elle (macOS) | kart→approve→synth-qa→lora-dataset→MLX train (300 iter); `train_status.json` web rozeti | 5 dk tur-arası | Bash loop (OS) |
-| **auto_researcher** (`auto_researcher.py:1-105`) | CLI `achilles auto-research` | approved kart→hipotez sorusu→tool-use seans→reward (DPO hazırlık) | soru başına | In-process |
+| **auto_researcher** (`auto_researcher.py:1-105`) | CLI `hektor auto-research` | approved kart→hipotez sorusu→tool-use seans→reward (DPO hazırlık) | soru başına | In-process |
 | **detached_launch** (`detached_launch.py:1-359`) | Web `POST /api/training/launch` veya pipeline | `ensure_train_split`→atomik kilit→`subprocess.Popen` (DETACHED) → log'a yaz | tek başlatma | **OS detached süreç** |
 | **auto_pipeline background_loop** (`auto_pipeline.py:409-423`) | `auto_enabled=True` ise | uyku → Gate 0-8 kontrol → READY_TO_TRAIN | `check_interval_min=60` dk | asyncio görev |
 
-**auto-chain eğitim çağrısı (düzeltme notu):** `auto-chain.sh`, eğitim aşamasını bir web sunucu subprocess'i veya HTTP POST üzerinden **değil**, doğrudan CLI komutuyla bir bash döngüsü içinde çalıştırır: `uv run achilles train --run --backend peft --adapter-name achilles_auto --iterations 40` (`auto-chain.sh:90`). Yani her döngü turunda eğitim, betikten ayrı bir komut süreci olarak (in-process değil) başlatılır; web/POST aracılığı yoktur (`auto-chain.sh:81-92`).
+**auto-chain eğitim çağrısı (düzeltme notu):** `auto-chain.sh`, eğitim aşamasını bir web sunucu subprocess'i veya HTTP POST üzerinden **değil**, doğrudan CLI komutuyla bir bash döngüsü içinde çalıştırır: `uv run hektor train --run --backend peft --adapter-name hektor_auto --iterations 40` (`auto-chain.sh:90`). Yani her döngü turunda eğitim, betikten ayrı bir komut süreci olarak (in-process değil) başlatılır; web/POST aracılığı yoktur (`auto-chain.sh:81-92`).
 
 **Önemli loop notları:**
 - continuous-learning başında **devralma protokolü**: `touch storage/STOP_TRAINING` → 360×15sn (~90 dk) bekle → +150 sn cooldown → kendi başlar (`rm -f`).
@@ -334,7 +334,7 @@ Bu katman **objektif sayısal kıyas + regex** kullanır; `eval`/`exec` hiçbir 
 ## Güncel Araştırma Entegrasyonu (Sürüm Günlüğü)
 
 Bu bölüm, periyodik (≈6 saatlik) güncel-literatür taramasının çıktısıdır: web'den
-taranan RAG teknikleri Achilles koduna eşlenir; her biri için **adopt (entegre et) /
+taranan RAG teknikleri Hektor koduna eşlenir; her biri için **adopt (entegre et) /
 belgele / ertele** kararı + gerekçe + kaynak atıfları tutulur. En yeni tur en üstte.
 CLAUDE.md Kural 2 gereği hiçbir teknik için "çalışıyor/başarılı" denmez; yalnızca
 "kodda eklendi" veya "önerildi/belgelendi" denir — etki ölçümü ayrı backtest/eval işidir.
@@ -368,7 +368,7 @@ ertelemesini açtı.
 Gerekçe: GraphRAG'ın çok-hop recall faydasını, LLM/GPU maliyeti olmadan, deterministik ve
 opt-in olarak sağlar. **Sınır:** co-occurrence anlamsal değil yapısaldır (proxy); SPRIG'in de
 bulgusu "güçlü lexical hibrit (RRF) çoğu zaman yeterli" — bu yüzden graf, dense+RRF'in YERİNE
-değil, onunla füzyon olarak konumlanır; etkisi Achilles korpusunda backtest/eval ile ölçülmeli
+değil, onunla füzyon olarak konumlanır; etkisi Hektor korpusunda backtest/eval ile ölçülmeli
 (Kural 2). Test: `tests/test_graph_retriever.py` (8) + `test_hybrid_retrieval.py` graf-modu (2).
 
 **Belgelendi / ertelendi:** Tam SPRIG NER (SpaCy) + alias disambiguation + sorgu-entity tohumlama
@@ -382,7 +382,7 @@ PageRank); LightRAG; LinearRAG (arXiv:2510.10114).
 
 ### Tur 2 — 2026-06-17 (v1.3)
 
-Tarama ajanı (`achilles rag-scan`) backlog'u **~40 adaya** büyüttü (`docs/egitim/rag-watchlist.md`).
+Tarama ajanı (`hektor rag-scan`) backlog'u **~40 adaya** büyüttü (`docs/egitim/rag-watchlist.md`).
 Öne çıkan, sonraki turlarda değerlendirilecek güçlü adaylar: **CPU-only/Linear GraphRAG**
 (2602.23372 — modest donanıma uygun, GraphRAG ertelemesini yeniden açar), **Adaptive/Query-Adaptive
 Chunking** (2603.25333, 2605.22834), **Self-RAG** (2310.11511), **Blended RAG** (2404.07220),
@@ -417,7 +417,7 @@ derin turda değerlendirilecek.
 
 **Taranan ve eşlenen 14 teknik:**
 
-| Teknik | Yıl | Achilles'te durum | Değer | Offline | Tavsiye | Not |
+| Teknik | Yıl | Hektor'te durum | Değer | Offline | Tavsiye | Not |
 |---|---|---|---|---|---|---|
 | Reciprocal Rank Fusion (RRF / RAG-Fusion) | 2009/2024 | yoktu (alpha-harman + naif dedup) | yüksek | evet | **adopt** | `rank_fusion.py` + multi-query füzyonu + opt-in `rag_rrf` |
 | Cross-encoder reranker modelleri (bge-reranker-v2-m3, Qwen3-Reranker, mxbai-rerank-v2) | 2024-2026 | base model sabit-yorumlu | orta | kısmi (indirme) | **adopt (kısmi)** | model yapılandırılabilir + yanıltıcı yorum düzeltildi; varsayılan modest CPU için `base` kaldı |
@@ -443,14 +443,14 @@ derin turda değerlendirilecek.
    (b) `RerankingRetriever`'a opt-in `rag_rrf` modu eklendi — dense + BM25 sıra-füzyonu.
    Gerekçe: RRF, skor normalize gerektirmeden birden çok kaynakta uzlaşan chunk'ları
    ödüllendirir; literatürde BM25+vektör birleşiminde ad-hoc skor toplamaya kıyasla
-   tutarlı NDCG/MRR kazancı raporlanır (etki Achilles korpusunda ayrıca backtest/eval
+   tutarlı NDCG/MRR kazancı raporlanır (etki Hektor korpusunda ayrıca backtest/eval
    ile ölçülmelidir — Kural 2). Test: `tests/test_rank_fusion.py` (+ multi-query ve
    reranking testlerine RRF senaryoları).
 2. **Cross-encoder reranker modeli yapılandırılabilirliği.** `rag_cross_encoder_model`
    zaten ayardı; yanıltıcı "çok dilli (TR+EN+ES)" yorumu düzeltildi (baz model ağırlıklı
    zh/en'dir). Gerçek çok-dillilik (TR dahil 100+ dil) için `BAAI/bge-reranker-v2-m3`
    önerisi eklendi; modest CPU'da ağırlık nedeniyle varsayılan `bge-reranker-base`
-   bırakıldı, `ACHILLES_RAG_CROSS_ENCODER_MODEL` ile değiştirilebilir.
+   bırakıldı, `HEKTOR_RAG_CROSS_ENCODER_MODEL` ile değiştirilebilir.
 
 **Belgelendi / ertelendi (gerekçeyle):** Late chunking (uzun-bağlam embedding gerektirir),
 CRAG/Adaptive-RAG (web-arama veya LLM-yoğun kademeler offline-öncelikli mimariye tam
@@ -477,7 +477,7 @@ RbFT/ALoFTRAG (LoRA reçetesi notu — `discipline_dataset` zaten RbFT ruhunda).
 
 1. **Anlama yüzdeyle değil sınavla kanıtlanır.** Kaba `ComprehensionScorer` (%-tabanlı self-değerlendirme) objektif değildi; yerine L3/L4/L5 + UnderstandingScore eklendi — sayısal kıyas (`np.allclose`), yön referansı koddan, sahte-pass üretmez (`l3_application.py:89-100`). Bu, CLAUDE.md Kural 2'nin ("test edilmeden çalışıyor deme") doğrudan uygulamasıdır.
 
-2. **v5 adapter regresyonu (MEMORY.md, `adapter_eval_achilles_lora_v5_*.json`).** v5 eğitimi bitti ama disiplinde GERİLEDİ. `adapter_eval` raporu: base_score=-2.0, adapter_score=-1.0, **verdict=accept** — yine de adapter "15 dakikalık periyotlarda..." ifadesini 5 kez tekrarladı (degenerate_repetition). Ders: degenerasyon cezası score'a yeterince ağır yansımıyor; **negasyon-kör** flag kontrolü ("kesinlikle değil" → yanlış flag) ve inference hata yönetimi **kodda bulunamadı**. Üretim öncesi manuel inceleme zorunlu.
+2. **v5 adapter regresyonu (MEMORY.md, `adapter_eval_hektor_lora_v5_*.json`).** v5 eğitimi bitti ama disiplinde GERİLEDİ. `adapter_eval` raporu: base_score=-2.0, adapter_score=-1.0, **verdict=accept** — yine de adapter "15 dakikalık periyotlarda..." ifadesini 5 kez tekrarladı (degenerate_repetition). Ders: degenerasyon cezası score'a yeterince ağır yansımıyor; **negasyon-kör** flag kontrolü ("kesinlikle değil" → yanlış flag) ve inference hata yönetimi **kodda bulunamadı**. Üretim öncesi manuel inceleme zorunlu.
 
 3. **eval/exec hiçbir yerde yok.** Hem doğrulama hem registry-dışı formül değerlendirmesi whitelist AST (`safe_eval.py`) veya yalnız-JSON parse ile yapılır (CLAUDE.md Kural 5).
 
@@ -530,7 +530,7 @@ RbFT/ALoFTRAG (LoRA reçetesi notu — `discipline_dataset` zaten RbFT ruhunda).
 | `app/verification/comprehension_scorer.py` | A/B/C kaba anlama skoru |
 | `app/verification/rag_mastery.py` | coverage+comprehension+train_readiness bileşik |
 | `app/evals/rag_ragas_offline.py` | Offline RAGAS-tarzı metrikler (faithfulness/context-precision/recall; LLM'siz, v1.3) |
-| `app/research/rag_trend_scanner.py` | Güncel-RAG tarama ajanı (`achilles rag-scan` → watchlist) |
+| `app/research/rag_trend_scanner.py` | Güncel-RAG tarama ajanı (`hektor rag-scan` → watchlist) |
 | `app/verification/exams/l3_application.py` | L3 sayısal uygulama (np.allclose) |
 | `app/verification/exams/l4_counterfactual.py` | L4 karşıolgu yön |
 | `app/verification/exams/l5_composition.py` | L5 math+novelty+backtest kapıları |
@@ -593,14 +593,14 @@ Not: `app/verification/tests/` adlı bir **alt-dizin yoktur**; doğrulama ve mer
 - **Contextual retrieval (P2)** — embed metnine "başlık / bölüm:" ön-eki ekleme; ChromaDB document'ı orijinal kalır.
 - **Over-fetch** — `top_k × overfetch` aday çekip rerank sonrası `top_k`'ya indirme.
 - **BM25** — kelime sıklığı tabanlı klasik sıralama; teknik terimleri dense'in kaçırdığı yerde yakalar.
-- **RRF (Reciprocal Rank Fusion)** — birden çok sıralı listeyi skor normalize etmeden, sadece sıraya göre `w/(k+rank)` ile birleştiren parametre-az füzyon; karşılaştırılamaz skorlu kaynaklarda (dense vs. BM25) sağlamdır. Achilles'te `rank_fusion.py` (v1.2).
-- **RAG-Fusion** — çoklu sorgu varyantı + RRF birleşimi; Achilles'te `MultiQueryRetriever` bu deseni kural-tabanlı genişletme ile uygular.
-- **SPRIG / CPU-only GraphRAG** — LLM'siz, lineer, CPU-only graf retrieval: hafif co-occurrence ile term–chunk grafı + tohumlu PPR + RRF (arXiv:2602.23372). Achilles'te `graph_retriever.py` (opt-in `rag_graph`, v1.4).
+- **RRF (Reciprocal Rank Fusion)** — birden çok sıralı listeyi skor normalize etmeden, sadece sıraya göre `w/(k+rank)` ile birleştiren parametre-az füzyon; karşılaştırılamaz skorlu kaynaklarda (dense vs. BM25) sağlamdır. Hektor'te `rank_fusion.py` (v1.2).
+- **RAG-Fusion** — çoklu sorgu varyantı + RRF birleşimi; Hektor'te `MultiQueryRetriever` bu deseni kural-tabanlı genişletme ile uygular.
+- **SPRIG / CPU-only GraphRAG** — LLM'siz, lineer, CPU-only graf retrieval: hafif co-occurrence ile term–chunk grafı + tohumlu PPR + RRF (arXiv:2602.23372). Hektor'te `graph_retriever.py` (opt-in `rag_graph`, v1.4).
 - **Personalized PageRank (PPR)** — bir tohum dağılımından graf üzerinde yayılan PageRank; tohuma grafsal yakın düğümler yüksek skor alır. Çok-hop retrieval'da kullanılır (deterministik, sabit iterasyon).
-- **HyDE** — sorgu yerine LLM'in ürettiği hipotetik cevabı embed edip ona yakın dokümanları çekme (Achilles'te yok; LLM gerektirir, ertelendi).
-- **CRAG (Corrective RAG)** — hafif retrieval-evaluator ile çekilen bağlamı correct/ambiguous/incorrect olarak puanlayıp düzeltici aksiyon (Achilles'te kısmi: confidence + self-refine).
-- **Late chunking** — önce tüm dokümanı uzun-bağlam embed edip sonra chunk vektörlerini türetme (Achilles'te iskelet, ertelendi).
-- **RAFT / RbFT** — alana-özgü RAG için fine-tuning; RbFT yanıltıcı/karşıolgu retrieval'a dayanıklılık ekler (Achilles `discipline_dataset` aynı ruhta).
+- **HyDE** — sorgu yerine LLM'in ürettiği hipotetik cevabı embed edip ona yakın dokümanları çekme (Hektor'te yok; LLM gerektirir, ertelendi).
+- **CRAG (Corrective RAG)** — hafif retrieval-evaluator ile çekilen bağlamı correct/ambiguous/incorrect olarak puanlayıp düzeltici aksiyon (Hektor'te kısmi: confidence + self-refine).
+- **Late chunking** — önce tüm dokümanı uzun-bağlam embed edip sonra chunk vektörlerini türetme (Hektor'te iskelet, ertelendi).
+- **RAFT / RbFT** — alana-özgü RAG için fine-tuning; RbFT yanıltıcı/karşıolgu retrieval'a dayanıklılık ekler (Hektor `discipline_dataset` aynı ruhta).
 - **Matryoshka embedding** — tek modelde iç-içe boyutlar; embedding'i 64-768 arası kırpılabilir kılar (nomic-embed v1.5/v2).
 - **Cross-encoder** — (soru, chunk) çiftini birlikte puanlayan ağır ama doğru reranker.
 - **Citation/Grounding** — atıfların gerçekten var olup olmadığı / cümlelerin chunk'larca desteklenip desteklenmediği.

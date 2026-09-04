@@ -60,7 +60,7 @@ def render(md_path: Path, pdf_path: Path) -> None:
     pdf = MarkdownPdf(toc_level=2, optimize=True)
     pdf.add_section(Section(text, toc=True), user_css=_CSS)
     pdf.meta["title"] = md_path.stem.replace("_", " ")
-    pdf.meta["author"] = "Achilles Trader AI"
+    pdf.meta["author"] = "Hektor Trader AI"
     pdf.save(str(pdf_path))
 
 

@@ -28,7 +28,7 @@ from app.web import driver_scope
 
 _RUN = {"adapter_name": "myad"}
 _RUN_ID = "run_surus_1"
-_CFG = "/tmp/achilles_mcp.json"
+_CFG = "/tmp/hektor_mcp.json"
 
 
 # ── Prompt sözleşmesi ───────────────────────────────────────────────────────────────────
@@ -65,17 +65,17 @@ def test_drive_prompt_claude_md_okur() -> None:
 
 def test_hunt_verdict_parse_bozulmadi() -> None:
     """Refactor sonrası av modu verdict sözleşmesi birebir aynı."""
-    assert parse_hunt_verdict("bla\nACHILLES_HUNT_VERDICT: PASS")["passed"] is True
-    assert parse_hunt_verdict("ACHILLES_HUNT_VERDICT: FAIL")["passed"] is False
+    assert parse_hunt_verdict("bla\nHEKTOR_HUNT_VERDICT: PASS")["passed"] is True
+    assert parse_hunt_verdict("HEKTOR_HUNT_VERDICT: FAIL")["passed"] is False
     yok = parse_hunt_verdict("hiç verdict yok")
     assert yok["passed"] is False and yok["verdict"] == "unknown"
-    assert "ACHILLES_HUNT_VERDICT" in yok["summary"]
+    assert "HEKTOR_HUNT_VERDICT" in yok["summary"]
 
 
 def test_drive_verdict_ayni_deseni_izler() -> None:
     """Son satır + PASS|FAIL + bulunamazsa fail-closed — av moduyla aynı sözleşme."""
-    assert parse_drive_verdict("rapor\nACHILLES_DRIVE_VERDICT: PASS")["passed"] is True
-    assert parse_drive_verdict("ACHILLES_DRIVE_VERDICT: FAIL")["passed"] is False
+    assert parse_drive_verdict("rapor\nHEKTOR_DRIVE_VERDICT: PASS")["passed"] is True
+    assert parse_drive_verdict("HEKTOR_DRIVE_VERDICT: FAIL")["passed"] is False
     yok = parse_drive_verdict("verdict satırı yok")
     assert yok["passed"] is False and yok["verdict"] == "unknown"
 
@@ -86,14 +86,14 @@ def test_verdict_isaretcileri_capraz_okunmaz() -> None:
     Aynı işaretçi kullanılsaydı, bir sür koşusunun PASS'i `hunt_ack=true` yazdırıp
     derin av HİÇ yapılmadan eğitim kapısını açardı (Kural 8).
     """
-    assert parse_hunt_verdict("ACHILLES_DRIVE_VERDICT: PASS")["passed"] is False
-    assert parse_drive_verdict("ACHILLES_HUNT_VERDICT: PASS")["passed"] is False
+    assert parse_hunt_verdict("HEKTOR_DRIVE_VERDICT: PASS")["passed"] is False
+    assert parse_drive_verdict("HEKTOR_HUNT_VERDICT: PASS")["passed"] is False
 
 
 def test_drive_prompt_verdict_satiri_parse_edilebilir() -> None:
     """Prompt'ta ÖRNEKLENEN biçim, gerçek parser tarafından okunabilmeli."""
     p = build_drive_prompt(_RUN)
-    son = [ln for ln in p.splitlines() if "ACHILLES_DRIVE_VERDICT" in ln]
+    son = [ln for ln in p.splitlines() if "HEKTOR_DRIVE_VERDICT" in ln]
     assert son, "prompt verdict biçimini örneklemiyor"
     assert parse_drive_verdict(son[0])["verdict"] in {"PASS", "FAIL"}
 
@@ -114,12 +114,12 @@ def test_drive_komutu_kullanici_mcp_kayitlarini_yoksayar() -> None:
 
 def test_mcp_config_sunucuyu_tanimlar() -> None:
     cfg = build_mcp_config("/repo")
-    srv = cfg["mcpServers"]["achilles"]
+    srv = cfg["mcpServers"]["hektor"]
     assert srv["command"] == "uv"
     assert "--project" in srv["args"] and "/repo" in srv["args"]
     # fastmcp opsiyonel extra'dadır → açıkça istenmeli, yoksa sunucu ImportError ile ölür.
     assert "--extra" in srv["args"] and "mcp" in srv["args"]
-    assert any("achilles_mcp.py" in a for a in srv["args"])
+    assert any("hektor_mcp.py" in a for a in srv["args"])
 
 
 def test_mcp_config_sir_icermez() -> None:
@@ -132,7 +132,7 @@ def test_mcp_config_sir_icermez() -> None:
 def test_write_mcp_config_dosya_uretir(tmp_path: Path) -> None:
     yol = write_mcp_config(tmp_path / "alt" / "mcp.json", root="/repo")
     assert Path(yol).is_file()
-    assert json.loads(Path(yol).read_text(encoding="utf-8"))["mcpServers"]["achilles"]
+    assert json.loads(Path(yol).read_text(encoding="utf-8"))["mcpServers"]["hektor"]
 
 
 # ── Sertleştirme: safe-mode YOK ama kanallar kapalı ─────────────────────────────────────
@@ -225,11 +225,11 @@ def test_drive_token_ttl_timeouttan_uzun() -> None:
 
 def test_child_env_surucu_gecer_insan_gecmez(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sür modunda da: sürücü kimliği verilir, insan sırrı BOŞA ezilir."""
-    monkeypatch.setenv("ACHILLES_API_TOKEN", "insan_sirri")
+    monkeypatch.setenv("HEKTOR_API_TOKEN", "insan_sirri")
     env = build_child_env("surucu_tokeni", _RUN_ID)
     assert env[driver_scope.DRIVER_TOKEN_ENV] == "surucu_tokeni"
     assert env[driver_scope.DRIVER_RUN_ID_ENV] == _RUN_ID
-    assert env["ACHILLES_API_TOKEN"] == ""  # silinmiş DEĞİL, ezilmiş (dotenv geri okur)
+    assert env["HEKTOR_API_TOKEN"] == ""  # silinmiş DEĞİL, ezilmiş (dotenv geri okur)
     assert "insan_sirri" not in env.values()
 
 
@@ -237,9 +237,9 @@ def test_child_env_surucu_gecer_insan_gecmez(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def _mcp_modulu():
-    """`mcp_server/achilles_mcp.py`'yi fastmcp OLMADAN yükle (paket değil → yoldan)."""
-    yol = Path(__file__).resolve().parents[1] / "mcp_server" / "achilles_mcp.py"
-    spec = importlib.util.spec_from_file_location("achilles_mcp_test", yol)
+    """`mcp_server/hektor_mcp.py`'yi fastmcp OLMADAN yükle (paket değil → yoldan)."""
+    yol = Path(__file__).resolve().parents[1] / "mcp_server" / "hektor_mcp.py"
+    spec = importlib.util.spec_from_file_location("hektor_mcp_test", yol)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -273,7 +273,7 @@ def test_mcp_proxy_insan_icin_baslik_eklemez() -> None:
 def test_mcp_proxy_insan_tokenini_gondermez() -> None:
     """İnsan API token'ı MCP başlığına ASLA sızmamalı."""
     mod = _mcp_modulu()
-    h = mod.driver_headers({"ACHILLES_API_TOKEN": "insan_sirri"})
+    h = mod.driver_headers({"HEKTOR_API_TOKEN": "insan_sirri"})
     assert h == {}
 
 
@@ -296,7 +296,7 @@ def test_drive_modu_sur_argvsi_kurar_av_degil(tmp_path: Path) -> None:
     def sahte_runner(command, timeout, env=None):
         yakalanan["command"] = command
         yakalanan["timeout"] = timeout
-        return 0, "iş bitti\nACHILLES_DRIVE_VERDICT: PASS\n"
+        return 0, "iş bitti\nHEKTOR_DRIVE_VERDICT: PASS\n"
 
     d = AutoDriver(orchestrator=_orch(tmp_path))
     run_id = d.orch.start(model="m", profile="p", adapter_name="a")
@@ -315,7 +315,7 @@ def test_drive_pass_hunt_acki_acmaz(tmp_path: Path) -> None:
     from app.orchestration.driver import AutoDriver
 
     def sahte_pass(command, timeout, env=None):
-        return 0, "ilerletildi\nACHILLES_DRIVE_VERDICT: PASS\n"
+        return 0, "ilerletildi\nHEKTOR_DRIVE_VERDICT: PASS\n"
 
     d = AutoDriver(orchestrator=_orch(tmp_path))
     run_id = d.orch.start(model="m", profile="p", adapter_name="a")
@@ -356,13 +356,13 @@ def test_drive_mint_ttl_gecer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         run_id,
         execute=True,
         mode="drive",
-        runner=lambda c, t, e=None: (0, "ACHILLES_DRIVE_VERDICT: PASS"),
+        runner=lambda c, t, e=None: (0, "HEKTOR_DRIVE_VERDICT: PASS"),
     )
     assert yakalanan["ttl_s"] == DRIVE_TOKEN_TTL_S
 
 
 def test_codex_drive_guvenli_argv_kullanir(tmp_path: Path) -> None:
-    """Codex ChatGPT oturumuyla, read-only ve yalnız Achilles MCP ile sürülür."""
+    """Codex ChatGPT oturumuyla, read-only ve yalnız Hektor MCP ile sürülür."""
     from app.orchestration.driver import AutoDriver
 
     d = AutoDriver(orchestrator=_orch(tmp_path))
@@ -371,7 +371,7 @@ def test_codex_drive_guvenli_argv_kullanir(tmp_path: Path) -> None:
 
     def runner(command, timeout, env=None):
         captured["command"] = command
-        return 0, "ACHILLES_DRIVE_VERDICT: PASS"
+        return 0, "HEKTOR_DRIVE_VERDICT: PASS"
 
     res = d.drive(run_id, execute=True, mode="drive", engine="codex", runner=runner)
     assert res["ok"] is True
@@ -380,8 +380,8 @@ def test_codex_drive_guvenli_argv_kullanir(tmp_path: Path) -> None:
     assert "read-only" in cmd and 'approval_policy="never"' in cmd
     assert "--ignore-user-config" in cmd and "--ignore-rules" in cmd
     assert "mcp_servers={}" in cmd
-    assert any(str(x).startswith("mcp_servers.achilles.command=") for x in cmd)
-    assert "mcp_servers.achilles.required=true" in cmd
+    assert any(str(x).startswith("mcp_servers.hektor.command=") for x in cmd)
+    assert "mcp_servers.hektor.required=true" in cmd
 
 
 def test_codex_drive_config_yoksa_fail_closed() -> None:
@@ -414,7 +414,7 @@ def test_sur_modu_mcp_yuzeyi_allowlisti_asmaz() -> None:
     """Sür motoru allow-list'li AYNI MCP sunucusunu kullanır → yüzey 21 uç."""
     from mcp_server.allowlist import ALLOWED
 
-    # Sür MCP config'i achilles_mcp.py'yi işaret eder; o da filter_spec ile budanır.
+    # Sür MCP config'i hektor_mcp.py'yi işaret eder; o da filter_spec ile budanır.
     assert len(ALLOWED) == 21, "allow-list yüzeyi beklenmedik biçimde değişti"
     cfg = build_mcp_config("/repo")
-    assert any("achilles_mcp.py" in a for a in cfg["mcpServers"]["achilles"]["args"])
+    assert any("hektor_mcp.py" in a for a in cfg["mcpServers"]["hektor"]["args"])

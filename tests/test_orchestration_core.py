@@ -273,7 +273,7 @@ def test_approval_delegate_uses_unattended_policy(monkeypatch: pytest.MonkeyPatc
     from app.orchestration import delegates
 
     monkeypatch.setattr(supervisor_mod, "is_stop_all_active", lambda *a, **k: False)
-    monkeypatch.setenv("ACHILLES_UNATTENDED_TRAINING_ENABLED", "true")
+    monkeypatch.setenv("HEKTOR_UNATTENDED_TRAINING_ENABLED", "true")
     settings_mod.get_settings.cache_clear()
 
     ctx = RunContext(run_id="r", stage="approval", run={"adapter_name": "a"}, params={}, store=None)  # type: ignore[arg-type]

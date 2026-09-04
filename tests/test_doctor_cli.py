@@ -1,4 +1,4 @@
-"""`achilles doctor` — kurulum/sürüm sapması teşhisi (offline testler).
+"""`hektor doctor` — kurulum/sürüm sapması teşhisi (offline testler).
 
 Tümü çevrimdışı: git yalnız yerel ref'leri okur, ağ/Ollama gerekmez.
 Windows scheduled-task yolu `_task_path_matches` monkeypatch ile sahte tutulur,

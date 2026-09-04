@@ -43,7 +43,7 @@ reports/evals/*
 reports/synthesis/*
 # Agent runtime gözlemcisi (Phase 1) — koşu başına JSONL günlükleri (runtime)
 reports/agent_runs/*
-# RLM koşu raporları — koşu başına JSON (runtime çıktısı; achilles rlm-answer üretir)
+# RLM koşu raporları — koşu başına JSON (runtime çıktısı; hektor rlm-answer üretir)
 reports/rlm_runs/*
 # RLM motor trajektori logları (opsiyonel alexzhang motoru; runtime + olası hassas içerik)
 reports/rlm/trajectories/*
@@ -114,8 +114,8 @@ reports/bug-scan/*
 .idea/
 .vscode/
 
-# büyük kaynak logo (optimize sürüm app/web/static/assets/achilles-logo.jpg)
-/achilles trading logo.png
+# büyük kaynak logo (optimize sürüm app/web/static/assets/hektor-logo.jpg)
+/hektor trading logo.png
 
 # TradingView dışa aktarımları ve MLX model dosyaları
 BTCUSD 1H/

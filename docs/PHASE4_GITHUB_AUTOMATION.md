@@ -6,7 +6,7 @@
 > push yok; main'e dokunulmadı.
 
 ## 1. Purpose
-Achilles'in kendi kendini **güvenli** biçimde GitHub üzerinden geliştirmesi:
+Hektor'in kendi kendini **güvenli** biçimde GitHub üzerinden geliştirmesi:
 issue'dan görev al → güvenli iş-branch'i aç → Claude Code ile **sınırlı**
 kod/doküman/test değişikliği yap → offline CI çalıştır → **PR aç** → insan incele →
 **yalnız elle merge**. main'e otomatik merge ASLA.
@@ -19,7 +19,7 @@ issue'ya sonuç yazmak.
 **Claude Code YAPAMAZ:** main'e push · auto-merge · `train --run` · LoRA training ·
 adapter promotion · cloud training · Kaggle/Colab run · secret yazmak · `.env`
 değiştirmek · `data/`, `storage/`, `vector_db/`, `models/`, `models/adapters/`
-değiştirmek · canlı trading entegrasyonu açmak · `ACHILLES_API_TOKEN` /
+değiştirmek · canlı trading entegrasyonu açmak · `HEKTOR_API_TOKEN` /
 `ANTHROPIC_API_KEY` / `HF_TOKEN` loglamak.
 
 Bu kurallar workflow içinde `env.CLAUDE_HARD_RULES` olarak prompt'a eklenir +

@@ -9,7 +9,7 @@ alınmaz). ``--strict`` modda kapı geçilemezse ``EvalGateError`` fırlatır.
 - ``rag-retrieval``      : mevcut RetrievalEvaluator (retriever enjekte edilir)
 
 Henüz BAĞLANMAMIŞ tipler (mevcut CLI'larla yapılır; net hata verir): ``rag-answer``,
-``lora`` (bkz. ``achilles lora-eval``), ``formula``, ``rlm-reward`` (app/rlm bağımlı;
+``lora`` (bkz. ``hektor lora-eval``), ``formula``, ``rlm-reward`` (app/rlm bağımlı;
 eş zamanlı oturum bitene dek ertelendi).
 """
 
@@ -28,7 +28,7 @@ from app.reliability.release_gate import ReleaseGate
 SUPPORTED_TYPES: tuple[str, ...] = ("trading-hypothesis", "rag-retrieval")
 DEFERRED_TYPES: dict[str, str] = {
     "rag-answer": "tam RAG cevap hattı gerekir (RagAnswerer + verification/*); henüz bağlanmadı",
-    "lora": "bkz. 'achilles lora-eval' (adapter + LLM gerektirir, çevrimdışı değil)",
+    "lora": "bkz. 'hektor lora-eval' (adapter + LLM gerektirir, çevrimdışı değil)",
     "formula": "formül doğrulayıcı henüz yok; hiç bağlanmadan ölü kaldığı için kaldırıldı",
     "rlm-reward": "RLM koşusundan ödül türetimi tanımlanmadı (bkz. app/rlm/lora_candidate §16)",
 }

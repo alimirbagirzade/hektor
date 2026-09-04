@@ -1,6 +1,6 @@
 """Scope izolasyonu — sürücü (driver) motoru insan yetkisinden ayıran katman.
 
-Doğrulanan zafiyet: Achilles kendi `claude -p` motorunu doğuruyor; motor
+Doğrulanan zafiyet: Hektor kendi `claude -p` motorunu doğuruyor; motor
 `/api/approvals/{id}/approve` + `/api/supervisor/clear-stop-all` + eğitim
 uçlarında insanla AYNI yetkiye sahipti → kendi eğitimini onaylayabiliyordu
 (CLAUDE.md Kural 8 etkisiz).
@@ -259,9 +259,9 @@ def test_child_env_blanks_human_token(monkeypatch: pytest.MonkeyPatch) -> None:
     Anahtarı silmek YETMEZ: Settings `env_file='.env'` okuduğu için silinen anahtar
     dotenv'den geri gelir. Bu yüzden açıkça boş string'e ezilmelidir.
     """
-    monkeypatch.setenv("ACHILLES_API_TOKEN", "insan_sirri")
+    monkeypatch.setenv("HEKTOR_API_TOKEN", "insan_sirri")
     env = build_child_env("drv_token", _RUN_ID)
-    assert env["ACHILLES_API_TOKEN"] == ""  # silinmiş DEĞİL, ezilmiş
+    assert env["HEKTOR_API_TOKEN"] == ""  # silinmiş DEĞİL, ezilmiş
     assert "insan_sirri" not in env.values()
     assert env[driver_scope.DRIVER_TOKEN_ENV] == "drv_token"
     assert env[driver_scope.DRIVER_RUN_ID_ENV] == _RUN_ID
@@ -270,7 +270,7 @@ def test_child_env_blanks_human_token(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_hunt_command_restricts_tools() -> None:
     """Motor araç-seviyesinde kısıtlı: Bash olmadan auth'suz CLI'yi çalıştıramaz.
 
-    Bu kısıt olmadan scope katmanı tiyatrodur — `uv run achilles approval-approve`
+    Bu kısıt olmadan scope katmanı tiyatrodur — `uv run hektor approval-approve`
     hiçbir kimlik doğrulamasından geçmez (denetim BLOCKER bulgusu).
     """
     cmd = build_hunt_command({"adapter_name": "myad"})
@@ -302,7 +302,7 @@ def test_only_verified_engines_are_hardened() -> None:
     """Sertleştirme bayrakları motora ÖZGÜ → yalnız doğrulanan motorlar hardened olmalı.
 
     Kısıtsız bir motor doğurulursa scope katmanı tamamen delinir:
-    araç kısıtı olmadan auth'suz `achilles approval-approve` çağrılabilir.
+    araç kısıtı olmadan auth'suz `hektor approval-approve` çağrılabilir.
     """
     from app.orchestration import engines
 
@@ -350,7 +350,7 @@ def test_driver_refuses_unhardened_engine(monkeypatch, tmp_path) -> None:
 def test_hunt_command_disables_customization_channels() -> None:
     """Özelleştirme kanalları (hook/plugin/MCP/özel-ajan) araç deny-list'inin DIŞINDADIR.
 
-    İki kanıtlanmış kaçış yolu: (a) `achilles` MCP sunucusu 127.0.0.1:8765'e proxy'liyor
+    İki kanıtlanmış kaçış yolu: (a) `hektor` MCP sunucusu 127.0.0.1:8765'e proxy'liyor
     ve sürücü başlığı göndermiyor → human scope'una düşerdi; (b) `.claude/settings.json`
     hook'ları Claude Code tarafından DOĞRUDAN kabukta çalıştırılır (`Bash` aracı DEĞİL)
     ve `-p` modunda güven diyaloğu atlandığı için onaysız koşar.
@@ -421,7 +421,7 @@ def test_warns_when_api_token_empty(caplog: pytest.LogCaptureFixture) -> None:
     ):
         enabled = security.warn_if_auth_disabled()
     assert enabled is False
-    assert any("ACHILLES_API_TOKEN" in r.message for r in caplog.records)
+    assert any("HEKTOR_API_TOKEN" in r.message for r in caplog.records)
     assert any("KAPALI" in r.message for r in caplog.records)
 
 
@@ -474,7 +474,7 @@ def test_driver_cannot_autodrive() -> None:
 def test_require_auth_accepts_driver_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """api_token AYARLIYKEN sürücü token'ı KİMLİK olarak kabul edilir (401 değil).
 
-    Motorun ACHILLES_API_TOKEN'ı bilinçli boşaltılır; bu kapı yalnız insan sırrını
+    Motorun HEKTOR_API_TOKEN'ı bilinçli boşaltılır; bu kapı yalnız insan sırrını
     tanısaydı sür modu token'lı kurulumda tamamen çalışmazdı (her MCP çağrısı 401).
     """
     monkeypatch.setattr(security, "get_settings", lambda: _AyarlarSahte("gizli_insan"))

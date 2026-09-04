@@ -103,7 +103,7 @@ def build_request(
             **base,
             "status": "approval_required",
             "approval_id": approval_id,
-            "approve_command": f"uv run achilles approval-approve {approval_id}",
+            "approve_command": f"uv run hektor approval-approve {approval_id}",
         }
 
     if write:

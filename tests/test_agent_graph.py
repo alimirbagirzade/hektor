@@ -113,7 +113,7 @@ def test_rag_paused_for_training_is_blocked_on_map(monkeypatch, tmp_path) -> Non
     (storage / "rag_learning_state.json").write_text(
         '{"stage":"paused_training"}', encoding="utf-8"
     )
-    monkeypatch.setenv("ACHILLES_ROOT_PATH", str(tmp_path))
+    monkeypatch.setenv("HEKTOR_ROOT_PATH", str(tmp_path))
     settings_mod.get_settings.cache_clear()
 
     rag = next(n for n in build_agent_graph()["nodes"] if n["id"] == "rag-learning-loop")

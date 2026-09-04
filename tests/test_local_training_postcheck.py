@@ -56,12 +56,12 @@ def test_dryrun_report_read(tmp_path: Path) -> None:
 
 
 def test_training_report_read_makes_ready(tmp_path: Path) -> None:
-    tr = _write(tmp_path / "train.json", {"adapter": "achilles_lora", "iterations": 300})
+    tr = _write(tmp_path / "train.json", {"adapter": "hektor_lora", "iterations": 300})
     with patch(_AD, return_value=_NOT_FOUND):
         res = ltp.build_postcheck(training_report=tr, out_dir=tmp_path, write=False)
     assert res["status"] == "postcheck_ready_for_human_review"
     assert res["training_artifacts_found"] is True
-    assert res["training"]["data"]["adapter"] == "achilles_lora"
+    assert res["training"]["data"]["adapter"] == "hektor_lora"
 
 
 def test_adapter_path_metadata_only_no_model_load(tmp_path: Path) -> None:

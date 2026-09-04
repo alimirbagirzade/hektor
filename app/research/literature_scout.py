@@ -203,7 +203,7 @@ def resolve_topics(topics: Sequence[str] | None) -> list[TopicPack]:
 def inbox_root() -> Path:
     """PDF 'gelen kutusu' kökü.
 
-    Öncelik: ayar `scout_inbox_dir` (.env: ACHILLES_SCOUT_INBOX_DIR) → yoksa repo-içi
+    Öncelik: ayar `scout_inbox_dir` (.env: HEKTOR_SCOUT_INBOX_DIR) → yoksa repo-içi
     `data/literature_inbox/`. Varsayılan repo-içidir; test/CI Desktop'a YAZMAZ.
     """
     try:

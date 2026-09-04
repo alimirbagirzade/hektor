@@ -1,4 +1,4 @@
-# Achilles - Sürekli (periyodik) LoRA eğitim döngüsü (Windows)
+# Hektor - Sürekli (periyodik) LoRA eğitim döngüsü (Windows)
 #
 # Kullanım:
 #   .\scripts\train-loop.ps1                       # varsayılan: 30 iter, 180sn cooldown
@@ -9,18 +9,18 @@
 # Döngü o anki eğitimi bitirir, sonra durur. (Veya pencereyi kapat.)
 #
 # Her döngü: dataset'i tazele (yeni onaylı kart varsa) → eğit → cooldown.
-# Tek beyin: Qwen3-4B (.env → ACHILLES_PEFT_BASE_MODEL).
+# Tek beyin: Qwen3-4B (.env → HEKTOR_PEFT_BASE_MODEL).
 
 param(
     [int]$Iterations = 20,
     [int]$CooldownSec = 120,
     [int]$MaxHours = 24,
-    [string]$Adapter = "achilles_auto"
+    [string]$Adapter = "hektor_auto"
 )
 
 $ErrorActionPreference = "Continue"
 # uv her `uv run`'da paketi yeniden senkronlar; calisan web sunucusunun kilitledigi
-# achilles-web.exe'yi silmeye ugrasip "os error 32" ile patlar -> egitim baslamaz.
+# hektor-web.exe'yi silmeye ugrasip "os error 32" ile patlar -> egitim baslamaz.
 # Senkronu kapat; bagimliliklar zaten kurulu. (bkz. continuous-learning.sh)
 $env:UV_NO_SYNC = "1"
 $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -58,10 +58,10 @@ while (-not (Test-Path $StopFile) -and (Get-Date) -lt $EndTime) {
     # lora_sft.jsonl'i clobber eder -> v5 regresyonunun veri tarafi. Bunun yerine kanonik
     # birlesik assembly (assemble_sft.py = lora-cloud-prep/pretrain-gate ile ayni yol) + split.
     & $Uv run python scripts/assemble_sft.py *>> $Log
-    & $Uv run achilles lora-split *>> $Log
+    & $Uv run hektor lora-split *>> $Log
     Write-Log "=== Dongu ${cycle}: egitim ($Iterations iter) ==="
     # --profile ZORUNLU: geçilmezse vanilya reçete (maskesiz, NEFTune'suz) koşar = v5 tuzağı.
-    & $Uv run achilles train --run --backend peft --adapter-name $Adapter --iterations $Iterations --profile discipline_safe_local *>> $Log
+    & $Uv run hektor train --run --backend peft --adapter-name $Adapter --iterations $Iterations --profile discipline_safe_local *>> $Log
     Write-Log "=== Dongu $cycle bitti -> ${CooldownSec}sn cooldown ==="
     # Cooldown sirasinda da durdurma kontrolu
     $waited = 0

@@ -1,6 +1,6 @@
 # 🔄 Güncelleme ve Çok-Makine Kullanım Kılavuzu
 
-> **Kime?** Birden fazla bilgisayarda (ör. 2× Windows + 1× Mac) Achilles çalıştıran
+> **Kime?** Birden fazla bilgisayarda (ör. 2× Windows + 1× Mac) Hektor çalıştıran
 > ve **"bir makinede güncel, diğerlerinde güncelleme tam oturmuyor"** sorununu yaşayan
 > herkese. Teknik bilgi gerektirmez — komutları kopyala-yapıştır.
 
@@ -15,16 +15,16 @@ Her bilgisayar kodu tek bir yerden alır: GitHub'daki **`main`** dalı.
   (git'e konmaz). Yani "güncelleme" = **kodu** eşitlemek; verini değil.
 
 Bir makine `main` yerine başka bir dalda "parklanmış" kalırsa, güncelleme oturmaz.
-Bunu kontrol eden tek komut: **`achilles doctor`** (aşağıda).
+Bunu kontrol eden tek komut: **`hektor doctor`** (aşağıda).
 
 ---
 
-## 1) Makinem güncel mi? → `achilles doctor`
+## 1) Makinem güncel mi? → `hektor doctor`
 
-Herhangi bir makinede, Achilles klasöründe:
+Herhangi bir makinede, Hektor klasöründe:
 
 ```bash
-uv run achilles doctor
+uv run hektor doctor
 ```
 
 Şunu raporlar (hiçbir şeyi **değiştirmez**, tamamen güvenli):
@@ -34,7 +34,7 @@ uv run achilles doctor
 | **Mevcut dal** | Bu kopya hangi dalda | `main` |
 | **HEAD == origin/main** | GitHub ile birebir aynı mı | **EVET (yakınsamış)** |
 | **behind / ahead** | Kaç commit geride / ileride | **0 / 0** |
-| **Görev AchillesWeb / AchillesUpdate** (Windows) | Otomatik başlatma/güncelleme görevi doğru klasörü mü gösteriyor | **"bu repoyu işaret ediyor"** |
+| **Görev HektorWeb / HektorUpdate** (Windows) | Otomatik başlatma/güncelleme görevi doğru klasörü mü gösteriyor | **"bu repoyu işaret ediyor"** |
 | **Push'lanmamış yerel dal** | GitHub'a gitmemiş iş var mı | (bilgi amaçlı) |
 
 - Her şey yeşil/EVET ise: makine güncel. ✅
@@ -51,13 +51,13 @@ Yeni sürüm yayınlandığında, kurulu makinede **tek komut**:
 
 **Windows (PowerShell):**
 ```powershell
-cd "$env:USERPROFILE\achilles"
+cd "$env:USERPROFILE\hektor"
 .\update.ps1
 ```
 
 **macOS / Linux (Terminal):**
 ```bash
-cd ~/achilles
+cd ~/hektor
 ./update.sh
 ```
 
@@ -81,28 +81,28 @@ Geçmişte bir makinende üç şey ters gitmiş olabilir (hepsi sessizdi):
 Her bozuk makinede **tek sefer** şunu yap (verilerin **silinmez** — `data/`, `storage/`,
 `vector_db/`, adapter'lar git'te izlenmez):
 
-**Windows (PowerShell, Achilles klasöründe):**
+**Windows (PowerShell, Hektor klasöründe):**
 ```powershell
-cd "$env:USERPROFILE\achilles"
+cd "$env:USERPROFILE\hektor"
 .\update.ps1 -Force                  # main'e geç + GitHub'a zorla eşitle
 .\scripts\start-server.ps1 -Repair   # ölü autostart/03:00 görevlerini BU klasöre yeniden bağla
-uv run achilles doctor               # doğrula: dal=main, +0/-0, görevler "bu repoyu işaret ediyor"
+uv run hektor doctor               # doğrula: dal=main, +0/-0, görevler "bu repoyu işaret ediyor"
 ```
 
 **macOS / Linux (Terminal):**
 ```bash
-cd ~/achilles
+cd ~/hektor
 ./update.sh --force
-uv run achilles doctor
+uv run hektor doctor
 ```
 
 `-Force` / `--force` yalnız **izlenen kod dosyalarını** GitHub `main`'e sıfırlar;
 verilerini ve eğitilmiş modellerini **silmez**.
 
-> **Klasör başka yerde / `cd ~/achilles` "no such file" diyorsa** — şu tek satır klasörü
+> **Klasör başka yerde / `cd ~/hektor` "no such file" diyorsa** — şu tek satır klasörü
 > kendisi bulur, girer ve onarır (Mac/Linux):
 > ```bash
-> cd "$(find ~ -type d -name achilles 2>/dev/null | head -1)" && ./update.sh --force
+> cd "$(find ~ -type d -name hektor 2>/dev/null | head -1)" && ./update.sh --force
 > ```
 
 ---
@@ -112,7 +112,7 @@ verilerini ve eğitilmiş modellerini **silmez**.
 Açılışta otomatik başlatma + her gece 03:00 otomatik güncelleme kurmak / onarmak:
 
 ```powershell
-cd "$env:USERPROFILE\achilles"
+cd "$env:USERPROFILE\hektor"
 .\scripts\start-server.ps1 -Install   # ilk kurulum (autostart + 03:00 güncelleme)
 .\scripts\start-server.ps1 -Repair    # görevlerin yolu BU klasöre uymuyorsa onar
 .\scripts\start-server.ps1 -Status    # görev yolu bu repoyu mu işaret ediyor?
@@ -122,8 +122,8 @@ cd "$env:USERPROFILE\achilles"
 - **[ESLESIYOR]** → görev doğru klasörü çalıştırıyor. ✅
 - **[FARKLI → bu repo degil; -Repair calistir]** → ölü/yabancı yol; `-Repair` çalıştır.
 
-> **İki kopya tuzağı:** Achilles'i birden çok klasöre kurma (ör. `~\achilles` *ve*
-> `~\Development\achilles`). Görevler birini, sen diğerini güncellersen "oturmuyor" yaşarsın.
+> **İki kopya tuzağı:** Hektor'i birden çok klasöre kurma (ör. `~\hektor` *ve*
+> `~\Development\hektor`). Görevler birini, sen diğerini güncellersen "oturmuyor" yaşarsın.
 > `install.ps1` artık ikinci kopyayı tespit edip uyarır; tek klasörde kal.
 
 ---
@@ -133,11 +133,11 @@ cd "$env:USERPROFILE\achilles"
 | Belirti | Sebep | Çözüm |
 |---------|-------|-------|
 | "Güncelledim ama arayüz aynı" | Tarayıcı önbelleği | `Ctrl/Cmd + Shift + R` (sert yenileme) |
-| "Güncelledim ama yeni özellik yok" | Yanlış dalda parklanma | `update --force` → `achilles doctor` |
+| "Güncelledim ama yeni özellik yok" | Yanlış dalda parklanma | `update --force` → `hektor doctor` |
 | "Gece güncellemesi hiç çalışmıyor" (Win) | Görev ölü yola bağlı | `start-server.ps1 -Repair` |
 | `doctor` "ÖLÜ/yabancı yol" diyor | Görev başka klasörü gösteriyor | `start-server.ps1 -Repair` |
 | `git pull` "diverged/iraksak" hatası | Yerel main GitHub'dan ayrışmış | `update --force` (yereli atar) |
-| İki ayrı achilles klasörü var | Mükerrer kurulum | Birini sil, kalanı `-Repair` ile bağla |
+| İki ayrı hektor klasörü var | Mükerrer kurulum | Birini sil, kalanı `-Repair` ile bağla |
 
 ---
 
@@ -145,5 +145,5 @@ cd "$env:USERPROFILE\achilles"
 
 Bu makinede kod yazıp **`main`'e push** ettiğin sürece diğer makineler `update` ile alır.
 Eğer iş bir özellik dalında kalıp **`main`'e merge edilmezse**, diğer makinelere asla ulaşmaz.
-`achilles doctor` çıktısındaki **"Push'lanmamış yerel dal"** satırı, GitHub'a gitmemiş işi
+`hektor doctor` çıktısındaki **"Push'lanmamış yerel dal"** satırı, GitHub'a gitmemiş işi
 hatırlatır — orada bir şey görüyorsan, o iş henüz hiçbir makineye ulaşmamış demektir.

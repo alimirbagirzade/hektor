@@ -18,12 +18,12 @@ eğitim başlatmadan bir **dry-run pipeline simülasyonu** + **execution plan** 
 
 ## CLI usage
 ```bash
-uv run achilles local-training-dry-run                          # audit + son istek + plan
-uv run achilles local-training-dry-run --approval-id apr_xxx    # onayı READ-ONLY kontrol et
-uv run achilles local-training-dry-run --request-json reports/local_training_orchestrator/..._request.json
-uv run achilles local-training-dry-run --mock-adapter-eval      # adapter-eval mock (varsayılan)
-uv run achilles local-training-dry-run --json
-uv run achilles local-training-dry-run --out reports/local_training_orchestrator
+uv run hektor local-training-dry-run                          # audit + son istek + plan
+uv run hektor local-training-dry-run --approval-id apr_xxx    # onayı READ-ONLY kontrol et
+uv run hektor local-training-dry-run --request-json reports/local_training_orchestrator/..._request.json
+uv run hektor local-training-dry-run --mock-adapter-eval      # adapter-eval mock (varsayılan)
+uv run hektor local-training-dry-run --json
+uv run hektor local-training-dry-run --out reports/local_training_orchestrator
 ```
 
 ## Approval ID behavior
@@ -56,7 +56,7 @@ Adapter-eval **gerçek model çalıştırmadan** `mocked_ready` döner. Bu fazda
 ```
 
 ## What it never does
-`launch()` · `achilles train --run` / subprocess · `AutoLoRAPipeline.start_training()` ·
+`launch()` · `hektor train --run` / subprocess · `AutoLoRAPipeline.start_training()` ·
 `promote_to_production()` · `require_fresh_approval()` (tüketim) · `request_approval()`
 (oluşturma) · gerçek adapter-eval / model write / adapter write · cloud/Kaggle/Colab ·
 canlı trading. Korumalı yollara yazmaz.

@@ -1,6 +1,6 @@
 """RLM için GÜVENLİ tool wrapper'ları (talimat §12).
 
-Her wrapper: girdiyi doğrular, JSON-dostu döner, mevcut Achilles servislerini (retriever,
+Her wrapper: girdiyi doğrular, JSON-dostu döner, mevcut Hektor servislerini (retriever,
 verifier, safe_eval) sarar. HİÇBİRİ shell/network çalıştırmaz, secret/env okumaz, filesystem
 yazmaz, eval/exec kullanmaz (calculator bile AST-tabanlı safe_eval'dir). Allowlist
 yaptırımı `tool_registry.SafeToolRegistry`'dedir.

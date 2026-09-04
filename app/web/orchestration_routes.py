@@ -28,7 +28,7 @@ class OrchestrationStartRequest(BaseModel):
     # serbest-metin (boşluk/shell metakarakteri) yaniltici/kopyalaninca zararli olmasin.
     profile: str = Field(default="discipline_safe_local", pattern=r"^[A-Za-z0-9_-]{1,64}$")
     # adapter_name detached_launch._ADAPTER_RE ile aynı kalıp (yol-geçişi savunması, erken ret)
-    adapter_name: str = Field(default="achilles_lora", pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    adapter_name: str = Field(default="hektor_lora", pattern=r"^[A-Za-z0-9_-]{1,64}$")
     iters: int = Field(default=300, ge=1, le=100000)  # üst sınır: anlamsız dev değerleri ele
     hunt_ack: bool = False  # Kademe-2 derin av tamamlandı mı (ZORUNLU gate)
     auto_run: bool = True  # başlattıktan sonra blocked olana dek ilerlet (tek-tık)

@@ -295,9 +295,9 @@ def is_running() -> bool:
     return bool(training_status().get("running"))
 
 
-def _find_achilles(root: Path) -> list[str] | None:
-    """`achilles` konsol betiğini bul → komut öneki (yoksa uv run yedeği)."""
-    exe = "achilles.exe" if os.name == "nt" else "achilles"
+def _find_hektor(root: Path) -> list[str] | None:
+    """`hektor` konsol betiğini bul → komut öneki (yoksa uv run yedeği)."""
+    exe = "hektor.exe" if os.name == "nt" else "hektor"
     # 1) Aktif venv (web sunucusunun python'ı) yanındaki Scripts/bin
     cand = Path(sys.executable).parent / exe
     if cand.exists():
@@ -308,7 +308,7 @@ def _find_achilles(root: Path) -> list[str] | None:
     if cand2.exists():
         return [str(cand2)]
     # 3) PATH
-    found = shutil.which("achilles")
+    found = shutil.which("hektor")
     if found:
         return [found]
     # 4) uv run yedeği
@@ -316,7 +316,7 @@ def _find_achilles(root: Path) -> list[str] | None:
         Path(os.environ.get("USERPROFILE", "")) / ".local" / "bin" / "uv.exe"
     )
     if uv and Path(uv).exists():
-        return [uv, "run", "--project", str(root), "achilles"]
+        return [uv, "run", "--project", str(root), "hektor"]
     return None
 
 
@@ -328,7 +328,7 @@ def _build_train_cmd(
     profile: str | None,
     max_examples: int,
 ) -> list[str]:
-    """Detached eğitim için `achilles train --run …` komut listesini kur (saf, test edilebilir).
+    """Detached eğitim için `hektor train --run …` komut listesini kur (saf, test edilebilir).
 
     profile TRUTHY ise `--profile` EKLENİR; boş/None ise EKLENMEZ. Bu ayrım kritik:
     profile geçmezse spawn edilen `train --run` PeftTrainConfig varsayılanlarıyla (vanilya:
@@ -357,7 +357,7 @@ def _build_train_cmd(
 
 
 def launch(
-    adapter_name: str = "achilles_lora",
+    adapter_name: str = "hektor_lora",
     iterations: int = 0,
     dtype: str = "bf16",
     base_model: str | None = None,
@@ -414,11 +414,11 @@ def launch(
             }
 
         iters = iterations if iterations > 0 else n_train  # 1 epoch
-        base = _find_achilles(root)
+        base = _find_hektor(root)
         if not base:
             return {
                 "ok": False,
-                "message": "achilles çalıştırıcısı bulunamadı (venv/uv yok).",
+                "message": "hektor çalıştırıcısı bulunamadı (venv/uv yok).",
                 "adapter": "",
             }
 
@@ -427,11 +427,11 @@ def launch(
         logs = root / "logs"
         logs.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
-        env["ACHILLES_TRAIN_DTYPE"] = dtype
+        env["HEKTOR_TRAIN_DTYPE"] = dtype
         # Bu yol (auto_pipeline/web buton) onayı ÜST katmanda alır; spawn edilen
-        # `achilles train --run` iç onay kapısını atlasın (çift onay olmasın). STOP_ALL
-        # iç komutta yine de geçerlidir. Manuel `achilles train --run` bu env'i ALMAZ.
-        env["ACHILLES_TRAIN_SUPERVISED"] = "1"
+        # `hektor train --run` iç onay kapısını atlasın (çift onay olmasın). STOP_ALL
+        # iç komutta yine de geçerlidir. Manuel `hektor train --run` bu env'i ALMAZ.
+        env["HEKTOR_TRAIN_SUPERVISED"] = "1"
 
         popen_kwargs: dict = {"cwd": str(root), "env": env, "close_fds": True}
         if os.name == "nt":

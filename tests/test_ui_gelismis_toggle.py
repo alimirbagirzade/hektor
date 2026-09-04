@@ -45,7 +45,7 @@ def test_gelismis_grubu_css_ile_gizli() -> None:
 
 def test_gelismis_toggle_js_ve_localstorage() -> None:
     js = _appjs()
-    assert "achilles_advanced_on" in js  # tercih saklama anahtarı
+    assert "hektor_advanced_on" in js  # tercih saklama anahtarı
     assert "applyAdvanced" in js
     assert "show-advanced" in js
 

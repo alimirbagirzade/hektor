@@ -1,6 +1,6 @@
 # MODEL DEĞERLENDİRME PROTOKOLÜ
 
-> Bu doküman, Achilles'in **model değerlendirme (eval)** katmanını nasıl
+> Bu doküman, Hektor'in **model değerlendirme (eval)** katmanını nasıl
 > çalıştıracağını, sonuçları nasıl yorumlayacağını ve sürekli-öğrenme döngüsünde
 > ne zaman devreye sokacağını tanımlar.
 >
@@ -65,10 +65,10 @@ curl -sf http://localhost:11434/api/tags && echo "Ollama OK" || echo "Ollama KAP
 
 ```bash
 # Set dosya YOLU verilir (uzantı dahil). Base model ile:
-uv run achilles evaluate evals/discipline_core.jsonl
+uv run hektor evaluate evals/discipline_core.jsonl
 
 # Belirli bir adapter sürümüyle:
-uv run achilles evaluate evals/discipline_core.jsonl --adapter-version <adapter_adı>
+uv run hektor evaluate evals/discipline_core.jsonl --adapter-version <adapter_adı>
 ```
 
 Çıktı paneli: `set`, `model`, `score`, `flags`. Detaylı satır-bazlı sonuç
@@ -94,7 +94,7 @@ Yanıt (`EvalRunResponse`): `eval_set`, `model`, `adapter_version`, `score`,
 
 ```bash
 for f in evals/discipline_core.jsonl evals/overfit_awareness.jsonl evals/risk_management.jsonl; do
-  uv run achilles evaluate "$f"
+  uv run hektor evaluate "$f"
 done
 ```
 
@@ -162,9 +162,9 @@ Auto-LoRA hattında (`app/lora/auto_pipeline.py`) eğitim
 
 ```bash
 # 1) Base referansı
-uv run achilles evaluate evals/discipline_core.jsonl            # → base_score
+uv run hektor evaluate evals/discipline_core.jsonl            # → base_score
 # 2) Yeni adapter
-uv run achilles evaluate evals/discipline_core.jsonl --adapter-version <yeni>   # → adapter_score
+uv run hektor evaluate evals/discipline_core.jsonl --adapter-version <yeni>   # → adapter_score
 # Karar: adapter_score >= base_score  → promote'a aday
 #        adapter_score <  base_score  → REDDET (disiplin gerilemesi)
 ```
@@ -200,7 +200,7 @@ uygularken bunları bilmek gerekir:
 
 1. **Dashboard farklı tablo okuyor.** `GET /api/learning/eval-history`
    `eval_history` tablosunu (`save_eval_history`) okur. Ancak
-   **CLI `achilles evaluate` ve `POST /api/eval/run`** sonucu yalnızca
+   **CLI `hektor evaluate` ve `POST /api/eval/run`** sonucu yalnızca
    `model_evaluations` tablosuna yazar — `save_eval_history` **çağrılmaz**.
    Dolayısıyla manuel evaller dashboard geçmişinde **görünmez**.
 2. **Auto-pipeline yanlış anahtar okuyor.** `app/lora/auto_pipeline.py`

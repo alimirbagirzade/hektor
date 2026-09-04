@@ -1,4 +1,4 @@
-# Achilles LoRA — Araştırma Logu & Tarama Defteri
+# Hektor LoRA — Araştırma Logu & Tarama Defteri
 
 Bu dosya **iki işlevi** birden görür:
 
@@ -40,7 +40,7 @@ havale edildi, aşağıda)
 `LoRA-GA` (Tur 3: PEFT-native OLDU ama quantize-desteksiz + residual dönüşüm + ayrı gradient-tahmin
 ön-adımı gerektiriyor → karmaşıklık/fayda dengesi düşük, entegre edilmedi) ·
 `MiCA` (Tur 3: instruction-tuned model üzerinde ÖNERİLMİYOR — continued-pretraining/base-model
-odaklı; Achilles zaten instruction-tuned Qwen3 kullanıyor, uygun değil) ·
+odaklı; Hektor zaten instruction-tuned Qwen3 kullanıyor, uygun değil) ·
 `approximate replay/corpus-karışımı` (arXiv 2512.22337'nin ikinci bileşeni — KL kısmı entegre
 edildi ama replay/corpus-karışım kısmı ayrı veri hattı gerektirdiğinden bu turda ERTELENDİ) ·
 `Full-FT forgetting-azaltma` (arXiv 2506.09428 — full fine-tuning, 70B'de test, kod yok, LoRA-ilgisiz)
@@ -181,7 +181,7 @@ uygulandı. CLAUDE.md Kural 2/7/8'e uyuldu; eğitim BAŞLATILMADI (yalnız yerel
 (2026-07-02'den devir), (b) yeni LoRA varyantları/forgetting makaleleri, (c) PEFT release
 notları/yeni `init_lora_weights` seçenekleri, (d) Unsloth/Qwen3 güncel rehberi, (e) TRL SFTConfig
 yeni regularizasyon, (f) SFT veri kalitesi/degenerasyon. Her aday adversarial süzgeçten geçti:
-*gerçek mi? PEFT 0.19+/Unsloth native mi? Achilles'e uygun mu? GGUF-güvenli mi? v5'e yardım eder mi?*
+*gerçek mi? PEFT 0.19+/Unsloth native mi? Hektor'e uygun mu? GGUF-güvenli mi? v5'e yardım eder mi?*
 Öne çıkan adaylar için tam-metin doğrulama yapıldı (arXiv PDF indirilip okundu; kurulu PEFT 0.19.1
 üzerinde gerçek import testiyle native-durum ölçüldü).
 
@@ -241,11 +241,11 @@ nedeniyle entegre edilmedi.
 - **MiCA** (PEFT-native init stratejisi, `init_lora_weights="mica"`) — PiSSA'nın
   tamamlayıcısı (asıl yerine küçük singular komponentleri kullanır); dokümantasyon açıkça
   **continued/domain-adaptive pretraining** için önerildiğini ve **instruction/chat-tuned
-  olmayan** base model kullanılmasını tavsiye ettiğini belirtiyor. Achilles zaten
+  olmayan** base model kullanılmasını tavsiye ettiğini belirtiyor. Hektor zaten
   instruction-tuned Qwen3 üzerinde çalıştığından uygun değil.
 - **"Improved SFT to Mitigate Catastrophic Forgetting"** (arXiv 2506.09428) — tam metin
   incelendi: full fine-tuning (LoRA değil), yalnız Llama-3-70B-Instruct'ta test edilmiş,
-  kod/repo paylaşılmamış. Achilles'e (LoRA + 1.5B-4B) uygun değil.
+  kod/repo paylaşılmamış. Hektor'e (LoRA + 1.5B-4B) uygun değil.
 - **"Mitigating Forgetting in Low Rank Adaptation"** (arXiv 2512.17720) — metodoloji/model
   boyutu/kod durumu PDF metadata'sından net çıkarılamadı (adversarial doğrulama başarısız —
   Kural 7: emin olunmayan kaynak entegre edilmez). Ele alındı, dedup'a işlenmedi (net
@@ -286,7 +286,7 @@ devredildi. Doküman-yalnız değişiklik → `main`'e push (kod/reçete dokunul
 | EWCLoRA / FIP / Hierarchical (arXiv 2501.13669) | ✅ ZATEN ELENDİ | Dedup defterinde mevcut; yeniden derin-araştırılmadı. |
 | Instruction-data karışımı %5–20 (forgetting azaltma) | ✅ ZATEN VAR | `replay/rehearsal` olarak kapsanan teknikte. |
 | **"Beyond LoRA" (HF blog, 2026-06-18): OFT / BEFT / Lily** | ❌ ELE | PEFT-native ama blog açıkça **image-generation** odaklı (OFT "strictly dominates on image metrics"); disiplin/forgetting için üstünlük gösterilmemiş. v5-ilgisiz. |
-| **PEFT `ensure_weight_tying=True`** (LoraConfig, native) | 🟡 FARKINDALIK | GERÇEK + Achilles GGUF-güvenlik tasarımıyla doğrudan ilgili: bağlı `embed_tokens`/`lm_head` katmanlarında adapter'ların da bağlı kalmasını garanti eder. Achilles bu katmanları `target_modules`'e KOYMADIĞINDAN şu an **no-op** → entegrasyon gerekmez. Ancak ileride embed/lm_head eğitilirse native mekanizma budur. Log'a farkındalık notu. |
+| **PEFT `ensure_weight_tying=True`** (LoraConfig, native) | 🟡 FARKINDALIK | GERÇEK + Hektor GGUF-güvenlik tasarımıyla doğrudan ilgili: bağlı `embed_tokens`/`lm_head` katmanlarında adapter'ların da bağlı kalmasını garanti eder. Hektor bu katmanları `target_modules`'e KOYMADIĞINDAN şu an **no-op** → entegrasyon gerekmez. Ancak ileride embed/lm_head eğitilirse native mekanizma budur. Log'a farkındalık notu. |
 | **PEFT `lora_ga_config`** (docs'ta görüldü) | ⚠️ DURUM-DEĞİŞİKLİĞİ | Defter LoRA-GA'yı "PEFT-native değil" (issue #2927) kaydetmişti; artık docs/API'de gradient-tahminli init callback'i görünüyor. Kesin merge PR'ı bu turda doğrulanamadı (Kural 7 → overclaim yok) → **weekly-deep'te native-durum yeniden doğrulanacak**. |
 | Yeni native config alanları: `alora_invocation_tokens`, `monteclora_config`, `use_qalora`, `use_bdlora`, `velora_config`, `arrow_config` | ⏭️ ERTELENDİ | Daily-light kapsamında derin-değerlendirme YOK; "Elenen adaylar"a işlendi (çoğu param-verimlilik/routing, v5-forgetting-ilgisiz). Gerekirse weekly-deep bakar. |
 | Unsloth 2026 ablasyonu: `alpha=r` "temiz varsayılan" | 🟡 NOT | Reçete önerisi; Kural 2 gereği bulut eğitim + `adapter_eval` gate'i olmadan "daha iyi" DENMEZ. Yalnız not; reçete değişmedi. |
@@ -314,7 +314,7 @@ uygulandı. CLAUDE.md Kural 2/7/8'e uyuldu; eğitim BAŞLATILMADI.
 **Yöntem:** 7 açılı paralel WebSearch sweep — (a) yeni LoRA varyantları, (b) init yöntemleri,
 (c) küçük-LLM catastrophic forgetting/refusal koruma, (d) SFT regularizasyon, (e) Unsloth/Qwen3
 güncel, (f) SFT veri kalitesi, (g) LoRA-GA özel doğrulama. Her aday adversarial süzgeçten geçti:
-*gerçek mi? PEFT 0.19+/Unsloth native mi? Achilles'e uygun mu? GGUF-güvenli mi? v5'e yardım eder mi?*
+*gerçek mi? PEFT 0.19+/Unsloth native mi? Hektor'e uygun mu? GGUF-güvenli mi? v5'e yardım eder mi?*
 
 **Sonuç: YENİ, doğrulanmış, PEFT-native, v5-ilgili teknik BULUNAMADI → kod PR'ı YOK.**
 
@@ -326,9 +326,9 @@ güncel, (f) SFT veri kalitesi, (g) LoRA-GA özel doğrulama. Her aday adversari
 | `orthogonal` init | ✅ ZATEN VAR | `peft_lora_train.py:_INIT_STRATEGIES` içinde mevcut (kod kapsıyor) ama dedup defterinde eksikti → log'a eklendi (doküman düzeltmesi). |
 | `assistant_only_loss` (2026-06-22 günlük adayı) | ⚠️ GEREKSİZ | Bulut notebook şablonu (Hücre 10) ZATEN `train_on_responses_only` ile asistan-dışı turları maskeliyor — TRL `assistant_only_loss` ile işlevsel olarak AYNI. Ayrı entegrasyon mükerrer; veri-format dönüşümü riski de cabası. Günlük aday bu mevcut entegrasyonla **karşılanmış** sayılır. |
 | VeRA / MiLoRA / LoRA-FA | ❌ ELE | Parametre-azaltma odaklı; v5 disiplin-gerilemesiyle ilgisiz (sorun param sayısı değil, forgetting/degenerasyon). |
-| O-LoRA / CLoRA / EWCLoRA / FIP | ❌ ELE | Continual-learning; PEFT-native değil + çok-görev orthogonality makinesi gerektirir (tek-adapter Achilles akışına uymaz). CLoRA/EWCLoRA zaten 2026-06-22 günlükte elenmişti. |
+| O-LoRA / CLoRA / EWCLoRA / FIP | ❌ ELE | Continual-learning; PEFT-native değil + çok-görev orthogonality makinesi gerektirir (tek-adapter Hektor akışına uymaz). CLoRA/EWCLoRA zaten 2026-06-22 günlükte elenmişti. |
 | DFT `loss_type="dft"` (ICLR 2026) | ❌ ELE | 2026-06-22 günlükte elendi; yalnız math/reasoning'de test, 4B/disiplin doğrulanmadı. Tekrar araştırılmadı. |
-| `target_modules="all-linear"` (Unsloth 2026) | ✅ ZATEN HİZALI | Achilles `TARGET_MODULES` zaten tüm linear projeksiyonları (q/k/v/o + gate/up/down) hedefliyor; embed/lm_head bilinçli dışarıda (Qwen3 tied-embeddings / GGUF güvenliği). Değişiklik yok. |
+| `target_modules="all-linear"` (Unsloth 2026) | ✅ ZATEN HİZALI | Hektor `TARGET_MODULES` zaten tüm linear projeksiyonları (q/k/v/o + gate/up/down) hedefliyor; embed/lm_head bilinçli dışarıda (Qwen3 tied-embeddings / GGUF güvenliği). Değişiklik yok. |
 
 **Doküman/sürüm:** Anlamlı (entegre edilebilir) yeni bulgu olmadığından `LORA_EGITIM_DETAYLI_ANLATIM.md`
 sürümü ARTIRILMADI; PDF yeniden üretilmedi (protokol §6: yalnız anlamlı bulguda). Yalnız bu defter
@@ -348,7 +348,7 @@ gereği PR ister; bu otonom turda dokunulmadı.
 | TRL SFT (assistant_only_loss ↔ response-only) | <https://huggingface.co/docs/trl/sft_trainer> |
 
 > Kural 7 notu: VeRA/MiLoRA/LoRA-FA/O-LoRA/CLoRA/AILoRA/D²LoRA için atıf gören arXiv'ler var ama
-> Achilles'e uygun + PEFT-native + v5-ilgili kriterini geçmediklerinden entegre edilmedi; yeniden
+> Hektor'e uygun + PEFT-native + v5-ilgili kriterini geçmediklerinden entegre edilmedi; yeniden
 > derin-araştırma yapılmaması için "Elenen adaylar" defterine işlendi.
 
 ---
@@ -417,7 +417,7 @@ doğrulanana kadar "daha iyi" denmez.
 dokümanı güncelle, entegre et, push et."
 
 **Yöntem:** Çok-ajanlı workflow (`lora-research-sweep`): 8 paralel web-tarama açısı →
-adversarial doğrulama (her teknik gerçek mi? PEFT/Unsloth destekli mi? Achilles'e uygun mu?
+adversarial doğrulama (her teknik gerçek mi? PEFT/Unsloth destekli mi? Hektor'e uygun mu?
 GGUF-güvenli mi? v5 regresyonuna yardım eder mi?) → önceliklendirilmiş sentez.
 
 **Entegre edildi (kod):**

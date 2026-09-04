@@ -22,7 +22,7 @@ grep -n "shift" app/trading/strategy_ir.py
 ```bash
 # evaluator.py varsayılan: 80/20 split
 # Sonuçlarda IS Sharpe > OOS Sharpe ise overfit
-uv run achilles backtest <csv> --verbose
+uv run hektor backtest <csv> --verbose
 ```
 
 ### 3. Overfit kontrolleri

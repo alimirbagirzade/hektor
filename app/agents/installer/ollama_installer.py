@@ -127,5 +127,5 @@ def install_guide_text() -> str:
         "Kurmak için:\n"
         "  macOS/Linux: https://ollama.com/download\n"
         "  Windows    : https://ollama.com/download/windows\n"
-        "Sonra tekrar: achilles install --model <model>"
+        "Sonra tekrar: hektor install --model <model>"
     )

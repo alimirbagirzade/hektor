@@ -2,7 +2,7 @@
 
 _Son güncelleme: 2026-06-17 (v1.0)._
 
-> **Tek cümle:** Belirli aralıklarla devreye girip güncel LoRA/SFT literatüründen Achilles'in
+> **Tek cümle:** Belirli aralıklarla devreye girip güncel LoRA/SFT literatüründen Hektor'in
 > eğitim hattına yarayacak **YENİ, GERÇEK** teknikleri bulur, adversarial doğrular, dokümana
 > işler ve kod/reçete entegrasyonunu **PR olarak** önerir. **Eğitim başlatmaz.**
 
@@ -80,7 +80,7 @@ Yeni teknik eklerken: PEFT (`use_rslora`/`use_dora`/`init_lora_weights`) ve tran
 2. Çok-açılı sweep (her açı ayrı WebSearch): (a) yeni LoRA varyantları, (b) init yöntemleri,
    (c) forgetting/refusal koruma, (d) regularizasyon (NEFTune-vari), (e) Qwen3/Unsloth güncel,
    (f) SFT veri kalitesi, (g) degenerasyon/eval.
-3. Her aday: gerçek mi? PEFT 0.19+/Unsloth destekli mi? Achilles'e uygun mu? GGUF-güvenli mi?
+3. Her aday: gerçek mi? PEFT 0.19+/Unsloth destekli mi? Hektor'e uygun mu? GGUF-güvenli mi?
    v5'e yardım eder mi? Emin değilsen ELE.
 4. Entegrasyon (opt-in) → §6 dosyalar. Test (§8). Kod ise PR.
 5. `LORA_ARASTIRMA_LOG.md`'ye "## Tur N — <tarih> (derin tur)" + doğrulanmış kaynaklar tablosu.

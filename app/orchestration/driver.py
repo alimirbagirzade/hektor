@@ -40,14 +40,14 @@ log = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # claude -p çıktısının SON satırındaki verdict işaretçisi.
-_VERDICT_RE = re.compile(r"ACHILLES_HUNT_VERDICT:\s*(PASS|FAIL)", re.IGNORECASE)
+_VERDICT_RE = re.compile(r"HEKTOR_HUNT_VERDICT:\s*(PASS|FAIL)", re.IGNORECASE)
 HUNT_TIMEOUT_S = 1800  # 30 dk — CPU'da derin av uzun sürebilir.
 
 # "Sür" modu verdict işaretçisi — av modunun DESENİ birebir aynı (son satır, PASS|FAIL,
 # bulunamazsa güvenli tarafta FAIL). İşaretçi ADI kasıtlı FARKLIDIR: aynı olsaydı bir sür
 # koşusunun "PASS"i `parse_hunt_verdict` tarafından "derin av geçti" sanılıp `hunt_ack=true`
 # yazdırabilirdi — yani ajan, av yapmadan eğitim kapısını açardı (Kural 8).
-_DRIVE_VERDICT_RE = re.compile(r"ACHILLES_DRIVE_VERDICT:\s*(PASS|FAIL)", re.IGNORECASE)
+_DRIVE_VERDICT_RE = re.compile(r"HEKTOR_DRIVE_VERDICT:\s*(PASS|FAIL)", re.IGNORECASE)
 
 # Sür modu av modundan UZUNDUR: veri hattı adımları (carding → RLM → curate → assemble)
 # CPU'da saatler alabilir; av tek geçişlik salt-okuma taramadır. Ayrı sabit → biri
@@ -73,7 +73,7 @@ DISALLOWED_TOOLS = engines.DISALLOWED_TOOLS
 # `env_file=".env"` kullandığı için silinen anahtar dotenv'den geri okunur
 # (deneyle doğrulandı). Bu yüzden anahtar açıkça BOŞ STRING'e ezilir; env kaynağı
 # pydantic-settings'te dotenv'den önceliklidir.
-_HUMAN_SECRET_ENV = ("ACHILLES_API_TOKEN",)
+_HUMAN_SECRET_ENV = ("HEKTOR_API_TOKEN",)
 
 # Çocuğa geçirilmeyecek AYAR-EZME değişkenleri. `--safe-mode` "admin-managed (policy)
 # settings still apply" der; bu değişkenler harici bir ayar dosyası işaret ederek
@@ -98,9 +98,9 @@ def build_hunt_prompt(run: dict[str, Any]) -> str:
     bağımsız olarak dosya sistemiyle doğrulanır (bkz. ``verdict_audit``); uydurulmuş, boş
     ya da iç-tutarsız kanıt PASS'i düşürür → motorun öz-beyanı TEK kanıt değildir (Kural 8).
     """
-    adapter = run.get("adapter_name", "achilles_lora")
+    adapter = run.get("adapter_name", "hektor_lora")
     return (
-        "Sen Achilles deposunda KADEME-2 derin adversarial bug-avı çalıştıran bir ajansın. "
+        "Sen Hektor deposunda KADEME-2 derin adversarial bug-avı çalıştıran bir ajansın. "
         "İLK İŞ: depo kökündeki CLAUDE.md'yi Read ile OKU (safe-mode'da oto-keşif kapalıdır; "
         "kurallar oradadır). Bu, eğitim ÖNCESİ ZORUNLU denetimdir. KESİNLİKLE: yalnız RAPOR üret; "
         "KOD DEĞİŞTİRME, git commit/push YAPMA, EĞİTİM BAŞLATMA, hiçbir dosyaya yazma. "
@@ -127,9 +127,9 @@ def build_hunt_prompt(run: dict[str, Any]) -> str:
         "içermemeli (boş ya da yalnız MEDIUM/LOW olabilir).\n"
         "\n"
         "SONRA çıktının SON SATIRI tam olarak şu biçimde olmalı:\n"
-        "ACHILLES_HUNT_VERDICT: PASS    (ciddi bulgu yok — eğitim güvenli)\n"
+        "HEKTOR_HUNT_VERDICT: PASS    (ciddi bulgu yok — eğitim güvenli)\n"
         "veya\n"
-        "ACHILLES_HUNT_VERDICT: FAIL    (ciddi bulgu var — önce düzeltilmeli)\n"
+        "HEKTOR_HUNT_VERDICT: FAIL    (ciddi bulgu var — önce düzeltilmeli)\n"
         f"Bağlam: orkestrasyon koşusu, adapter={adapter}."
     )
 
@@ -137,15 +137,15 @@ def build_hunt_prompt(run: dict[str, Any]) -> str:
 def build_drive_prompt(run: dict[str, Any]) -> str:
     """Headless motor için "sür" modu promptu (MCP araçlarıyla veri hattını ilerletir).
 
-    Av modundan farkı: burada ajanın İŞ YAPMASI beklenir — ama yalnız Achilles MCP
+    Av modundan farkı: burada ajanın İŞ YAPMASI beklenir — ama yalnız Hektor MCP
     araçlarıyla, dosyaya doğrudan dokunmadan ve EĞİTİME ASLA başlamadan.
     """
-    adapter = run.get("adapter_name", "achilles_lora")
+    adapter = run.get("adapter_name", "hektor_lora")
     return (
-        "Sen Achilles deposunda VERİ HATTINI ilerleten bir sürücü ajansın. "
+        "Sen Hektor deposunda VERİ HATTINI ilerleten bir sürücü ajansın. "
         "İLK İŞ: depo kökündeki CLAUDE.md'yi Read ile OKU — bağlayıcı kurallar oradadır.\n"
         "\n"
-        "ARAÇ KULLANIMI: işleri YALNIZCA Achilles MCP araçlarıyla (`mcp__*`) yap. "
+        "ARAÇ KULLANIMI: işleri YALNIZCA Hektor MCP araçlarıyla (`mcp__*`) yap. "
         "Dosyaları DOĞRUDAN DÜZENLEME (Edit/Write yok), kabuk komutu çalıştırma, "
         "git commit/push yapma. Read/Grep/Glob yalnız DURUM ANLAMAK içindir.\n"
         "\n"
@@ -161,10 +161,10 @@ def build_drive_prompt(run: dict[str, Any]) -> str:
         "adımda DUR ve neyin beklediğini raporla.\n"
         "\n"
         "Çıktının SON SATIRI tam olarak şu biçimde olmalı:\n"
-        "ACHILLES_DRIVE_VERDICT: PASS    (ilerletilebilen adımlar ilerletildi; "
+        "HEKTOR_DRIVE_VERDICT: PASS    (ilerletilebilen adımlar ilerletildi; "
         "onay kapısında ya da yapılacak iş kalmadığı için temiz durdu)\n"
         "veya\n"
-        "ACHILLES_DRIVE_VERDICT: FAIL    (ilerlenemedi — sebebi raporda açıkla)\n"
+        "HEKTOR_DRIVE_VERDICT: FAIL    (ilerlenemedi — sebebi raporda açıkla)\n"
         f"Bağlam: orkestrasyon koşusu, adapter={adapter}."
     )
 
@@ -178,13 +178,13 @@ def build_mcp_config(root: str | None = None) -> dict[str, Any]:
 
     ⚠️ SIR YAZILMAZ: sürücü token'ı bu dosyaya KONULMAZ. MCP sunucusu motorun ÇOCUĞU olarak
     doğar ve ortamı ondan miras alır; token zaten `build_child_env` ile motorun ortamındadır
-    (bkz. mcp_server/achilles_mcp.py:driver_headers). Token'ı config'e yazmak, kısa ömürlü
+    (bkz. mcp_server/hektor_mcp.py:driver_headers). Token'ı config'e yazmak, kısa ömürlü
     bir sırrı diske düşürürdü.
     """
     repo_root = root or str(_REPO_ROOT)
     return {
         "mcpServers": {
-            "achilles": {
+            "hektor": {
                 "command": "uv",
                 "args": [
                     "run",
@@ -193,7 +193,7 @@ def build_mcp_config(root: str | None = None) -> dict[str, Any]:
                     "--extra",
                     "mcp",  # fastmcp opsiyonel `mcp` extra'sındadır
                     "python",
-                    str(Path(repo_root) / "mcp_server" / "achilles_mcp.py"),
+                    str(Path(repo_root) / "mcp_server" / "hektor_mcp.py"),
                 ],
             }
         }
@@ -291,12 +291,12 @@ def _parse_verdict(output: str, pattern: re.Pattern[str], marker: str) -> dict[s
 
 def parse_hunt_verdict(output: str) -> dict[str, Any]:
     """claude çıktısından verdict satırını (sondan) ayıkla → {verdict, passed, summary}."""
-    return _parse_verdict(output, _VERDICT_RE, "ACHILLES_HUNT_VERDICT")
+    return _parse_verdict(output, _VERDICT_RE, "HEKTOR_HUNT_VERDICT")
 
 
 def parse_drive_verdict(output: str) -> dict[str, Any]:
     """Sür modu çıktısından verdict satırını ayıkla (av moduyla AYNI sözleşme)."""
-    return _parse_verdict(output, _DRIVE_VERDICT_RE, "ACHILLES_DRIVE_VERDICT")
+    return _parse_verdict(output, _DRIVE_VERDICT_RE, "HEKTOR_DRIVE_VERDICT")
 
 
 def engine_available(engine: str = DEFAULT_ENGINE) -> bool:
@@ -376,7 +376,7 @@ def _default_runner(
     doğuruluyordu. Windows'ta hem `shutil.which` hem `CreateProcess` arama yolunun
     BAŞINDA süreç çalışma dizinine bakar → çalışma dizinine bırakılan sahte bir
     `claude.exe` gerçek CLI'nin YERİNE koşardı. Sertleştirme bayrakları sahte binary'ye
-    hiçbir şey yaptıramaz: taklitçi yalnız son satıra `ACHILLES_HUNT_VERDICT: PASS`
+    hiçbir şey yaptıramaz: taklitçi yalnız son satıra `HEKTOR_HUNT_VERDICT: PASS`
     yazarak ZORUNLU derin av kapısını düşürürdü (Kural 8).
     Ayrıca sabitlenmemiş cwd, avın YANLIŞ AĞACI tarayıp "temiz" demesine yol açardı.
     """
@@ -460,9 +460,9 @@ class AutoDriver:
         * ``mode="hunt"`` (varsayılan, geriye dönük): salt-okuma aşamaları → ZORUNLU
           Kademe-2 derin avı headless motorla sür → PASS ise ``hunt_ack``+onaya ilerlet.
           Av modu ``--safe-mode`` ile doğar (MCP KAPALI) — salt rapor üretir (Kural 8 kapısı).
-        * ``mode="drive"`` (⚡ RUN): motora Achilles MCP araçlarına erişim ver ve VERİ HATTINI
+        * ``mode="drive"`` (⚡ RUN): motora Hektor MCP araçlarına erişim ver ve VERİ HATTINI
           ilerlet. MCP açık, ``--safe-mode`` YOK; verdict AYRI işaretçi kullanır
-          (``ACHILLES_DRIVE_VERDICT``) → sür PASS'i av ``hunt_ack``'ini AÇMAZ. Bkz.
+          (``HEKTOR_DRIVE_VERDICT``) → sür PASS'i av ``hunt_ack``'ini AÇMAZ. Bkz.
           ``_drive_pipeline`` ve docs/ROADMAP_MOTOR_BAGLAMA.md P7.
 
         Varsayılan `execute=False`: gerçek spawn YOK, çalıştırılacak komutu döner (DRY-RUN).
@@ -532,7 +532,7 @@ class AutoDriver:
         # (command, timeout, env) bekler; ona run_id geçirmek imzayı kırardı).
         run_fn = runner or functools.partial(_default_runner, run_id=run_id)
         # FAIL-CLOSED: sertleştirilmemiş motor DOĞURULMAZ. Araç kısıtı olmayan bir motor
-        # auth'suz yerel CLI'yi (`achilles approval-approve`) veya 127.0.0.1:8765'i
+        # auth'suz yerel CLI'yi (`hektor approval-approve`) veya 127.0.0.1:8765'i
         # çağırıp kendi eğitimini onaylayabilir → scope katmanı tamamen delinir (Kural 8).
         # `runner` enjekte edilmişse gerçek spawn yoktur (test yolu) → kısıt aranmaz.
         if runner is None and not eng.hardened:
@@ -677,10 +677,10 @@ class AutoDriver:
 
         Av modundan (``drive`` mode="hunt") kritik farkları:
         - MCP açık (``build_drive_command`` → ``--mcp-config`` + ``--strict-mcp-config``,
-          ``--safe-mode`` YOK). Motor Achilles MCP araçlarını GÖRÜR; ama araç yüzeyi P4
+          ``--safe-mode`` YOK). Motor Hektor MCP araçlarını GÖRÜR; ama araç yüzeyi P4
           allow-list'iyle (21 uç: salt-okuma GET'ler + POST ask/run-once) + sürücü
           token'ıyla sınırlıdır.
-        - Verdict AYRI işaretçi (``ACHILLES_DRIVE_VERDICT``): sür PASS'i ``hunt_ack`` YAZMAZ
+        - Verdict AYRI işaretçi (``HEKTOR_DRIVE_VERDICT``): sür PASS'i ``hunt_ack`` YAZMAZ
           — zorunlu Kademe-2 av kapısı bağımsız kalır (Kural 8; av ayrı tetiklenir).
         - Token DRIVE_TOKEN_TTL_S ile mint edilir (SORUN 2): koşu 60 dk sürebilir, varsayılan
           2100s TTL koşu ortasında ölüp MCP çağrılarına 401 attırırdı.

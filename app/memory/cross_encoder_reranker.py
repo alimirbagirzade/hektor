@@ -8,7 +8,7 @@ da model yüklenemezse, sessizce heuristik `Reranker`'a düşer — sistem her z
 Arayüz `Reranker.rerank(query, chunks)` ile aynı → `RerankingRetriever` ikisini de
 kullanabilir. Model modül düzeyinde cache'lenir (her sorguda yeniden yüklenmez).
 
-Açmak için:  ACHILLES_RAG_CROSS_ENCODER=true  +  uv pip install sentence-transformers
+Açmak için:  HEKTOR_RAG_CROSS_ENCODER=true  +  uv pip install sentence-transformers
 """
 
 from __future__ import annotations

@@ -121,7 +121,7 @@ def probe_web() -> ProbeResult:
                 "web",
                 "warn",
                 f"Web sunucusu yanıt vermiyor (:{port}).",
-                "Gerekliyse başlat: uv run achilles-web (CLI onsuz da çalışır).",
+                "Gerekliyse başlat: uv run hektor-web (CLI onsuz da çalışır).",
             )
 
     return _guard("web", _run)
@@ -153,7 +153,7 @@ def probe_orchestration() -> ProbeResult:
                 "orchestration",
                 "warn",
                 f"{len(stale)} asılı (stale) 'running' aşama: {names}",
-                "İncele ve kurtar: achilles orchestrate-recover",
+                "İncele ve kurtar: hektor orchestrate-recover",
             )
         return ProbeResult("orchestration", "ok", "Asılı orkestrasyon aşaması yok.")
 
@@ -169,7 +169,7 @@ def probe_stop_all() -> ProbeResult:
                 "stop_all",
                 "warn",
                 "STOP_ALL aktif — tehlikeli işlemler bloklu.",
-                "Bilinçli değilse kaldır: uv run achilles clear-stop-all",
+                "Bilinçli değilse kaldır: uv run hektor clear-stop-all",
             )
         return ProbeResult("stop_all", "ok", "STOP_ALL kapalı.")
 
@@ -235,7 +235,7 @@ def probe_feedback() -> ProbeResult:
                 "feedback",
                 "warn",
                 f"{pending} bekleyen düzeltme birikti.",
-                "Gözden geçir: 13·GERİ BİLDİRİM sekmesi veya achilles feedback-list",
+                "Gözden geçir: 13·GERİ BİLDİRİM sekmesi veya hektor feedback-list",
             )
         return ProbeResult("feedback", "ok", f"{pending} bekleyen düzeltme.")
 

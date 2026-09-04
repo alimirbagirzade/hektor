@@ -1,22 +1,22 @@
-/* ACHILLES terminal — frontend logic (CSP-safe, harici dosya). */
+/* HEKTOR terminal — frontend logic (CSP-safe, harici dosya). */
 (function () {
   "use strict";
 
-  var TOKEN_KEY = "achilles_api_token";
+  var TOKEN_KEY = "hektor_api_token";
   var MAX_UPLOAD_MB = 100; // backend varsayılanı (settings.max_upload_mb); /api/status'tan güncellenir
   // localStorage artifact ortamında engelli olabilir; güvenli sarmalayıcı:
   function getToken() {
     try {
       return window.localStorage.getItem(TOKEN_KEY) || "";
     } catch (e) {
-      return window.__achillesToken || "";
+      return window.__hektorToken || "";
     }
   }
   function setToken(t) {
     try {
       window.localStorage.setItem(TOKEN_KEY, t);
     } catch (e) {
-      window.__achillesToken = t;
+      window.__hektorToken = t;
     }
   }
 
@@ -83,7 +83,7 @@
       function () {
         // ağ hatası — sunucuya hiç ulaşılamadı
         throw new Error(
-          "Achilles backend'e ulaşılamadı. PowerShell: .\\scripts\\run-web-service.ps1"
+          "Hektor backend'e ulaşılamadı. PowerShell: .\\scripts\\run-web-service.ps1"
         );
       }
     );
@@ -178,7 +178,7 @@
       " &middot; <strong>Sonraki adım:</strong> " + esc(hint);
     box.style.display = "flex";
   }
-  var ACTIVE_TAB_KEY = "achilles_active_tab";
+  var ACTIVE_TAB_KEY = "hektor_active_tab";
   var tabs = document.querySelectorAll(".tab");
   var groupBtns = document.querySelectorAll(".group-btn");
 
@@ -285,7 +285,7 @@
   // API uçları ve arka plan işleri (öğrenme döngüsü, nöbetçi, orkestrasyon)
   // her hâlükârda çalışmaya devam eder.
   var ADVANCED_GROUPS = ["izleme"];
-  var ADVANCED_KEY = "achilles_advanced_on";
+  var ADVANCED_KEY = "hektor_advanced_on";
   var groupNav = document.getElementById("groupNav");
   var advancedToggle = document.getElementById("advancedToggle");
 
@@ -527,8 +527,8 @@
         // Varsayılan: EĞİTİLMİŞ 1.5B adapter (kullanıcı kazara base=4B'ye düşmesin).
         if (cur) {
           sel.value = cur;
-        } else if (adapters.indexOf("achilles_lora_qwen15b") >= 0) {
-          sel.value = "achilles_lora_qwen15b";
+        } else if (adapters.indexOf("hektor_lora_qwen15b") >= 0) {
+          sel.value = "hektor_lora_qwen15b";
         } else if (adapters.length) {
           sel.value = adapters[0];
         }
@@ -1296,7 +1296,7 @@
           + "approval olmadan başlamamalıdır. Devam etmek istiyor musunuz?")) return;
       var payload = {
         base_model: (document.getElementById("drBaseModel") || {}).value || "",
-        adapter_name: (document.getElementById("trAdapterName") || {}).value || "achilles_lora",
+        adapter_name: (document.getElementById("trAdapterName") || {}).value || "hektor_lora",
         iterations: parseInt((document.getElementById("drIterations") || {}).value, 10) || 500,
         batch_size: parseInt((document.getElementById("drBatch") || {}).value, 10) || 2,
         num_layers: parseInt((document.getElementById("drLayers") || {}).value, 10) || 8,
@@ -1322,7 +1322,7 @@
         .then(function (data) {
           // Phase 4D-1: backend taze manuel onay isteyebilir (needs_approval).
           if (data && data.status === "needs_approval") {
-            var cmd = data.approve_command || ("uv run achilles approval-approve " + (data.approval_id || ""));
+            var cmd = data.approve_command || ("uv run hektor approval-approve " + (data.approval_id || ""));
             if (logEl) {
               logEl.textContent = "Onay gerekli. Approval ID: " + (data.approval_id || "")
                 + "\nCLI ile onayla: " + cmd
@@ -2649,7 +2649,7 @@
   if (autoLoraTrainBtn) autoLoraTrainBtn.addEventListener('click', function() {
     var nameEl = document.getElementById('autoLoraAdapterName') || document.getElementById('trAdapterName');
     var itersEl = document.getElementById('autoLoraIters') || document.getElementById('drIterations');
-    var name = (nameEl && nameEl.value.trim()) || ('achilles_auto_' + Date.now());
+    var name = (nameEl && nameEl.value.trim()) || ('hektor_auto_' + Date.now());
     var iters = parseInt((itersEl && itersEl.value) || '300', 10);
     // Backend ile aynı kısıt (path-traversal/arg güvenliği) — erken, net geri bildirim.
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
@@ -2733,14 +2733,14 @@
   var setupModalClose = document.getElementById('setupModalClose');
   var setupModalDismiss = document.getElementById('setupModalDismiss');
 
-  if (setupModal && !localStorage.getItem('achilles_setup_seen')) {
+  if (setupModal && !localStorage.getItem('hektor_setup_seen')) {
     loadHwProfile(setupModalBody);
     setupModal.classList.remove('hidden');
   }
 
   function closeSetupModal() {
     if (setupModal) setupModal.classList.add('hidden');
-    localStorage.setItem('achilles_setup_seen', '1');
+    localStorage.setItem('hektor_setup_seen', '1');
   }
   if (setupModalClose) setupModalClose.addEventListener('click', closeSetupModal);
   if (setupModalDismiss) setupModalDismiss.addEventListener('click', closeSetupModal);
@@ -2748,14 +2748,14 @@
   // ---------- ilk-açılış "nasıl çalışır" şeridi (3 adım) ----------
   var introBanner = document.getElementById("introBanner");
   var introClose = document.getElementById("introClose");
-  if (introBanner && !localStorage.getItem("achilles_intro_seen")) {
+  if (introBanner && !localStorage.getItem("hektor_intro_seen")) {
     introBanner.style.display = "block";
   }
   if (introClose) {
     introClose.addEventListener("click", function () {
       if (introBanner) introBanner.style.display = "none";
       try {
-        localStorage.setItem("achilles_intro_seen", "1");
+        localStorage.setItem("hektor_intro_seen", "1");
       } catch (e) {}
     });
   }
@@ -3140,7 +3140,7 @@
     api("/training/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adapter_name: "achilles_auto_" + stamp, iterations: 0 }),
+      body: JSON.stringify({ adapter_name: "hektor_auto_" + stamp, iterations: 0 }),
     })
       .then(function (d) {
         toast(d.message, !d.ok);
@@ -3630,7 +3630,7 @@
         var runs = d.runs || [];
         if (!runs.length) {
           el.innerHTML =
-            '<span class="muted small">Henüz RLM koşusu yok. CLI: achilles rlm-answer "soru"</span>';
+            '<span class="muted small">Henüz RLM koşusu yok. CLI: hektor rlm-answer "soru"</span>';
           return;
         }
         var rows = "";
@@ -3880,7 +3880,7 @@
   }
 
   function startOrchestration() {
-    var adapter = (document.getElementById("orcAdapter") || {}).value || "achilles_lora";
+    var adapter = (document.getElementById("orcAdapter") || {}).value || "hektor_lora";
     var iters = parseInt((document.getElementById("orcIters") || {}).value, 10) || 300;
     var huntAck = !!(document.getElementById("orcHuntAck") || {}).checked;
     var btn = document.getElementById("orcStartBtn");
@@ -4777,7 +4777,7 @@
   // Akış: run → needs_approval ise approvals/{id}/approve → run (onay TÜKETİLİR, eğitim başlar).
   function amApproveAndTrain() {
     var btn = document.getElementById("amApproveTrainBtn");
-    var adapter = (amGateRun && amGateRun.adapter_name) || "achilles_lora";
+    var adapter = (amGateRun && amGateRun.adapter_name) || "hektor_lora";
     var iters = parseInt((amGateRun && amGateRun.iters) || 300, 10) || 300;
     if (
       !window.confirm(
@@ -5098,7 +5098,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            adapter_name: "achilles_lora",
+            adapter_name: "hektor_lora",
             iters: 300,
             hunt_ack: false,
             auto_run: true,

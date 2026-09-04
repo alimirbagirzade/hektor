@@ -143,7 +143,7 @@ def build_dryrun(
     elif appr.get("approval_status") != "approved_not_consumed":
         # READY ama geçerli (approved + tüketilmemiş) onay yok → onay gerekir.
         hint = (
-            "Önce `uv run achilles local-training-request --create-approval` ile onay isteği "
+            "Önce `uv run hektor local-training-request --create-approval` ile onay isteği "
             "oluştur ve insan onayını al."
         )
         result = {

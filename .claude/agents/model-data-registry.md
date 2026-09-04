@@ -24,9 +24,9 @@ adapter_registry). Bu ajan, "neyle eğittik / production'a neden alındı" izini
 - **Ödül seti** sır/PII içeremez (kendi-kendine yeten regex tarama; safety_scanner içe aktarılmaz).
 
 ## Akış (kısa)
-1. Listele: `uv run achilles registry-list --kind datasets|indices|embeddings|rewards|decisions`.
-2. Anlık görüntü: `uv run achilles registry-snapshot` (mevcut RAG indeks + embedding sürümü).
-3. Terfi (İNSAN ONAYI): `uv run achilles registry-promote-dataset --version <id> --approver <kim>`
+1. Listele: `uv run hektor registry-list --kind datasets|indices|embeddings|rewards|decisions`.
+2. Anlık görüntü: `uv run hektor registry-snapshot` (mevcut RAG indeks + embedding sürümü).
+3. Terfi (İNSAN ONAYI): `uv run hektor registry-promote-dataset --version <id> --approver <kim>`
    (red için `--reject --reason "..."`). Her karar `promotion_decisions`'a loglanır.
 4. **Yorumla:** onay durumu + karar gerekçesini raporla. Gözetimsiz GERÇEK eğitim ÖNERME.
 

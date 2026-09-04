@@ -1,4 +1,4 @@
-# Achilles Trader AI -- TEK KOMUT guncelleme (KURULU makinede calistir)
+# Hektor Trader AI -- TEK KOMUT guncelleme (KURULU makinede calistir)
 #
 #   .\update.ps1           -- normal: origin/main'e GUVENLI yakinsama (ff-only)
 #   .\update.ps1 -Force    -- yereli AT, origin/main ile birebir esitle (salt-kopya kurulum)
@@ -9,7 +9,7 @@
 # NOT (kok-neden duzeltmesi): Bu betik artik MEVCUT dal ne olursa olsun makineyi
 # 'main' dalina + origin/main'e yakinsatir. Eskiden bir feature dalina parklanmis
 # makinede 'git pull origin main' origin/main'i o dala MERGE ediyor, makine asla
-# main'e gecmiyordu -> "guncelleme oturmuyor". Tani icin:  uv run achilles doctor
+# main'e gecmiyordu -> "guncelleme oturmuyor". Tani icin:  uv run hektor doctor
 #
 # Tarayicida son halini gormek icin sonunda: Ctrl+Shift+R (sert yenileme).
 
@@ -52,7 +52,7 @@ if (-not $GitPath) { Write-Host "[HATA] git bulunamadi." -ForegroundColor Red; e
 & $GitPath rev-parse --is-inside-work-tree 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[HATA] Bu klasor bir git deposu degil: $ProjectDir" -ForegroundColor Red
-    Write-Host "       Dogru klasorde calistir (Achilles deposu)." -ForegroundColor Yellow
+    Write-Host "       Dogru klasorde calistir (Hektor deposu)." -ForegroundColor Yellow
     exit 1
 }
 
@@ -153,7 +153,7 @@ function Sync-ToMain {
     }
 }
 
-# --- 1. Web sunucusunu KESIN durdur (port 8765 + achilles-web). EGITIME dokunma. ---
+# --- 1. Web sunucusunu KESIN durdur (port 8765 + hektor-web). EGITIME dokunma. ---
 function Stop-Web {
     $pidFile = Join-Path $ProjectDir ".web.pid"
     if (Test-Path $pidFile) {
@@ -167,7 +167,7 @@ function Stop-Web {
             ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
     } catch {}
     Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='uv.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match 'achilles-web|achilles_web' } |
+        Where-Object { $_.CommandLine -match 'hektor-web|hektor_web' } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 Stop-Web
@@ -192,11 +192,11 @@ if ($updated -or $Force) {
 }
 
 # --- 4. Web'i yeniden baslat ---
-$LogOut = Join-Path $LogDir "achilles-web.log"
-$LogErr = Join-Path $LogDir "achilles-web-err.log"
+$LogOut = Join-Path $LogDir "hektor-web.log"
+$LogErr = Join-Path $LogDir "hektor-web-err.log"
 $proc = Start-Process `
     -FilePath $UvPath `
-    -ArgumentList "run", "--project", "`"$ProjectDir`"", "achilles-web" `
+    -ArgumentList "run", "--project", "`"$ProjectDir`"", "hektor-web" `
     -WorkingDirectory $ProjectDir `
     -RedirectStandardOutput $LogOut `
     -RedirectStandardError  $LogErr `
@@ -216,5 +216,5 @@ if ($ok) {
     Write-Host "[OK] Web calisiyor: http://127.0.0.1:8765" -ForegroundColor Green
     Write-Host "     >> Son halini gormek icin tarayicida: Ctrl+Shift+R (sert yenileme!)" -ForegroundColor Cyan
 } else {
-    Write-Host "[UYARI] Web 30 sn'de acilmadi -- log: logs\achilles-web-err.log" -ForegroundColor Yellow
+    Write-Host "[UYARI] Web 30 sn'de acilmadi -- log: logs\hektor-web-err.log" -ForegroundColor Yellow
 }

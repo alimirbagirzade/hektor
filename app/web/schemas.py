@@ -234,7 +234,7 @@ class TrainDryRunResponse(BaseModel):
 # ---------- Training run (web UI) ----------
 class TrainingStartRequest(BaseModel):
     base_model: str = ""  # boş → sunucu backend'e göre seçer (PEFT: 4B brain, MLX: mlx_base_model)
-    adapter_name: str = "achilles_lora"
+    adapter_name: str = "hektor_lora"
     iterations: int = 500
     batch_size: int = 2
     learning_rate: float = 1e-4
@@ -372,7 +372,7 @@ class ApprovedCardsResponse(BaseModel):
     difficulty_max: float
 
 
-# ---------- Achilles Package (Entropia export) ----------
+# ---------- Hektor Package (Entropia export) ----------
 class PackageCodeOut(BaseModel):
     pine: str
     python: str

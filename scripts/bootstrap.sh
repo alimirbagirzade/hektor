@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Achilles Trader AI — ilk kurulum + uçtan uca duman testi (çevrimdışı).
+# Hektor Trader AI — ilk kurulum + uçtan uca duman testi (çevrimdışı).
 # Ollama gerektirmez: fake embedding + sentetik veri ile çalışır.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-export ACHILLES_ALLOW_FAKE_EMBEDDINGS=true
+export HEKTOR_ALLOW_FAKE_EMBEDDINGS=true
 
 echo "==> Bağımlılıklar kuruluyor"
 if command -v uv >/dev/null 2>&1; then
@@ -20,19 +20,19 @@ else
 fi
 
 echo "==> Sistem başlatılıyor"
-$RUN achilles init
-$RUN achilles status
+$RUN hektor init
+$RUN hektor status
 
 echo "==> Sentetik veri üretiliyor"
-$RUN achilles gen-data
+$RUN hektor gen-data
 
 echo "==> Backtest (örnek strateji) çalıştırılıyor"
-$RUN achilles backtest data/market/raw/synthetic.csv
+$RUN hektor backtest data/market/raw/synthetic.csv
 
 echo "==> Testler"
 $RUN pytest -q -m "not ollama and not slow"
 
 echo ""
 echo "✅ Duman testi tamam. Sıradaki adımlar:"
-echo "   - PDF'leri data/papers/raw_pdf/ içine koy, 'achilles ingest' çalıştır."
-echo "   - (Opsiyonel) Ollama kurup 'achilles ask \"...\"' ile RAG dene."
+echo "   - PDF'leri data/papers/raw_pdf/ içine koy, 'hektor ingest' çalıştır."
+echo "   - (Opsiyonel) Ollama kurup 'hektor ask \"...\"' ile RAG dene."

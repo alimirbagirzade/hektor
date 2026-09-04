@@ -12,7 +12,7 @@ from app.memory.sqlite_store import SqliteStore
 
 
 def _stores(tmp_path: Path) -> tuple[SqliteStore, MasteryStore]:
-    db = tmp_path / "achilles.db"
+    db = tmp_path / "hektor.db"
     return SqliteStore(db_path=db), MasteryStore(db_path=db)
 
 

@@ -21,22 +21,22 @@ def test_launch_default_profile_is_discipline_safe_local() -> None:
 
 
 def test_build_train_cmd_includes_profile_when_given() -> None:
-    base = ["achilles"]
+    base = ["hektor"]
     cmd = _build_train_cmd(base, "a15b", 600, None, "discipline_safe_local", 0)
     assert "--profile" in cmd
     assert cmd[cmd.index("--profile") + 1] == "discipline_safe_local"
     # Temel bayraklar da bulunmalı
-    assert cmd[:6] == ["achilles", "train", "--run", "--backend", "peft", "--adapter-name"]
+    assert cmd[:6] == ["hektor", "train", "--run", "--backend", "peft", "--adapter-name"]
     assert "--iterations" in cmd and cmd[cmd.index("--iterations") + 1] == "600"
 
 
 def test_build_train_cmd_omits_profile_when_empty() -> None:
     """profile boş/None ise --profile EKLENMEZ (bilinçli vanilya kaçış yolu)."""
-    assert "--profile" not in _build_train_cmd(["achilles"], "a", 100, None, "", 0)
-    assert "--profile" not in _build_train_cmd(["achilles"], "a", 100, None, None, 0)
+    assert "--profile" not in _build_train_cmd(["hektor"], "a", 100, None, "", 0)
+    assert "--profile" not in _build_train_cmd(["hektor"], "a", 100, None, None, 0)
 
 
 def test_build_train_cmd_optional_flags() -> None:
-    cmd = _build_train_cmd(["achilles"], "a", 100, "Qwen/Q", "discipline_safe_local", 300)
+    cmd = _build_train_cmd(["hektor"], "a", 100, "Qwen/Q", "discipline_safe_local", 300)
     assert cmd[cmd.index("--base-model") + 1] == "Qwen/Q"
     assert cmd[cmd.index("--max-examples") + 1] == "300"

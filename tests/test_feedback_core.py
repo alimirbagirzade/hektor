@@ -74,7 +74,7 @@ def test_export_rejects_path_traversal(echo: EchoCollector) -> None:
     veya depo dizini altında DEĞİL)."""
     from app.config import get_settings
 
-    outside = get_settings().root.parent / "achilles_escape_test.jsonl"
+    outside = get_settings().root.parent / "hektor_escape_test.jsonl"
     with pytest.raises(ValueError):
         echo.export_approved(out_path=str(outside))
 

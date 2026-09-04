@@ -156,7 +156,7 @@ def test_task_tool_restriction_verified_format() -> None:
     assert "Bash(uv run pytest" in c
     assert "Bash(uv run mypy app)" in c
     # tehlikeli komutlar açıkça yasak
-    assert "Bash(achilles train" in c
+    assert "Bash(hektor train" in c
     assert "Bash(rm" in c
 
 

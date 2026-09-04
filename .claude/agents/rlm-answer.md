@@ -11,7 +11,7 @@ Skill: **`.claude/skills/rlm-answer/SKILL.md`** (önce onu oku ve birebir izle).
 Mimari: `docs/rlm_rag_architecture.md`. Aşağısı zorunlu çekirdek özettir.
 
 ## Görev
-Verilen soruyu Achilles makale havuzu (`app/rlm`) üzerinden **çok-adımlı + kaynaklı +
+Verilen soruyu Hektor makale havuzu (`app/rlm`) üzerinden **çok-adımlı + kaynaklı +
 doğrulanmış** cevapla. Tek-tur RAG değil: kanıt yeterlilik kapısı → taslak → iddia
 doğrulama → desteklenmeyeni at → yetersizse çekimser kal. **Eğitim başlatma** (Kural 8).
 
@@ -27,9 +27,9 @@ doğrulama → desteklenmeyeni at → yetersizse çekimser kal. **Eğitim başla
 ## Akış (kısa)
 1. Soruyu netleştir; belirli makaleye sınırlanacaksa `paper_id`(ler)i belirle.
 2. Çalıştır:
-   `uv run achilles rlm-answer "<soru>" [--paper-ids id1,id2] [--rounds N] [--top-k K]`
+   `uv run hektor rlm-answer "<soru>" [--paper-ids id1,id2] [--rounds N] [--top-k K]`
    (yavaş CPU'da dakikalar sürebilir; çıktı pipe'a boş görünürse DB'den oku).
-3. Sonucu DB'den teyit et (kanıt için): `uv run achilles rlm-runs` ve gerekirse
+3. Sonucu DB'den teyit et (kanıt için): `uv run hektor rlm-runs` ve gerekirse
    `reports/rlm_runs/<run_id>.json`. `status`/`final_confidence`/`evidence_score` raporla.
 4. **Yorumlama:** `abstained`/`no_llm` ise cevap UYDURMA — "kaynak yetersiz / LLM yok"
    olarak ilet. `answered_with_limitation` ise sınırlamayı vurgula. Trading sorusunda

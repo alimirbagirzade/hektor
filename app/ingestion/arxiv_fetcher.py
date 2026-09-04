@@ -25,7 +25,7 @@ _NS = {
     "atom": "http://www.w3.org/2005/Atom",
     "arxiv": "http://arxiv.org/schemas/atom",
 }
-_HEADERS = {"User-Agent": "Achilles/1.0 (academic-research; contact: noreply@achilles)"}
+_HEADERS = {"User-Agent": "Hektor/1.0 (academic-research; contact: noreply@hektor)"}
 
 
 @dataclass

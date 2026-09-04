@@ -76,7 +76,7 @@ gerçek yöntem CPU'da **infeasible** (~500+ CPU-saat).
    embedding için nomic'i sentence-transformers/HF ile çalıştır; 5-10 makalede ölç. Deneysel.
 
 **Süren title/section re-embed:** TUT (ucuz, net-pozitif, çoğu ödendi) ama "küçük kazanç",
-"contextual bitti" değil. Bitince `.env ACHILLES_RAG_CONTEXTUAL_EMBED=true` + restart + ölç.
+"contextual bitti" değil. Bitince `.env HEKTOR_RAG_CONTEXTUAL_EMBED=true` + restart + ölç.
 
 ## Okuma/Anlama kalitesi (çapraz, Kural 7 ile hizalı)
 

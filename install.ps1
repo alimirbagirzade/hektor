@@ -1,17 +1,17 @@
-# Achilles Trader AI -- Windows Yukleyici
+# Hektor Trader AI -- Windows Yukleyici
 # Bu dosyayi HERHANGI BIR YERDEN calistirabilirsiniz.
-# Her zaman dogru konuma (%USERPROFILE%\achilles) kurar.
+# Her zaman dogru konuma (%USERPROFILE%\hektor) kurar.
 #
 # Kullanim (PowerShell):
 #   Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 #   .\install.ps1
 #
 # Veya tek satirda (internetten direkt):
-#   Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; irm https://raw.githubusercontent.com/alimirbagirzade/achilles2.0/main/install.ps1 | iex
+#   Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; irm https://raw.githubusercontent.com/alimirbagirzade/hektor/main/install.ps1 | iex
 
 $ErrorActionPreference = "Continue"
 
-$TARGET = Join-Path $env:USERPROFILE "achilles2.0"
+$TARGET = Join-Path $env:USERPROFILE "hektor"
 
 # --- Mevcut kurulumu ana dala (main) yakinsatarak ve GORUNUR sekilde guncelle ---
 # Eski 'git pull --ff-only 2>&1 | Out-Null' SESSIZ basarisiz oluyordu (main disi/iraksak
@@ -65,24 +65,24 @@ function Update-ExistingCheckout {
 }
 
 # --- Ikinci (yabanci) klon tespiti: scheduled-task / Registry Run hedefini oku ---
-# install.ps1 her zaman $TARGET'a (~\achilles) kurar; ama makinede gecmiste BASKA bir
-# konuma (orn ~\Development\achilles) kurulmus, autostart/scheduled-task'lari ORAYI isaret
+# install.ps1 her zaman $TARGET'a (~\hektor) kurar; ama makinede gecmiste BASKA bir
+# konuma (orn ~\Development\hektor) kurulmus, autostart/scheduled-task'lari ORAYI isaret
 # eden bir klon olabilir -> iki-kopya bolunmesi (biri guncellenir, autostart digerini sunar).
 # Tespit edip UYAR (degistirme; salt-okuma).
 function Find-ForeignCheckout {
-    # DIKKAT: ~\achilles henuz yoksa Resolve-Path THROW ETMEZ, $null DONER. catch hic
+    # DIKKAT: ~\hektor henuz yoksa Resolve-Path THROW ETMEZ, $null DONER. catch hic
     # calismaz; bu yuzden ACIK null-kontrolu sart (yoksa -notlike "*" her zaman $false ->
     # tespit sessizce olur, tam da en cok gerektigi anda).
     $targetFull = (Resolve-Path $TARGET -ErrorAction SilentlyContinue).Path
     if (-not $targetFull) { $targetFull = $TARGET }
     $foreign = New-Object System.Collections.Generic.HashSet[string]
 
-    foreach ($name in @("AchillesWeb", "AchillesUpdate")) {
+    foreach ($name in @("HektorWeb", "HektorUpdate")) {
         $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
         if (-not $task) { continue }
         foreach ($act in $task.Actions) {
             foreach ($c in @($act.WorkingDirectory, $act.Arguments) | Where-Object { $_ }) {
-                $m = [regex]::Match($c, '(?i)([A-Za-z]:\\[^"]*?achilles)(?:\\|"|\s|$)')
+                $m = [regex]::Match($c, '(?i)([A-Za-z]:\\[^"]*?hektor)(?:\\|"|\s|$)')
                 if ($m.Success) {
                     $dir = $m.Groups[1].Value.TrimEnd('\')
                     if ($dir -and ($dir -notlike "$targetFull*")) { [void]$foreign.Add($dir) }
@@ -91,9 +91,9 @@ function Find-ForeignCheckout {
         }
     }
     $reg = Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
-        -Name "AchillesWeb" -ErrorAction SilentlyContinue
-    if ($reg -and $reg.AchillesWeb) {
-        $m = [regex]::Match($reg.AchillesWeb, '(?i)([A-Za-z]:\\[^"]*?achilles)(?:\\|"|\s|$)')
+        -Name "HektorWeb" -ErrorAction SilentlyContinue
+    if ($reg -and $reg.HektorWeb) {
+        $m = [regex]::Match($reg.HektorWeb, '(?i)([A-Za-z]:\\[^"]*?hektor)(?:\\|"|\s|$)')
         if ($m.Success) {
             $dir = $m.Groups[1].Value.TrimEnd('\')
             if ($dir -and ($dir -notlike "$targetFull*")) { [void]$foreign.Add($dir) }
@@ -102,7 +102,7 @@ function Find-ForeignCheckout {
 
     if ($foreign.Count -gt 0) {
         Write-Host ""
-        Write-Host "  [UYARI] Bu makinede BASKA bir Achilles kopyasi tespit edildi:" -ForegroundColor Yellow
+        Write-Host "  [UYARI] Bu makinede BASKA bir Hektor kopyasi tespit edildi:" -ForegroundColor Yellow
         Write-Host "          Kurulum konumu : $targetFull" -ForegroundColor Yellow
         foreach ($d in $foreign) {
             $tag = if (Test-Path (Join-Path $d ".git")) { "(canli kopya)" } else { "(klasor yok / olu yol)" }
@@ -117,7 +117,7 @@ function Find-ForeignCheckout {
 
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Magenta
-Write-Host "    Achilles Trader AI  --  Yukleyici" -ForegroundColor Magenta
+Write-Host "    Hektor Trader AI  --  Yukleyici" -ForegroundColor Magenta
 Write-Host "  ====================================================" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "  Kurulum konumu: $TARGET" -ForegroundColor Cyan
@@ -150,7 +150,7 @@ if (Test-Path (Join-Path $TARGET ".git")) {
         Remove-Item $TARGET -Recurse -Force
     }
     Write-Host "  >> Proje indiriliyor..." -ForegroundColor White
-    git clone https://github.com/alimirbagirzade/achilles2.0.git "$TARGET"
+    git clone https://github.com/alimirbagirzade/hektor.git "$TARGET"
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "  [HATA] Indirme basarisiz. Internet baglantinizi kontrol edin." -ForegroundColor Red

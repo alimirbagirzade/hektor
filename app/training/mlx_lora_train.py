@@ -70,7 +70,7 @@ def build_command(cfg: TrainConfig) -> list[str]:
         resume_path = (
             Path("models")
             / "adapters"
-            / f"achilles_lora_v3_phase{cfg.from_phase}"
+            / f"hektor_lora_v3_phase{cfg.from_phase}"
             / "adapters.safetensors"
         )
         cmd += ["--resume-adapter-file", str(resume_path)]
@@ -94,7 +94,7 @@ def run(cfg: TrainConfig, *, content_hash: str | None = None, notes: str | None 
     subprocess.run(cmd, check=True)
     # Adapter versiyonunu faz'a göre isimlendir
     version = (
-        f"achilles_lora_v3_phase{cfg.lora_phase}"
+        f"hektor_lora_v3_phase{cfg.lora_phase}"
         if cfg.lora_phase > 0
         else cfg.adapter_output_path.name
     )

@@ -3,7 +3,7 @@ $projectDir = Split-Path -Parent $PSScriptRoot
 $statusFile = Join-Path $projectDir "storage\train_status.json"
 $startScript = Join-Path $PSScriptRoot "start-train.ps1"
 $trainLog = Join-Path $projectDir "logs\train-full-err.log"
-$mutex = [Threading.Mutex]::new($false, "Local\AchillesTrainingWatchdog")
+$mutex = [Threading.Mutex]::new($false, "Local\HektorTrainingWatchdog")
 if (-not $mutex.WaitOne(0)) { exit 0 }
 try {
     if (-not (Test-Path $statusFile)) { exit 0 }

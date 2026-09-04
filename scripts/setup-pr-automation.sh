@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Achilles -- PR otomasyonu BİR KERELİK repo kurulumu.
+# Hektor -- PR otomasyonu BİR KERELİK repo kurulumu.
 #
 # Ne yapar:
 #   1) Repo ayarları: "Allow auto-merge" + squash + merge sonrası dalı sil.

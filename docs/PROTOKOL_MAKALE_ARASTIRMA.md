@@ -2,7 +2,7 @@
 
 _Son güncelleme: 2026-06-17 (v1.0)._
 
-> **Tek cümle:** Belirli aralıklarla (varsayılan **haftada 1**) devreye girip Achilles'in
+> **Tek cümle:** Belirli aralıklarla (varsayılan **haftada 1**) devreye girip Hektor'in
 > RAG/LoRA gelişimine yarayacak **YENİ, GERÇEK** arXiv makalelerini bulur, doğrular, yerel
 > klasöre indirir ve "neden önemli" indeksini günceller. **Eğitim başlatmaz** — yalnız besler.
 
@@ -30,7 +30,7 @@ _Son güncelleme: 2026-06-17 (v1.0)._
 
 ```
 C:\Users\sevinc\Desktop\RAG Kaynak\Gerekli kaynaklar\
-  ├─ 00_NEDEN_ONEMLI_oku_once.md   ← indeks (her makale: neden önemli + Achilles'e ne katar)
+  ├─ 00_NEDEN_ONEMLI_oku_once.md   ← indeks (her makale: neden önemli + Hektor'e ne katar)
   ├─ <id>_<Kisa_Baslik>.pdf         ← YENİ indirilenler (RAG'a eklenmeyi bekler)
   └─ RAG Eklendi\                   ← kullanıcının zaten RAG'a yüklediği makaleler (DOKUNMA)
 ```
@@ -52,7 +52,7 @@ C:\Users\sevinc\Desktop\RAG Kaynak\Gerekli kaynaklar\
 
 ## 4. Odak alanları (eksik açıkları doldur)
 
-| Tema | Konu | Achilles bağı |
+| Tema | Konu | Hektor bağı |
 |------|------|---------------|
 | A | LoRA/PEFT doğru reçetesi + küçük-veri tuzakları (forgetting/overfit/veri kalitesi) | **v5 gerileme onarımı — en öncelikli** |
 | B | RAG sadakat / atıf / halüsinasyon / abstention ("bilmiyorum") | v5-fix; Kural 7 |
@@ -68,19 +68,19 @@ C:\Users\sevinc\Desktop\RAG Kaynak\Gerekli kaynaklar\
 1. Klasördeki mevcut ID'leri oku → tekrar-önleme seti.
 2. Eksik temalardan başla; WebSearch ile aday bul.
 3. Her aday için WebFetch `https://arxiv.org/abs/<id>` → başlık/yıl doğrula. arXiv'de yoksa atla.
-4. İndir (Windows): `powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://arxiv.org/pdf/<id>' -OutFile '<path>' -UserAgent 'Mozilla/5.0 (Achilles research)' -TimeoutSec 90"` (veya `curl -L`). arXiv'e kibar ol: indirme arası ~1 sn.
+4. İndir (Windows): `powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://arxiv.org/pdf/<id>' -OutFile '<path>' -UserAgent 'Mozilla/5.0 (Hektor research)' -TimeoutSec 90"` (veya `curl -L`). arXiv'e kibar ol: indirme arası ~1 sn.
 5. **`%PDF` + >40KB** doğrula; geçersiz/yarım dosyaları **ayrı bir temizleme adımında** ele
    (önce indir+doğrula, sonra ayrı komutta temizle — daha güvenli ve okunur).
 6. `00_NEDEN_ONEMLI_oku_once.md`'ye **EKLE** (mevcut içeriği bozma): bugünün tarihiyle
    "🆕 YENİ PARTİ (<YYYY-AA-GG>)" başlığı; her makale: ID + tema harfi + "neden önemli +
-   Achilles'e ne katar" (1-2 cümle Türkçe).
+   Hektor'e ne katar" (1-2 cümle Türkçe).
 7. **Bonus — loop sağlık kontrolü:** `scripts/start-loop.ps1 -Status`; "durdu" ise
    `scripts/start-loop.ps1 -Hours 72` ile başlat. Logda `os error 32` görünürse `UV_NO_SYNC`
    fix'ini (continuous-learning.sh) kontrol et.
 
 ## 6. Tetikleme
 
-- **Periyodik:** `mcp__scheduled-tasks` görevi `achilles-gunluk-makale-arastirma`
+- **Periyodik:** `mcp__scheduled-tasks` görevi `hektor-gunluk-makale-arastirma`
   (SKILL.md `~/.claude/scheduled-tasks/`). Yalnız Claude **uygulaması açıkken** çalışır;
   kapalıysa sonraki açılışta. İlk kez "Run now" ile araçları ön-onayla.
 - **Elle / oturum içi:** `makale-arastirma` ajanını Agent aracıyla başlat (bu protokolü izler),

@@ -1,17 +1,17 @@
 ---
-name: achilles-web
-description: Achilles web API'sini MCP tool'ları olarak kullan — RAG sorgusu, durum, eğitim, backtest, sentez makaleleri, formül/kavram. Web arayüzünün yaptığı her şey tool olarak. Web değişince MCP'yi senkronla.
+name: hektor-web
+description: Hektor web API'sini MCP tool'ları olarak kullan — RAG sorgusu, durum, eğitim, backtest, sentez makaleleri, formül/kavram. Web arayüzünün yaptığı her şey tool olarak. Web değişince MCP'yi senkronla.
 ---
 
-# /achilles-web — Achilles Web MCP Köprüsü
+# /hektor-web — Hektor Web MCP Köprüsü
 
-Achilles'in yerel web API'si (68 endpoint) MCP tool'ları olarak açılır. Sunucu:
-`mcp_server/achilles_mcp.py` (FastMCP → çalışan web'e proxy). Ön koşul: web açık
-(`uv run achilles-web` → http://127.0.0.1:8765).
+Hektor'in yerel web API'si (68 endpoint) MCP tool'ları olarak açılır. Sunucu:
+`mcp_server/hektor_mcp.py` (FastMCP → çalışan web'e proxy). Ön koşul: web açık
+(`uv run hektor-web` → http://127.0.0.1:8765).
 
 ## Kurulum (bir kez)
 ```bash
-bash scripts/sync-mcp.sh            # tool doğrula + 'achilles' MCP kaydı
+bash scripts/sync-mcp.sh            # tool doğrula + 'hektor' MCP kaydı
 # sonra Claude Code'u yeniden başlat ki MCP bağlansın
 ```
 
@@ -40,5 +40,5 @@ tazele. Spec in-process üretildiği için elle düzenleme gerekmez. Detay:
 
 ## Sorun giderme
 - Tool'lar boşsa: web sunucusu açık mı? (`curl http://127.0.0.1:8765/api/status`)
-- `claude mcp list` → 'achilles' "Failed to connect" ise: `mcp_server/achilles_mcp.py`
-  doğrudan çalışıyor mu test et: `uv run python mcp_server/achilles_mcp.py` (stdio bekler).
+- `claude mcp list` → 'hektor' "Failed to connect" ise: `mcp_server/hektor_mcp.py`
+  doğrudan çalışıyor mu test et: `uv run python mcp_server/hektor_mcp.py` (stdio bekler).

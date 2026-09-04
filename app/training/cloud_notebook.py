@@ -76,7 +76,7 @@ def write_modelfile(out_dir: Path) -> Path:
     """Ollama Modelfile şablonunu `out_dir/Modelfile` olarak kopyala.
 
     İndirilen GGUF ile aynı klasöre konmalı (FROM yolu görelidir:
-    `./achilles-Q4_K_M.gguf`).
+    `./hektor-Q4_K_M.gguf`).
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     dest = out_dir / "Modelfile"

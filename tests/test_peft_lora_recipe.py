@@ -276,8 +276,8 @@ def test_discipline_safe_drives_cloud_notebook(tmp_path) -> None:
     out = tmp_path / "nb.ipynb"
     build_stage2_notebook(
         base_model="Qwen/Qwen3-4B-Instruct-2507",
-        adapter_name="achilles_lora_cloud",
-        hf_dataset_repo="user/achilles-lora-sft",
+        adapter_name="hektor_lora_cloud",
+        hf_dataset_repo="user/hektor-lora-sft",
         max_seq_length=prof["max_seq_length"],
         lora_r=prof["lora_r"],
         learning_rate=prof["learning_rate"],

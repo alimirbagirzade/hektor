@@ -1,7 +1,7 @@
 """rules_updater.py — Başarısız trial'lardan kural önerisi üretir.
 
 Hiçbir şeyi otomatik değiştirmez: sadece `rule_suggestions` tablosuna
-`status='pending_review'` kayıt ekler. Kullanıcı `achilles rules-update`
+`status='pending_review'` kayıt ekler. Kullanıcı `hektor rules-update`
 komutuyla önerileri gözden geçirir ve onaylar.
 """
 

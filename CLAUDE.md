@@ -1,4 +1,4 @@
-# CLAUDE.md — Achilles 2.0 çalışma kuralları
+# CLAUDE.md — Hektor çalışma kuralları
 
 Bu dosya, bu repoda çalışan Claude (Claude Code) için bağlayıcı yönergeleri içerir.
 
@@ -64,12 +64,12 @@ seviyesine göre kademeli tarama:
 1. **`HANDOFF.md`'yi oku** — durum, sıradaki adım ve açık işler oradadır.
 2. **Sistem durumunu kontrol et:**
    ```bash
-   uv run achilles status     # Ollama + korpus + model
-   uv run achilles doctor     # bu makine origin/main'de mi (salt-okuma)
+   uv run hektor status     # Ollama + korpus + model
+   uv run hektor doctor     # bu makine origin/main'de mi (salt-okuma)
    ```
 3. **Kapıyı çalıştır** (değişiklikten önce ve sonra): `make ci`.
 
-Bu depo `alimirbagirzade/achilles2.0`'dır; v1'den ne taşınmadığı `docs/MIGRASYON_2.0.md`'de.
+Bu depo `alimirbagirzade/hektor`'dır; v1'den ne taşınmadığı `docs/MIGRASYON_2.0.md`'de.
 
 ### Proje skill'leri (`.claude/skills/`)
 

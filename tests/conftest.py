@@ -30,22 +30,22 @@ def pytest_collection_modifyitems(config, items):
 def _isolate_storage(tmp_path_factory):
     """Tüm veri/durum yollarını tmp'ye al ve GERÇEK ağaca yazımı YASAKLA.
 
-    `ACHILLES_ROOT_PATH` tüm türetilmiş dizinlerin (data/, storage/, models/,
+    `HEKTOR_ROOT_PATH` tüm türetilmiş dizinlerin (data/, storage/, models/,
     reports/) tabanıdır → testler artık depo ağacına dosya bırakamaz. Eskiden
     yalnız sqlite+chroma izoleydi; her tam koşu `data/lora_sft/lora_sft.jsonl` ve
     `data/training/jsonl/*.jsonl` üretiyor, bir sonraki koşuda data-gate GO verip
     orkestrasyon testini düşürüyordu (sıra-bağımlı flakiness).
 
-    `ACHILLES_BACKGROUND_LOOPS_ENABLED=false`: TestClient lifespan'i tetiklediğinde
+    `HEKTOR_BACKGROUND_LOOPS_ENABLED=false`: TestClient lifespan'i tetiklediğinde
     unattended supervisor GERÇEK bir abonelik motoru (codex/claude) doğurmaya
     çalışıyordu — kota yakımı + CLAUDE.md Kural 8 ihlali.
     """
-    base = tmp_path_factory.mktemp("achilles_test")
-    os.environ["ACHILLES_ROOT_PATH"] = str(base)
-    os.environ["ACHILLES_SQLITE_PATH"] = str(base / "test.db")
-    os.environ["ACHILLES_CHROMA_PATH"] = str(base / "chroma")
-    os.environ["ACHILLES_ALLOW_FAKE_EMBEDDINGS"] = "true"
-    os.environ["ACHILLES_BACKGROUND_LOOPS_ENABLED"] = "false"
+    base = tmp_path_factory.mktemp("hektor_test")
+    os.environ["HEKTOR_ROOT_PATH"] = str(base)
+    os.environ["HEKTOR_SQLITE_PATH"] = str(base / "test.db")
+    os.environ["HEKTOR_CHROMA_PATH"] = str(base / "chroma")
+    os.environ["HEKTOR_ALLOW_FAKE_EMBEDDINGS"] = "true"
+    os.environ["HEKTOR_BACKGROUND_LOOPS_ENABLED"] = "false"
     # clear cached settings so env overrides take effect
     from app.config import settings as settings_mod
 
@@ -75,7 +75,7 @@ def _snapshot(directory: Path) -> set[Path]:
 
 @pytest.fixture(autouse=True)
 def _settings_cache_reset():
-    """Test `ACHILLES_*` env'i geçici değiştirdiyse ayar cache'ini SONRA temizle.
+    """Test `HEKTOR_*` env'i geçici değiştirdiyse ayar cache'ini SONRA temizle.
 
     `get_settings` lru_cache'lidir: `monkeypatch.setenv` env'i geri alır ama cache
     eski (ör. tmp kök) nesneyi tutmaya devam ederdi → sonraki testler yanlış kökle

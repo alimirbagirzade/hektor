@@ -3,7 +3,7 @@
 Sözleşme:
 - Yasak uçlar (onay, kill-switch, eğitim başlatma, autodrive) tool listesinde YOK.
 - İzin verilen salt-okuma uçları VAR.
-- ``ACHILLES_API_TOKEN`` ayarlıysa proxy istemcisi Authorization başlığı taşır.
+- ``HEKTOR_API_TOKEN`` ayarlıysa proxy istemcisi Authorization başlığı taşır.
 - Token'lı modda gerçek bir MCP çağrısı 200 döner (uçtan uca).
 
 Tümü çevrimdışı: web uygulaması ASGI transport ile bellek içinde konuşulur.
@@ -14,7 +14,7 @@ from __future__ import annotations
 import httpx
 import pytest
 from mcp_server import allowlist
-from mcp_server.achilles_mcp import auth_headers
+from mcp_server.hektor_mcp import auth_headers
 
 
 @pytest.fixture(scope="module")
@@ -152,7 +152,7 @@ async def test_gercek_mcp_sunucusu_yalniz_izinli_toollari_sunar() -> None:
     """
     pytest.importorskip("fastmcp", reason="opsiyonel 'mcp' extra kurulu değil")
     from fastmcp import Client
-    from mcp_server.achilles_mcp import build_mcp
+    from mcp_server.hektor_mcp import build_mcp
 
     async with Client(build_mcp()) as client:
         tools = await client.list_tools()
@@ -170,7 +170,7 @@ async def test_gercek_mcp_sunucusu_yalniz_izinli_toollari_sunar() -> None:
 
 
 def test_modul_importu_fastmcp_gerektirmez() -> None:
-    """`achilles_mcp` import'u yan etkisiz olmalı (sunucu kurmaz, fastmcp istemez).
+    """`hektor_mcp` import'u yan etkisiz olmalı (sunucu kurmaz, fastmcp istemez).
 
     Regresyon kilidi: modül seviyesinde `mcp = build_mcp()` vardı; modülü import
     etmek tüm sunucuyu kuruyor ve opsiyonel `fastmcp`'yi zorunlu yapıyordu → CI
@@ -180,7 +180,7 @@ def test_modul_importu_fastmcp_gerektirmez() -> None:
     import sys
 
     code = (
-        "import sys; import mcp_server.achilles_mcp as m; "
+        "import sys; import mcp_server.hektor_mcp as m; "
         "assert 'fastmcp' not in sys.modules, 'import fastmcp yükledi'; "
         "assert m.auth_headers() is not None"
     )
@@ -194,7 +194,7 @@ def test_modul_importu_fastmcp_gerektirmez() -> None:
 def test_token_ayarliysa_authorization_basligi_uretilir(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import get_settings
 
-    monkeypatch.setenv("ACHILLES_API_TOKEN", "gizli-test-token")
+    monkeypatch.setenv("HEKTOR_API_TOKEN", "gizli-test-token")
     get_settings.cache_clear()
     try:
         assert auth_headers() == {"Authorization": "Bearer gizli-test-token"}
@@ -205,7 +205,7 @@ def test_token_ayarliysa_authorization_basligi_uretilir(monkeypatch: pytest.Monk
 def test_token_yoksa_baslik_gonderilmez(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import get_settings
 
-    monkeypatch.setenv("ACHILLES_API_TOKEN", "")
+    monkeypatch.setenv("HEKTOR_API_TOKEN", "")
     get_settings.cache_clear()
     try:
         assert auth_headers() == {}
@@ -232,12 +232,12 @@ def _schema_uclari_durumu(token: str) -> tuple[int, int]:
         "from fastapi.testclient import TestClient\n"
         "from app.web.server import app\n"
         "c = TestClient(app)\n"
-        "tok = __import__('os').environ.get('ACHILLES_API_TOKEN')\n"
+        "tok = __import__('os').environ.get('HEKTOR_API_TOKEN')\n"
         "h = {'Authorization': f'Bearer {tok}'} if tok else {}\n"
         "print(json.dumps([c.get('/api/openapi.json', headers=h).status_code,"
         " c.get('/api/docs', headers=h).status_code]))"
     )
-    env = {**__import__("os").environ, "ACHILLES_API_TOKEN": token}
+    env = {**__import__("os").environ, "HEKTOR_API_TOKEN": token}
     res = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=300
     )
@@ -266,7 +266,7 @@ async def test_tokenli_modda_proxy_cagrisi_200_doner(monkeypatch: pytest.MonkeyP
     """
     from app.config import get_settings
 
-    monkeypatch.setenv("ACHILLES_API_TOKEN", "gizli-test-token")
+    monkeypatch.setenv("HEKTOR_API_TOKEN", "gizli-test-token")
     get_settings.cache_clear()
     try:
         from app.web.server import app

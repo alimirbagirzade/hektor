@@ -1,4 +1,4 @@
-# Achilles Trader AI -- Windows Kurulum Scripti
+# Hektor Trader AI -- Windows Kurulum Scripti
 # Gereksinim: Windows 10/11, PowerShell 5.1+, internet baglantisi
 # Kullanim: PowerShell'i YONETICI olarak ac -> cd proje_klasoru -> .\setup.ps1
 
@@ -16,7 +16,7 @@ function Write-Sep           { Write-Host "  +----------------------------------
 
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Magenta
-Write-Host "    Achilles Trader AI  -  Windows Kurulum" -ForegroundColor Magenta
+Write-Host "    Hektor Trader AI  -  Windows Kurulum" -ForegroundColor Magenta
 Write-Host "  ====================================================" -ForegroundColor Magenta
 Write-Host ""
 
@@ -46,7 +46,7 @@ if (-not $_hasProject) {
     Write-Host ""
     Write-Host "  Dogru kurulum icin asagidaki komutu PowerShell'e kopyalayip calistirin:" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; irm https://raw.githubusercontent.com/alimirbagirzade/achilles2.0/main/install.ps1 | iex" -ForegroundColor Green
+    Write-Host "  Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; irm https://raw.githubusercontent.com/alimirbagirzade/hektor/main/install.ps1 | iex" -ForegroundColor Green
     Write-Host ""
     Write-Host "  Bu komut projeyi otomatik olarak dogru konuma indirir ve kurar." -ForegroundColor White
     Write-Host "  ================================================================" -ForegroundColor Red
@@ -95,7 +95,7 @@ if ($choice -eq "") { $choice = "1" }
 
 # Bu proje YALNIZ yerel Ollama kullanir; API anahtari istemez.
 $llmModel    = "qwen3:4b"
-$modelEnv    = "ACHILLES_LLM_MODEL"
+$modelEnv    = "HEKTOR_LLM_MODEL"
 $needOllama  = $true
 $ollamaRamGB = 8
 $ollamaDskGB = 3
@@ -347,7 +347,7 @@ $envContent | Set-Content ".env"
 Write-OK ".env guncellendi: yerel Ollama / $llmModel"
 
 Write-Info "Veritabani ve klasorler olusturuluyor..."
-uv run achilles init
+uv run hektor init
 Write-OK "Veritabani hazir"
 
 # ==========================================================================
@@ -360,13 +360,13 @@ Write-Host "  ====================================================" -ForegroundC
 Write-Host ""
 Write-Host "  Uygulamayi baslatmak icin:" -ForegroundColor White
 Write-Host ""
-Write-Host "    uv run achilles-web" -ForegroundColor Yellow
+Write-Host "    uv run hektor-web" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Tarayicinizda acin:" -ForegroundColor White
 Write-Host "    http://127.0.0.1:8765" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  Baglanti testi (opsiyonel):" -ForegroundColor DarkGray
-Write-Host "    uv run achilles status" -ForegroundColor DarkGray
+Write-Host "    uv run hektor status" -ForegroundColor DarkGray
 Write-Host ""
 Write-Warn "NOT: LoRA egitim modlari -- macOS Apple Silicon: MLX (hizli), Windows/Linux: PEFT/CPU."
 Write-Host "     Windows'ta tum ozellikler calismaktadir: RAG, backtest, formul cikarma, PEFT LoRA." -ForegroundColor White

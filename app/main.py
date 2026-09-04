@@ -1,6 +1,6 @@
-"""Achilles Trader AI — command line interface.
+"""Hektor Trader AI — command line interface.
 
-Run:  uv run achilles --help
+Run:  uv run hektor --help
 
 Pipeline order (per spec):
   ingest -> ask -> card -> extract-formulas -> research -> dataset -> train -> eval -> backtest
@@ -19,7 +19,7 @@ from rich.table import Table
 from app.config import configure_logging, get_settings
 
 app = typer.Typer(
-    help="Achilles Trader AI — local-first trading research system.",
+    help="Hektor Trader AI — local-first trading research system.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -45,7 +45,7 @@ def init() -> None:
     console.print(
         Panel.fit(
             f"[green]Hazır.[/green]\nSQLite: {store.db_path}\nChroma: {settings.chroma_dir}",
-            title="achilles init",
+            title="hektor init",
         )
     )
 
@@ -63,7 +63,7 @@ def status() -> None:
     papers = store.list_papers()
     llm = LocalLLM()
 
-    t = Table(title="Achilles Trader AI — durum")
+    t = Table(title="Hektor Trader AI — durum")
     t.add_column("Bileşen")
     t.add_column("Değer")
     t.add_row("LLM modeli", settings.llm_model)
@@ -147,7 +147,7 @@ def doctor() -> None:
 
     Hiçbir şey çekmez/birleştirmez/değiştirmez. Raporlar: repo yolu, dal,
     HEAD vs origin/main yakınsaması, ahead/behind, push'lanmamış yerel dallar;
-    Windows'ta AchillesWeb/AchillesUpdate görev yolu bu repoyla eşleşiyor mu.
+    Windows'ta HektorWeb/HektorUpdate görev yolu bu repoyla eşleşiyor mu.
     Çıkış kodu: 0 sağlıklı · 2 SAPMA · 1 git yok.
 
     origin/main YEREL ref'ten okunur (ağ yok). 'behind' büyükse önce
@@ -168,7 +168,7 @@ def doctor() -> None:
     _, om_full = _git_ro(["rev-parse", "origin/main"], repo)
 
     drift = False
-    t = Table(title="Achilles doctor — kurulum & sürüm sapması (salt-okuma)")
+    t = Table(title="Hektor doctor — kurulum & sürüm sapması (salt-okuma)")
     t.add_column("Kontrol")
     t.add_column("Değer")
     t.add_row("Repo yolu", str(repo))
@@ -225,7 +225,7 @@ def doctor() -> None:
     )
 
     if sys.platform == "win32":
-        for task in ("AchillesWeb", "AchillesUpdate"):
+        for task in ("HektorWeb", "HektorUpdate"):
             matched, detail = _task_path_matches(task, repo)
             if detail is None:
                 t.add_row(f"Görev {task}", "[yellow]kayıtlı değil[/yellow]")
@@ -409,7 +409,7 @@ def dataset(
 @app.command()
 def train(
     base_model: str = typer.Option(None),
-    adapter_name: str = typer.Option("achilles_lora_v1"),
+    adapter_name: str = typer.Option("hektor_lora_v1"),
     iterations: int = typer.Option(300, help="Eğitim iterasyon sayısı"),
     batch_size: int = typer.Option(2, help="Batch büyüklüğü (8GB için 2 önerilir)"),
     num_layers: int = typer.Option(8, help="LoRA adapter katman sayısı (sadece MLX)"),
@@ -444,13 +444,13 @@ def train(
         if supervisor.is_stop_all_active():
             console.print(
                 "[bold red]STOP_ALL aktif[/bold red] — gerçek eğitim bloklandı. "
-                "Kaldır: [cyan]uv run achilles clear-stop-all[/cyan]"
+                "Kaldır: [cyan]uv run hektor clear-stop-all[/cyan]"
             )
             raise typer.Exit(2)
 
         # auto_pipeline/launch zaten kendi onayını aldıysa (supervised) iç kapı atlanır
         # — çift onay olmasın; ama STOP_ALL her zaman geçerli.
-        if not _os.environ.get("ACHILLES_TRAIN_SUPERVISED"):
+        if not _os.environ.get("HEKTOR_TRAIN_SUPERVISED"):
             decision = authorize_training_action(
                 "train_run",
                 (f"Gerçek LoRA eğitimi: {adapter_name} ({iterations} adım, backend={backend})"),
@@ -461,7 +461,7 @@ def train(
                     Panel.fit(
                         "[bold red]Gerçek eğitim TAZE manuel onay gerektirir.[/bold red]\n"
                         f"Onay isteği oluşturuldu: [yellow]{decision.approval_id}[/yellow]\n"
-                        f"Onayla: [cyan]uv run achilles approval-approve "
+                        f"Onayla: [cyan]uv run hektor approval-approve "
                         f"{decision.approval_id}[/cyan]\n"
                         "Sonra bu komutu TEKRAR çalıştır. "
                         "(Standing yetki yok — her eğitim ayrı onay ister.)",
@@ -490,8 +490,8 @@ def train(
         if n_train <= 0:
             console.print(
                 "[red]Eğitim verisi yok (train.jsonl boş).[/red] Önce veri kur: "
-                "[cyan]uv run python scripts/assemble_sft.py && uv run achilles lora-split[/cyan] "
-                "ya da [cyan]uv run achilles lora-cloud-prep[/cyan]."
+                "[cyan]uv run python scripts/assemble_sft.py && uv run hektor lora-split[/cyan] "
+                "ya da [cyan]uv run hektor lora-cloud-prep[/cyan]."
             )
             raise typer.Exit(1)
         console.print(f"[dim]Eğitim verisi tazelendi: train={n_train}, valid={_n_valid}.[/dim]")
@@ -1075,7 +1075,7 @@ def rlm_tools(
             t.add_row(name, "[green]✓[/green]")
         console.print(t)
         console.print(
-            "[dim]Çağrı örneği: achilles rlm-tools --call calculator --expr '2*(3+4)'[/dim]"
+            "[dim]Çağrı örneği: hektor rlm-tools --call calculator --expr '2*(3+4)'[/dim]"
         )
         return
 
@@ -1401,7 +1401,7 @@ def lit_scan(
 ) -> None:
     """Literatür KEŞİF turu: LoRA/RAG/RLM/matematik-fizik adaylarını tara, indir, listele.
 
-    İndirilenler "gelen kutusu"na düşer (ACHILLES_SCOUT_INBOX_DIR; yoksa
+    İndirilenler "gelen kutusu"na düşer (HEKTOR_SCOUT_INBOX_DIR; yoksa
     data/literature_inbox/). **RAG'a ingest ETMEZ, eğitim BAŞLATMAZ** — bunlar SENDE
     kalır (Kural 8). Claude/API kotası kullanmaz: yalnız arXiv + offline skor.
     """
@@ -1674,7 +1674,7 @@ def tool_use_train(
         f"[green]✓ {len(sessions)} seans tamamlandı "
         f"({pass_count} geçti / {len(sessions) - pass_count} başarısız)[/green]"
     )
-    console.print("[dim]Veri seti için: achilles tool-use-dataset[/dim]")
+    console.print("[dim]Veri seti için: hektor tool-use-dataset[/dim]")
 
 
 @app.command("tool-use-dataset")
@@ -1691,7 +1691,7 @@ def tool_use_dataset(
         f"{stats['n_steps']} adım · {stats['sft_eligible']} SFT uygun"
     )
     if stats["n_sessions"] == 0:
-        console.print("[yellow]Önce: achilles tool-use-train[/yellow]")
+        console.print("[yellow]Önce: hektor tool-use-train[/yellow]")
         raise typer.Exit(1)
 
     examples = build_tool_use_dataset(
@@ -1787,7 +1787,7 @@ def reward_analyze(
         pairs = build_dpo_dataset(output_path=Path(output))
         console.print(f"[green]✓ {len(pairs)} DPO çifti → {output}[/green]")
     elif stats["dpo_eligible_pairs"] > 0:
-        console.print("[dim]DPO veri seti için: achilles reward-analyze --build-dpo[/dim]")
+        console.print("[dim]DPO veri seti için: hektor reward-analyze --build-dpo[/dim]")
 
 
 @app.command("rules-update")
@@ -1818,7 +1818,7 @@ def oss_rules_update(
             console.print(
                 f"[yellow]Kural uygulama TAZE onay gerektirir.[/yellow] "
                 f"Onay isteği: [cyan]{decision.approval_id}[/cyan]\n"
-                f"Onayla: uv run achilles approval-approve {decision.approval_id}, "
+                f"Onayla: uv run hektor approval-approve {decision.approval_id}, "
                 "sonra tekrar çalıştır."
             )
             raise typer.Exit(3)
@@ -1849,7 +1849,7 @@ def oss_rules_update(
                 f"  [dim]{p.suggestion_id[:8]}[/dim]  {patch.get('action', '?')} → {p.rule_file}"
             )
             console.print(f"    {p.reason[:100]}")
-        console.print("\n[dim]Onaylamak: achilles rules-update --approve <id>[/dim]")
+        console.print("\n[dim]Onaylamak: hektor rules-update --approve <id>[/dim]")
     elif not new:
         console.print("[green]✓ Yeni öneri yok; sistem sağlıklı.[/green]")
 
@@ -1977,7 +1977,7 @@ def arxiv_sync(
     queries = store.list_arxiv_saved_queries()
     if not queries:
         console.print("[yellow]Kayıtlı arXiv sorgusu yok. Önce:[/yellow]")
-        console.print('  uv run achilles arxiv "sorgu terimi"')
+        console.print('  uv run hektor arxiv "sorgu terimi"')
         return
 
     console.print(f"[bold]{len(queries)} kayıtlı sorgu bulundu.[/bold]")
@@ -2007,7 +2007,7 @@ def arxiv_sync(
     if not dry_run:
         console.print(f"\n[bold green]Toplam {total_new} yeni makale eklendi.[/bold green]")
         if total_new > 0:
-            console.print("[dim]Yeni makaleler için: uv run achilles ingest[/dim]")
+            console.print("[dim]Yeni makaleler için: uv run hektor ingest[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -2038,7 +2038,7 @@ def mastery_to_sft(
         )
         console.print(
             "[dim]İpucu: Önce mastery testleri çalıştır:[/dim] "
-            "achilles mastery-queue --enqueue-all && achilles mastery-queue --run-all"
+            "hektor mastery-queue --enqueue-all && hektor mastery-queue --run-all"
         )
     else:
         console.print(f"[green]✓[/green] {n} SFT örneği → [bold]{path}[/bold]")
@@ -2066,7 +2066,7 @@ def unified_dataset(
     console.print(f"  → [bold]{stats.output_path}[/bold]")
     console.print()
     console.print("[dim]LoRA eğitimi için:[/dim]")
-    console.print(f"  uv run achilles train --run --data {stats.output_path}")
+    console.print(f"  uv run hektor train --run --data {stats.output_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -2156,7 +2156,7 @@ def lora_curate(
     mode = "[yellow]DRY-RUN[/yellow] (DB'ye yazılmadı)" if dry_run else "[green]UYGULANDI[/green]"
     console.print(f"Mod: {mode}")
     if dry_run and report.total_demoted:
-        console.print("[dim]Uygulamak için:[/dim] uv run achilles lora-curate --run")
+        console.print("[dim]Uygulamak için:[/dim] uv run hektor lora-curate --run")
 
     settings = get_settings()
     report_path = settings.root / "reports" / "lora" / "curation_report.md"
@@ -2291,7 +2291,7 @@ def synth_qa(
     if total == 0:
         console.print(
             "[yellow]Hiç örnek üretilmedi.[/yellow] Önce makale ingest et "
-            "(uv run achilles arxiv/ingest); chunk'lar gerekli."
+            "(uv run hektor arxiv/ingest); chunk'lar gerekli."
         )
         return
     console.print(f"[green]✓[/green] +{added} yeni → toplam {total} → [bold]{out_path}[/bold]")
@@ -2493,27 +2493,27 @@ def lora_readiness(
     if gate_ok:
         console.print(
             "[green]✓ Nicelik eşiği karşılandı.[/green] Sıradaki kapılar (Stage 2'den önce):\n"
-            "  1) [bold]uv run achilles lora-audit[/bold] (Gate 0-7 kalite denetimi)\n"
+            "  1) [bold]uv run hektor lora-audit[/bold] (Gate 0-7 kalite denetimi)\n"
             "  2) Kullanıcı onayı (gerçek eğitim yalnız açık komutla — CLAUDE.md kural 8)\n"
-            "  3) [bold]uv run achilles lora-cloud-prep[/bold] → bulut-GPU notebook"
+            "  3) [bold]uv run hektor lora-cloud-prep[/bold] → bulut-GPU notebook"
         )
     else:
         kalan = threshold - total
         console.print(
             f"[yellow]Henüz eşik altında[/yellow] — {kalan} örnek daha gerekli. "
             "Stage 1 üretimine devam: [bold]bash scripts/continuous-learning.sh 72[/bold] "
-            "veya [bold]uv run achilles synth-qa[/bold]."
+            "veya [bold]uv run hektor synth-qa[/bold]."
         )
 
 
 @app.command("lora-cloud-prep")
 def lora_cloud_prep(
     hf_repo: str = typer.Option(
-        "KULLANICI/achilles-lora-sft",
+        "KULLANICI/hektor-lora-sft",
         "--hf-repo",
         help="HF private dataset repo (kendi kullanıcı adınla)",
     ),
-    adapter_name: str = typer.Option("achilles_lora_cloud", "--adapter-name"),
+    adapter_name: str = typer.Option("hektor_lora_cloud", "--adapter-name"),
     lora_r: int = typer.Option(16, "--lora-r", help="LoRA rank (4B için 16-32)"),
     epochs: int = typer.Option(2, "--epochs", help="Epoch (≥1000 örnek için 2-3)"),
     max_seq_len: int = typer.Option(2048, "--max-seq-len", help="T4 güvenli 2048"),
@@ -2616,7 +2616,7 @@ def lora_cloud_prep(
 
     # 3) Notebook + Modelfile üret (doğrulanmış unsloth şablonu).
     out_dir = output if output.is_absolute() else (settings.root / output)
-    nb_path = out_dir / "achilles_lora_stage2.ipynb"
+    nb_path = out_dir / "hektor_lora_stage2.ipynb"
     build_stage2_notebook(
         base_model=settings.peft_base_model,
         adapter_name=adapter_name,
@@ -2649,7 +2649,7 @@ def lora_cloud_prep(
     if n < 1000:
         console.print(
             f"[yellow]UYARI:[/yellow] {n} örnek < 1000. Az veride overfit eder; önce "
-            "[bold]uv run achilles synth-qa[/bold] ile büyüt (Stage 1)."
+            "[bold]uv run hektor synth-qa[/bold] ile büyüt (Stage 1)."
         )
     console.print(f"[green]✓[/green] Notebook: [bold]{nb_path}[/bold]")
     console.print(f"[green]✓[/green] Modelfile: [bold]{mf_path}[/bold]")
@@ -2659,12 +2659,12 @@ def lora_cloud_prep(
         f"{combined} lora_sft.jsonl --repo-type dataset[/bold]\n"
         "  2) HF READ token → Kaggle Secrets / Colab userdata: ad=HF_TOKEN\n"
         "  2b) (önerilen) discipline_safe reçetesiyle hazırla: "
-        "[bold]uv run achilles lora-cloud-prep --profile discipline_safe[/bold]\n"
+        "[bold]uv run hektor lora-cloud-prep --profile discipline_safe[/bold]\n"
         "  3) Kaggle (T4×2, Internet ON) veya Colab (T4) → notebook'u Run All\n"
-        "  4) İndir: achilles-Q4_K_M.gguf + Modelfile → aynı klasör\n"
-        "  5) [bold]ollama create achilles -f Modelfile[/bold]\n"
-        "  6) Eval gate: [bold]$env:ACHILLES_LLM_MODEL='achilles'; "
-        "uv run achilles evaluate evals/discipline_core.jsonl[/bold]\n"
+        "  4) İndir: hektor-Q4_K_M.gguf + Modelfile → aynı klasör\n"
+        "  5) [bold]ollama create hektor -f Modelfile[/bold]\n"
+        "  6) Eval gate: [bold]$env:HEKTOR_LLM_MODEL='hektor'; "
+        "uv run hektor evaluate evals/discipline_core.jsonl[/bold]\n"
         "  7) Onaylıysa promote (yalnız kullanıcı onayıyla — kural 8)"
     )
 
@@ -2731,7 +2731,7 @@ def reindex_contextual(
 
     Her chunk'a "başlık / bölüm:" ön-eki eklenerek yeniden embed edilir (retrieval
     doğruluğu ↑); Chroma document'ı (orijinal metin) + metadata değişmez. Bittiğinde
-    .env'e ACHILLES_RAG_CONTEXTUAL_EMBED=true ekle ki yeni makaleler de eşleşsin.
+    .env'e HEKTOR_RAG_CONTEXTUAL_EMBED=true ekle ki yeni makaleler de eşleşsin.
     Detay: docs/RAG_EGITIM_YENIDEN_TASARIM.md (P2).
     """
     from app.memory.chroma_store import ChromaStore
@@ -2781,7 +2781,7 @@ def reindex_contextual(
 
     console.print(f"[green]✓[/green] {total} chunk contextual yeniden embed edildi.")
     console.print(
-        "[bold].env'e ekle:[/bold] ACHILLES_RAG_CONTEXTUAL_EMBED=true "
+        "[bold].env'e ekle:[/bold] HEKTOR_RAG_CONTEXTUAL_EMBED=true "
         "(yeni makalelerin de eşleşmesi için)."
     )
 
@@ -2832,7 +2832,7 @@ def synth_paper(
     path = generate_synthesis_paper(max_sessions=max_sessions, question_filter=question)
     if path is None:
         console.print(
-            "[yellow]Araştırma oturumu yok — önce 'achilles research \"soru\"' çalıştır.[/yellow]"
+            "[yellow]Araştırma oturumu yok — önce 'hektor research \"soru\"' çalıştır.[/yellow]"
         )
         return
     console.print(f"[green]✓[/green] Sentez makalesi → [bold]{path}[/bold]")
@@ -3098,7 +3098,7 @@ def understanding_history_cmd(
         return
     if not rows:
         console.print(
-            "Henüz kayıtlı anlama skoru yok. 'achilles understanding-score --record' ile oluştur."
+            "Henüz kayıtlı anlama skoru yok. 'hektor understanding-score --record' ile oluştur."
         )
         return
     table = Table(title="Anlama Skoru Geçmişi (objektif, kalıcı)")
@@ -3146,7 +3146,7 @@ def agents_list() -> None:
     except Exception as exc:
         console.print(f"[red]Manifest okunamadı:[/red] {exc}")
         raise typer.Exit(1) from exc
-    t = Table(title="Achilles — runtime agent'lar")
+    t = Table(title="Hektor — runtime agent'lar")
     t.add_column("agent_id")
     t.add_column("otonomi")
     t.add_column("tehlikeli")
@@ -3545,7 +3545,7 @@ def _render_orchestration(snap: dict) -> None:
 def orchestrate_start_cmd(
     model: str = typer.Option("", "--model", help="LLM/base model (boşsa ayardan)."),
     profile: str = typer.Option("discipline_safe_local", "--profile", help="LoRA profili."),
-    adapter: str = typer.Option("achilles_lora", "--adapter", help="Adapter adı."),
+    adapter: str = typer.Option("hektor_lora", "--adapter", help="Adapter adı."),
     iters: int = typer.Option(300, "--iters", help="Eğitim adım sayısı (öneri/önizleme)."),
     hunt_ack: bool = typer.Option(
         False,
@@ -3580,7 +3580,7 @@ def orchestrate_start_cmd(
         console.print(f"[bold]Koşu:[/bold] {run_id}")
         _render_orchestration(snap)
         console.print(
-            "[dim]Sürdür: achilles orchestrate-resume "
+            "[dim]Sürdür: hektor orchestrate-resume "
             f"{run_id} --hunt-ack (gerektiğinde onay sonrası)[/dim]"
         )
 
@@ -3622,7 +3622,7 @@ def orchestrate_resume_cmd(
     """Bloke/başarısız bir koşuyu SÜRDÜR — tamamlanan aşamalar atlanır (checkpoint).
 
     `--hunt-ack` verilirse koşu parametresi güncellenir (derin av onayı). Onay kapısı
-    için önce `achilles approval-approve <id>` çalıştırın; sonra bu komutla sürdürün.
+    için önce `hektor approval-approve <id>` çalıştırın; sonra bu komutla sürdürün.
     """
     from app.orchestration.orchestrator import TrainingOrchestrator
 
@@ -3722,7 +3722,7 @@ def orchestrate_autodrive_cmd(
         console.print("[bold]DRY-RUN[/bold] — çalıştırılacak komut:")
         console.print(f'  [cyan]{" ".join(res["command"][:2])} "<derin-av-promptu>"[/cyan]')
         console.print(
-            f"[dim]Gerçek çalıştırmak için: achilles orchestrate-autodrive {run_id} --execute[/dim]"
+            f"[dim]Gerçek çalıştırmak için: hektor orchestrate-autodrive {run_id} --execute[/dim]"
         )
         return
     if res.get("hunt_passed"):
@@ -3801,8 +3801,8 @@ def orchestrate_drive_live_cmd(
 
     ⚠️ Bu KOMUT OTOMATİK DEĞİLDİR ve CI'da ASLA koşmaz. `--allow-live-spawn` OLMADAN hiçbir
     süreç doğurmaz (yalnız neden kapalı olduğunu açıklar). Bayrakla: `claude`'u SÜR (drive)
-    argv'siyle bir kez doğurur, çıktıda Achilles MCP araçlarının (`mcp__*`) GERÇEKTEN
-    göründüğünü kanıtlar, sonra biter. Önce `uv run achilles-web` çalışıyor olmalı (MCP proxy
+    argv'siyle bir kez doğurur, çıktıda Hektor MCP araçlarının (`mcp__*`) GERÇEKTEN
+    göründüğünü kanıtlar, sonra biter. Önce `uv run hektor-web` çalışıyor olmalı (MCP proxy
     ona bağlanır) ve `claude` aboneliğinle girişli olmalı. Gerçek eğitim BAŞLATMAZ (Kural 8).
     """
     from app.orchestration.run_smoke import LiveDriveSmoke
@@ -4257,7 +4257,7 @@ def stop_all(reason: str = typer.Option("", "--reason", help="Durdurma nedeni"))
         Panel.fit(
             f"[bold red]STOP_ALL ETKİN[/bold red]\nNeden: {reason or '—'}\n"
             "Tüm tehlikeli aksiyonlar (gerçek eğitim, terfi) bloklandı.\n"
-            "Kaldır: [cyan]uv run achilles clear-stop-all[/cyan]",
+            "Kaldır: [cyan]uv run hektor clear-stop-all[/cyan]",
             title="🛑 Acil durdurma",
         )
     )
@@ -4276,7 +4276,7 @@ def clear_stop_all_cmd() -> None:
 def runtime_init() -> None:
     """Ajan-runtime ön-uçuş: manifest + Phase-2 tabloları + STOP_ALL doğrula (taze makine kapısı).
 
-    'achilles init' tabloları zaten oluşturur; bu komut bunu DOĞRULAR. Sorun varsa
+    'hektor init' tabloları zaten oluşturur; bu komut bunu DOĞRULAR. Sorun varsa
     sıfır-dışı çıkar → autostart/agent komutlarından önce kapı olarak kullanılabilir.
     """
     from app.agents.runtime.preflight import runtime_preflight
@@ -4467,7 +4467,7 @@ def registry_register_dataset(
         f"[green]Kayıt edildi:[/green] {out['dataset_version_id']} · "
         f"{out['n_records']} kayıt · durum={out['approval_status']} · "
         f"hash={(out['content_hash'] or '')[:12]}\n"
-        f"Onay için: achilles registry-promote-dataset --version {out['dataset_version_id']} "
+        f"Onay için: hektor registry-promote-dataset --version {out['dataset_version_id']} "
         f"--approver <kim>"
     )
 

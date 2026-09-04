@@ -1,10 +1,10 @@
-# Achilles — RAG + Eğitim Yeniden Tasarım Planı
+# Hektor — RAG + Eğitim Yeniden Tasarım Planı
 
 > **Tek hedef:** Fine-tuning olmadan **şimdi** güvenilir "trader uzmanı"; ve doğru
 > zamanda (≥1000 örnek) **bulut-GPU** ile LoRA. Sürekli CPU-eğitimi durdurulur.
 > Tüm iddialar mevcut kodla ve dış kanıtla doğrulanmıştır; overclaim yok.
 >
-> Kaynak: 4 paralel araştırma ajanı (web + Achilles kodu okuması), 2026-06-13.
+> Kaynak: 4 paralel araştırma ajanı (web + Hektor kodu okuması), 2026-06-13.
 
 ---
 
@@ -56,9 +56,9 @@ boş). Yani `HybridRetriever`, `Reranker`, `EnsembleReranker`,
 
 ### 2.1 RAG-first — şimdi robust, eğitimsiz (en yüksek etki/en düşük efor)
 OpenAI doğrulama sırası: **prompt → few-shot → RAG → (en son) fine-tuning.**
-Achilles'te eksik olan teknoloji değil, **entegrasyon.**
+Hektor'te eksik olan teknoloji değil, **entegrasyon.**
 
-| Sıra | İyileştirme | Achilles'te somut | Durum |
+| Sıra | İyileştirme | Hektor'te somut | Durum |
 |------|-------------|-------------------|-------|
 | **P0** | Over-fetch + rerank + truncate | `RerankingRetriever` → `RagAnswerer` varsayılanı | ✅ tamam |
 | **P0** | BM25'i doldur → hybrid'i aç | `bm25_corpus.py` (Chroma'dan lazy/cache) + `RerankingRetriever` genişletir; `rag_hybrid=True` | ✅ tamam |
@@ -68,13 +68,13 @@ Achilles'te eksik olan teknoloji değil, **entegrasyon.**
 | **P4** | Eval'i gerçek yola yönelt | `retrieval_eval.py` `Retriever` protokolünü alır → `RerankingRetriever` geçilebilir | ✅ etkin |
 
 > **Cross-encoder'ı açmak (P1, opsiyonel):** `uv pip install sentence-transformers` +
-> `ACHILLES_RAG_CROSS_ENCODER=true`. Model (bge-reranker-base, ~280MB) ilk kullanımda
+> `HEKTOR_RAG_CROSS_ENCODER=true`. Model (bge-reranker-base, ~280MB) ilk kullanımda
 > iner; i7 CPU'da her sorguya latency ekler — bu yüzden varsayılan kapalı. Model
 > yoksa otomatik heuristik reranker'a düşer (sistem her zaman çalışır).
 >
-> **Contextual Retrieval'ı açmak (P2, opsiyonel):** `uv run achilles reindex-contextual`
+> **Contextual Retrieval'ı açmak (P2, opsiyonel):** `uv run hektor reindex-contextual`
 > (tüm korpusu "başlık/bölüm:" ön-ekiyle yeniden embed eder — AĞIR, Ollama) → sonra
-> `.env`'e `ACHILLES_RAG_CONTEXTUAL_EMBED=true`. Varsayılan kapalı: yarı-prefix'li
+> `.env`'e `HEKTOR_RAG_CONTEXTUAL_EMBED=true`. Varsayılan kapalı: yarı-prefix'li
 > korpus tutarsız olurdu, bu yüzden hep-veya-hiç (re-index zorunlu).
 
 **Korunan güçlü taraf:** Refusal-on-empty zaten DOĞRULANDI
@@ -111,7 +111,7 @@ Uçtan uca kadans (~30-60 dk, maliyet $0):
 | 2. Yükle (HF **private** repo + token) | — | 1-2 dk |
 | 3. Eğit: **unsloth**, `r=16/32, lr=2e-4, 2 epoch, batch 16` | **Kaggle (30 sa/hafta T4×2)** / Colab T4 | 15-40 dk |
 | 4. Export: `save_pretrained_gguf("q4_k_m")` + Modelfile | Bulut | 3-8 dk |
-| 5. İndir → `ollama create achilles` → eval gate → promote | Lokal | 2-5 dk |
+| 5. İndir → `ollama create hektor` → eval gate → promote | Lokal | 2-5 dk |
 
 **Ucuz GPU sırası:** Kaggle > Colab free T4 > Modal ($30/ay kredi) > RunPod 4090
 ($0.34/sa). 4B için A100 gereksiz; T4 yeterli.
@@ -161,7 +161,7 @@ düşer, **adapter bozulur.**
 (2) tam RAG yolu üslup/format hatasını çözememiş; **VE** (3) eğitim bulut-GPU'da,
 açık `--run`, eval gate + smoke geçerek.
 
-**Nihai karar:** Achilles şimdi yazılı-ama-bağlanmamış RAG'ı canlıya almalı
+**Nihai karar:** Hektor şimdi yazılı-ama-bağlanmamış RAG'ı canlıya almalı
 (P0-P4), lokal sentetik veriyle 15→2000 örneğe çıkmalı, sürekli CPU-LoRA'yı
 durdurmalı; LoRA'yı yalnız ≥1000 örnek + RAG ile çözülemeyen üslup hatası
 koşulunda bulut-GPU kadansıyla yapmalı — hem 2024-2026 kanıtıyla hem projenin

@@ -1,4 +1,4 @@
-# Achilles literature scout -- daily discovery run (ASCII-only, Windows PS 5.1 safe).
+# Hektor literature scout -- daily discovery run (ASCII-only, Windows PS 5.1 safe).
 #
 #   Manual run:  powershell -ExecutionPolicy Bypass -File scripts\literature-scout.ps1
 #   Scheduled:   scripts\install-literature-scout-task.ps1 registers this daily.
@@ -10,7 +10,7 @@
 # WHAT IT DOES NOT DO: it never ingests into RAG and never starts training.
 # Downloaded != ingested != trained -- those stay manual (CLAUDE.md Rule 8).
 #
-# Inbox location: $env:ACHILLES_SCOUT_INBOX_DIR, else <repo>\data\literature_inbox
+# Inbox location: $env:HEKTOR_SCOUT_INBOX_DIR, else <repo>\data\literature_inbox
 
 param(
     [int]$TopN = 2,
@@ -26,7 +26,7 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Forc
 $stamp = Get-Date -Format "yyyy-MM-dd_HHmm"
 $log = Join-Path $logDir ("scout-" + $stamp + ".log")
 
-$scoutArgs = @("run", "--no-sync", "achilles", "lit-scan", "--top-n", $TopN)
+$scoutArgs = @("run", "--no-sync", "hektor", "lit-scan", "--top-n", $TopN)
 if ($NoDownload) { $scoutArgs += "--no-download" }
 
 Write-Output ("[" + (Get-Date -Format "HH:mm:ss") + "] literature scout starting...")

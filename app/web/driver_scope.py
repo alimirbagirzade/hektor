@@ -1,6 +1,6 @@
 """driver_scope.py — sürücü (driver) kimlik token'ları: kısa ömürlü + koşuya bağlı.
 
-Achilles kendi motorunu (`claude -p`) doğurur (bkz. app/orchestration/driver.py).
+Hektor kendi motorunu (`claude -p`) doğurur (bkz. app/orchestration/driver.py).
 Bu modül, doğurulan motora **insandan daha az** yetkili bir kimlik verir: token
 bir `run_id`'ye bağlıdır, TTL ile sınırlıdır ve koşu bitince iptal edilir.
 
@@ -25,12 +25,12 @@ from dataclasses import dataclass
 
 # Sürücü token'ı YALNIZ bu başlıkta kabul edilir — `Authorization` başlığında ASLA.
 # Böylece bir sürücü token'ı yanlışlıkla insan yoluna düşemez.
-DRIVER_TOKEN_HEADER = "x-achilles-driver-token"
-RUN_ID_HEADER = "x-achilles-run-id"
+DRIVER_TOKEN_HEADER = "x-hektor-driver-token"
+RUN_ID_HEADER = "x-hektor-run-id"
 
 # Ortam değişkeni adları (doğurulan sürece geçirilir).
-DRIVER_TOKEN_ENV = "ACHILLES_DRIVER_TOKEN"
-DRIVER_RUN_ID_ENV = "ACHILLES_DRIVER_RUN_ID"
+DRIVER_TOKEN_ENV = "HEKTOR_DRIVER_TOKEN"
+DRIVER_RUN_ID_ENV = "HEKTOR_DRIVER_RUN_ID"
 
 # Varsayılan TTL: derin av zaman aşımıyla (HUNT_TIMEOUT_S=1800) hizalı + pay.
 DEFAULT_TTL_S = 2100

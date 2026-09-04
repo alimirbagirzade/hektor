@@ -1,4 +1,4 @@
-# Achilles Web Server -- Windows kalici arka plan servisi
+# Hektor Web Server -- Windows kalici arka plan servisi
 # Kullanim:
 #   .\scripts\start-server.ps1            -- simdi baslat (zaten calisiyorsa DOKUNMAZ)
 #   .\scripts\start-server.ps1 -Restart   -- durdur + tekrar baslat (git pull SONRASI bunu kullan)
@@ -29,13 +29,13 @@ $ErrorActionPreference = "Continue"
 $ScriptDir  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ProjectDir = Split-Path -Parent $ScriptDir
 $LogDir     = Join-Path $ProjectDir "logs"
-$LogOut     = Join-Path $LogDir "achilles-web.log"
-$LogErr     = Join-Path $LogDir "achilles-web-err.log"
+$LogOut     = Join-Path $LogDir "hektor-web.log"
+$LogErr     = Join-Path $LogDir "hektor-web-err.log"
 $PidFile    = Join-Path $ProjectDir ".web.pid"
-$VbsFile    = Join-Path $ScriptDir "achilles-autostart.vbs"
+$VbsFile    = Join-Path $ScriptDir "hektor-autostart.vbs"
 $RegPath    = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-$RegKey     = "AchillesWeb"
-$WebExe     = Join-Path $ProjectDir ".venv\Scripts\achilles-web.exe"
+$RegKey     = "HektorWeb"
+$WebExe     = Join-Path $ProjectDir ".venv\Scripts\hektor-web.exe"
 $WebTaskScript = Join-Path $ScriptDir "run-web-service.ps1"
 
 # ---------------------------------------------------------------- uv bul
@@ -99,7 +99,7 @@ function Start-OllamaIfNeeded {
     Write-Host "  [!] Ollama bulunamadi -- RAG/LLM calismaaz" -ForegroundColor Yellow
 }
 
-function Start-AchillesServer {
+function Start-HektorServer {
     $running = Get-WebPid
     if ($running) {
         Write-Host "  [OK] Zaten calisiyor (PID $running) -- http://127.0.0.1:8765" -ForegroundColor Green
@@ -109,13 +109,13 @@ function Start-AchillesServer {
     $null = New-Item -ItemType Directory -Path $LogDir -Force
 
     # KRITIK: uv her `uv run` cagrisinda paketi yeniden senkronlamaya calisir; bu da
-    # calisan (veya yari-olu) bir sunucunun kilitledigi achilles-web.exe'yi silmeye
+    # calisan (veya yari-olu) bir sunucunun kilitledigi hektor-web.exe'yi silmeye
     # ugrasip "os error 32" ile patlar -> SUNUCU HIC BASLAMAZ. Senkronu kapat;
     # bagimliliklar zaten kurulu, sunucu yalniz mevcut ortami kullanir.
     # (Ayni cozum scripts/continuous-learning.sh icinde de uygulanmis durumda.)
     $env:UV_NO_SYNC = "1"
     # Yalniz taze kurulum (.venv yok) ise bir defaliga senkronla — aksi halde
-    # --no-sync ile achilles-web giris noktasi bulunamaz.
+    # --no-sync ile hektor-web giris noktasi bulunamaz.
     $venvDir = Join-Path $ProjectDir ".venv"
     if (-not (Test-Path $venvDir)) {
         Write-Host "  [..] Ilk kurulum: uv sync" -ForegroundColor Gray
@@ -126,7 +126,7 @@ function Start-AchillesServer {
     try {
         $proc = Start-Process `
             -FilePath $UvPath `
-            -ArgumentList "run", "--no-sync", "--project", "`"$ProjectDir`"", "achilles-web" `
+            -ArgumentList "run", "--no-sync", "--project", "`"$ProjectDir`"", "hektor-web" `
             -WorkingDirectory $ProjectDir `
             -RedirectStandardOutput $LogOut `
             -RedirectStandardError  $LogErr `
@@ -145,13 +145,13 @@ function Start-AchillesServer {
     try {
         $null = Invoke-WebRequest -Uri "http://127.0.0.1:8765/api/status" `
             -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop
-        Write-Host "  [OK] Achilles Web calisiyor -- http://127.0.0.1:8765" -ForegroundColor Green
+        Write-Host "  [OK] Hektor Web calisiyor -- http://127.0.0.1:8765" -ForegroundColor Green
     } catch {
         Write-Host "  [!] Basliyor... log: $LogErr" -ForegroundColor Yellow
     }
 }
 
-function Stop-AchillesServer {
+function Stop-HektorServer {
     $webPid = Get-WebPid
     if ($webPid) {
         # PID, `uv run` sarmalayicisina aittir; gercek sunucu onun ALT prosesi
@@ -166,7 +166,7 @@ function Stop-AchillesServer {
     $procs = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
             $_.CommandLine -like "*app.web.server*" -or
-            $_.CommandLine -like "*achilles-web*"
+            $_.CommandLine -like "*hektor-web*"
         }
     if ($procs) {
         $procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
@@ -206,7 +206,7 @@ function Format-PathMatch {
     return "$Embedded $match"
 }
 
-# VBS + Registry Run + AchillesWeb/AchillesUpdate gorevlerini MEVCUT checkout'a yaz
+# VBS + Registry Run + HektorWeb/HektorUpdate gorevlerini MEVCUT checkout'a yaz
 # (idempotent kendini-onarma). Cagrildigi $ProjectDir/$ScriptDir'e gomer. git'e DOKUNMAZ.
 # Yukseltilmemis (non-admin) oturumda Register-ScheduledTask basarisiz olabilir; sessiz
 # "[OK]" yerine GERCEK sonucu raporlamak icin $script:AutostartOk izlenir.
@@ -239,12 +239,12 @@ Set sh = Nothing
     $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -StartWhenAvailable `
         -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 2)
     try {
-        Register-ScheduledTask -TaskName "AchillesWeb" -Action $action `
+        Register-ScheduledTask -TaskName "HektorWeb" -Action $action `
             -Trigger $trigger -Settings $settings -RunLevel Highest -Force -ErrorAction Stop | Out-Null
         Write-Host "  [OK] Gorev Zamanlayici yedegi eklendi" -ForegroundColor Green
     } catch {
         $script:AutostartOk = $false
-        Write-Host "  [!] AchillesWeb gorevi KAYDEDILEMEDI (Yonetici PowerShell gerekebilir)." -ForegroundColor Yellow
+        Write-Host "  [!] HektorWeb gorevi KAYDEDILEMEDI (Yonetici PowerShell gerekebilir)." -ForegroundColor Yellow
     }
 
     # Eğitim web'den bağımsızdır. Watchdog yalnız PID yoksa train_status.json'daki
@@ -256,7 +256,7 @@ Set sh = Nothing
     $watchdogTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
         -RepetitionInterval (New-TimeSpan -Minutes 5)
     try {
-        Register-ScheduledTask -TaskName "AchillesTrainingWatchdog" -Action $watchdogAction `
+        Register-ScheduledTask -TaskName "HektorTrainingWatchdog" -Action $watchdogAction `
             -Trigger $watchdogTrigger -Settings $settings -Force -ErrorAction Stop | Out-Null
         Write-Host "  [OK] Egitim watchdog eklendi (5 dakikada bir)" -ForegroundColor Green
     } catch {
@@ -275,22 +275,22 @@ Set sh = Nothing
         -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
         -StartWhenAvailable
     try {
-        Register-ScheduledTask -TaskName "AchillesUpdate" -Action $updateAction `
+        Register-ScheduledTask -TaskName "HektorUpdate" -Action $updateAction `
             -Trigger $updateTrigger -Settings $updateSettings -RunLevel Highest -Force -ErrorAction Stop | Out-Null
         Write-Host "  [OK] Gunluk otomatik guncelleme eklendi (her gun 03:00)" -ForegroundColor Green
     } catch {
         $script:AutostartOk = $false
-        Write-Host "  [!] AchillesUpdate gorevi KAYDEDILEMEDI (Yonetici PowerShell gerekebilir)." -ForegroundColor Yellow
+        Write-Host "  [!] HektorUpdate gorevi KAYDEDILEMEDI (Yonetici PowerShell gerekebilir)." -ForegroundColor Yellow
     }
 }
 
 # Kayitli gorev/Registry yolu bu repodan farkliysa (veya yoksa) yeniden gom. git'e DOKUNMAZ.
 function Repair-Autostart {
-    $webEmb = Get-EmbeddedTaskPath -TaskName "AchillesWeb"
-    $webTask = Get-ScheduledTask -TaskName "AchillesWeb" -ErrorAction SilentlyContinue
-    $watchdogTask = Get-ScheduledTask -TaskName "AchillesTrainingWatchdog" -ErrorAction SilentlyContinue
+    $webEmb = Get-EmbeddedTaskPath -TaskName "HektorWeb"
+    $webTask = Get-ScheduledTask -TaskName "HektorWeb" -ErrorAction SilentlyContinue
+    $watchdogTask = Get-ScheduledTask -TaskName "HektorTrainingWatchdog" -ErrorAction SilentlyContinue
     $expectedWebExe = "powershell.exe"
-    $updEmb = Get-EmbeddedTaskPath -TaskName "AchillesUpdate"
+    $updEmb = Get-EmbeddedTaskPath -TaskName "HektorUpdate"
     $regVal = (Get-ItemProperty -Path $RegPath -Name $RegKey -ErrorAction SilentlyContinue).$RegKey
     $needs = $false
     if (-not (Test-PathMatchesRepo $webEmb $ProjectDir)) { $needs = $true }
@@ -339,13 +339,13 @@ function Install-Autostart {
         }
     }
 
-    # VBS + Registry Run + AchillesWeb/AchillesUpdate gorevlerini BU checkout'a yaz
+    # VBS + Registry Run + HektorWeb/HektorUpdate gorevlerini BU checkout'a yaz
     # (tek dogru kaynak; -Install her cagrildiginda mevcut $ProjectDir'e yeniden gomer).
     Sync-Autostart
 
     # Hemen baslat
     Start-OllamaIfNeeded
-    Start-AchillesServer
+    Start-HektorServer
 
     Write-Host ""
     Write-Host "  Artik PowerShell'i kapatabilirsiniz." -ForegroundColor Cyan
@@ -354,12 +354,12 @@ function Install-Autostart {
 }
 
 function Uninstall-Autostart {
-    Stop-AchillesServer
+    Stop-HektorServer
     Remove-ItemProperty -Path $RegPath -Name $RegKey -ErrorAction SilentlyContinue
     Remove-Item $VbsFile -Force -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName "AchillesWeb"    -Confirm:$false -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName "AchillesUpdate" -Confirm:$false -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName "AchillesTrainingWatchdog" -Confirm:$false -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName "HektorWeb"    -Confirm:$false -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName "HektorUpdate" -Confirm:$false -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName "HektorTrainingWatchdog" -Confirm:$false -ErrorAction SilentlyContinue
     Write-Host "  [OK] Otomatik baslatma ve guncelleme kaldirildi." -ForegroundColor Yellow
 }
 
@@ -373,13 +373,13 @@ function Show-Status {
     }
     $reg = Get-ItemProperty -Path $RegPath -Name $RegKey -ErrorAction SilentlyContinue
     Write-Host "  Registry   : $(if ($reg) { 'kayitli' } else { 'kayitli degil' })" -ForegroundColor Gray
-    $task = Get-ScheduledTask -TaskName "AchillesWeb" -ErrorAction SilentlyContinue
+    $task = Get-ScheduledTask -TaskName "HektorWeb" -ErrorAction SilentlyContinue
     Write-Host "  Zamanlayici: $(if ($task) { $task.State } else { 'kayitli degil' })" -ForegroundColor Gray
-    $upd = Get-ScheduledTask -TaskName "AchillesUpdate" -ErrorAction SilentlyContinue
+    $upd = Get-ScheduledTask -TaskName "HektorUpdate" -ErrorAction SilentlyContinue
     Write-Host "  Guncelleme : $(if ($upd) { 'kayitli (her gece 03:00)' } else { 'kayitli degil' })" -ForegroundColor Gray
     # Gomulu gorev yollari BU repoyu mu isaret ediyor? (olu/yabanci yol tespiti)
-    Write-Host "  Web yolu   : $(Format-PathMatch (Get-EmbeddedTaskPath 'AchillesWeb') $ProjectDir)" -ForegroundColor Gray
-    Write-Host "  Upd yolu   : $(Format-PathMatch (Get-EmbeddedTaskPath 'AchillesUpdate') (Join-Path $ProjectDir 'update.ps1'))" -ForegroundColor Gray
+    Write-Host "  Web yolu   : $(Format-PathMatch (Get-EmbeddedTaskPath 'HektorWeb') $ProjectDir)" -ForegroundColor Gray
+    Write-Host "  Upd yolu   : $(Format-PathMatch (Get-EmbeddedTaskPath 'HektorUpdate') (Join-Path $ProjectDir 'update.ps1'))" -ForegroundColor Gray
     Write-Host "  Bu repo    : $ProjectDir" -ForegroundColor Gray
     Write-Host "  Log        : $LogOut" -ForegroundColor Gray
     Write-Host "  uv yolu    : $UvPath" -ForegroundColor Gray
@@ -389,18 +389,18 @@ function Show-Status {
 if ($Install)   { Install-Autostart;   exit 0 }
 if ($Repair)    { Repair-Autostart;    exit 0 }
 if ($Uninstall) { Uninstall-Autostart; exit 0 }
-if ($Stop)      { Stop-AchillesServer; exit 0 }
+if ($Stop)      { Stop-HektorServer; exit 0 }
 if ($Status)    { Show-Status;         exit 0 }
 if ($Restart)   {
     # git pull SONRASI: eski prosesi kesin durdur (yeni rotalar yalniz acilista
     # yuklenir), portun serbest kalmasini bekle, sonra taze baslat.
-    Stop-AchillesServer
+    Stop-HektorServer
     Start-Sleep -Seconds 1
     Start-OllamaIfNeeded
-    Start-AchillesServer
+    Start-HektorServer
     Write-Host "  >> Tarayicida son halini gormek icin: Ctrl+Shift+R (sert yenileme)" -ForegroundColor Cyan
     exit 0
 }
 
 Start-OllamaIfNeeded
-Start-AchillesServer
+Start-HektorServer

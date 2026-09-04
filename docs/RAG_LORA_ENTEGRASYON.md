@@ -1,6 +1,6 @@
-<!-- Achilles: RAG+LoRA entegrasyon plani — 3 paralel web arastirmasinin sentezi (2026-06-13). -->
+<!-- Hektor: RAG+LoRA entegrasyon plani — 3 paralel web arastirmasinin sentezi (2026-06-13). -->
 
-# LoRA + RAG Entegrasyon Planı — Achilles (CPU-only Windows, Ollama qwen3:4b + PEFT)
+# LoRA + RAG Entegrasyon Planı — Hektor (CPU-only Windows, Ollama qwen3:4b + PEFT)
 
 Repo gerçekleriyle doğrulanmış sentez. Kritik repo bulguları: `app/config/settings.py:63` → `peft_base_model = "Qwen/Qwen3-4B"`; `app/training/peft_lora_train.py` → `max_seq_length=512`, `LoraConfig`'te `target_modules` YOK, `_row_to_text` Qwen3'ün gerçek ChatML şablonu yerine uydurma `<|system|>...<|end|>` formatı kullanıyor, loss tüm tokenlara uygulanıyor. Bunların hepsi aşağıdaki planda düzeltme maddesi.
 
@@ -19,13 +19,13 @@ pip install -r llama.cpp/requirements.txt   # torch, transformers, gguf, safeten
 
 # 2) PEFT adapter dizinini GGUF'a çevir (f16 tut — r=8'de çıktı onlarca MB)
 python llama.cpp/convert_lora_to_gguf.py <peft_adapter_dir> `
-    --base <lokal_Qwen3-4B_HF_checkpoint> --outfile qwen3-4b-achilles-lora.gguf --outtype f16
+    --base <lokal_Qwen3-4B_HF_checkpoint> --outfile qwen3-4b-hektor-lora.gguf --outtype f16
 
 # 3) Modelfile
 # FROM <eğitimde kullanılan base'in BİREBİR aynısı>
-# ADAPTER ./qwen3-4b-achilles-lora.gguf
+# ADAPTER ./qwen3-4b-hektor-lora.gguf
 
-# 4) ollama create achilles-qwen3-lora -f Modelfile
+# 4) ollama create hektor-qwen3-lora -f Modelfile
 ```
 
 Kaynak: [convert_lora_to_gguf.py](https://github.com/ggml-org/llama.cpp/blob/master/convert_lora_to_gguf.py) (flag'ler: `--base`, `--base-model-id`, `--outtype {f32,f16,bf16,q8_0}` — varsayılan f32, f16'yı açıkça ver).
@@ -77,7 +77,7 @@ Kaynak reçete: [RAFT, arXiv 2403.10131](https://arxiv.org/abs/2403.10131) + [Go
 4. Soruları tam RAG hattından geçir (`app/learning/rag_exam_runner.py` zaten yapıyor).
 5. İki katman skor: **retrieval hit** (deterministik — `source_chunk_id` getirilen chunk'lar arasında mı / altın cevap substring mi) + **judge correctness** (tek kelimelik CORRECT/PARTIAL/WRONG, temp 0) → `ExamAnswer.passed`'e bağla.
 
-**Toplama:** `comprehension = 100 × (0.40·correctness + 0.20·retrieval_hit + 0.20·faithfulness + 0.10·abstention + 0.10·relevancy)` — ama Achilles'te **paralel skor icat etme**: `app/learning/mastery_scorer.py` zaten 0-100 Paper Mastery Score üretiyor ve retrieval/citation/grounding/abstention 55 puanını kapsıyor; judge-correctness'i o ağırlığa entegre et. N=10-12 soruda **Wilson %95 aralığı** raporla (N=10'da ham %80 aslında "%49-94" demek — nokta tahminine güvenme).
+**Toplama:** `comprehension = 100 × (0.40·correctness + 0.20·retrieval_hit + 0.20·faithfulness + 0.10·abstention + 0.10·relevancy)` — ama Hektor'te **paralel skor icat etme**: `app/learning/mastery_scorer.py` zaten 0-100 Paper Mastery Score üretiyor ve retrieval/citation/grounding/abstention 55 puanını kapsıyor; judge-correctness'i o ağırlığa entegre et. N=10-12 soruda **Wilson %95 aralığı** raporla (N=10'da ham %80 aslında "%49-94" demek — nokta tahminine güvenme).
 
 **CPU bütçesi:** paper başına ~55 kısa çağrı ≈ 30-60 dk → gece batch'i; her çağrıyı `(paper_id, question_hash, model_tag)` ile cache'le. Thinking modunu kapat (`/no_think` veya instruct-2507 varyantı) — thinking tokenları CPU'da gecikmeyi 5-10× artırır. `OLLAMA_NUM_PARALLEL=1`, `num_ctx 8192`.
 
@@ -87,7 +87,7 @@ Kaynak reçete: [RAFT, arXiv 2403.10131](https://arxiv.org/abs/2403.10131) + [Go
 
 ---
 
-## 4. Uygulama sırası (Achilles repo)
+## 4. Uygulama sırası (Hektor repo)
 
 1. **Base doğrulama (bloklayıcı, 10 dk):** `ollama show qwen3:4b --modelfile` + digest kontrolü — tag'in orijinal Qwen3-4B mi Instruct-2507 mi olduğunu makinede doğrula. Karar: `app/config/settings.py:63` `peft_base_model`'i eşleşen checkpoint'e sabitle (öneri: Instruct-2507, thinking'siz).
 2. **Ölçüm altyapısı ÖNCE (baseline olmadan kazanç ölçülemez):** `question_generator.py`'ye LLM-backed QA üretimi + roundtrip filtre; `rag_exam_runner.py`'ye CORRECT/PARTIAL/WRONG judge çağrısı; `mastery_scorer.py` entegrasyonu; soru setini `app/evals/golden_dataset.py`'de dondur; LoRA'sız baseline comprehension % al ve kaydet.
@@ -105,4 +105,4 @@ Kaynak reçete: [RAFT, arXiv 2403.10131](https://arxiv.org/abs/2403.10131) + [Go
 - P=0.8 ve %15-20 refusal oranları veri setine göre değişiyor (RAFT ablasyonlarında P %40-100 arası optimal) — küçük bir ablasyon (P=0.6/0.8/1.0) değer.
 - 4B judge skorları kalibrasyonsuz güvenilmez; Wilson aralığı raporlamadan tek sayı sunma.
 
-İlgili dosyalar: `C:\Users\sevinc\Development\achilles\app\config\settings.py`, `app\training\peft_lora_train.py`, `app\lora\dataset_builder.py`, `app\lora\curriculum.py`, `app\lora\gates.py`, `app\lora\adapter_registry.py`, `app\learning\question_generator.py`, `app\learning\rag_exam_runner.py`, `app\learning\mastery_scorer.py`, `app\evals\golden_dataset.py`.
+İlgili dosyalar: `C:\Users\sevinc\Development\hektor\app\config\settings.py`, `app\training\peft_lora_train.py`, `app\lora\dataset_builder.py`, `app\lora\curriculum.py`, `app\lora\gates.py`, `app\lora\adapter_registry.py`, `app\learning\question_generator.py`, `app\learning\rag_exam_runner.py`, `app\learning\mastery_scorer.py`, `app\evals\golden_dataset.py`.

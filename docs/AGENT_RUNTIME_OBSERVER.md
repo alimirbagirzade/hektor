@@ -1,4 +1,4 @@
-# Achilles — Agent Runtime Observer (tasarım + Phase 1 durumu)
+# Hektor — Agent Runtime Observer (tasarım + Phase 1 durumu)
 
 Hedef: "hangi ajan, ne zaman başladı, ne yaptı, nerede düştü, hangi run_id" sorularını
 yanıtlayan **gözlemlenebilir ve güvenli** bir temel. Bu belge tüm tasarımı anlatır ve
@@ -48,14 +48,14 @@ JSONL dosyaları şimdilik budanmaz (Phase 2 notu).
 
 ## 4. Görüntüleme  ✅ Phase 1 (salt-okuma)
 
-- CLI: `achilles agents-list`, `agents-runs [--limit --agent --status]`, `agents-log <run_id>`.
+- CLI: `hektor agents-list`, `agents-runs [--limit --agent --status]`, `agents-log <run_id>`.
 - Web (salt-okuma): `GET /api/agents`, `GET /api/agents/runs`, `GET /api/agents/runs/{run_id}`.
-- Dashboard: mevcut Achilles Web UI'a **ileride** "Agents" sekmesi (ayrı uygulama YOK — kullanıcı kararı).
+- Dashboard: mevcut Hektor Web UI'a **ileride** "Agents" sekmesi (ayrı uygulama YOK — kullanıcı kararı).
 
 ## 5. Task queue  ❌ Phase 2
 
 `automation_tasks` tablosu + enqueue/claim/complete. Windows Task Scheduler şimdilik
-dış cron olarak kalır; Achilles önce bu görevleri **izler**, sonra zamanlamayı içeri taşır.
+dış cron olarak kalır; Hektor önce bu görevleri **izler**, sonra zamanlamayı içeri taşır.
 
 ## 6. Approvals  ❌ Phase 2
 
@@ -139,13 +139,13 @@ approval `decision_note` UI'da yok. İleride küçük read-only zenginleştirme.
 **Web training start is now protected by the same fresh manual approval model as CLI training.**
 
 4D-0 denetimi bir bypass buldu: `POST /api/training/run` doğrudan `launch()` çağırıyor,
-`launch()` ise spawn ettiği `train --run`'a `ACHILLES_TRAIN_SUPERVISED=1` veriyordu →
+`launch()` ise spawn ettiği `train --run`'a `HEKTOR_TRAIN_SUPERVISED=1` veriyordu →
 CLI'daki tek-kullanımlık taze onay kapısı atlanıyordu (STOP_ALL yine de geçerliydi ama
 fresh manual approval yoktu; EĞİTİM tabında confirm de yoktu).
 
 Düzeltme: endpoint artık CLI ile **aynı anahtarı** (`lora-trainer`/`train_run`, critical)
 kullanarak `require_fresh_approval` çağırır. Onay yoksa eğitim BAŞLAMAZ; `needs_approval`
-+ `approval_id` + `uv run achilles approval-approve <id>` döner. Onaylanıp istek
++ `approval_id` + `uv run hektor approval-approve <id>` döner. Onaylanıp istek
 tekrarlanınca taze onay TÜKETİLİR ve `launch()` çağrılır. EĞİTİM tabındaki başlat butonu
 `confirm()` ister ve `needs_approval` yanıtında onay komutunu gösterir. STOP_ALL hâlâ
 hem endpoint'te hem spawn edilen alt süreçte geçerlidir.

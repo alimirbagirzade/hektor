@@ -23,7 +23,7 @@ sunulmasın; test-noktası + maliyet + risk taşısın.
 
 ## Akış (kısa)
 1. Hipotez(leri) JSON/JSONL'e koy (her öğe str ya da `{hypothesis_text, risk_notes, assumptions...}`).
-2. Çalıştır: `uv run achilles eval-runner --type trading-hypothesis --input hyps.jsonl --json`.
+2. Çalıştır: `uv run hektor eval-runner --type trading-hypothesis --input hyps.jsonl --json`.
 3. **Yorumla:** her hipotez için `verdict` (candidate/needs_revision/rejected) + `checklist`
    (testable/costs/out_of_sample/no_advice/risk_noted) + eksikler. `rejected` → neden (tavsiye dili
    mi, test-edilemez mi). Rapor `reports/evals/eval_*.json`'a yazılır.

@@ -299,7 +299,7 @@ def test_training_dry_run_empty_base_uses_brain_not_1p5b(client: TestClient) -> 
 
 # ---- /api/training/run GÜVENLİK kapısı (CLAUDE.md Kural 8) ----
 # Bağlam: web `/api/training/run` → detached_launch.launch() spawn ettiği alt sürece
-# ACHILLES_TRAIN_SUPERVISED=1 verir → alt süreç iç onay kapısını ATLAR. Bu yüzden
+# HEKTOR_TRAIN_SUPERVISED=1 verir → alt süreç iç onay kapısını ATLAR. Bu yüzden
 # TAZE tek-kullanımlık onay ÜST katmanda (endpoint) alınmalı. Bu testler endpoint'in
 # onaysız / STOP_ALL'da GERÇEK eğitim BAŞLATMADIĞINI kanıtlar. Hepsi çevrimdışı:
 # detached_launch.launch sahte ile değiştirilir → asla gerçek eğitim başlamaz.
@@ -567,8 +567,8 @@ def test_auth_enforced_when_token_set(monkeypatch) -> None:
 
     from app.config import get_settings as _gs
 
-    monkeypatch.setenv("ACHILLES_API_TOKEN", "s3cr3t-token")
-    os.environ["ACHILLES_ALLOW_FAKE_EMBEDDINGS"] = "true"
+    monkeypatch.setenv("HEKTOR_API_TOKEN", "s3cr3t-token")
+    os.environ["HEKTOR_ALLOW_FAKE_EMBEDDINGS"] = "true"
     _gs.cache_clear()
     try:
         c = TestClient(app)
@@ -582,7 +582,7 @@ def test_auth_enforced_when_token_set(monkeypatch) -> None:
             == 200
         )
     finally:
-        monkeypatch.delenv("ACHILLES_API_TOKEN", raising=False)
+        monkeypatch.delenv("HEKTOR_API_TOKEN", raising=False)
         _gs.cache_clear()
 
 

@@ -1,4 +1,4 @@
-"""Achilles Package exporter.
+"""Hektor Package exporter.
 
 Bir StrategyIR'ı Entropia arayüzüne yüklenebilir .achpkg (JSON) formatına dönüştürür.
 Package, Pine Script (TradingView) ve Python modülü olmak üzere iki kod çıktısı içerir.
@@ -17,7 +17,7 @@ ACHPKG_VERSION = "1"
 
 
 @dataclass
-class AchillesPackage:
+class HektorPackage:
     name: str
     version: str
     package_type: str  # "strategy" | "indicator"
@@ -58,11 +58,11 @@ def export_strategy(
     backtest_verdict: str | None = None,
     backtest_metrics: dict | None = None,
     created_at: str = "",
-) -> AchillesPackage:
-    """StrategyIR → AchillesPackage (Pine + Python kodu içerir)."""
+) -> HektorPackage:
+    """StrategyIR → HektorPackage (Pine + Python kodu içerir)."""
     import datetime as dt
 
-    return AchillesPackage(
+    return HektorPackage(
         name=ir.name,
         version=version,
         package_type="strategy",
@@ -101,7 +101,7 @@ def _ir_to_python(ir: StrategyIR) -> str:
     "başarılı" görünen paket üretmek yerine).
     """
     lines: list[str] = [
-        f'"""Achilles Package: {ir.name}',
+        f'"""Hektor Package: {ir.name}',
         f"Market: {ir.market} | Timeframe: {ir.timeframe}",
         f"Commission: {ir.costs.commission} | Slippage: {ir.costs.slippage}",
         '"""',

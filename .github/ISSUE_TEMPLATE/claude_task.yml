@@ -1,5 +1,5 @@
 name: Claude Code Task
-description: Achilles otomasyonu için sınırlı, güvenli bir kod/doküman/test görevi tanımla.
+description: Hektor otomasyonu için sınırlı, güvenli bir kod/doküman/test görevi tanımla.
 title: "[claude-task] "
 labels: ["claude-task"]
 body:

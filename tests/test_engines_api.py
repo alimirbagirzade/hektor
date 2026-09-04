@@ -90,7 +90,7 @@ def test_engines_does_not_leak_env_secret_values(
 ) -> None:
     """Ortamdaki bir sır yanıtın GÖVDESİNDE hiçbir biçimde geçmemeli."""
     sentinel = "SIR_DEGER_ASLA_SIZMASIN_9f3a2b"
-    monkeypatch.setenv("ACHILLES_API_TOKEN", sentinel)
+    monkeypatch.setenv("HEKTOR_API_TOKEN", sentinel)
     monkeypatch.setenv("ANTHROPIC_API_KEY", sentinel)
     raw = client.get("/api/engines").text
     assert sentinel not in raw

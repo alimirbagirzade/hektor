@@ -13,25 +13,25 @@ RAG sisteminizin bir makaleyi ne kadar iyi "öğrendiğini" deterministik olarak
 
 ```bash
 # Tek makale testi
-uv run achilles mastery-run <paper_id>
+uv run hektor mastery-run <paper_id>
 
 # Kuyruğu göster
-uv run achilles mastery-queue
+uv run hektor mastery-queue
 
 # Tüm makaleleri kuyruğa ekle
-uv run achilles mastery-queue --enqueue-all
+uv run hektor mastery-queue --enqueue-all
 
 # Sıradaki makaleyi test et
-uv run achilles mastery-queue --run-next
+uv run hektor mastery-queue --run-next
 
 # Tüm kuyruğu işle (maks 50)
-uv run achilles mastery-queue --run-all --limit 50
+uv run hektor mastery-queue --run-all --limit 50
 
 # Son skoru göster
-uv run achilles mastery-score <paper_id>
+uv run hektor mastery-score <paper_id>
 
 # Raporu göster
-uv run achilles mastery-report <paper_id>
+uv run hektor mastery-report <paper_id>
 ```
 
 ## Skor Formülü (0–100)

@@ -12,10 +12,10 @@ Bir makalenin parse/section/formül/tablo çıkarım kalitesini 100-puanlık rub
 ## Komut
 ```bash
 # Tek makaleyi skorla (bileşen kırılımıyla)
-uv run achilles ingestion-quality --paper-id paper_abc123 --json
+uv run hektor ingestion-quality --paper-id paper_abc123 --json
 
 # Skoru KALICI yap (paper_ingestion_runs + papers.quality_score/ingest_status)
-uv run achilles ingestion-quality --paper-id paper_abc123 --record
+uv run hektor ingestion-quality --paper-id paper_abc123 --record
 ```
 
 Programatik:

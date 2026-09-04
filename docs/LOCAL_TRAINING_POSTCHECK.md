@@ -17,13 +17,13 @@ denetler ve bir postcheck raporu üretir. Terfi (promotion) **önermez** — yal
 
 ## CLI usage
 ```bash
-uv run achilles local-training-postcheck                                    # son artefaktları ara
-uv run achilles local-training-postcheck --handoff-json reports/local_training_orchestrator/..._handoff.json
-uv run achilles local-training-postcheck --dryrun-json  reports/local_training_orchestrator/..._dryrun.json
-uv run achilles local-training-postcheck --training-report reports/training/...json
-uv run achilles local-training-postcheck --adapter-path models/adapters/adapter_...   # yalnız metadata/stat
-uv run achilles local-training-postcheck --json
-uv run achilles local-training-postcheck --out reports/local_training_orchestrator
+uv run hektor local-training-postcheck                                    # son artefaktları ara
+uv run hektor local-training-postcheck --handoff-json reports/local_training_orchestrator/..._handoff.json
+uv run hektor local-training-postcheck --dryrun-json  reports/local_training_orchestrator/..._dryrun.json
+uv run hektor local-training-postcheck --training-report reports/training/...json
+uv run hektor local-training-postcheck --adapter-path models/adapters/adapter_...   # yalnız metadata/stat
+uv run hektor local-training-postcheck --json
+uv run hektor local-training-postcheck --out reports/local_training_orchestrator
 ```
 Sonuç yoksa `no_training_run_found`; varsa `postcheck_ready_for_human_review`.
 

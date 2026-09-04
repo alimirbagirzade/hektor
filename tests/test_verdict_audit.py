@@ -44,7 +44,7 @@ def _evidence(scanned: list, subsystems: list[str], findings: list[dict] | None 
     return (
         "denetim raporu...\n"
         f"{verdict_audit.EVIDENCE_MARKER}\n```json\n{json.dumps(payload)}\n```\n"
-        "ACHILLES_HUNT_VERDICT: PASS\n"
+        "HEKTOR_HUNT_VERDICT: PASS\n"
     )
 
 
@@ -83,9 +83,7 @@ def test_extract_evidence_recursion_error_fail_closed(monkeypatch) -> None:
     payload = f'{verdict_audit.EVIDENCE_MARKER} {{"scanned_files": []}}'
     assert verdict_audit.extract_evidence(payload) is None
     # Uçtan uca: audit da çökmeden reddetmeli.
-    res = verdict_audit.audit_hunt_evidence(
-        f"{payload}\nACHILLES_HUNT_VERDICT: PASS", root=Path(".")
-    )
+    res = verdict_audit.audit_hunt_evidence(f"{payload}\nHEKTOR_HUNT_VERDICT: PASS", root=Path("."))
     assert res["ok"] is False
 
 
@@ -93,7 +91,7 @@ def test_extract_evidence_recursion_error_fail_closed(monkeypatch) -> None:
 
 
 def test_missing_evidence_rejected() -> None:
-    res = verdict_audit.audit_hunt_evidence("ACHILLES_HUNT_VERDICT: PASS", root=Path("."))
+    res = verdict_audit.audit_hunt_evidence("HEKTOR_HUNT_VERDICT: PASS", root=Path("."))
     assert res["ok"] is False
     assert "kanıt" in res["reason"].lower()
 

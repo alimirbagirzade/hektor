@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ACHILLES — Trading Research Terminal</title>
+    <title>HEKTOR — Trading Research Terminal</title>
     <link rel="stylesheet" href="/assets/app.css?v=13" />
     <link rel="stylesheet" href="/assets/canli-badge.css?v=1" />
   </head>
@@ -11,8 +11,8 @@
 
     <header class="topbar">
       <div class="brand">
-        <img class="brand-logo" src="/assets/achilles-logo.jpg" alt="Achilles logo" />
-        <span class="brand-name">ACHILLES</span>
+        <img class="brand-logo" src="/assets/hektor-logo.jpg" alt="Hektor logo" />
+        <span class="brand-name">HEKTOR</span>
         <span class="brand-sub">trading research terminal</span>
       </div>
       <div class="status-strip" id="statusStrip">
@@ -84,7 +84,7 @@
       <section class="panel active" id="panel-research">
         <div class="intro-banner" id="introBanner" style="display:none">
           <button class="intro-close" id="introClose" type="button" aria-label="Bu açıklamayı kapat">✕</button>
-          <h3>Achilles nasıl çalışır? · 3 adım</h3>
+          <h3>Hektor nasıl çalışır? · 3 adım</h3>
           <ol class="intro-steps">
             <li><strong>Makale ekle</strong> — <em>Kütüphane</em>'de PDF yükle ya da arXiv'den çek.</li>
             <li><strong>Soru sor</strong> — <em>Keşfet &amp; sor</em>'da kaynaklı cevap al (kaynak yoksa sistem uydurmaz).</li>
@@ -307,7 +307,7 @@
             <span class="jargon" title="Look-ahead bias — geleceğin verisini yanlışlıkla bugünün kararına sızdırmak. Yasak: pozisyon shift(1) ile gecikmeli uygulanır.">look-ahead'siz</span>, maliyetli ve <span class="jargon" title="Out-of-sample: stratejinin görmediği veri üzerinde test — ezberi gerçek başarıdan ayırır (overfit denetimi).">örneklem-dışı</span> denetimli. Zayıf strateji
             <b>FAIL</b> alır.
           </p>
-          <p class="achilles-heel">Her stratejinin bir <em>Aşil topuğu</em> vardır — backtest tam da onu arar.</p>
+          <p class="hektor-heel">Her stratejinin bir <em>Aşil topuğu</em> vardır — backtest tam da onu arar.</p>
         </div>
         <form id="btForm" class="bt-form">
           <div class="setting-group">
@@ -408,8 +408,8 @@
               <p class="setting-desc">Boş bırakırsan sunucu backend'e göre seçer: Windows/Linux PEFT → <code>Qwen3-4B-Instruct-2507</code> (tek beyin, Ollama <code>qwen3:4b</code> ile uyumlu), macOS → MLX modeli. Elle girersen o model kullanılır; değiştirirsen önceki adapter'lar uyumsuz olur.</p>
             </div>
             <div class="setting-group">
-              <label>Adapter adı<input type="text" id="trAdapterName" value="achilles_lora" /></label>
-              <p class="setting-desc">Eğitim sonucunun kaydedileceği klasör adı (<code>models/adapters/&lt;ad&gt;</code>). Her yeni eğitim için farklı isim kullan (ör. <code>achilles_lora_v2</code>) — aynı adı kullanırsan öncekinin üzerine yazılır.</p>
+              <label>Adapter adı<input type="text" id="trAdapterName" value="hektor_lora" /></label>
+              <p class="setting-desc">Eğitim sonucunun kaydedileceği klasör adı (<code>models/adapters/&lt;ad&gt;</code>). Her yeni eğitim için farklı isim kullan (ör. <code>hektor_lora_v2</code>) — aynı adı kullanırsan öncekinin üzerine yazılır.</p>
             </div>
             <div class="setting-group">
               <label>İterasyon<input type="number" id="drIterations" min="50" max="5000" value="500" /></label>
@@ -513,9 +513,9 @@
             <div class="setting-group" style="margin-bottom:10px">
               <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">
                 Adapter adı
-                <input type="text" id="autoLoraAdapterName" value="achilles_lora_v2" style="max-width:260px" />
+                <input type="text" id="autoLoraAdapterName" value="hektor_lora_v2" style="max-width:260px" />
               </label>
-              <p class="setting-desc">Eğitim sonucunun kaydedileceği klasör adı. Her yeni eğitim için farklı bir versiyon numarası kullan (ör. <code>achilles_lora_v2</code>, <code>v3</code>…). Aynı adı kullanırsan önceki adapter'ın üzerine yazılır.</p>
+              <p class="setting-desc">Eğitim sonucunun kaydedileceği klasör adı. Her yeni eğitim için farklı bir versiyon numarası kullan (ör. <code>hektor_lora_v2</code>, <code>v3</code>…). Aynı adı kullanırsan önceki adapter'ın üzerine yazılır.</p>
             </div>
             <div class="setting-group">
               <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem">
@@ -637,7 +637,7 @@
         </div>
         <p class="muted small">
           API token ayarlamak için <code>.env</code> içinde
-          <code>ACHILLES_API_TOKEN</code>; ardından arayüzde aşağıya gir.
+          <code>HEKTOR_API_TOKEN</code>; ardından arayüzde aşağıya gir.
         </p>
         <div class="token-row">
           <input type="password" id="tokenInput" placeholder="API token (opsiyonel)" />
@@ -863,7 +863,7 @@
           <h3>Yeni Koşu</h3>
           <div class="orc-form">
             <label>Adapter adı
-              <input id="orcAdapter" type="text" value="achilles_lora" />
+              <input id="orcAdapter" type="text" value="hektor_lora" />
             </label>
             <label>Adım sayısı
               <input id="orcIters" type="number" value="300" min="1" />
@@ -996,7 +996,7 @@
         <div class="card">
           <!-- MOTOR SEÇİCİ — salt bilgi (/api/engines). Kurulu olmayan motor DEVRE DIŞI ve
                altında "nasıl kurulur" ipucu görünür. ⛔ Burası bir KİMLİK FORMU DEĞİLDİR:
-               Achilles hiçbir motorun mail/şifre/anahtarını istemez, saklamaz, göstermez —
+               Hektor hiçbir motorun mail/şifre/anahtarını istemez, saklamaz, göstermez —
                motorlar kendi CLI oturumlarıyla girişlidir. -->
           <div class="am-engine">
             <label class="am-engine-lbl" for="amEngineSel">Motor</label>
@@ -1088,7 +1088,7 @@
     </main>
 
     <footer class="footer">
-      <span class="muted small">achilles-trader-ai · local-first · not financial advice</span>
+      <span class="muted small">hektor-trader-ai · local-first · not financial advice</span>
     </footer>
 
     <!-- ⚡ RUN ONAY DİYALOĞU — ATLANAMAZ. Geri alınamaz iş (gerçek motor spawn'ı) YALNIZ

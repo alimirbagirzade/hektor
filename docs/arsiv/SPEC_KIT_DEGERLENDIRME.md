@@ -1,6 +1,6 @@
 <!-- spec-kit /analyze tarzı değerlendirme — 4 paralel anayasa-uyum denetiminin sentezi (2026-06-13). -->
 
-# Achilles — Anayasa Uyum Değerlendirmesi (spec-kit)
+# Hektor — Anayasa Uyum Değerlendirmesi (spec-kit)
 
 > Kapsam: Anayasa Prensip I–VII + Teknoloji Standartları. Dört bağımsız denetim raporunun tek değerlendirmeye birleştirilmiş hali (spec-kit `/analyze` tarzı). Tüm bulgular `file:line` kanıtına dayanır; doğrulanamayan iddialar açıkça işaretlenmiştir (Prensip II gereği overclaim yok).
 
@@ -67,7 +67,7 @@
 - **⚠️ Kısmi (gerilim):** `auto_pipeline.py:289-294` — eval seti yoksa sistem uyarı loglayıp **doğrudan `EVAL_PASSED` varsayıyor** ("eval seti yok, EVAL_PASSED varsayılıyor") ve adapter'ı kaydediyor. "Test edilmeden başarılı deme" ruhuyla gerilimde. Production terfi ayrı onay gerektirdiği için sert ihlal değil, ama düzeltilmeli.
 
 ### Prensip VII — Teknoloji standartları → ⚠️ KISMİ
-- **Offline test:** ✅ `tests/conftest.py` `_isolate_storage` izole DB/chroma + `ACHILLES_ALLOW_FAKE_EMBEDDINGS=true`. Fake embed deterministik (`embedding_service.py:116` SHA-256). Ollama testleri `@pytest.mark.ollama` ile otomatik atlanır; `pyproject.toml:104` `addopts = "-m 'not ollama and not slow'"`. Temiz basetemp'te **405 passed** offline.
+- **Offline test:** ✅ `tests/conftest.py` `_isolate_storage` izole DB/chroma + `HEKTOR_ALLOW_FAKE_EMBEDDINGS=true`. Fake embed deterministik (`embedding_service.py:116` SHA-256). Ollama testleri `@pytest.mark.ollama` ile otomatik atlanır; `pyproject.toml:104` `addopts = "-m 'not ollama and not slow'"`. Temiz basetemp'te **405 passed** offline.
 - **mypy:** ✅ `Success: no issues found in 135 source files`.
 - **ruff:** ⚠️ **2 hata doğrulandı (live tree):**
   - `app/memory/sqlite_store.py:608` — `F821 Undefined name 'ComprehensionScore'` (annotation tanımsız ad; `# type: ignore[name-defined]` ile maskelenmiş, ama isim TYPE_CHECKING/import dışında).

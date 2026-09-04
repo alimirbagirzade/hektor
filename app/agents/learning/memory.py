@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-_DEFAULT_DB = Path(__file__).parent.parent.parent.parent / "storage" / "achilles_learning.db"
+_DEFAULT_DB = Path(__file__).parent.parent.parent.parent / "storage" / "hektor_learning.db"
 
 
 def _now() -> str:

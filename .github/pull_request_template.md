@@ -1,4 +1,4 @@
-<!-- Achilles PR şablonu — otomatik PR akışı (scripts/open-pr.sh) ile uyumlu. -->
+<!-- Hektor PR şablonu — otomatik PR akışı (scripts/open-pr.sh) ile uyumlu. -->
 
 ## Ne değişti?
 <!-- 1-3 cümle: bu PR neyi/neden değiştiriyor -->

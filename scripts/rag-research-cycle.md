@@ -1,7 +1,7 @@
-# Achilles RAG Güncel-Araştırma Turu — Otonom Tur Talimatı
+# Hektor RAG Güncel-Araştırma Turu — Otonom Tur Talimatı
 
 > Bu dosya, headless Claude Code'a (veya `/loop`'a) verilen **tek bir araştırma turunun**
-> talimatıdır. Amaç: güncel RAG literatürünü tarayıp işe yarayanları Achilles'e entegre
+> talimatıdır. Amaç: güncel RAG literatürünü tarayıp işe yarayanları Hektor'e entegre
 > etmek, eğitim dokümanını sürümleyip güncellemek ve push etmek. `scripts/rag-research-loop.ps1`
 > bunu ~6 saatte bir headless çalıştırır. Manuel: `claude -p "$(Get-Content -Raw scripts/rag-research-cycle.md)"`.
 
@@ -28,7 +28,7 @@ düş ve çık (no-op; uydurma yapma, Kural 7). Güçlü aday varsa aşağıdaki
    dönüşümü (HyDE/step-back/RRF), GraphRAG ailesi, RAG değerlendirme (RAGAS/groundedness),
    RAFT/embedding ince-ayar, bilimsel/finansal uzun-doküman & formül retrieval. arXiv/resmi
    blog/benchmark tercih et; blog-hype'a güvenme. Önceki turlarda "ertele" denenleri tekrar değerlendir.
-3. **Eşle + adversarial doğrula:** Her tekniği Achilles koduna eşle (gerçekten var mı? Read/Grep
+3. **Eşle + adversarial doğrula:** Her tekniği Hektor koduna eşle (gerçekten var mı? Read/Grep
    ile kontrol et, varsayma). is_real (hype mi?), değer, offline mı, entegrasyon riski.
 4. **Entegre et (seçici):** SADECE gerçekten eksik VEYA belirgin iyileştirme olan, **offline-uyumlu,
    düşük-riskli, deterministik, mevcut mimariye temiz oturan** 1-3 tekniği uygula. Yeni opt-in

@@ -4,11 +4,11 @@ _Oluşturma: 2026-07-21 · Kaynak oturum: `claude/local-system-research-ed8535` 
 
 ## Amaç
 
-Kullanıcı Achilles'i yerelde açar, **RUN**'a basar; makinede kurulu ve **aboneliğiyle
+Kullanıcı Hektor'i yerelde açar, **RUN**'a basar; makinede kurulu ve **aboneliğiyle
 girişli** bir motor (Claude Code / Codex / Gemini CLI) alt-süreç olarak doğar, MCP
-üzerinden Achilles'in ajanlarını sürer. Eğitim, Kural-8 taze insan onayında durur.
+üzerinden Hektor'in ajanlarını sürer. Eğitim, Kural-8 taze insan onayında durur.
 
-**API anahtarı YOK** — motorlar kendi CLI oturumlarını kullanır. Achilles hiçbir
+**API anahtarı YOK** — motorlar kendi CLI oturumlarını kullanır. Hektor hiçbir
 kimlik bilgisi toplamaz, saklamaz, göstermez.
 
 ## Mevcut durum (2026-07-21 taraması)
@@ -21,7 +21,7 @@ kimlik bilgisi toplamaz, saklamaz, göstermez.
 
 | Parça | Durum | Konum |
 |---|---|---|
-| MCP sunucusu (OpenAPI→tool proxy) | ✅ var | `mcp_server/achilles_mcp.py` |
+| MCP sunucusu (OpenAPI→tool proxy) | ✅ var | `mcp_server/hektor_mcp.py` |
 | `claude -p` alt-süreç sürücüsü | ✅ var, salt-rapor | `app/orchestration/driver.py:37,56,78` |
 | Autodrive ucu | ✅ var, `execute=false` kilidi | `app/web/orchestration_routes.py:132` |
 | Onay kapısı + taze onay TTL | ✅ var | `app/agents/runtime/approvals.py:162` |
@@ -35,7 +35,7 @@ kimlik bilgisi toplamaz, saklamaz, göstermez.
 
 ## 🔴 Bloklayıcı güvenlik açığı (P1'in gerekçesi)
 
-Bugün RUN açılırsa: doğan motor, Achilles API'sine **insanla aynı yetkiyle** erişir.
+Bugün RUN açılırsa: doğan motor, Hektor API'sine **insanla aynı yetkiyle** erişir.
 Yani kendi eğitimini kendisi onaylayabilir (`POST /api/approvals/{id}/approve`) ve
 kill-switch'i temizleyebilir (`POST /api/supervisor/clear-stop-all`).
 Üstelik `api_token` varsayılan boş → doğrulama tümüyle atlanıyor
@@ -88,7 +88,7 @@ Her prompt'un başına şunlar zaten gömülü, ama insan gözüyle de bil:
 **Şerit:** A · **Bağımlılık:** yok · **Paralel:** P2 ile aynı anda başlatılabilir
 
 ```
-Achilles'te sürücü-motor ile insan yetkisini ayıran "scope" katmanını tasarla ve uygula.
+Hektor'te sürücü-motor ile insan yetkisini ayıran "scope" katmanını tasarla ve uygula.
 
 ÖNCE OKU: HANDOFF.md worktree hazard bölümü. `git rev-parse --show-toplevel` cwd'ni
 vermiyorsa gerçek worktree kur:
@@ -99,7 +99,7 @@ SORUN (doğrulanmış):
 - app/web/security.py:66 — settings.api_token boşsa doğrulama TAMAMEN atlanıyor.
 - POST /api/approvals/{id}/approve (server.py:1917) ve
   POST /api/supervisor/clear-stop-all (server.py:1971) insanla aynı yetkide.
-- Sonuç: Achilles'in kendi doğurduğu `claude -p` süreci kendi eğitimini onaylayabilir
+- Sonuç: Hektor'in kendi doğurduğu `claude -p` süreci kendi eğitimini onaylayabilir
   ve kill-switch'i temizleyebilir. CLAUDE.md Kural-8 bu kurulumda etkisiz.
 
 İSTENEN:
@@ -143,7 +143,7 @@ Sonra PR aç, CI yeşilse merge et. Gerçek eğitim BAŞLATMA.
 **Şerit:** B · **Bağımlılık:** yok · **Paralel:** P1 ile aynı anda
 
 ```
-Achilles'in birden fazla yerel "motor"u (abonelikli CLI ajanı) tanımasını sağla.
+Hektor'in birden fazla yerel "motor"u (abonelikli CLI ajanı) tanımasını sağla.
 
 ÖNCE OKU: HANDOFF.md worktree hazard bölümü; gerçek worktree kur
 (`-b claude/engine-registry`), `uv sync --extra dev`.
@@ -161,7 +161,7 @@ Her motor için: ad, probe komutu, argv şablonu, insan-okur etiket.
 Yeni motor eklemek TEK SATIR olmalı.
 
 KRİTİK KISITLAR:
-- Achilles kimlik bilgisi TOPLAMAZ/SAKLAMAZ/İSTEMEZ. Mail, şifre, API key yok.
+- Hektor kimlik bilgisi TOPLAMAZ/SAKLAMAZ/İSTEMEZ. Mail, şifre, API key yok.
   Motorlar kendi CLI oturumlarıyla girişli. Bizim işimiz sadece "kurulu mu / girişli mi"
   tespiti. Kimlik formu tasarlama.
 - API key yolu kalıcı olarak yasak (CLAUDE.md + memory: no-api-local-subscription-only).
@@ -188,7 +188,7 @@ KAPI: make format && make lint && make typecheck && make test → PR → merge.
 **Şerit:** B · **Bağımlılık:** P2 · **Paralel:** P4 ile
 
 ```
-Spawn edilen motora "sür" modu prompt'u ve Achilles MCP araçlarına erişim ver.
+Spawn edilen motora "sür" modu prompt'u ve Hektor MCP araçlarına erişim ver.
 
 ÖNCE: worktree kontrolü (HANDOFF.md), `-b claude/drive-mode`, `uv sync --extra dev`.
 P2 (app/orchestration/engines.py) merged olmalı — üzerine kur.
@@ -199,12 +199,12 @@ bir mod gerekiyor.
 
 İSTENEN:
 1. build_drive_prompt() — "sür" modu şablonu. İçeriği:
-   - Achilles MCP araçlarını kullan, doğrudan dosya düzenleme yapma
+   - Hektor MCP araçlarını kullan, doğrudan dosya düzenleme yapma
    - hedef: veri hattı adımlarını sırayla ilerlet (carding → RLM → curate → assemble)
    - EĞİTİM BAŞLATMA; taze insan onayı gerektiren her adımda DUR ve raporla
    - çıktının son satırı makine-okunur verdict olsun (mevcut
      parse_hunt_verdict():60 desenini AYNALA, yeni bir format icat etme)
-2. Alt sürece MCP erişimi: mcp_server/achilles_mcp.py'yi --mcp-config ile geçir.
+2. Alt sürece MCP erişimi: mcp_server/hektor_mcp.py'yi --mcp-config ile geçir.
    Kullanıcı-düzeyi `claude mcp add` kaydına BAĞIMLI OLMA — spawn kendi kendine yetsin.
 3. Timeout: mevcut HUNT_TIMEOUT_S=1800 sür-modu için yeniden değerlendir, sabiti ayır.
 4. Alt sürece P1'in "driver" scope token'ı geçirilir — human token ASLA.
@@ -227,14 +227,14 @@ Gerçek spawn ile canlı deneme YAPMA (P6'da).
 **Şerit:** A · **Bağımlılık:** P1 · **Paralel:** P3 ile
 
 ```
-Achilles MCP yüzeyini daralt ve token kısır döngüsünü çöz.
+Hektor MCP yüzeyini daralt ve token kısır döngüsünü çöz.
 
 ÖNCE: worktree kontrolü (HANDOFF.md), `-b claude/mcp-allowlist`, `uv sync --extra dev`.
 P1 (scope izolasyonu) merged olmalı.
 
 İKİ SORUN (doğrulanmış):
-1. mcp_server/achilles_mcp.py:43 — httpx.AsyncClient hiçbir Authorization başlığı
-   set etmiyor. ACHILLES_API_TOKEN ayarlıysa TÜM MCP tool çağrıları 401 alır.
+1. mcp_server/hektor_mcp.py:43 — httpx.AsyncClient hiçbir Authorization başlığı
+   set etmiyor. HEKTOR_API_TOKEN ayarlıysa TÜM MCP tool çağrıları 401 alır.
    Yani "token aç → MCP kırılır / MCP çalışsın → kapı açık kalır" kısır döngüsü.
 2. FastMCP.from_openapi() ~110 endpoint'in HEPSİNİ tool yapıyor — eğitim başlatma,
    onay verme, stop-all dahil. Dış bir ajanın görmemesi gereken uçlar görünüyor.
@@ -290,7 +290,7 @@ Salt-okuma, hiçbir şey tetiklemez. Kimlik bilgisi DÖNDÜRMEZ (token/mail/key 
 TASARIM KISITI: mevcut kart yerleşimini (PR#105 derli-toplu şeritler) BOZMA.
 Dekoratif öğe ekleme — PR#103 declutter kararına sadık kal.
 
-KULLAN: `/achilles-web` skill'i; UI doğrulaması için preview araçları (dev server →
+KULLAN: `/hektor-web` skill'i; UI doğrulaması için preview araçları (dev server →
 ekran görüntüsü). Kullanıcıya "sen kontrol et" deme, kendin doğrula.
 
 TESTLER: /api/engines kimlik sızdırmıyor; execute=true onaysız çağrılamıyor;
@@ -325,7 +325,7 @@ Popen+yoklama döngüsü + `/api/supervisor/stop-all`'ın gerçek `terminate_all
 
 **Sür modu bağlı değil (bilinen boşluk, kapatılmadı):** `build_drive_command` **hiçbir
 spawn yolundan çağrılmıyor**. ⚡ RUN yalnız **av** modunu doğuruyor; av modu
-`--safe-mode` ile başlar ve o bayrak **MCP'yi de kapatır** → motor Achilles MCP
+`--safe-mode` ile başlar ve o bayrak **MCP'yi de kapatır** → motor Hektor MCP
 araçlarını GÖRMEZ, veri hattını İLERLETEMEZ. Duman testi bunu `≈ drive-mode-wiring`
 uyarısıyla açıkça raporlar. **Sür modunu bağlamak P7'ye kalır** (kapsam kararı: bu paket
 doğrulama paketiydi; eksik özelliği sessizce "tamam" göstermek yerine görünür kılındı).
@@ -354,7 +354,7 @@ Yeni RUN hattını uçtan uca doğrula ve eğitim öncesi zorunlu derin avı ça
 P1-P5 merged olmalı.
 
 BÖLÜM 1 — DUMAN TESTİ:
-`uv run achilles orchestrate-smoke` hattını yeni RUN akışını kapsayacak şekilde
+`uv run hektor orchestrate-smoke` hattını yeni RUN akışını kapsayacak şekilde
 kullan/genişlet. Kanıtlanacaklar:
 - RUN → motor spawn → MCP araçları görünüyor → ajanlar sürülüyor
 - eğitim adımına gelince DURUYOR (taze onay yok)
@@ -394,7 +394,7 @@ Gerçek LoRA eğitimi BU PAKETTE BAŞLATILMAZ (Kural-8, insan onayı ayrı).
 > 1700+ test yeşil) P1-P6'nın 6 paketinden **5'inin gerçekten kapandığını**, ama **P3'ün
 > yarım kaldığını** buldu: sür modu eksiksiz yazılmıştı ama HİÇBİR spawn yolundan
 > çağrılmıyordu (**P7 bunu bağladı**). O an ⚡ RUN yalnız **av modunu** doğuruyordu, o da
-> `--safe-mode` ile → MCP KAPALI → motor Achilles araçlarını görmüyordu. Yani asıl hedef
+> `--safe-mode` ile → MCP KAPALI → motor Hektor araçlarını görmüyordu. Yani asıl hedef
 > ("RUN → eğitim ajanları devreye girsin") o an henüz gerçek değildi — **P7'de gerçek oldu.**
 >
 > Ayrıca denetim 3 gerçek yan-kusur buldu (aşağıda P7'de). Hepsi "beyan edilmiş eksik" —
@@ -424,14 +424,14 @@ Gerçek LoRA eğitimi BU PAKETTE BAŞLATILMAZ (Kural-8, insan onayı ayrı).
   (`build_drive_command` → `--mcp-config` + `--strict-mcp-config`, `--safe-mode` YOK)
   doğurur. ⚡ RUN ucu (`/api/orchestration/autodrive`, 15·AJAN HARİTASI) **varsayılan
   `mode="drive"`**; AV modu **ayrı tetikleyicide** korundu (12·ORKESTRASYON → Otonom AV,
-  `mode="hunt"`). Sür PASS'i `ACHILLES_DRIVE_VERDICT` okur ve `hunt_ack` YAZMAZ → zorunlu
+  `mode="hunt"`). Sür PASS'i `HEKTOR_DRIVE_VERDICT` okur ve `hunt_ack` YAZMAZ → zorunlu
   Kademe-2 av kapısı bağımsız kaldı (Kural 8).
 - **[SORUN 2] TTL düzeltildi.** `_drive_pipeline` token'ı `mint(run_id,
   ttl_s=DRIVE_TOKEN_TTL_S)` ile mint eder; test mint ÇAĞRISINI assert eder (sabit değil).
 - **[SORUN 3] SSE query-token kaldırıldı.** `app/web/sse_tickets.py` (kısa ömürlü,
   TEK-kullanımlık bilet) + `POST /api/training/stream-ticket`; `/api/training/stream`
   artık insan api_token'ını query'de KABUL ETMEZ. Frontend `startSSE` bilet alır.
-- **Canlı doğrulama:** `achilles orchestrate-drive-live --allow-live-spawn` (varsayılan
+- **Canlı doğrulama:** `hektor orchestrate-drive-live --allow-live-spawn` (varsayılan
   KAPALI, CI'da ASLA koşmaz) — elle tek motor doğurup MCP görünürlüğünü kanıtlar.
 - **Denetim:** `rlm-security-reviewer` + `rlm-integration-agent` PASS; `/codegen-review`
   kapısı (ruff+mypy+test) yeşil.
@@ -445,7 +445,7 @@ Bu paket senin 5. adımını ("RUN → ajanlar sürülüyor") **gerçek** yapar.
 olanı bağla ve kusurları düzelt.
 
 ```
-Achilles'te "sür" modunu gerçek spawn yoluna bağla ve doğrulama denetiminin bulduğu
+Hektor'te "sür" modunu gerçek spawn yoluna bağla ve doğrulama denetiminin bulduğu
 3 yan-kusuru kapat. DAR KAPSAM: yeni özellik değil, mevcut ölü kodu fişe takmak + fix.
 
 ÖNCE OKU:
@@ -488,7 +488,7 @@ DOĞRULANMIŞ SORUNLAR (2026-07-21 denetimi):
      kullanıcı-düzeyi `claude mcp add` kaydını yok saysın (kendine yeten olsun).
    - Sür koşusuna P1 sürücü scope token'ı geçsin (build_child_env, driver.py:210); insan
      token'ı ASLA. Bu zaten kurulu — koru.
-   - Verdict: sür modu ACHILLES_DRIVE_VERDICT işaretçisini kullanır (driver.py:50) — sür
+   - Verdict: sür modu HEKTOR_DRIVE_VERDICT işaretçisini kullanır (driver.py:50) — sür
      PASS'i AV hunt_ack'ini AÇMASIN. Bu ayrım zaten var — bozma.
 
 2. [SORUN 2] mint çağrısına ttl_s=DRIVE_TOKEN_TTL_S geçir. Sabiti canlı sür koşusu
@@ -530,7 +530,7 @@ KULLAN:
 - `rlm-integration-agent` — MCP geçiş yolunun (build_mcp_config + --mcp-config) doğru
   kurulduğunu gözden geçirsin.
 - `/codegen-review` skill'i — ruff+mypy+test kapısı.
-- `/achilles-web` skill'i — SSE bilet değişikliği frontend'i etkiliyorsa preview ile doğrula.
+- `/hektor-web` skill'i — SSE bilet değişikliği frontend'i etkiliyorsa preview ile doğrula.
 
 TESTLER (zorunlu, çevrimdışı — gerçek spawn YOK):
 - drive() çağrıldığında SÜR argv'si kuruluyor (av değil); --safe-mode YOK; --mcp-config VAR
@@ -560,7 +560,7 @@ deterministik biçimde birleştirildi. Seçenek B (ikinci bağımsız LLM doğru
 ERTELENDİ — çevrimdışı test edilemez + kota yakar; dürüstçe "gelecek katman" olarak belgelendi.
 
 - **Yeni `app/orchestration/verdict_audit.py`** — deterministik, çevrimdışı, LLM YOK. Motor
-  artık serbest bir "PASS" değil, `ACHILLES_HUNT_EVIDENCE` JSON kanıt bloğu (taranan dosyalar
+  artık serbest bir "PASS" değil, `HEKTOR_HUNT_EVIDENCE` JSON kanıt bloğu (taranan dosyalar
   + alt-sistemler + bulgular) üretmek zorunda. Denetim bu kanıtı **motordan bağımsız bir
   oracle** ile — DOSYA SİSTEMİYLE — doğrular: uydurma/yok yollar sayılmaz, kapsama tabanı
   (`MIN_SCANNED_FILES=5`, `MIN_SUBSYSTEMS=2`), yol-geçişi reddi, ve PASS derken HIGH/BLOCKER
@@ -588,13 +588,13 @@ Denetimin bulduğu en derin zayıflık; P7'den ayrı çünkü tasarım kararı g
 mekanik fix değil.
 
 ```
-Achilles'te motorun av/sür verdict'inin BAĞIMSIZ doğrulamasını ekle.
+Hektor'te motorun av/sür verdict'inin BAĞIMSIZ doğrulamasını ekle.
 
 ÖNCE: worktree kontrolü (HANDOFF.md), -b claude/independent-verdict, uv sync --extra dev.
 
 SORUN (doğrulanmış, driver.py:544):
 parse_hunt_verdict(output) verdict'i TAMAMEN motorun kendi stdout'unun son satırından
-okuyor (ACHILLES_HUNT_VERDICT: PASS). Motor derin avı HİÇ yapmadan "PASS" yazsa hat açılır.
+okuyor (HEKTOR_HUNT_VERDICT: PASS). Motor derin avı HİÇ yapmadan "PASS" yazsa hat açılır.
 Bu, ZORUNLU Kademe-2 av kapısının (Kural-8, her eğitimden önce) TEK dayanağı → motor kendi
 başarı raporunun tek kaynağı. Fail-closed korumalar var (satır yoksa FAIL, sahte-binary
 savunması, Write/Edit yasak) ama BAĞIMSIZ kanıt yok.
@@ -667,14 +667,14 @@ dosyanın *var olduğuna* bakıyor, *okunduğuna* değil. Kural-8 av kapısını
 bu olduğu için kapatmaya değer.
 
 ```
-Achilles av verdict denetimine "motor dosyaları GERÇEKTEN okudu mu" katmanını ekle.
+Hektor av verdict denetimine "motor dosyaları GERÇEKTEN okudu mu" katmanını ekle.
 
 ÖNCE OKU: HANDOFF.md worktree hazard bölümü. Gerçek worktree kur
 (git worktree add "<ayrı-dir>" -b claude/verdict-read-proof origin/main),
 uv sync --extra dev --extra mcp. docs/ROADMAP_MOTOR_BAGLAMA.md P8 + P9 bölümlerini oku.
 
 DOĞRULANMIŞ BOŞLUK (2026-07-22 denetimi):
-app/orchestration/verdict_audit.py motorun ACHILLES_HUNT_EVIDENCE JSON'undaki "taranan
+app/orchestration/verdict_audit.py motorun HEKTOR_HUNT_EVIDENCE JSON'undaki "taranan
 dosyalar"ı depoda VAR MI diye teyit ediyor (audit_hunt_evidence, driver.py:602-611 çağırıyor).
 Ama VAR-olma ≠ OKUNDU. Motor gerçek dosya adları listeleyip hiç okumadan PASS yazabilir.
 Modülün kendi docstring'i (verdict_audit.py:22-25) bu sınırı zaten kabul ediyor.

@@ -1,4 +1,4 @@
-# Achilles Surekli Ogrenme Dongusu -- Windows baslatici + otomatik acilis
+# Hektor Surekli Ogrenme Dongusu -- Windows baslatici + otomatik acilis
 #
 # Kullanim:
 #   .\scripts\start-loop.ps1             -- simdi baslat (egitim calismiyorsa)
@@ -22,8 +22,8 @@ $ErrorActionPreference = "Continue"
 $ScriptDir  = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ProjectDir = Split-Path -Parent $ScriptDir
 $RegPath    = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-$RegKey     = "AchillesLoop"
-$VbsFile    = Join-Path $ScriptDir "achilles-loop-autostart.vbs"
+$RegKey     = "HektorLoop"
+$VbsFile    = Join-Path $ScriptDir "hektor-loop-autostart.vbs"
 $StopFile   = Join-Path $ProjectDir "storage\STOP_LEARNING"
 
 function Find-Bash {
