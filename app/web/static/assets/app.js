@@ -996,8 +996,31 @@
     );
   }
 
+  function _cardHasContent(c) {
+    // Sunucudaki card_has_content ile aynı tanım: title VEYA main_claim alfanümerik.
+    var re = /[0-9A-Za-zÇĞİÖŞÜçğıöşü]/;
+    return re.test(String((c && c.title) || "")) || re.test(String((c && c.main_claim) || ""));
+  }
+
   function renderCard(c, paperId) {
     c = c || {};
+    if (!_cardHasContent(c)) {
+      // Boş kabuk kartı "(başlıksız)" diye göstermek "kart var ama bozuk" yanılgısı
+      // yaratıyordu; açıkça söyle ve yeniden üretme yolu ver.
+      cardBody.innerHTML =
+        '<h3 class="kc-title">Bilgi kartı içeriksiz</h3>' +
+        '<div class="result-body">Bu makale için kaydedilmiş kart boş (LLM zaman aşımı / parse ' +
+        "hatası). Ollama boşken yeniden üretmeyi deneyin.</div>" +
+        (paperId
+          ? '<div class="kc-bt-bar"><button class="btn" id="kcRegenBtn" data-id="' +
+            esc(paperId) +
+            '">↻ YENİDEN ÜRET</button></div>'
+          : "");
+      showCardModal();
+      var regen = document.getElementById("kcRegenBtn");
+      if (regen) regen.addEventListener("click", function () { makeCard(paperId, regen); });
+      return;
+    }
     var meta = [c.year, c.domain].filter(Boolean).map(esc).join(" · ");
     var hasHyps = c.possible_strategy_hypotheses && c.possible_strategy_hypotheses.length;
     var btBtn = paperId && hasHyps

@@ -1682,24 +1682,18 @@ class SqliteStore:
             )
 
     def has_knowledge_card(self, paper_id: str) -> bool:
-        """Makalenin CANLI (rejected olmayan) bir kartı var mı?
+        """Makalenin CANLI (rejected olmayan) ve İÇERİKLİ bir kartı var mı?
 
         `rejected` kart sayılmaz: reddedilen (ör. boş) kart 'kartı var' sayılsaydı makale
         bir daha kartlanmaz, sonsuza dek okunmamış kalırdı (ölçüldü: 21 boş kart reddedildi,
         makaleler kapsam dışına düştü). Reddetmek = "yeniden üret" demektir.
+
+        İçeriksiz kart da sayılmaz (bulgu 2026-09-06): eski builder'ın yazdığı boş
+        `pending` kartlar makaleyi arayüzde "✓ KARTI GÖR" gösteriyor, kart "(başlıksız)"
+        açılıyor ve "BİLGİ KARTI ÜRET" düğmesi kaybolduğundan makale yeniden kartlanamıyordu.
+        Aynı tek tanım (`card_has_content`) burada da kapıdır.
         """
-        with self.session() as s:
-            return (
-                s.scalar(
-                    select(KnowledgeCard.card_id)
-                    .where(
-                        KnowledgeCard.paper_id == paper_id,
-                        KnowledgeCard.review_status != "rejected",
-                    )
-                    .limit(1)
-                )
-                is not None
-            )
+        return self.get_latest_knowledge_card(paper_id) is not None
 
     def save_comprehension_score(self, score: ComprehensionScore) -> None:
         import json as _json
@@ -1788,20 +1782,29 @@ class SqliteStore:
         return snaps[0] if snaps else None
 
     def get_latest_knowledge_card(self, paper_id: str) -> dict | None:
-        """En son üretilmiş kartın JSON içeriğini döndür (yoksa None)."""
+        """En son üretilmiş CANLI ve İÇERİKLİ kartın JSON içeriğini döndür (yoksa None).
+
+        Reddedilmiş ve içeriksiz (title+main_claim boş) kartlar atlanır: aksi hâlde arayüz
+        ve skorlayıcılar boş kabuğu "kart" sanır (bkz. `has_knowledge_card`). Sıralama
+        created_at DESC — birden çok canlı kart varsa en yenisi.
+        """
         with self.session() as s:
-            row = s.scalar(
+            rows = s.scalars(
                 select(KnowledgeCard)
-                .where(KnowledgeCard.paper_id == paper_id)
+                .where(
+                    KnowledgeCard.paper_id == paper_id,
+                    KnowledgeCard.review_status != "rejected",
+                )
                 .order_by(KnowledgeCard.created_at.desc())
-                .limit(1)
             )
-            if row is None:
-                return None
-            try:
-                return json.loads(row.card_json)
-            except (json.JSONDecodeError, TypeError):
-                return None
+            for row in rows:
+                try:
+                    card = json.loads(row.card_json)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if _card_has_content(card):
+                    return card
+            return None
 
     def approve_card(self, card_id: str) -> bool:
         """Kartı onayla: review_status=approved, lora_eligible=1.
