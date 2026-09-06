@@ -114,15 +114,16 @@ kartı içerik bakmadan döndürüyordu. Arayüz kodunda hata yoktu.
 yedi makale yeniden "BİLGİ KARTI ÜRET" gösteriyor. Aynı gün başka oturumun `hektor read-all`
 koşuları 5 yeni içerikli kart üretti → kartlı makale 10/159.
 
-**Temizlik.** Aynı gün 7 boş kart `rejected` yapıldı (bu seans dışından; onay kuyruğu artık yalnız
-içerikli kart taşıyor: 3 pending). Veritabanında toplam 28 boş kartın hepsi `rejected` — satırlar
-bilinçli olarak silinmedi: reddedilmiş kart "yeniden üret" işaretidir ve yeni erişimciler onu görmez.
+**Temizlik.** Aynı gün 7 boş kart `rejected` yapıldı (bu seans dışından). Ardından kullanıcı kararıyla
+veritabanındaki **28 `rejected` satırın tamamı silindi** (hepsi içeriksizdi; `knowledge_cards`'a FK veren
+tablo yok). Silme öncesi tutarlı yedek: `storage/sqlite/backups/hektor_trader_ai.pre-rejected-delete-20260906-225927.db`
+(42 kart). Kalan: 11 approved + 3 pending, hepsi içerikli.
 
 ---
 
 ## Bilinen açık işler
 
-- 28 boş `rejected` kart satırı veritabanında duruyor (zararsız, erişimciler atlar); fiziksel silme istenirse ayrı, geri alınamaz adımdır.
+- `reports/papers/` altında eski builder'dan kalma **31/48 içeriksiz `*_card.json`** dosyası duruyor (DB'de karşılığı yok; salt bilgi amaçlı, silinmedi — insan kararı).
 
 - `docs/MIGRASYON_2.0.md` §"Kalan adaylar" — Phase-4 GitHub otomasyonu (hiç aktive edilmedi),
   `training/dataset_builder.py` ikinci veri hattı, bulut-GPU protokol dokümanları.
