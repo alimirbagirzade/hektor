@@ -3096,6 +3096,30 @@
       .catch(function (e) { ragLoopMsg('Hata: ' + e.message, false); });
   });
 
+  // makale-okuyucu: "tüm PDF'leri okut" — bütçeli tek koşu (arka plan; koşu 10·AGENTS'ta izlenir)
+  var readerRunBtn = document.getElementById('readerRunBtn');
+  if (readerRunBtn) readerRunBtn.addEventListener('click', function () {
+    ragLoopMsg('Makale okuyucu başlatılıyor (20 kart + 20 skor)…', true);
+    api('/reader/run?cards=20&scores=20', { method: 'POST' })
+      .then(function (d) {
+        ragLoopMsg(d.started ? 'Okuyucu koşuyor — ilerleme 10 · AGENTS koşularında ve haritada.'
+          : 'Başlatılamadı.', !!d.started);
+        if (typeof loadAgRuns === 'function') loadAgRuns();
+      })
+      .catch(function (e) { ragLoopMsg('Hata: ' + e.message, false); });
+  });
+  // kaynak-tamamlayici: okunamayan makaleye alaka kapılı arXiv ön-koşul kaynağı
+  var kaynakTamamlaBtn = document.getElementById('kaynakTamamlaBtn');
+  if (kaynakTamamlaBtn) kaynakTamamlaBtn.addEventListener('click', function () {
+    ragLoopMsg('Kaynak tamamlayıcı başlatılıyor…', true);
+    api('/kaynak-tamamla/run?esik=50&max_paper=5&max_per_paper=2', { method: 'POST' })
+      .then(function (d) {
+        ragLoopMsg(d.started ? 'Kaynak tamamlayıcı koşuyor — sonuç 10 · AGENTS koşu detayında.'
+          : 'Başlatılamadı.', !!d.started);
+        if (typeof loadAgRuns === 'function') loadAgRuns();
+      })
+      .catch(function (e) { ragLoopMsg('Hata: ' + e.message, false); });
+  });
   var ragLoopSaveCfgBtn = document.getElementById('ragLoopSaveCfgBtn');
   if (ragLoopSaveCfgBtn) ragLoopSaveCfgBtn.addEventListener('click', function () {
     function val(id) { var el = document.getElementById(id); return el ? el.value : ''; }

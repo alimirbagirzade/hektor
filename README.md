@@ -1102,6 +1102,14 @@ uv run hektor ingestion-quality-scan --record       # tüm korpus: dağılım + 
 uv run hektor corpus-audit                          # sessiz kayıp sayımı: düşen PDF, yarım ingest, boş kart…
 uv run hektor corpus-audit --json --strict          # zincir kapısı: FAIL=2, WARN=1 (strict), PASS=0
 
+# "Tüm PDF'leri okut" — makale-okuyucu ajanı (kart + anlama skoru; bütçeli tek koşu, eğitim başlatmaz)
+uv run hektor read-all --dry-run                    # okunmuşluk fotoğrafı: toplam / % / kartsız / skorsuz
+uv run hektor read-all --cards 20 --scores 20       # kart üret + skorla (--no-llm-score = hızlı mod)
+
+# Okunamayan makaleye ön-koşul kaynağı — kaynak-tamamlayici ajanı (alaka kapılı arXiv, LLM'siz)
+uv run hektor kaynak-tamamla --dry-run              # seçilen makaleler, sorgular, adaylar, alaka skorları
+uv run hektor kaynak-tamamla --esik 50 --max-paper 5 --max-per-paper 2
+
 # Hipotez & eval — fikir "sinyal" değil test-edilebilir mi? + ReleaseGate
 uv run hektor eval-runner --type trading-hypothesis --input hyps.jsonl   # --strict ile kapı
 

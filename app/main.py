@@ -4684,6 +4684,86 @@ def _load_hypotheses(path: str) -> list:
 # --------------------------------------------------------------------------
 # İçe-alım kalite skoru (compute-on-demand; PaperIndexer sıcak yolu değişmez)
 # --------------------------------------------------------------------------
+@app.command("read-all")
+def read_all_cmd(
+    cards: int = typer.Option(20, "--cards", help="Bu koşuda en çok kaç bilgi kartı üretilsin"),
+    scores: int = typer.Option(20, "--scores", help="Bu koşuda en çok kaç anlama skoru"),
+    llm_score: bool = typer.Option(
+        True, "--llm-score/--no-llm-score", help="Skorda LLM doğrulaması (yavaş) / hızlı mod"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Yalnız okunmuşluk fotoğrafı"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """ "Tüm PDF'leri okut" — makale-okuyucu ajanı: kart + anlama skoru, bütçeli TEK koşu.
+
+    Okunmuş = indeks + içerikli kart + anlama skoru. Kartlar `pending` doğar; yalnız
+    içerikli kart döngü kapısıyla onaylanır. Eğitim BAŞLATMAZ (Kural 8). Ollama'yı
+    synth-qa/smoke ile paylaşır — önce `hektor status`.
+    """
+    from app.research.paper_reader import run_reader
+
+    r = run_reader(cards=cards, scores=scores, use_llm_score=llm_score, dry_run=dry_run)
+    if as_json:
+        console.print_json(json.dumps(r, ensure_ascii=False))
+        return
+    o = r["once"]
+    console.print(
+        f"Önce: okunmuş [bold]{o['okunmus']}/{o['toplam']}[/] (%{o['yuzde']}) · "
+        f"kartsız {o['kartsiz']} · skorsuz {o['skorsuz']}"
+    )
+    if dry_run:
+        console.print("[dim]dry-run — hiçbir şey üretilmedi.[/dim]")
+        return
+    s = r["sonra"]
+    console.print(
+        f"Sonra: okunmuş [bold]{s['okunmus']}/{s['toplam']}[/] (%{s['yuzde']}) · "
+        f"kart [green]+{r['kart']}[/] · skor [green]+{r['skor']}[/] · "
+        f"kalan kartsız {s['kartsiz']} / skorsuz {s['skorsuz']}"
+    )
+    if r.get("kalan_kartsiz"):
+        console.print("[dim]kalan kartsız (ilk 20): " + ", ".join(r["kalan_kartsiz"]) + "[/dim]")
+
+
+@app.command("kaynak-tamamla")
+def kaynak_tamamla_cmd(
+    esik: float = typer.Option(50.0, "--esik", help="Bu anlama skorunun altı 'okunamıyor'"),
+    max_paper: int = typer.Option(5, "--max-paper", help="Koşu başına en çok kaç makale"),
+    max_per_paper: int = typer.Option(2, "--max-per-paper", help="Makale başına en çok indirme"),
+    min_ortak: int = typer.Option(3, "--min-ortak", help="Alaka kapısı: en az ortak terim"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Ara ve puanla, indirme"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Okunamayan makaleye ön-koşul kaynağı — kaynak-tamamlayici ajanı (alaka kapılı arXiv).
+
+    Kaynak başlık + kart terimlerinden sorgu → arXiv → çevrimdışı alaka kapısı → indir →
+    ingest (LLM'siz). Makale başına deneme defteri; eğitim BAŞLATMAZ (Kural 8).
+    """
+    from app.research.kaynak_tamamlayici import run_tamamlayici
+
+    r = run_tamamlayici(
+        esik=esik,
+        max_paper=max_paper,
+        max_per_paper=max_per_paper,
+        min_ortak=min_ortak,
+        dry_run=dry_run,
+    )
+    if as_json:
+        console.print_json(json.dumps(r, ensure_ascii=False))
+        return
+    console.print(
+        f"Seçilen {r['secilen']} makale · indirilen [green]{r['indirilen']}[/] · "
+        f"indekslenen {r['indekslenen']}" + (" · [dim]dry-run[/dim]" if dry_run else "")
+    )
+    for m in r["makaleler"]:
+        console.print(f"\n[bold]{m['paper_id']}[/] — {m['baslik']}")
+        console.print(f"  sorgu: [cyan]{m['sorgu'] or '(üretilemedi)'}[/] · aday {m['aday']}")
+        for a in m["alinan"]:
+            durum = "indirildi" if a.get("indirildi") else "aday"
+            console.print(f"  [green]+[/] {a['id']} (alaka {a['alaka']}) {a['baslik']} · {durum}")
+        for x in m["reddedilen"]:
+            console.print(f"  [dim]- {x.get('id', '')} · {x['sebep']}[/dim]")
+
+
 @app.command("corpus-audit")
 def corpus_audit_cmd(
     as_json: bool = typer.Option(False, "--json"),

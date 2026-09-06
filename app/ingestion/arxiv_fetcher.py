@@ -98,15 +98,19 @@ def fetch_arxiv_papers(
     query: str,
     max_results: int = 5,
     dest_dir: Path | None = None,
+    entries: list[ArxivEntry] | None = None,
 ) -> list[FetchResult]:
     """arXiv'de ara → eşleşen PDF'leri indir → raw_pdf/ dizinine kaydet.
 
-    Aynı ID ile dosya varsa yeniden indirmez (idempotent).
+    Aynı ID ile dosya varsa yeniden indirmez (idempotent). `entries` verilirse arama
+    ATLANIR ve yalnız o kayıtlar indirilir — çağıran önceden filtrelemiş demektir
+    (ör. kaynak-tamamlayici'nin alaka kapısı; ham anahtar-kelime sonucu çöp getirebilir).
     """
     out_dir = dest_dir or get_settings().raw_pdf_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    entries = search_arxiv(query, max_results=max_results)
+    if entries is None:
+        entries = search_arxiv(query, max_results=max_results)
     results: list[FetchResult] = []
     log_step(f"{len(entries)} arXiv sonucu indirilecek")
 

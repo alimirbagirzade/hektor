@@ -615,6 +615,61 @@ agents:
       - "dış-kill/SIGKILL → 'running' asılı; sonraki çağrıda reaper temizler"
 
   # --- AI-brain ek modülleri (talimat: helix_hektor_ai_beyin_ek_moduller) ---
+  - agent_id: makale-okuyucu
+    name: Makale Okuyucu
+    file: app/research/paper_reader.py
+    entrypoint: run_reader / topla_plan / plan_reading
+    trigger: "CLI `read-all [--cards N] [--scores N] [--no-llm-score] [--dry-run]` + web POST /api/reader/run (insan); zincirde rag-learning-loop sonrası"
+    autonomy: semi_auto
+    dangerous: false
+    default_enabled: false
+    writes:
+      - "sqlite: knowledge_cards (pending; içerikli olan döngü kapısıyla approved), paper_comprehension"
+      - "reports/papers/<paper_id>_card.json (builder)"
+    reads:
+      - "sqlite: papers, knowledge_cards, paper_comprehension"
+    safety_gates:
+      - "eğitim BAŞLATMAZ (Kural 8)"
+      - "boş kart yazılmaz (builder has_content kapısı); onay yalnız is_substantive_card"
+      - "tek koşu, bütçeli (cards/scores); döngüye girmez — kalıcı başarısız makale sonsuz tekrar üretmez"
+      - "RagLearningLoop adımlarını yeniden kullanır (tek kod yolu); kalıcı döngü ayarına dokunmaz"
+    approval_required: false
+    stop_method: "yok (senkron tek koşu; bütçe küçük tutulur)"
+    status_location: "sqlite: agent_runs (agent_id=makale-okuyucu) + /api/agents/runs"
+    known_failure_modes:
+      - "Ollama meşgul/kapalı → kart boş döner, KAYDEDİLMEZ; makale 'kartsız' kalır (raporda görünür)"
+      - "bozuk/sıfır-metin PDF → kaynak-yetersizlik guard'ı LLM'e gitmez; corpus-audit sifir_metin ile bul"
+      - "synth-qa / smoke ile aynı Ollama → her iki iş yarı hız"
+
+  - agent_id: kaynak-tamamlayici
+    name: Kaynak Tamamlayıcı
+    file: app/research/kaynak_tamamlayici.py
+    entrypoint: run_tamamlayici / secilecek_makaleler / sorgu_uret / alaka_skoru
+    trigger: "CLI `kaynak-tamamla [--esik 50] [--max-paper 5] [--max-per-paper 2] [--dry-run]` + web POST /api/kaynak-tamamla/run (insan); zincirde makale-okuyucu sonrası"
+    autonomy: semi_auto
+    dangerous: false
+    default_enabled: false
+    writes:
+      - "data/papers/raw_pdf/arxiv_<id>.pdf (yalnız alaka kapısını geçenler)"
+      - storage/kaynak_tamamlayici_state.json
+      - "sqlite: papers, chunks (ingest_directory üzerinden; LLM'siz)"
+    reads:
+      - "sqlite: papers, knowledge_cards, paper_comprehension"
+      - "ağ: arXiv API (search_arxiv) + PDF indirme"
+    safety_gates:
+      - "alaka kapısı ZORUNLU: kaynak başlık+kart terimleri ile aday başlık+özet ≥ min_ortak ortak terim"
+      - "makale başına max_per_paper (2), koşu başına max_paper (5) sınırı"
+      - "deneme defteri: makale başına max_deneme (2) dolunca bir daha aranmaz"
+      - "arXiv ID raw_pdf'te varsa atlanır (tekrar yok); %PDF magic-byte kontrolü (fetcher)"
+      - "eğitim BAŞLATMAZ; kart/skor üretmez (makale-okuyucu'ya bırakır)"
+    approval_required: false
+    stop_method: "yok (senkron; sınırlar küçük)"
+    status_location: "storage/kaynak_tamamlayici_state.json + sqlite: agent_runs"
+    known_failure_modes:
+      - "arXiv erişilemez → boş aday, koşu 'ok' ama 0 indirme (raporda görünür)"
+      - "sorgu zayıf (şablon başlık) → hep 'alaka yok' → defter dolar; başlığı elle düzelt"
+      - "alaka eşiği düşük tutulursa çöp sızar — varsayılanı (3) düşürme"
+
   - agent_id: korpus-butunluk-denetcisi
     name: Korpus Bütünlük Denetçisi
     file: app/memory/corpus_audit.py
@@ -764,6 +819,12 @@ chain:
   # farklı olarak SAYIM yapar: DB'ye girmemiş PDF, yarım ingest, boş kart. Salt-okuma, LLM'siz.
   - step: korpus-butunluk-denetcisi
     after: [rag-learning-loop]
+  # "Tüm PDF'leri okut": rag-learning-loop'un bütçeli/elle tek-koşu biçimi (kart + skor).
+  - step: makale-okuyucu
+    after: [rag-learning-loop]
+  # Okunamayan makale için ön-koşul kaynağı bul → alaka kapısı → indir → ingest (LLM'siz).
+  - step: kaynak-tamamlayici
+    after: [makale-okuyucu]
   - step: paper-mastery-agent
     after: [rag-learning-loop]
   - step: status-manager

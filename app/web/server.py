@@ -2300,6 +2300,63 @@ async def api_auto_lora_reset() -> dict:
 
 
 # ---------- RAG öğrenme döngüsü (otonom korpus büyütme + öğrenme) ----------
+@app.post("/api/reader/run", dependencies=[api_auth, human_only], include_in_schema=False)
+def api_reader_run(
+    background_tasks: BackgroundTasks,
+    cards: int = 20,
+    scores: int = 20,
+    use_llm_score: bool = True,
+    dry_run: bool = False,
+) -> dict:
+    """makale-okuyucu: "tüm PDF'leri okut" (kart + anlama skoru, bütçeli tek koşu).
+
+    dry_run senkron döner (fotoğraf); gerçek koşu arka planda (dakikalar) — ilerleme
+    10 · AGENTS koşularında ve 15 · AJAN HARİTASI'nda. İnsan-yalnız; eğitim BAŞLATMAZ.
+    """
+    from app.research.paper_reader import run_reader
+
+    cards, scores = max(0, min(cards, 200)), max(0, min(scores, 200))
+    if dry_run:
+        return run_reader(dry_run=True, trigger_type="web")
+    background_tasks.add_task(
+        run_reader, cards=cards, scores=scores, use_llm_score=use_llm_score, trigger_type="web"
+    )
+    return {"ok": True, "started": True, "cards": cards, "scores": scores}
+
+
+@app.post("/api/kaynak-tamamla/run", dependencies=[api_auth, human_only], include_in_schema=False)
+def api_kaynak_tamamla_run(
+    background_tasks: BackgroundTasks,
+    esik: float = 50.0,
+    max_paper: int = 5,
+    max_per_paper: int = 2,
+    dry_run: bool = False,
+) -> dict:
+    """kaynak-tamamlayici: okunamayan makaleye alaka kapılı arXiv ön-koşul kaynağı.
+
+    dry_run senkron (ara + puanla, indirme yok); gerçek koşu arka planda. İnsan-yalnız.
+    """
+    from app.research.kaynak_tamamlayici import run_tamamlayici
+
+    max_paper, max_per_paper = max(1, min(max_paper, 20)), max(1, min(max_per_paper, 5))
+    if dry_run:
+        return run_tamamlayici(
+            esik=esik,
+            max_paper=max_paper,
+            max_per_paper=max_per_paper,
+            dry_run=True,
+            trigger_type="web",
+        )
+    background_tasks.add_task(
+        run_tamamlayici,
+        esik=esik,
+        max_paper=max_paper,
+        max_per_paper=max_per_paper,
+        trigger_type="web",
+    )
+    return {"ok": True, "started": True, "max_paper": max_paper}
+
+
 @app.get("/api/rag-loop/status", dependencies=[api_auth])
 async def api_rag_loop_status() -> dict:
     """RAG öğrenme döngüsü durumu (ayarlar + anlık çalışma + son tur özeti)."""

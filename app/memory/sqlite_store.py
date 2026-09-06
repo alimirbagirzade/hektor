@@ -1682,10 +1682,21 @@ class SqliteStore:
             )
 
     def has_knowledge_card(self, paper_id: str) -> bool:
+        """Makalenin CANLI (rejected olmayan) bir kartı var mı?
+
+        `rejected` kart sayılmaz: reddedilen (ör. boş) kart 'kartı var' sayılsaydı makale
+        bir daha kartlanmaz, sonsuza dek okunmamış kalırdı (ölçüldü: 21 boş kart reddedildi,
+        makaleler kapsam dışına düştü). Reddetmek = "yeniden üret" demektir.
+        """
         with self.session() as s:
             return (
                 s.scalar(
-                    select(KnowledgeCard.card_id).where(KnowledgeCard.paper_id == paper_id).limit(1)
+                    select(KnowledgeCard.card_id)
+                    .where(
+                        KnowledgeCard.paper_id == paper_id,
+                        KnowledgeCard.review_status != "rejected",
+                    )
+                    .limit(1)
                 )
                 is not None
             )
