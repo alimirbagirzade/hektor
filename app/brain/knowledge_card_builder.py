@@ -154,7 +154,7 @@ class KnowledgeCardBuilder:
         except (json.JSONDecodeError, ValueError):
             return {}
 
-    def build(self, paper_id: str, max_chars: int = 6000) -> KnowledgeCard:
+    def build(self, paper_id: str, max_chars: int | None = None) -> KnowledgeCard:
         """8GB-dostu: kısa girdi + Ollama JSON modu + num_predict cap + retry.
 
         Büyük metni tek seferde modele vermek (eski 14000 krk) küçük modellerde
@@ -166,6 +166,11 @@ class KnowledgeCardBuilder:
         # hem 'reports/papers/<id>_card.json' dosya adını kirletir; ikincisi Windows'ta
         # OSError [Errno 22] Invalid argument verir. Girişte tek noktada temizle.
         paper_id = paper_id.strip()
+        # Girdi tavanı: açık parametre > settings.card_max_chars (HEKTOR_CARD_MAX_CHARS) > 6000.
+        # Prompt işleme CPU'da ~30 tok/sn olduğundan bu sayı kart süresinin yarısını belirler.
+        if max_chars is None:
+            max_chars = int(getattr(self.settings, "card_max_chars", 6000) or 6000)
+        max_chars = max(500, max_chars)
         try:
             system = load_prompt("knowledge_card")
         except FileNotFoundError:

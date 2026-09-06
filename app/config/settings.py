@@ -276,6 +276,12 @@ class Settings(BaseSettings):
     # ~40 sn/çağrı) ve ingest/synth-qa ile aynı Ollama'yı paylaşır. Boş kart artık
     # kaydedilmediği için açmak güvenlidir; yalnız CPU maliyeti bilinçli seçilmeli.
     auto_card_on_upload: bool = False
+    # Bilgi kartı üreticisine verilen makale metni tavanı (karakter). Prompt işleme yerel
+    # CPU'da ~30 token/sn: 6000 krk ≈ 1700 token ≈ 55 sn; 3000 ≈ yarısı. Ölçüldü
+    # (2026-09-06): retry'larla kart başına ~6 dk → 145 makale ~14 saat. Hız gerekince
+    # 3000'e in (kart biraz daha yüzeysel olabilir); builder orta-kesit denemelerini de
+    # bu tavana göre yapar.
+    card_max_chars: int = 6000
 
     # --- Derived dirs ---
     # TÜM veri/rapor/durum yolları `root`'tan türer. `root` env ile değiştirilebilir

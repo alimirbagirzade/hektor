@@ -228,6 +228,48 @@ def test_build_no_middle_slice_when_small(tmp_path):
     assert store.saved == []  # boş sonuç kaydedilmez
 
 
+class _PromptYakalayanLLM:
+    """Prompt'un uzunluğunu kaydeder; dolu kart döndürür."""
+
+    def __init__(self) -> None:
+        self.model = "stub-yakala"
+        self.prompt_uzunluklari: list[int] = []
+
+    def generate(self, prompt: str, *, system: str | None = None, **_: object) -> str:
+        self.prompt_uzunluklari.append(len(prompt))
+        return _VALID_CARD_JSON
+
+
+def test_build_max_chars_ayardan_okunur(tmp_path):
+    # HEKTOR_CARD_MAX_CHARS (settings.card_max_chars) girdi tavanını belirler: 3000 → LLM'e
+    # giden makale metni 3000 krk'yi aşmaz (prompt işleme süresi yarıya iner).
+    store = _FakeStore(["kelime " * 3000])  # ~21k krk kaynak
+    llm = _PromptYakalayanLLM()
+    builder = _builder(tmp_path, store, llm)
+    builder.settings = types.SimpleNamespace(
+        extracted_text_dir=tmp_path, reports_dir=tmp_path, card_max_chars=3000
+    )
+
+    card = builder.build("paper_kisa")
+
+    assert card.has_content
+    # prompt = makale metni (<=3000) + şema/talimat (sabit, ~1-2k) → 6000'lik tavanın altında
+    assert llm.prompt_uzunluklari and max(llm.prompt_uzunluklari) < 3000 + 2500
+
+
+def test_build_max_chars_parametresi_ayari_ezer(tmp_path):
+    store = _FakeStore(["kelime " * 3000])
+    llm = _PromptYakalayanLLM()
+    builder = _builder(tmp_path, store, llm)
+    builder.settings = types.SimpleNamespace(
+        extracted_text_dir=tmp_path, reports_dir=tmp_path, card_max_chars=3000
+    )
+
+    builder.build("paper_uzun", max_chars=12000)
+
+    assert max(llm.prompt_uzunluklari) > 10000  # açık parametre ayarı ezer
+
+
 # --------------------------------------------------------------------------
 # Integration: real local model (skipped unless Ollama + model are ready)
 # --------------------------------------------------------------------------

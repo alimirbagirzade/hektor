@@ -3099,8 +3099,10 @@
   // makale-okuyucu: "tüm PDF'leri okut" — bütçeli tek koşu (arka plan; koşu 10·AGENTS'ta izlenir)
   var readerRunBtn = document.getElementById('readerRunBtn');
   if (readerRunBtn) readerRunBtn.addEventListener('click', function () {
-    ragLoopMsg('Makale okuyucu başlatılıyor (20 kart + 20 skor)…', true);
-    api('/reader/run?cards=20&scores=20', { method: 'POST' })
+    ragLoopMsg('Makale okuyucu başlatılıyor (20 kart + 20 skor, hızlı skor modu)…', true);
+    // use_llm_score=false: skorda LLM doğrulaması atlanır (doluluk + RAG precision) — ölçüldü,
+    // LLM'li skor kart kadar pahalı; toplu okumada hızlı mod, tek makale isteyince CLI --llm-score.
+    api('/reader/run?cards=20&scores=20&use_llm_score=false', { method: 'POST' })
       .then(function (d) {
         ragLoopMsg(d.started ? 'Okuyucu koşuyor — ilerleme 10 · AGENTS koşularında ve haritada.'
           : 'Başlatılamadı.', !!d.started);
