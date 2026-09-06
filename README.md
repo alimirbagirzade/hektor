@@ -504,21 +504,45 @@ models/adapters/hektor_lora_v3.meta.json  ← versiyon + hash
 
 ### 1) Bir motor kur (bir kez)
 
-Terminali aç, şunu **olduğu gibi** kopyala-yapıştır:
+Hektor'in tanıdığı motorlar ve **bağlama yerleri** — biri yeter, hepsini kurmak
+zorunda değilsin:
 
-```bash
-npm install -g @anthropic-ai/claude-code
-```
+| Motor | Sağlayıcı | Kurulum komutu | Giriş | Kayıt adı | ⚡ RUN |
+|---|---|---|---|---|---|
+| **Claude Code** | Anthropic (Claude aboneliği) | `npm install -g @anthropic-ai/claude-code` | `claude` | `claude` (varsayılan) | ✅ |
+| **Codex CLI** | OpenAI (ChatGPT planı) | `npm install -g @openai/codex` | `codex` | `codex` | ✅ |
+| Gemini CLI | Google hesabı | `npm install -g @google/gemini-cli` | `gemini` | `gemini` | ❌ kısıtlanamıyor |
+| Yerel hat | Ollama | kurulumla gelir | — | `local` | ❌ süreç doğurmaz |
 
 `npm` yoksa önce Node.js kur: <https://nodejs.org> (LTS sürümü).
 
+> 🔌 **Kodda bağlama yeri:** motor kayıt tablosu `app/orchestration/engines.py` →
+> `_ENGINES`. Yeni motor eklemek oraya **tek satır** `Engine(...)` yazmaktır; web
+> arayüzündeki motor seçici aynı tabloyu `app/web/engines_routes.py` üzerinden
+> okur, alt-süreci ise `app/orchestration/driver.py` doğurur.
+> `⚡ RUN`ın kullandığı **sür (drive)** modu yalnız `drive_argv_template` +
+> `hardened=True` verilmiş motorlarda açılır (`_CLAUDE_DRIVE_ARGV` →
+> Anthropic, `_CODEX_DRIVE_ARGV` → OpenAI). Araç seviyesinde kısıtlanamayan
+> motor **fail-closed reddedilir** (`run_blocked_reason`) — bkz.
+> [docs/SCOPE_ISOLATION.md](docs/SCOPE_ISOLATION.md).
+
+> ⛔ **API anahtarı YOK (kalıcı kısıt).** Buradaki "OpenAI / Anthropic bağlama"
+> **abonelikli CLI oturumu** demektir, pay-per-token bulut API'si değil. Yalnız
+> API anahtarıyla çalışan bir motor `_ENGINES`'e EKLENMEZ; çalışma-zamanı LLM
+> hattı (`app/brain/local_llm.py`) her koşulda **yalnız yerel Ollama** kalır.
+> Hektor hiçbir motorun e-postasını, şifresini veya anahtarını ister/saklar.
+
 ### 2) Motora bir kez giriş yap (bir kez)
 
+Kurduğun motoru **kendi terminalinde** bir kez çalıştır, **kendi aboneliğinle**
+giriş yap:
+
 ```bash
-claude
+claude     # Anthropic — açılan ekranda giriş yap, sonra /exit
+codex      # OpenAI    — ChatGPT hesabınla giriş yap
+gemini     # Google    — Google hesabınla giriş yap
 ```
 
-Açılan ekranda **kendi aboneliğinle** giriş yap, sonra `/exit` yazıp çık.
 Bu adımı Hektor yapamaz — giriş bilgisi yalnız sende kalır.
 
 ### 3) Hektor motoru görüyor mu, kontrol et
