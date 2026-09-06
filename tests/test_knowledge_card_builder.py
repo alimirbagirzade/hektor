@@ -140,7 +140,9 @@ def test_build_sanitizes_paper_id_crlf(tmp_path):
     # Regresyon: Windows'ta python stdout CRLF yüzünden paper_id sonuna \r takılınca
     # dosya adı 'paper_crlf\r_card.json' olup OSError [Errno 22] veriyordu. build()
     # girişte strip() ile temizlemeli; hem DB kaydı hem dosya adı temiz olmalı.
-    store = _FakeStore(["chunk metni"])
+    # Kaynak metni yeterli olmalı (>= _MIN_SOURCE_CHARS): kısa kaynakta LLM'e gidilmez,
+    # kart içeriksiz kalır ve artık KAYDEDİLMEZ — o zaman bu test kaydı göremezdi.
+    store = _FakeStore(["chunk metni " * 200])
     builder = _builder(tmp_path, store, _StubLLM(_VALID_CARD_JSON))
 
     card = builder.build("paper_crlf\r")  # kirli id (trailing CR)
@@ -157,10 +159,38 @@ def test_build_handles_non_json_gracefully(tmp_path):
 
     card = builder.build("paper_garbage")
 
-    # falls back to an empty-but-valid card, no crash
+    # falls back to an empty-but-valid card, no crash — ama KAYDEDİLMEZ
     assert card.paper_id == "paper_garbage"
     assert card.main_claim == ""
     assert card.methods == []
+    assert card.has_content is False
+    assert store.saved == []  # boş kart onay kuyruğuna girmez
+
+
+def test_build_empty_llm_output_not_persisted_but_warned(tmp_path, caplog):
+    # Gerçek vaka (2026-09-06): Ollama yük altında zaman aşımı → `{}` → 24 karttan 21'i boş
+    # `pending` kart. Artık: kayıt YOK, rapor dosyası YOK, WARNING var, dönüş tipi aynı.
+    store = _FakeStore(["kelime " * 1000])
+    builder = _builder(tmp_path, store, _StubLLM("{}"))
+
+    with caplog.at_level("WARNING"):
+        card = builder.build("paper_timeout")
+
+    assert card.paper_id == "paper_timeout" and card.has_content is False
+    assert store.saved == []
+    assert not (tmp_path / "papers" / "paper_timeout_card.json").exists()
+    assert any("KAYDEDİLMEDİ" in r.getMessage() for r in caplog.records)
+
+
+def test_build_substantive_card_still_persisted(tmp_path):
+    store = _FakeStore(["kelime " * 1000])
+    builder = _builder(tmp_path, store, _StubLLM(_VALID_CARD_JSON))
+
+    card = builder.build("paper_ok")
+
+    assert card.has_content is True
+    assert len(store.saved) == 1 and store.saved[0]["review_status"] == "pending"
+    assert (tmp_path / "papers" / "paper_ok_card.json").exists()
 
 
 class _MiddleAwareLLM:
@@ -195,6 +225,7 @@ def test_build_no_middle_slice_when_small(tmp_path):
     card = builder.build("paper_small")
 
     assert card.main_claim == ""  # belge küçük; orta-kesit yok
+    assert store.saved == []  # boş sonuç kaydedilmez
 
 
 # --------------------------------------------------------------------------

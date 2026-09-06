@@ -165,13 +165,18 @@ def kart_bos_mu(card_json: str) -> bool:
 
 
 def kural_bos_kartlar(g: KorpusGirdisi, limit: int) -> Bulgu:
-    """Boş kart onay kuyruğunu kirletir; onaylanırsa EĞİTİM VERİSİNE girer."""
-    bos = [(cid, st) for cid, _p, st, cj in g.kartlar if kart_bos_mu(cj)]
+    """Boş kart onay kuyruğunu kirletir; onaylanırsa EĞİTİM VERİSİNE girer.
+
+    `rejected` kartlar sayılmaz: zaten elenmiş, eğitim verisine giremez (lora-dataset
+    yalnız approved alır). Aksi halde temizlik yapıldıktan sonra da WARN sürerdi.
+    """
+    canli = [(cid, st, cj) for cid, _p, st, cj in g.kartlar if st != "rejected"]
+    bos = [(cid, st) for cid, st, cj in canli if kart_bos_mu(cj)]
     if not bos:
-        return Bulgu("bos_kartlar", PASS, 0, f"Boş kart yok ({len(g.kartlar)} kart).")
+        return Bulgu("bos_kartlar", PASS, 0, f"Boş kart yok ({len(canli)} canlı kart).")
     onayli = [cid for cid, st in bos if st == "approved"]
     seviye = FAIL if onayli else WARN
-    mesaj = f"Boş kart: {len(bos)} / {len(g.kartlar)}"
+    mesaj = f"Boş kart: {len(bos)} / {len(canli)} canlı (pending+approved)"
     if onayli:
         mesaj += f" — {len(onayli)} tanesi ONAYLI (eğitim verisini zehirler)"
     return Bulgu(

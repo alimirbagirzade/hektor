@@ -316,6 +316,13 @@ def card(paper_id: str) -> None:
     from app.brain.knowledge_card_builder import KnowledgeCardBuilder
 
     kc = KnowledgeCardBuilder().build(paper_id)
+    if not kc.has_content:
+        console.print(
+            "[red]Kart üretilemedi[/red] — LLM boş/parse edilemez yanıt döndürdü "
+            "(zaman aşımı / yük olabilir). [bold]Kaydedilmedi.[/bold] "
+            f"Ollama boşken tekrar dene: [cyan]uv run hektor card {paper_id}[/cyan]"
+        )
+        raise typer.Exit(1)
     console.print_json(json.dumps(kc.model_dump(), ensure_ascii=False))
 
 

@@ -85,6 +85,11 @@ def _card_has_content(card_json: str | dict[str, Any]) -> bool:
     return bool(title or main_claim)
 
 
+# Kamusal ad: KnowledgeCardBuilder aynı "gerçekten boş" tanımını kayıt ÖNCESİ uygular
+# (boş kartı hiç yazmasın); tek tanım, iki kapı — eşikler ayrışmasın.
+card_has_content = _card_has_content
+
+
 def _normalize_title(title: str) -> str:
     """Başlığı dedup karşılaştırması için normalize et: küçük harf, alfanümerik-dışı
     karakterleri tek boşluğa indir, kırp. (Farklı PDF export'ların noktalama/boşluk

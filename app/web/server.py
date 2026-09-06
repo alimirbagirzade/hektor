@@ -681,17 +681,25 @@ def api_card(paper_id: str) -> CardResponse:
 
     try:
         card = KnowledgeCardBuilder().build(paper_id)
-        return CardResponse(
-            paper_id=paper_id,
-            card=card.model_dump() if hasattr(card, "model_dump") else dict(card),
-            message="Bilgi kartı üretildi.",
-        )
     except Exception as exc:
         logger.warning("Kart üretimi başarısız: %s", exc)
         raise HTTPException(
             status_code=503,
             detail="Bilgi kartı üretilemedi (LLM gerekli olabilir).",
         ) from exc
+    if not getattr(card, "has_content", True):
+        # Builder boş kartı KAYDETMEZ; 200 + boş gövde dönmek arayüzde "üretildi" yanılgısı
+        # yaratırdı. Açıkça başarısızlık.
+        raise HTTPException(
+            status_code=502,
+            detail="Bilgi kartı üretilemedi: LLM boş yanıt döndürdü (zaman aşımı/yük). "
+            "Kart kaydedilmedi; Ollama boşken tekrar deneyin.",
+        )
+    return CardResponse(
+        paper_id=paper_id,
+        card=card.model_dump() if hasattr(card, "model_dump") else dict(card),
+        message="Bilgi kartı üretildi.",
+    )
 
 
 @app.get("/api/papers/{paper_id}/comprehension", dependencies=[api_auth])
@@ -963,7 +971,17 @@ def api_cards_batch(skip_existing: bool = True) -> BatchCardResponse:
             )
             continue
         try:
-            builder.build(pid)
+            card = builder.build(pid)
+            if not getattr(card, "has_content", True):
+                results.append(
+                    BatchCardResult(
+                        paper_id=pid,
+                        title=paper.title,
+                        status="error",
+                        message="LLM boş yanıt (zaman aşımı/yük) — kart kaydedilmedi",
+                    )
+                )
+                continue
             results.append(
                 BatchCardResult(paper_id=pid, title=paper.title, status="ok", message="üretildi")
             )

@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from app.brain.local_llm import LocalLLM
 from app.brain.prompt_loader import load_prompt
 from app.config import get_settings
-from app.memory.sqlite_store import SqliteStore
+from app.memory.sqlite_store import SqliteStore, card_has_content
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,16 @@ class KnowledgeCard(BaseModel):
     possible_strategy_hypotheses: list[str] = Field(default_factory=list)
     risk_warnings: list[str] = Field(default_factory=list)
     implementation_notes: list[str] = Field(default_factory=list)
+
+    @property
+    def has_content(self) -> bool:
+        """Kart gerçekten içerik taşıyor mu (title VEYA main_claim alfanümerik)?
+
+        `False` ise `build()` kartı KAYDETMEMİŞTİR — LLM boş/parse edilemez yanıt
+        döndürmüştür (yerel CPU'da tipik olarak zaman aşımı). Çağıran bunu başarısızlık
+        olarak ele almalı, "kart üretildi" dememeli.
+        """
+        return card_has_content(self.model_dump())
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -202,6 +212,19 @@ class KnowledgeCardBuilder:
 
         data["paper_id"] = paper_id
         card = KnowledgeCard.model_validate(data)
+
+        # Boş kart KAYDEDİLMEZ. Eskiden LLM zaman aşımı/parse hatası `{}` döndürünce
+        # kart yine de `pending` olarak yazılıyordu: onay kuyruğu boş kartla doluyor
+        # (ölçüldü: 24 karttan 21'i boş), CLI listesi boşu doludan ayırt etmiyor, onaylansa
+        # eğitim verisine sızıyordu. Kural 7: içerik yoksa kart da yok — yalnız uyarı.
+        # Kaynak-yetersizlik yolu da buradan geçer (LLM'e gitmedi, yine de yazılmaz).
+        if not card.has_content:
+            log.warning(
+                "Kart üretilemedi — LLM boş/parse edilemez yanıt döndürdü "
+                "(yerel CPU'da tipik sebep zaman aşımı); KAYDEDİLMEDİ: %s",
+                paper_id,
+            )
+            return card
 
         trust_level, difficulty, stage = self._classify_card(card)
 

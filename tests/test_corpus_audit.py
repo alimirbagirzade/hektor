@@ -110,6 +110,15 @@ def test_bos_pending_kart_warn_onayli_fail() -> None:
     assert "ONAYLI" in b.mesaj
 
 
+def test_reddedilmis_bos_kart_sayilmaz() -> None:
+    # Temizlik yapıldı (cards reject) → denetçi artık şikayet etmemeli; rejected kart
+    # eğitim verisine giremez (lora-dataset yalnız approved alır).
+    g = _temiz()
+    g.kartlar.append(("c2", "p2", "rejected", BOS_KART))
+    b = kural_bos_kartlar(g, 10)
+    assert b.seviye == PASS and b.sayi == 0
+
+
 def test_boilerplate_baslik_warn() -> None:
     g = _temiz()
     g.makaleler["p3"] = ("c.pdf", "Published as a conference paper at ICLR 2023", 20_000, 8)
