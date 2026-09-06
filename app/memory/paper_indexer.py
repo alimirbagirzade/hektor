@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -45,6 +46,48 @@ def build_embed_text(text: str, title: str | None, section: str | None, contextu
         return text
     prefix = " / ".join(p.strip() for p in (title or "", section or "") if p and p.strip())
     return f"{prefix}: {text}" if prefix else text
+
+
+# Başlık YERİNE gelen şablon/banner satırları. `extract_metadata` ilk sayfanın ilk uzun
+# satırını başlık sanar; birçok PDF'te o satır konferans banner'ı, dizgi şablonu adı ya da
+# dosya adıdır. İki FARKLI makale aynı banner'ı taşıyınca başlık-dedup'ı onları "aynı makale"
+# sayıp ikincisini SESSİZCE düşürüyordu (ölçüldü: ReAct `2210.03629`, Self-Consistency
+# `2203.11171`'in kopyası sanıldı — ikisinin de ilk satırı "Published as a conference paper
+# at ICLR 2023"). Bu desenler yakalanınca başlık dosya adından türetilir → dedup yeniden
+# anlamlı olur. Desenler DAR tutulur: yanlış pozitif yalnız metadata kalitesini düşürür,
+# yanlış negatif ise makale kaybettirir — asimetri bilinçli.
+_BOILERPLATE_TITLE_RE = re.compile(
+    r"""^\s*(
+        (published|accepted|submitted|under\ review)\b.*\b(conference|workshop|journal|review)
+      | preprint\b
+      | to\ appear\ in\b
+      | microsoft\ word\s*-
+      | overleaf\ example\b
+      | djvu\ document\b
+      | .*\blatex\ template\b
+      | springer\ nature\b.*\btemplate\b
+      | springer\ (texts|series)\ in\b
+      | copyright\b
+      | this\ is\ page\b
+      | \w+\.(docx?|dvi|tex|fm|pdf|pptx?|eps)\s*$
+      | (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\ +\d{1,2},?\ +\d{4}\s*$
+      | \d{1,2}\ +(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\ +\d{4}\s*$
+      | (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\ edition\b
+    )""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def is_boilerplate_title(title: str) -> bool:
+    """Bu metin gerçek bir makale başlığı değil, şablon/banner satırı mı?
+
+    `True` dönerse çağıran başlığı dosya adından türetmelidir — böylece iki farklı
+    makale aynı banner yüzünden "aynı başlıklı" sayılmaz (bkz. `_BOILERPLATE_TITLE_RE`).
+    """
+    t = (title or "").strip()
+    if not t:
+        return True
+    return bool(_BOILERPLATE_TITLE_RE.match(t))
 
 
 class PaperIndexer:
@@ -123,8 +166,10 @@ class PaperIndexer:
         parsed = parse_pdf(disc.path)
         meta = extract_metadata(parsed.text)
 
-        # Baslik bulunamazsa dosya adindan uret (alt cizgi/tire -> bosluk)
-        if not meta.title:
+        # Baslik bulunamazsa VEYA cikan sey baslik degil de sablon/banner satiriysa,
+        # dosya adindan uret (alt cizgi/tire -> bosluk). Ikinci kosul KRITIK: asagidaki
+        # baslik-dedup'i yanlis pozitiften korur (bkz. is_boilerplate_title).
+        if not meta.title or is_boilerplate_title(meta.title):
             meta.title = disc.path.stem.replace("_", " ").replace("-", " ").strip()
 
         # Paper-düzeyi dedup: aynı başlıklı makale zaten varsa (farklı bytes/hash olsa
