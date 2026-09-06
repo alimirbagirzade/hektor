@@ -271,6 +271,11 @@ class Settings(BaseSettings):
     # supervisor'ı çalıştırıyor ve makinede kurulu bir abonelik motorunu (codex/claude)
     # GERÇEKTEN doğurabiliyordu (kota + Kural 8 ihlali).
     background_loops_enabled: bool = True
+    # Web'den PDF yüklenince ingest ardından OTOMATİK bilgi kartı + anlama skoru üret.
+    # Varsayılan KAPALI: her yükleme 1-2 dk yerel LLM işi demektir (GPU'suz makinede
+    # ~40 sn/çağrı) ve ingest/synth-qa ile aynı Ollama'yı paylaşır. Boş kart artık
+    # kaydedilmediği için açmak güvenlidir; yalnız CPU maliyeti bilinçli seçilmeli.
+    auto_card_on_upload: bool = False
 
     # --- Derived dirs ---
     # TÜM veri/rapor/durum yolları `root`'tan türer. `root` env ile değiştirilebilir

@@ -388,17 +388,51 @@ def api_ingest() -> IngestResponse:
     return _ingest_all()
 
 
+def _auto_card_after_upload(paper_id: str) -> None:
+    """Yükleme sonrası otomatik bilgi kartı + anlama skoru (ayar: auto_card_on_upload).
+
+    Sıra: kart → (yalnız kart İÇERİKLİYSE) anlama skoru. Boş kartı builder zaten
+    kaydetmez; skoru da boşuna hesaplamayız. Her adım kendi try'ında: LLM zaman aşımı
+    yüklemeyi asla "başarısız" göstermez, yalnız loglanır. Eğitim BAŞLATMAZ (Kural 8).
+    """
+    from app.brain.knowledge_card_builder import KnowledgeCardBuilder
+
+    try:
+        card = KnowledgeCardBuilder().build(paper_id)
+    except Exception:
+        logger.exception("Otomatik kart üretilemedi: %s", paper_id)
+        return
+    if not getattr(card, "has_content", True):
+        logger.warning("Otomatik kart boş döndü (kaydedilmedi), skor atlandı: %s", paper_id)
+        return
+    try:
+        from app.memory.sqlite_store import SqliteStore
+        from app.verification.comprehension_scorer import ComprehensionScorer
+
+        SqliteStore().save_comprehension_score(ComprehensionScorer().score(paper_id))
+        logger.info("Otomatik kart + anlama skoru tamam: %s", paper_id)
+    except Exception:
+        logger.exception("Otomatik anlama skoru hesaplanamadı: %s", paper_id)
+
+
 def _ingest_one(path: Path) -> None:
-    """Arka planda tek bir PDF'i indeksler (BackgroundTasks için)."""
+    """Arka planda tek bir PDF'i indeksler (BackgroundTasks için).
+
+    `auto_card_on_upload` açıksa ve makale gerçekten (atlanmadan) indekslendiyse
+    ardından otomatik kart + anlama skoru üretir (bkz. `_auto_card_after_upload`).
+    """
     from app.ingestion.paper_loader import DiscoveredPaper, compute_file_hash
     from app.memory.paper_indexer import PaperIndexer
 
     try:
         disc = DiscoveredPaper(path=path, file_hash=compute_file_hash(path))
-        PaperIndexer().ingest_one(disc)
+        result = PaperIndexer().ingest_one(disc)
         logger.info("Arka plan indeksleme tamamlandi: %s", path.name)
     except Exception:
         logger.exception("Arka plan indeksleme hatasi: %s", path.name)
+        return
+    if get_settings().auto_card_on_upload and not getattr(result, "skipped", False):
+        _auto_card_after_upload(result.paper_id)
 
 
 def _ingest_all() -> IngestResponse:

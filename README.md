@@ -699,6 +699,11 @@ Tarayıcında `http://127.0.0.1:8765` aç. Sağ üstte 🟢 **"ollama bağlı"**
 | Buton | Ne yapar |
 |-------|----------|
 | **BİLGİ KARTI ÜRET** | LLM makaleyi okur, yapısal özet çıkarır (1-3 dk) |
+
+> **Otomatik kart:** `.env` içinde `HEKTOR_AUTO_CARD_ON_UPLOAD=true` → web'den yüklenen her PDF
+> indekslendikten sonra bilgi kartı + anlama skoru (`%` rozeti) kendiliğinden üretilir.
+> Varsayılan **kapalı**: her yükleme ~1-2 dk yerel LLM işi ve ingest/synth-qa ile aynı
+> Ollama'yı paylaşır. Boş kart kaydedilmez (yalnız uyarı loglanır).
 | **✓ KARTI GÖR** | Daha önce üretilmiş kartı açar |
 | **⚡ HİPOTEZLERİ BACKTEST ET** | Kartın önerdiği her stratejiyi otomatik test eder |
 | **⚡ TÜM KARTLARI ÜRET** | Kartı olmayan tüm makaleler için sırayla kart üretir |
