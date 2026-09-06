@@ -1093,6 +1093,10 @@ uv run hektor stats-check --csv x.csv --x a --y b --seed 42      # korelasyon + 
 uv run hektor ingestion-quality --paper-id <id>     # tek makale skoru (bileşen kırılımı)
 uv run hektor ingestion-quality-scan --record       # tüm korpus: dağılım + en zayıflar
 
+# Korpus bütünlüğü (SALT-OKUMA, Kural 7): disk ↔ SQLite ↔ Chroma ↔ kart tutarlılığı
+uv run hektor corpus-audit                          # sessiz kayıp sayımı: düşen PDF, yarım ingest, boş kart…
+uv run hektor corpus-audit --json --strict          # zincir kapısı: FAIL=2, WARN=1 (strict), PASS=0
+
 # Hipotez & eval — fikir "sinyal" değil test-edilebilir mi? + ReleaseGate
 uv run hektor eval-runner --type trading-hypothesis --input hyps.jsonl   # --strict ile kapı
 

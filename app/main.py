@@ -4677,6 +4677,51 @@ def _load_hypotheses(path: str) -> list:
 # --------------------------------------------------------------------------
 # İçe-alım kalite skoru (compute-on-demand; PaperIndexer sıcak yolu değişmez)
 # --------------------------------------------------------------------------
+@app.command("corpus-audit")
+def corpus_audit_cmd(
+    as_json: bool = typer.Option(False, "--json"),
+    strict: bool = typer.Option(False, "--strict", help="WARN da sıfır-dışı çıkış (1) versin"),
+    limit: int = typer.Option(10, "--limit", help="Bulgu başına listelenecek kimlik sayısı"),
+) -> None:
+    """Korpus bütünlüğü: disk ↔ SQLite ↔ Chroma ↔ kart tutarlılığı (SALT-OKUMA, Kural 7).
+
+    Sessiz kayıpları sayar: DB'ye girmemiş PDF, yarım ingest (vektörsüz chunk), boş kart,
+    şablon başlık, sıfır-metin PDF, öksüz / çok-versiyon kart. Hiçbir şey yazmaz; her
+    bulguya öneri komutu ekler ama ÇALIŞTIRMAZ. Çıkış: FAIL=2, WARN=0 (--strict ile 1).
+    """
+    from app.memory.corpus_audit import FAIL, WARN, cikis_kodu, denetle, topla
+
+    sonuc = denetle(topla(), limit=limit)
+    kod = cikis_kodu(sonuc, strict=strict)
+
+    if as_json:
+        console.print_json(json.dumps(sonuc.to_dict(), ensure_ascii=False))
+        if kod:
+            raise typer.Exit(kod)
+        return
+
+    renk = {FAIL: "red", WARN: "yellow"}.get(sonuc.durum, "green")
+    ozet = "  ".join(f"{k}={v}" for k, v in sonuc.ozet.items())
+    t = Table(title=f"Korpus bütünlüğü — [{renk}]{sonuc.durum}[/]")
+    t.add_column("kural")
+    t.add_column("seviye")
+    t.add_column("sayı", justify="right")
+    t.add_column("mesaj")
+    for b in sonuc.bulgular:
+        r = {FAIL: "red", WARN: "yellow"}.get(b.seviye, "green")
+        t.add_row(b.kural, f"[{r}]{b.seviye}[/]", str(b.sayi), b.mesaj)
+    console.print(Panel(ozet, title="özet"))
+    console.print(t)
+    for b in sonuc.bulgular:
+        if b.seviye == "PASS":
+            continue
+        kim = ", ".join(b.kimlikler) + (" …" if b.sayi > len(b.kimlikler) else "")
+        console.print(f"[bold]{b.kural}[/] → {kim}")
+        console.print(f"  öneri (çalıştırılmadı): [cyan]{b.oneri}[/]")
+    if kod:
+        raise typer.Exit(kod)
+
+
 @app.command("ingestion-quality")
 def ingestion_quality_cmd(
     paper_id: str = typer.Option(..., "--paper-id", help="Skorlanacak makale paper_id"),

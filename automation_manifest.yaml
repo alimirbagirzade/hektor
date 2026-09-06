@@ -615,6 +615,32 @@ agents:
       - "dış-kill/SIGKILL → 'running' asılı; sonraki çağrıda reaper temizler"
 
   # --- AI-brain ek modülleri (talimat: helix_hektor_ai_beyin_ek_moduller) ---
+  - agent_id: korpus-butunluk-denetcisi
+    name: Korpus Bütünlük Denetçisi
+    file: app/memory/corpus_audit.py
+    entrypoint: topla / denetle / cikis_kodu
+    trigger: "CLI `corpus-audit [--json] [--strict] [--limit N]` (compute-on-demand); ingest / kart / synth-qa sonrası, lora-audit ÖNCESİ"
+    autonomy: semi_auto
+    dangerous: false
+    default_enabled: false
+    writes: []   # SALT-OKUMA — hiçbir tabloya/dosyaya yazmaz
+    reads:
+      - "disk: data/papers/raw_pdf/*.pdf (yalnız dosya adları)"
+      - "sqlite: papers, chunks (embedded), knowledge_cards"
+      - "chroma: metadata.paper_id sayımı (get_all, sayfalı)"
+    safety_gates:
+      - "salt-okuma: silmez, yeniden-ingest etmez, kart onaylamaz, eğitim başlatmaz"
+      - "LLM çağrısı YOK — Ollama'ya dokunmaz, ingest/synth-qa ile eşzamanlı güvenli"
+      - "her bulguya `oneri` komutu eklenir ama ÇALIŞTIRILMAZ (karar insanın)"
+      - "deterministik (sabit sıralama); saf çekirdek `denetle()` çevrimdışı test edilir"
+    approval_required: false
+    stop_method: "yok (senkron, salt-okuma)"
+    status_location: "yok — çıktı stdout/JSON; FAIL=çıkış 2, WARN=0 (--strict 1)"
+    known_failure_modes:
+      - "Chroma erişilemezse get_all boş döner → tüm makaleler 'yarım ingest' görünür (FAIL); önce `hektor status`"
+      - "Chroma metadata'sında paper_id yoksa sayım 0 → yanlış FAIL (eski indeks; `ingest --force`)"
+      - "n_chars NULL (eski makale) → sıfır-metin kuralı o makaleyi ATLAR (şikayet etmez)"
+
   - agent_id: ingestion-quality-scorer
     name: Ingestion Quality Scorer
     file: app/ingestion/quality_scorer.py
@@ -733,6 +759,10 @@ chain:
   # İçe-alım kalite kapısı: ingest sonrası makaleyi 100-puanlık rubrikle skorlar
   # (compute-on-demand; düşük kalite = needs_reparse/failed). Salt-skor, retrieval engellemez.
   - step: ingestion-quality-scorer
+    after: [rag-learning-loop]
+  # Gate -1: katmanlar arası bütünlük (disk ↔ SQLite ↔ Chroma ↔ kart). Tek-makale skorundan
+  # farklı olarak SAYIM yapar: DB'ye girmemiş PDF, yarım ingest, boş kart. Salt-okuma, LLM'siz.
+  - step: korpus-butunluk-denetcisi
     after: [rag-learning-loop]
   - step: paper-mastery-agent
     after: [rag-learning-loop]
