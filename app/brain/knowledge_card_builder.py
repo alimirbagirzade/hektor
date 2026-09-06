@@ -145,7 +145,9 @@ class KnowledgeCardBuilder:
                 temperature=0.1,
                 fmt="json",
                 max_tokens=max_tokens,
-                timeout=180,
+                # Paylaşımlı Ollama'da (tek slot) istek önce kuyrukta bekler; tavan ayardan
+                # (HEKTOR_CARD_LLM_TIMEOUT_S). Bkz. settings.card_llm_timeout_s.
+                timeout=max(30, int(getattr(self.settings, "card_llm_timeout_s", 180) or 180)),
             )
         except Exception:  # LLM yok / ağ / zaman aşımı — kart boş kalır
             return {}

@@ -282,6 +282,12 @@ class Settings(BaseSettings):
     # 3000'e in (kart biraz daha yüzeysel olabilir); builder orta-kesit denemelerini de
     # bu tavana göre yapar.
     card_max_chars: int = 6000
+    # Kart üreticisinin tek LLM çağrısı için zaman aşımı (sn). Ollama istekleri SIRAYA koyar
+    # (varsayılan tek slot): synth-qa gibi başka bir iş koşarken kart isteği önce ~2-3 dk
+    # kuyrukta bekler, sonra ~2 dk üretir. 180 sn'lik tavan bu durumda isteği ÜRETİM SÜRERKEN
+    # düşürür → sunucu işi bitirir ama istemci `{}` alır, retry aynı kaderi paylaşır (ölçüldü
+    # 2026-09-06: 10. kart 20+ dk boşa döndü). Paylaşımlı Ollama'da 420+ sn kullan.
+    card_llm_timeout_s: int = 180
 
     # --- Derived dirs ---
     # TÜM veri/rapor/durum yolları `root`'tan türer. `root` env ile değiştirilebilir

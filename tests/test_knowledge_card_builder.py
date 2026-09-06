@@ -270,6 +270,36 @@ def test_build_max_chars_parametresi_ayari_ezer(tmp_path):
     assert max(llm.prompt_uzunluklari) > 10000  # açık parametre ayarı ezer
 
 
+class _TimeoutYakalayanLLM:
+    """LLM çağrısına verilen `timeout` değerini kaydeder; dolu kart döndürür."""
+
+    def __init__(self) -> None:
+        self.model = "stub-timeout"
+        self.timeouts: list[int] = []
+
+    def generate(self, prompt: str, *, system: str | None = None, **kw: object) -> str:
+        self.timeouts.append(int(kw.get("timeout", -1)))  # type: ignore[call-overload]
+        return _VALID_CARD_JSON
+
+
+def test_build_llm_timeout_ayardan_okunur(tmp_path):
+    # HEKTOR_CARD_LLM_TIMEOUT_S: paylaşımlı Ollama'da kuyruk beklemesi 180 sn'yi aşınca istek
+    # üretim sürerken düşüyordu; tavan ayardan gelir, tabanı 30 sn.
+    store = _FakeStore(["kelime " * 1000])
+    llm = _TimeoutYakalayanLLM()
+    builder = _builder(tmp_path, store, llm)
+    builder.settings = types.SimpleNamespace(
+        extracted_text_dir=tmp_path, reports_dir=tmp_path, card_llm_timeout_s=420
+    )
+    builder.build("paper_t")
+    assert llm.timeouts and all(t == 420 for t in llm.timeouts)
+
+    builder.settings = types.SimpleNamespace(extracted_text_dir=tmp_path, reports_dir=tmp_path)
+    llm.timeouts.clear()
+    builder.build("paper_t2")
+    assert all(t == 180 for t in llm.timeouts)  # ayar yoksa eski varsayılan
+
+
 # --------------------------------------------------------------------------
 # Integration: real local model (skipped unless Ollama + model are ready)
 # --------------------------------------------------------------------------
