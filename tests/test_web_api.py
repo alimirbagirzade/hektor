@@ -487,6 +487,38 @@ def test_validate_csv_accepts_ohlcv_header() -> None:
     assert name.endswith(".csv")
 
 
+def test_upload_tavani_500_mb() -> None:
+    """Yükleme tavanı 500 MB olmalı (100'e sessizce düşerse yakala).
+
+    Aynı ayar hem PDF hem OHLCV CSV yolunu besler (`security.validate_*_upload`,
+    `/api/papers/upload`, `/api/backtest/csv`) ve `/api/status` ile arayüze taşınır.
+    """
+    from app.config import get_settings
+    from app.web.schemas import StatusResponse
+
+    assert get_settings().max_upload_mb == 500
+    assert StatusResponse.model_fields["max_upload_mb"].default == 500
+
+
+def test_validate_csv_tavani_ayardan_okur(monkeypatch) -> None:
+    """413 eşiği sabit değil, `max_upload_mb` ayarından türemeli.
+
+    Tavanı 1 MB'a indirip sınırın gerçekten ayara bağlı olduğunu gösterir — böylece
+    test 500 MB'lık gövde üretmeden sınır davranışını doğrular.
+    """
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "max_upload_mb", 1, raising=False)
+
+    basli = b"time,open,high,low,close\n2020-01-01,1,2,0.5,1.5\n"
+    assert security.validate_csv_upload("kucuk.csv", basli).endswith(".csv")
+
+    buyuk = basli + b"x" * (1024 * 1024 + 1)
+    with pytest.raises(fastapi.HTTPException) as exc:
+        security.validate_csv_upload("buyuk.csv", buyuk)
+    assert exc.value.status_code == 413
+
+
 def test_validate_csv_rejects_missing_columns() -> None:
     with pytest.raises(fastapi.HTTPException):
         security.validate_csv_upload("bad.csv", b"a,b,c\n1,2,3\n")

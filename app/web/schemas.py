@@ -13,7 +13,7 @@ class StatusResponse(BaseModel):
     embedding_mode: str
     n_papers: int
     n_chunks: int
-    max_upload_mb: int = 100
+    max_upload_mb: int = 500
 
 
 class VersionResponse(BaseModel):

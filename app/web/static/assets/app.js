@@ -3,7 +3,7 @@
   "use strict";
 
   var TOKEN_KEY = "hektor_api_token";
-  var MAX_UPLOAD_MB = 100; // backend varsayılanı (settings.max_upload_mb); /api/status'tan güncellenir
+  var MAX_UPLOAD_MB = 500; // backend varsayılanı (settings.max_upload_mb); /api/status'tan güncellenir
   // localStorage artifact ortamında engelli olabilir; güvenli sarmalayıcı:
   function getToken() {
     try {
