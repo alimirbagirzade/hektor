@@ -152,3 +152,6 @@ storage/_*.py
 # Windows autostart VBS — start-server.ps1/-loop.ps1 -Install ile $PSScriptRoot
 # tabanlı (taşınabilir) ÜRETİLİR; statik kopya hardcoded yol içerir → commit edilmez
 scripts/*-autostart.vbs
+
+# SQLite yedekleri (silme/migrasyon öncesi kopyalar) — veri, commit edilmez
+storage/sqlite/backups/
