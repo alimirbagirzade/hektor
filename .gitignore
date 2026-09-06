@@ -24,6 +24,8 @@ dist/
 data/papers/raw_pdf/*
 data/papers/extracted_text/*
 data/papers/metadata/*
+data/papers/textbooks/*
+data/papers/reddedilen/*
 data/training/raw/*
 data/training/cleaned/*
 data/training/jsonl/*

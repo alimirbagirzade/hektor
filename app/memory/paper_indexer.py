@@ -60,7 +60,42 @@ class PaperIndexer:
         self.chroma = chroma or ChromaStore()
         self.embedder = embedder or EmbeddingService()
 
-    def ingest_one(self, disc: DiscoveredPaper, *, force: bool = False) -> IngestResult:
+    def enrich_corpus(self) -> list[str]:
+        """Korpus-geneli zenginleştirme: kavram grafiği + çapraz makale sentezi.
+
+        Tek makaleye değil TÜM korpusa bakar, bu yüzden makale başına değil **parti
+        başına** çağrılmalıdır (bkz. `ingest_directory`). Hata ingestion'ı bloklamaz
+        (Kural 7): zenginleştirme başarısız olsa da indeks geçerli kalır.
+        """
+        notes: list[str] = []
+
+        # Kavram grafiği — tüm makaleler arası ilişkileri güncelle
+        try:
+            from app.research.concept_graph import ConceptGraph
+
+            n_links = ConceptGraph().build_from_papers()
+            if n_links:
+                notes.append(f"concept_links={n_links}")
+                logger.info("Kavram grafiği güncellendi: %d bağlantı", n_links)
+        except Exception as exc:
+            logger.debug("Kavram grafiği güncellenemedi: %s", exc)
+
+        # Çapraz makale sentezi — yeni kategori çiftleri için eğitim verisi üret
+        try:
+            from app.research.cross_paper_synthesizer import CrossPaperSynthesizer
+
+            n_synth = CrossPaperSynthesizer().synthesize_all()
+            if n_synth:
+                notes.append(f"synthesis_examples={n_synth}")
+                logger.info("Çapraz sentez: %d yeni eğitim örneği", n_synth)
+        except Exception as exc:
+            logger.debug("Çapraz sentez atlandı: %s", exc)
+
+        return notes
+
+    def ingest_one(
+        self, disc: DiscoveredPaper, *, force: bool = False, enrich: bool = True
+    ) -> IngestResult:
         existing = self.store.get_paper_by_hash(disc.file_hash)
         if existing and not force:
             # Yarım kalmış ingest onarımı (Kural 7 + ingestion idempotent sözleşmesi):
@@ -216,38 +251,26 @@ class PaperIndexer:
 
         notes: list[str] = [f"embedding_mode={self.embedder.mode}"]
 
-        # 1. Formül çıkarma — LLM yoksa kural tabanlı yedek, hata ingestion'ı bloklamaz
-        try:
-            from app.research.formula_extractor import FormulaExtractor
+        # 1. Formül çıkarma — LLM yoksa kural tabanlı yedek, hata ingestion'ı bloklamaz.
+        # `enrich=False` (toplu ingest) bunu ATLAR: FormulaExtractor chunk BAŞINA bir LLM
+        # çağrısı yapar; GPU'suz makinede çağrı ~40 sn sürer → 30 chunk'lık makale ~20 dk.
+        # Toplu ingest'te formüller ayrı ve açık adımdan gelir: `hektor extract-formulas`.
+        if enrich:
+            try:
+                from app.research.formula_extractor import FormulaExtractor
 
-            n_formulas = len(FormulaExtractor().extract_from_paper(disc.paper_id))
-            if n_formulas:
-                notes.append(f"formulas={n_formulas}")
-                logger.info("Formül çıkarıldı: %s → %d formül", disc.paper_id, n_formulas)
-        except Exception as exc:
-            logger.debug("Formül çıkarma atlandı (%s): %s", disc.paper_id, exc)
+                n_formulas = len(FormulaExtractor().extract_from_paper(disc.paper_id))
+                if n_formulas:
+                    notes.append(f"formulas={n_formulas}")
+                    logger.info("Formül çıkarıldı: %s → %d formül", disc.paper_id, n_formulas)
+            except Exception as exc:
+                logger.debug("Formül çıkarma atlandı (%s): %s", disc.paper_id, exc)
 
-        # 2. Kavram grafiği yeniden oluştur — tüm makaleler arası ilişkileri güncelle
-        try:
-            from app.research.concept_graph import ConceptGraph
-
-            n_links = ConceptGraph().build_from_papers()
-            if n_links:
-                notes.append(f"concept_links={n_links}")
-                logger.info("Kavram grafiği güncellendi: %d bağlantı", n_links)
-        except Exception as exc:
-            logger.debug("Kavram grafiği güncellenemedi: %s", exc)
-
-        # 3. Çapraz makale sentezi — yeni kategori çiftleri için eğitim verisi üret
-        try:
-            from app.research.cross_paper_synthesizer import CrossPaperSynthesizer
-
-            n_synth = CrossPaperSynthesizer().synthesize_all()
-            if n_synth:
-                notes.append(f"synthesis_examples={n_synth}")
-                logger.info("Çapraz sentez: %d yeni eğitim örneği", n_synth)
-        except Exception as exc:
-            logger.debug("Çapraz sentez atlandı: %s", exc)
+        # 2-3. Korpus-geneli zenginleştirme (kavram grafiği + çapraz sentez).
+        # Toplu ingest'te `enrich=False` gelir ve bu adımlar dizin SONUNDA bir kez koşar —
+        # aksi halde her makalede tüm korpus yeniden taranır (maliyet ~kareye yakın büyür).
+        if enrich:
+            notes.extend(self.enrich_corpus())
 
         logger.info("Indexlendi: %s (%d chunk)", disc.paper_id, len(chunks))
         return IngestResult(
@@ -258,7 +281,25 @@ class PaperIndexer:
         )
 
     def ingest_directory(self, directory: str | Path | None = None, *, force: bool = False):
+        """Dizindeki tüm PDF'leri indeksle; korpus-geneli zenginleştirmeyi SONDA bir kez koş.
+
+        Toplu ingest = **parse → chunk → embed**. LLM'e bağlı adımlar (`enrich=False`) hariç
+        tutulur, çünkü ikisi de bu yolu kullanılamaz hâle getiriyordu:
+
+        - Kavram grafiği + çapraz sentez tüm korpusu tarar; makale başına çağrılınca maliyet
+          makale sayısıyla kareye yakın büyür. Artık dizin SONUNDA bir kez koşar — sonuç
+          aynıdır, çünkü her iki adım da nihai korpusun tamamına bakar.
+        - Formül çıkarma chunk BAŞINA bir LLM çağrısı yapar (GPU'suz ~40 sn/çağrı →
+          makale başına ~20 dk). Ayrı ve açık adıma bırakıldı: `hektor extract-formulas`.
+
+        Tek-makale yolu (`ingest_one`, web PDF yüklemesi) varsayılan `enrich=True` ile
+        eskisi gibi davranır — orada tek makalenin maliyeti kabul edilebilir.
+        """
         results = []
         for disc in discover_pdfs(directory):
-            results.append(self.ingest_one(disc, force=force))
+            results.append(self.ingest_one(disc, force=force, enrich=False))
+        if any(not r.skipped for r in results):
+            notes = self.enrich_corpus()
+            if results and notes:
+                results[-1].notes.extend(notes)
         return results
