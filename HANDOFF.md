@@ -114,14 +114,15 @@ kartı içerik bakmadan döndürüyordu. Arayüz kodunda hata yoktu.
 yedi makale yeniden "BİLGİ KARTI ÜRET" gösteriyor. Aynı gün başka oturumun `hektor read-all`
 koşuları 5 yeni içerikli kart üretti → kartlı makale 10/159.
 
-**Kalan.** 7 boş `pending` kart veritabanında duruyor (onay kuyruğunda "Onayla" kapalı, zararsız);
-`hektor cards reject` ya da arayüzden "Reddet" ile temizlenebilir — veriye dokunulmadı.
+**Temizlik.** Aynı gün 7 boş kart `rejected` yapıldı (bu seans dışından; onay kuyruğu artık yalnız
+içerikli kart taşıyor: 3 pending). Veritabanında toplam 28 boş kartın hepsi `rejected` — satırlar
+bilinçli olarak silinmedi: reddedilmiş kart "yeniden üret" işaretidir ve yeni erişimciler onu görmez.
 
 ---
 
 ## Bilinen açık işler
 
-- 7 boş `pending` bilgi kartı onay kuyruğunda (bkz. yukarıdaki seans notu) — temizlik insan kararı.
+- 28 boş `rejected` kart satırı veritabanında duruyor (zararsız, erişimciler atlar); fiziksel silme istenirse ayrı, geri alınamaz adımdır.
 
 - `docs/MIGRASYON_2.0.md` §"Kalan adaylar" — Phase-4 GitHub otomasyonu (hiç aktive edilmedi),
   `training/dataset_builder.py` ikinci veri hattı, bulut-GPU protokol dokümanları.
