@@ -146,6 +146,8 @@ storage/_*.py
 
 # Editör/araç yerel ayarları
 .claude/launch.json
+# Oturum-yerel zamanlanmış iş kilidi (Claude Code cron) — makineye özgü, paylaşılmaz
+.claude/scheduled_tasks.lock
 
 # Windows autostart VBS — start-server.ps1/-loop.ps1 -Install ile $PSScriptRoot
 # tabanlı (taşınabilir) ÜRETİLİR; statik kopya hardcoded yol içerir → commit edilmez
