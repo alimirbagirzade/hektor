@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-04 (Achilles → Hektor)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-06 (boş bilgi kartı arayüz düzeltmesi)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -34,10 +34,11 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (214 dosya) + pytest **1758 passed, 4 skipped** |
+| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **1839 passed, 1 skipped** (2026-09-06, `75652df`) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
-| Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı) |
+| Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
+| Bilgi kartı tanımı | "Kartı var" = canlı (`rejected` değil) **ve içerikli** (`card_has_content`: title veya main_claim alfanümerik). Boş kart = kart yok → makale yeniden kartlanabilir (`has_knowledge_card` / `get_latest_knowledge_card`) |
 | Test izolasyonu | Testler gerçek `data/` · `storage/` ağacına **yazamaz**; ihlal ederse paket FAIL verir |
 
 ---
@@ -92,7 +93,35 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-06: Boş bilgi kartı arayüz hatası (kapandı)
+
+**Belirti.** Kütüphane'de bazı makaleler "✓ KARTI GÖR" gösteriyor, kart "(başlıksız)" açılıyor
+ve "BİLGİ KARTI ÜRET" düğmesi kaybolduğu için makale bir daha kartlanamıyordu.
+
+**Kök sebep.** Eski builder'ın (6dd6214 öncesi) yazdığı 7 **boş `pending`** kart
+`has_knowledge_card` tarafından "kart var" sayılıyordu; `get_latest_knowledge_card` de en yeni
+kartı içerik bakmadan döndürüyordu. Arayüz kodunda hata yoktu.
+
+**Düzeltme (`75652df`).**
+- `app/memory/sqlite_store.py`: iki erişimci de reddedilmiş VE içeriksiz kartı atlar; en yeni
+  kart boş olsa bile daha eski içerikli canlı kart döner. Tek tanım: `card_has_content`.
+- `app/web/static/assets/app.js` `renderCard`: içeriksiz kart açıkça "Bilgi kartı içeriksiz"
+  + "↻ YENİDEN ÜRET" düğmesi (artık "(başlıksız)" yok).
+- `tests/test_has_knowledge_card_rejected.py`: boş pending kart sayılmaz; içerikli kart tercih edilir.
+
+**Canlı doğrulama.** Sunucu main'den yeniden başlatıldı (ayrık `uv run hektor-web`, çıktı
+`logs/hektor-web.log` / `logs/hektor-web.err.log`). Boş kartlı makalede `GET /api/card/<id>` 404;
+yedi makale yeniden "BİLGİ KARTI ÜRET" gösteriyor. Aynı gün başka oturumun `hektor read-all`
+koşuları 5 yeni içerikli kart üretti → kartlı makale 10/159.
+
+**Kalan.** 7 boş `pending` kart veritabanında duruyor (onay kuyruğunda "Onayla" kapalı, zararsız);
+`hektor cards reject` ya da arayüzden "Reddet" ile temizlenebilir — veriye dokunulmadı.
+
+---
+
 ## Bilinen açık işler
+
+- 7 boş `pending` bilgi kartı onay kuyruğunda (bkz. yukarıdaki seans notu) — temizlik insan kararı.
 
 - `docs/MIGRASYON_2.0.md` §"Kalan adaylar" — Phase-4 GitHub otomasyonu (hiç aktive edilmedi),
   `training/dataset_builder.py` ikinci veri hattı, bulut-GPU protokol dokümanları.
