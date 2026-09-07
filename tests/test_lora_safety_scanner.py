@@ -189,3 +189,40 @@ def test_api_key_known_prefix_rejected() -> None:
     aws = scan_for_secrets("AKIAIOSFODNN7EXAMPLE yapilandirmasi")
     assert aws.passed is False
     assert any("api_key" in v for v in aws.violations)
+
+
+# --------------------------------------------------------------------------- #
+# api_key + URL bağlamı (Kademe-2 bulgusu, 2026-09-07): URL yolu sır sanılıyordu
+# --------------------------------------------------------------------------- #
+def test_api_key_url_path_not_flagged() -> None:
+    """URL host+yolu sır sayılmamalı — GERÇEK olay: bir bilgi kartındaki GitHub
+    bağlantısı ('github.com/AThreeH1/Global-Permutation-Entropy': 3 karakter sınıfı,
+    4.41 entropi) Gate 7'yi (BLOCKER) tetikleyip 161 kartlık meşru veri setini
+    eğitime kapatmıştı. Kartta hiçbir sır yoktu."""
+    kart = (
+        "The Julia package 'Global-Permutation-Entropy' is available at "
+        "https://github.com/AThreeH1/Global-Permutation-Entropy"
+    )
+    assert _detect_api_key(kart) is False
+    assert scan_for_secrets(kart).passed is True
+    # Yaygın akademik bağlantılar da FP üretmemeli.
+    assert _detect_api_key("https://arxiv.org/abs/2512.22337v2") is False
+    assert _detect_api_key("bkz www.example.org/Some-Long-Path-Segment-Here99") is False
+
+
+def test_api_key_in_url_query_still_rejected() -> None:
+    """FN regresyonu yok: URL'in query/fragment kısmı maskelenmez — gömülü sır yakalanır.
+
+    Sahte anahtar PARÇA PARÇA kurulur: dosyada tam dizge bulunmaz, böylece gitleaks
+    pre-commit kancası test fikstürünü gerçek sır sanmaz (kanca bir kez tetiklendi).
+    """
+    sahte = "aB3xK9mQ7zR2tY5w" + "E8uI1oP4sD6fG0hJ"
+    assert _detect_api_key(f"https://api.example.com/v1/data?api_key={sahte}") is True
+
+
+def test_api_key_known_prefix_inside_url_still_rejected() -> None:
+    """Bilinen sır ön-eki URL YOLUNDA olsa bile yakalanır (ön-ek taraması maskeden önce)."""
+    aws = "AKIA" + "IOSFODNN7EXAMPLE"
+    gh = "ghp_" + "1234567890abcdefghABCDEFGH1234567890"
+    assert _detect_api_key(f"https://x.example.com/{aws}/list") is True
+    assert _detect_api_key(f"https://github.com/o/r?token={gh}") is True

@@ -59,6 +59,16 @@ _API_KEY_CANDIDATE: re.Pattern[str] = re.compile(r"[A-Za-z0-9_\-+/]{32,}={0,2}")
 _API_KEY_MIN_ENTROPY: float = 3.5
 _API_KEY_MIN_CHAR_CLASSES: int = 3
 
+# URL bağlamı (Kademe-2 bulgusu, 2026-09-07): `/` aday karakter sınıfında olduğundan
+# bir URL'in host+yol kısmı TEK token olarak eşleşiyordu — "github.com/AThreeH1/
+# Global-Permutation-Entropy" 3 sınıf + 4.41 entropi ile sır sanıldı ve Gate 7 (BLOCKER)
+# 161 kartlık meşru veri setini kilitledi (gerçek FP; kartta hiçbir sır yok). Artık
+# genel entropi sezgisi URL'in şema+host+YOL bölümünde UYGULANMAZ.
+# FN korunur: (1) bilinen sır ön-ekleri (ghp_/AKIA/sk-…) TÜM metinde, URL yolu dahil,
+# önceden aranır; (2) URL'in query/fragment bölümü maskelenmez — "?api_key=<sır>"
+# biçimindeki gerçek sızıntı hâlâ yakalanır.
+_URL_RE: re.Pattern[str] = re.compile(r"(?:https?://|www\.)[^\s\"'<>)\]}]+", re.IGNORECASE)
+
 # Tartışmasız sır biçimleri — sınıf/entropi sezgisinden bağımsız yakalanır.
 # (Yüksek-kesinlik: bu ön-ekler düz metinde yüksek-entropili gövdeden önce
 # kazara neredeyse hiç gelmez.)
@@ -89,18 +99,40 @@ def _char_class_count(token: str) -> int:
     return sum((has_lower, has_upper, has_digit))
 
 
+def _url_path_spans(text: str) -> list[tuple[int, int]]:
+    """URL'lerin şema+host+YOL aralıkları (query/fragment HARİÇ).
+
+    Bu aralıklara düşen adaylar genel entropi sezgisinden muaf tutulur; query/fragment
+    dışarıda bırakılır ki URL'e gömülü gerçek sır (``?api_key=…``) taramada kalsın.
+    """
+    spans: list[tuple[int, int]] = []
+    for match in _URL_RE.finditer(text):
+        url = match.group(0)
+        cut = len(url)
+        for sep in ("?", "#"):
+            idx = url.find(sep)
+            if idx != -1:
+                cut = min(cut, idx)
+        spans.append((match.start(), match.start() + cut))
+    return spans
+
+
 def _detect_api_key(text: str) -> bool:
     """Gerçek API anahtarı / sır benzeri token ara (daraltılmış).
 
-    Önce bilinen sır ön-eklerine, sonra çok-sınıflı + yüksek-entropili 32+ token'a
-    bakar. Saf hex hash (yalnız küçük+rakam = 2 sınıf), düz değişken adı (1 sınıf)
-    ve LaTeX/yapılandırılmış dizgeler (düşük entropi) elenir.
+    Önce bilinen sır ön-eklerine (TÜM metinde), sonra çok-sınıflı + yüksek-entropili
+    32+ token'a bakar. Saf hex hash (yalnız küçük+rakam = 2 sınıf), düz değişken adı
+    (1 sınıf), LaTeX/yapılandırılmış dizgeler (düşük entropi) ve URL host/yolu
+    (bkz. ``_url_path_spans``) elenir.
     """
     for prefix in _SECRET_PREFIX_PATTERNS:
         if prefix.search(text):
             return True
+    url_spans = _url_path_spans(text)
     for match in _API_KEY_CANDIDATE.finditer(text):
         token = match.group(0)
+        if any(start <= match.start() and match.end() <= end for start, end in url_spans):
+            continue  # URL host/yolu — sır değil (ön-ek taraması yukarıda yapıldı)
         if (
             _char_class_count(token) >= _API_KEY_MIN_CHAR_CLASSES
             and _shannon_entropy(token) >= _API_KEY_MIN_ENTROPY
