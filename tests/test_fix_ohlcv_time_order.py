@@ -79,3 +79,49 @@ def test_zaten_sirali_dosya_degismez(tmp_path: Path) -> None:
     assert len(out) == 50
     assert out.index.is_monotonic_increasing
     assert out["close"].iloc[0] == df["close"].iloc[0]
+
+
+# --------------------------------------------------------------------------- #
+# Şüpheci denetim kalıntıları (2026-09-07): ilk düzeltmenin kapatmadığı iki açık
+# --------------------------------------------------------------------------- #
+def test_celisen_tekrarli_damga_REDDEDILIR(tmp_path: Path) -> None:
+    """Aynı damgada FARKLI fiyat = bozuk veri; sessizce birini seçmek sonucu dosya
+    sırasına bağlardı (kararlı sıralama eşit damgalarda girdi sırasını korur)."""
+    import pytest
+
+    df = generate_synthetic_ohlcv(n=20, seed=5)
+    cakisan = df.iloc[[10]].copy()
+    cakisan["close"] = cakisan["close"] * 1.05  # aynı damga, FARKLI değer
+    cift = pd.concat([df, cakisan]).sort_index(kind="stable")
+
+    with pytest.raises(ValueError, match="ÇELİŞEN"):
+        load_ohlcv(_yaz(cift, tmp_path / "celisen.csv"))
+
+
+def test_birebir_ayni_tekrar_dosya_sirasindan_BAGIMSIZ(tmp_path: Path) -> None:
+    """Birebir aynı satır zararsız artefakt: tekillenir ve sonuç sıradan bağımsızdır."""
+    df = generate_synthetic_ohlcv(n=20, seed=5)
+    cift = pd.concat([df, df.iloc[[10]]]).sort_index(kind="stable")
+
+    artan = load_ohlcv(_yaz(cift, tmp_path / "a.csv"))
+    tersten = load_ohlcv(_yaz(cift.iloc[::-1], tmp_path / "t.csv"))
+
+    assert len(artan) == len(tersten) == 20
+    pd.testing.assert_frame_equal(artan, tersten)
+
+
+def test_zaman_kolonu_yoksa_UYARIR(tmp_path: Path, caplog) -> None:
+    """Zaman ekseni yoksa sıra doğrulanamaz — sessiz geçmek BLOCKER'ı açık bırakırdı."""
+    import logging
+
+    df = generate_synthetic_ohlcv(n=10, seed=1).reset_index(drop=True)
+    path = tmp_path / "zamansiz.csv"
+    df.to_csv(path, index=False)
+
+    with caplog.at_level(logging.WARNING, logger="app.trading.market_data_loader"):
+        out = load_ohlcv(path)
+
+    assert len(out) == 10  # kabul edilir (mevcut çağıranlar kırılmaz)
+    assert any(
+        "zaman kolonu" in r.message.lower() for r in caplog.records
+    ), "zaman kolonu yokken uyarı basılmadı — sessiz look-ahead riski"

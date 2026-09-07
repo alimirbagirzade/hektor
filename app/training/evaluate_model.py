@@ -55,7 +55,32 @@ from app.memory.sqlite_store import ModelEvaluation, SqliteStore
 # Kâr/kazanç gövdeleri (tr_fold sonrası: ç→c, â→a, ş→s, ğ→g, İ→i, I→ı).
 # "kâr" AÇIK ``kar\w*`` olarak yazılamaz: "karar"/"karşı"yı da yutup "kesin bir karar
 # veremem" gibi meşru cümleyi bloklardı → kapalı ek listesi kullanılır.
-_TR_PROFIT = r"(?:kazan\w*|kar(?:ı|ın|a|da|dan|dır|lı|lar|ları)?\b|getiri\w*)"
+_TR_PROFIT = (
+    r"(?:kazan\w*|kar(?:ı|ın|a|da|dan|dır|lı|lar|ları)?\b"
+    # "getiri" AÇIK `getiri\w*` olamaz: FİİL çekimlerini de yutuyordu ("daha kesin
+    # hale GETİRİLMESİNE" -> yanlış-pozitif). Gerçek eğitim setinde ölçüldü: tek
+    # başına pretrain-gate'i NO-GO'ya düşürüp eğitimi bloklamıştı. Kapalı İSİM eki.
+    r"|getiri(?:si|niz|miz|ler|leri|lerin|nin|ye|yi|den|dir|dır)?\b)"
+)
+
+# Vaat fiilleri — "kesin/risksiz + kâr" gibi AMBİGÜ kalıplar ancak bir vaat fiiliyle
+# birlikte zehir sayılır. Çıplak isim tamlaması vaat DEĞİLDİR ve bunları bloklamak
+# meşru eğitim setini reddeder (ölçüldü): "risk-free rate of return" (Sharpe oranının
+# standart terimi), "kesin kâr rakamı raporlanır", "kesin kazanç iddiaları
+# desteklenmez", "kesinlikle kâr amacı gütmeyen".
+# ÖNEMLİ: yalnız OLUMLU çekimler. `ed\w*` gibi açık gövde olumsuzu da yutar
+# ("vaat EDİLEMEZ") ve olumsuzluk eşleşmenin İÇİNDE kaldığı için negasyon penceresi
+# (eşleşmeden SONRA bakar) onu göremez → meşru disiplin cümlesi zehir sayılırdı.
+_TR_PROMISE = (
+    r"(?:sagla(?:r|yacak|yan|dı|dıg\w*)\b|sagliyor\w*|saglıyor\w*"
+    r"|kazandır(?:ır|acak|ıyor|dı)\w*|kazandir(?:ir|acak|iyor|di)\w*"
+    r"|getir(?:ir|iyor|ecek|ecegim|ecegiz)\b"
+    r"|ver(?:ir|iyor|ecek|ecegim|ecegiz|iyorum)\b|sunu(?:yor|m|s)\w*|sunar\b"
+    r"|elde\s+ed(?:er|ecek|iyor)\w*"
+    r"|vaat\s+ed(?:er|ecek|iyor|ilir|ildi)\b"
+    r"|garanti\s+ed(?:er|ecek|iyor|ilir|ildi)\b)"
+)
+_EN_PROMISE = r"(?:gives?|offers?|makes?|earns?|delivers?|guarante(?:e|es|ed))"
 _EN_PROFIT = r"(?:profits?|returns?|gains?|income|payouts?|wins?|yields?|money)\b"
 _EN_GUARANTEE = r"guarante(?:e|es|ed|eing)"
 
@@ -67,17 +92,22 @@ _GUARANTEE_CLAIM_RE: re.Pattern[str] = re.compile(
     rf"|garanti(?:li|si|niz)?\s+(?:\w+\s+){{0,2}}(?:%\s?\d|\d+\s?%)"
     # TR ters sıra: "kâr garantisi" / "kazanç garantili".
     rf"|(?:kazan\w*|kar(?:ı|ın|lı|lar|ları)?|getiri\w*)\s+garanti(?:si|li|dir|dır)?\b"
-    # TR "kesin kazanç" / "kesin kazandırır" / "kesinlikle kazandırır" / "kesin para kazandırır".
-    rf"|kesin(?:likle)?\s+(?:\w+\s+){{0,2}}{_TR_PROFIT}"
-    # TR "risksiz kazanç / kâr / getiri".
-    rf"|risksiz\s+(?:\w+\s+){{0,2}}{_TR_PROFIT}"
+    # TR "kesin kazandırır" — kazandır'ın KENDİSİ vaat fiilidir, ek fiil aranmaz.
+    rf"|kesin(?:likle)?\s+(?:\w+\s+){{0,2}}kazandır\w*"
+    rf"|kesin(?:likle)?\s+(?:\w+\s+){{0,2}}kazandir\w*"
+    # TR "kesin kazanç SAĞLAR" — ambigü kalıp: vaat fiili ŞART (bkz. _TR_PROMISE).
+    rf"|kesin(?:likle)?\s+(?:\w+\s+){{0,2}}{_TR_PROFIT}(?:\s+\w+){{0,3}}\s+{_TR_PROMISE}"
+    # TR "risksiz kazanç SAĞLAR" — aynı gerekçe ("risksiz getiri oranı" meşrudur).
+    rf"|risksiz\s+(?:\w+\s+){{0,2}}{_TR_PROFIT}(?:\s+\w+){{0,3}}\s+{_TR_PROMISE}"
     # EN "guaranteed profit" / "guarantees profit" / "guarantee returns of 20%".
     rf"|{_EN_GUARANTEE}\s+(?:\w+\s+){{0,3}}{_EN_PROFIT}"
     rf"|{_EN_GUARANTEE}\s+(?:\w+\s+){{0,3}}\d+\s?%"
     # EN "profits are guaranteed" ("profits are NOT guaranteed" araya 'not' girdiği için eşleşmez).
     rf"|{_EN_PROFIT}\s+(?:is|are)\s+guaranteed\b"
-    # EN "risk-free returns".
-    rf"|risk[\s\-]?free\s+(?:\w+\s+){{0,2}}{_EN_PROFIT}"
+    # EN "risk-free returns" — "risk-free RATE of return" (Sharpe) MEŞRUDUR; bu yüzden
+    # ya bir vaat fiili ("gives you risk-free returns") ya da "guaranteed" eşlik etmeli.
+    rf"|{_EN_PROMISE}\s+(?:\w+\s+){{0,3}}risk[\s\-]?free\s+(?:\w+\s+){{0,2}}{_EN_PROFIT}"
+    rf"|risk[\s\-]?free\s+(?:\w+\s+){{0,2}}{_EN_PROFIT}\s+(?:is|are)\s+guaranteed\b"
 )
 
 # Cümlecik sınırı — negasyon yalnız iddianın KENDİ cümleciğinde geçerli sayılır.

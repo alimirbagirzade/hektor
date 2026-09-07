@@ -50,23 +50,55 @@ def _ensure_time_order(df: pd.DataFrame) -> pd.DataFrame:
     Sessiz düzeltme yapılmaz: her müdahale sayısıyla loglanır (Kural 2).
     """
     if not isinstance(df.index, pd.DatetimeIndex):
-        return df  # zaman kolonu yok → sıralanacak bir zaman ekseni de yok
+        # Zaman ekseni YOK: satır sırasının kronolojik olduğu DOĞRULANAMAZ. Sessizce
+        # geçmek bu düzeltmenin kapatmaya çalıştığı BLOCKER'ı (konumsal hesap gelecekten
+        # okur) aynen açık bırakır ve üstelik "düzeltildi" etiketi altında görünmez kılar.
+        # Sert red mevcut çağıranları kırardı (zaman kolonsuz CSV bugüne dek kabul
+        # ediliyordu), bu yüzden görünür uyarı: sonuç yorumlanırken bu bilinmeli.
+        log.warning(
+            "CSV'de zaman kolonu (time/date/datetime/timestamp) YOK — satır sırası "
+            "DOĞRULANAMIYOR. Dosya kronolojik değilse göstergeler gelecekten hesaplanır "
+            "(look-ahead, Kural 4). Backtest sonucu bu varsayıma bağlıdır."
+        )
+        return df
+
     n_before = len(df)
     df = df[df.index.notna()]
     if len(df) < n_before:
         log.warning("Zaman damgası okunamayan %d satır düşürüldü (NaT).", n_before - len(df))
-    if df.index.has_duplicates:
-        n_dup = len(df)
-        df = df[~df.index.duplicated(keep="last")]
-        log.warning(
-            "Tekrarlı zaman damgası: %d satır düşürüldü (aynı damganın SON kaydı tutuldu).",
-            n_dup - len(df),
-        )
+
+    # SIRALAMA ÖNCE gelir: tekrar temizliği `keep="last"` ile yapıldığından, sıralanmamış
+    # bir dosyada "son" = DOSYADAKİ son satır olurdu, zamansal son değil. Aynı damgada
+    # farklı değerler varsa artan ve tersten sıralı aynı dosya FARKLI seri üretirdi —
+    # yani sonuç yükleme sırasına bağlı kalırdı (Kural 6 determinizmi tek dosya için
+    # korunur ama sıra-bağımsızlık bozulurdu).
     if not df.index.is_monotonic_increasing:
         log.warning(
             "CSV zaman sırasında değil — artan sıraya getirildi (look-ahead savunması, Kural 4)."
         )
         df = df.sort_index(kind="stable")
+
+    if df.index.has_duplicates:
+        # Tie-break veriye bakar, sıraya DEĞİL: kararlı sıralama eşit damgalarda girdi
+        # sırasını koruduğundan `keep="last"` hâlâ "dosyadaki son" demekti ve sonuç
+        # yükleme sırasına bağlı kalırdı.
+        cakisan = df[df.index.duplicated(keep=False)]
+        tekil_olmayan = cakisan.groupby(level=0).nunique().gt(1).any(axis=1)
+        celisen = [str(ts) for ts, farkli in tekil_olmayan.items() if bool(farkli)]
+        if celisen:
+            ornek = ", ".join(celisen[:3])
+            raise ValueError(
+                f"Aynı zaman damgasında ÇELİŞEN OHLCV satırları ({len(celisen)} damga): "
+                f"{ornek}. Hangi fiyatın doğru olduğu bilinemez; birini sessizce seçmek "
+                "backtest sonucunu dosya sırasına bağlar. Veriyi kaynağında düzelt."
+            )
+        n_dup = len(df)
+        df = df[~df.index.duplicated(keep="first")]
+        log.warning(
+            "Tekrarlı zaman damgası: %d birebir aynı satır düşürüldü (dışa aktarım "
+            "artefaktı; çelişen değer yok).",
+            n_dup - len(df),
+        )
     return df
 
 
