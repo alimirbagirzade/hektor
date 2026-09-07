@@ -214,6 +214,53 @@ def build_training_kwargs(
         kwargs["neftune_noise_alpha"] = cfg.neftune_noise_alpha
     if max_steps and max_steps > 0:
         kwargs["max_steps"] = max_steps
+    return _adapt_warmup(kwargs, max_steps=max_steps, num_epochs=num_epochs)
+
+
+def _training_arguments_supports(param: str) -> bool:
+    """Kurulu ``TrainingArguments`` bu parametreyi kabul ediyor mu (import edilemezse True)."""
+    try:
+        import inspect
+
+        from transformers import TrainingArguments
+    except Exception:  # transformers yok (çevrimdışı test/dry-run) → dokunma
+        return True
+    try:
+        return param in inspect.signature(TrainingArguments.__init__).parameters
+    except (TypeError, ValueError):
+        return True
+
+
+def _adapt_warmup(kwargs: dict, *, max_steps: int, num_epochs: int) -> dict:
+    """``warmup_ratio`` desteklenmiyorsa ``warmup_steps``e çevir (transformers ≥5.16).
+
+    Neden: transformers 5.16 ``warmup_ratio``yu KALDIRDI ve bağımlılık üst sınırsız
+    (``transformers>=4.40``) olduğu için ortam yeniden kurulunca sürüm sıçradı; 4B
+    eğitimi ``TypeError`` ile düştü (2026-09-07). Isınma, v5 aşırı-öğrenme reçetesinin
+    parçasıdır — parametre kaybolunca SESSİZCE DÜŞÜRÜLMEZ, adım sayısına çevrilir.
+
+    Toplam adım bilinmiyorsa (``max_steps<=0``) oran adıma çevrilemez; bu durumda
+    ısınma kwargs'tan çıkarılır ve çağıran bunu logda görür (sessiz kayıp yok).
+    """
+    oran = kwargs.get("warmup_ratio")
+    if oran is None or _training_arguments_supports("warmup_ratio"):
+        return kwargs
+    kwargs.pop("warmup_ratio", None)
+    if max_steps and max_steps > 0 and oran > 0:
+        kwargs["warmup_steps"] = max(1, round(float(oran) * int(max_steps)))
+        logger.info(
+            "transformers sürümü warmup_ratio desteklemiyor → warmup_steps=%d "
+            "(oran %.3f × %d adım).",
+            kwargs["warmup_steps"],
+            float(oran),
+            int(max_steps),
+        )
+    else:
+        logger.warning(
+            "transformers sürümü warmup_ratio desteklemiyor ve toplam adım bilinmiyor "
+            "→ ısınma UYGULANMADI (oran %.3f). Adım sayısını (max_steps) belirt.",
+            float(oran or 0.0),
+        )
     return kwargs
 
 

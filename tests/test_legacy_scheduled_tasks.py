@@ -68,3 +68,24 @@ def test_yeni_gorev_adlari_korundu(betik: str) -> None:
     """Regresyon: yeni (Hektor) görev adları kaybolmamalı."""
     for yeni in ("HektorWeb", "HektorUpdate", "HektorTrainingWatchdog"):
         assert f'"{yeni}"' in betik, f"yeni görev adı kayboldu: {yeni}"
+
+
+# --------------------------------------------------------------------------- #
+# uv sync eğitim paketlerini SİLMEMELİ (2026-09-07'de yaşandı)
+# --------------------------------------------------------------------------- #
+def test_verify_install_uv_sync_inexact_kullanir() -> None:
+    """`uv sync` varsayılan olarak istenen küme DIŞINDAKİ paketleri KALDIRIR.
+
+    Eğitim paketleri (torch/transformers/peft/accelerate) `train-cpu` adlı AYRI
+    extra'dadır. `--inexact` olmadan `uv sync --extra dev` onları sessizce siler →
+    sunucuyu yeniden başlatmak makinenin eğitim yeteneğini yok eder. 2026-09-07'de
+    tam olarak bu oldu: `start-server.ps1 -Install` sonrası `hektor train --run`
+    "Eksik paketler: ['torch','transformers','peft']" ile düştü.
+    """
+    betik = (_SCRIPT.parent / "verify-install.ps1").read_text(encoding="utf-8", errors="replace")
+    sync_satirlari = [s for s in betik.splitlines() if "sync" in s and "$UvPath" in s]
+    assert sync_satirlari, "verify-install.ps1 içinde uv sync çağrısı bulunamadı"
+    for satir in sync_satirlari:
+        assert (
+            "--inexact" in satir
+        ), f"uv sync --inexact kullanmıyor → eğitim paketleri silinir: {satir.strip()}"

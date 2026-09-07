@@ -86,8 +86,15 @@ function Invoke-Step {
 # senkron basarisiz olsa bile mevcut ortamla devam edip testte yakalariz.
 if (-not $SkipSync) {
     Write-Host ""
-    Write-Host "==> [0] Bagimliliklar (uv sync --extra dev)" -ForegroundColor Cyan
-    & $UvPath sync --extra dev --project "$ProjectDir"
+    Write-Host "==> [0] Bagimliliklar (uv sync --extra dev --inexact)" -ForegroundColor Cyan
+    # --inexact ZORUNLU: `uv sync` varsayilan olarak istenen kume DISINDAKI paketleri
+    # KALDIRIR. Egitim paketleri (torch/transformers/peft/accelerate) `train-cpu` adli
+    # AYRI extra'dadir; --inexact olmadan bu senkron onlari SESSIZCE SILER ve sunucuyu
+    # yeniden baslatmak makinenin egitim yetenegini yok eder (2026-09-07'de yasandi:
+    # sonraki `hektor train --run` "Eksik paketler" ile dustu).
+    # `--extra train-cpu` eklemek COZUM DEGIL: torch ~2 GB, egitim yapmayacak makineye
+    # zorla indirtilmemeli.
+    & $UvPath sync --extra dev --inexact --project "$ProjectDir"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  [!] uv sync basarisiz (cevrimdisi olabilir) -- mevcut ortamla devam." -ForegroundColor Yellow
     }
