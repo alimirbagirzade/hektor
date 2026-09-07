@@ -93,6 +93,40 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Yerel eğitim denemesi — 2026-09-07: onay yarışı + bellek darboğazı
+
+**Yerel eğitim yolu ÇALIŞIR durumda ve hiçbir eksiği yok.** Ölçüldü: `train` dry-run
+`missing_packages: []`; torch 2.12+cpu / peft 0.19.1 / transformers 5.9.0 kurulu;
+`Qwen3-4B-Instruct-2507` (7.6 GB) ve `Qwen2.5-1.5B-Instruct` (2.9 GB, ChatML şablonlu)
+HF önbelleğinde indirilmiş; veri bölünmüş (train=1447, valid=76). Disk 158 GB boş.
+
+**Yerel eğitim ABONELİK KULLANMAZ.** Abonelik ajanların kod/araştırma işi içindir;
+LoRA eğitimi yalnız yerel CPU'da Python hesabıdır — API çağrısı ve ücret yoktur.
+
+**Bellek gerçeği (bu makine):** 32 GB toplam. 4B model bf16'da ~8 GB ağırlık + aktivasyon
+ile pratikte **~18-20 GB**'a çıkıyor (ölçüldü) ve Ollama'nın llama-server'ı ayrıca 4-7 GB
+tutuyor → boş RAM ~0.8-1 GB'a iniyor. Yerel koşu için **Qwen2.5-1.5B-Instruct** seçilmeli
+(profil notu da ≤1.5B diyor). `scripts/start-train.ps1 -BaseModel ...` bunun içindir ve
+seçim `train_status.json`'a yazılıp watchdog tarafından geri okunur (`cf7e893`).
+
+**AÇIK BULGU — onay yarışı (Kural 8 hijyeni).** İki eşzamanlı `train --run` çağrısında
+`consume_fresh_approval` CAS'i doğru çalışıyor (yalnız biri tüketir) ama **kaybeden taraf
+YENİ bir pending onay üretip kuyrukta bırakıyor**. Gözlendi: kullanıcının verdiği onay
+(`apr_7f612c303431`) başka bir oturumun `hektor_smoke_olcum` koşusu tarafından tüketildi;
+bizim koşumuz yetki alamayıp `apr_042388be85de`'yi üretti ve durdu. Kuyrukta bu yüzden
+kullanılmayan pending istekler birikiyor (şu an birkaç adet).
+Öneri: yetki alamayan çağrı, aynı agent+action için **zaten bekleyen** bir istek varsa
+yenisini üretmesin (idempotent istek); ya da kuyruk temizliği için `approval-prune`.
+
+**Sıradaki adım:** `hektor_smoke_olcum` koşusu bitip RAM boşalınca, bekleyen onay
+onaylanıp gerçek koşu başlatılacak:
+`hektor train --run --backend peft --adapter-name hektor_lora_v6_local --iterations 300
+--profile discipline_safe_local` (HEKTOR_PEFT_BASE_MODEL=Qwen/Qwen2.5-1.5B-Instruct).
+Reçete doğrulandı: 300 örnek = tam 1 epoch, r=16, lr=1e-4, NEFTune 5, assistant_only_loss
+(v5 ezber-regresyonunun panzehiri), seed 42.
+
+---
+
 ## Kademe-2 derin av — 2026-09-07: FAIL → 12 bulgu düzeltildi (`ea03b04`)
 
 Eğitim öncesi **zorunlu** Kademe-2 avı çalıştırıldı (8 alt-sistem paralel bulucu →
