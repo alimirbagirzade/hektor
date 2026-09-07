@@ -2563,7 +2563,10 @@
       .then(function (s) {
         el.innerHTML =
           '<div class="metrics-grid" style="margin-top:8px">' +
-          '<div class="metric"><div class="k">LLM model</div><div class="v">' + esc(s.llm_model) + '</div></div>' +
+          // "LLM model" tek basina yaniltiyordu: bu OLLAMA CIKARIM modelidir (RAG / bilgi
+          // karti / sohbet), EGITILEN model DEGILDIR. Egitim temel modeli ayri gosterilir
+          // (05 · EGITIM sekmesi, canli ilerleme).
+          '<div class="metric"><div class="k">LLM modeli (RAG/sohbet)</div><div class="v">' + esc(s.llm_model) + '</div></div>' +
           '<div class="metric"><div class="k">Ollama</div><div class="v ' + (s.ollama_available ? "pos" : "neg") + '">' + (s.ollama_available ? "bağlı ✓" : "kapalı ✗") + '</div></div>' +
           '<div class="metric"><div class="k">Embed modu</div><div class="v">' + esc(s.embedding_mode) + '</div></div>' +
           '<div class="metric"><div class="k">Makale sayısı</div><div class="v">' + s.n_papers + '</div></div>' +

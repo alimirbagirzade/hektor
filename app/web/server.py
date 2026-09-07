@@ -1491,11 +1491,81 @@ def api_training_colab_notebook() -> Response:
     )
 
 
+def _detached_training_progress() -> dict | None:
+    """Ayrık (CLI/detached) eğitim koşusunu diskten oku — yoksa ``None``.
+
+    Kaynaklar (ikisi de salt-okuma):
+      * ``storage/train_status.json`` — ``start-train.ps1``in yazdığı reçete
+        (adapter adı, temel model, hedef adım sayısı).
+      * ``models/adapters/<ad>/checkpoint-*/trainer_state.json`` — trainer'ın yazdığı
+        gerçek ilerleme (global_step, max_steps, log_history → kayıp).
+    """
+    import json as _json
+
+    s = get_settings()
+    status_file = s.state_dir / "train_status.json"
+    if not status_file.is_file():
+        return None
+    try:
+        cfg = _json.loads(status_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    adapter = str(cfg.get("adapter") or "")
+    if not adapter:
+        return None
+
+    out_dir = s.adapters_dir / adapter
+    checkpoints = sorted(
+        (p for p in out_dir.glob("checkpoint-*") if p.is_dir()),
+        key=lambda p: int(p.name.rsplit("-", 1)[-1]) if p.name.rsplit("-", 1)[-1].isdigit() else -1,
+    )
+    if not checkpoints:
+        return None
+    try:
+        state = _json.loads((checkpoints[-1] / "trainer_state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+    step = int(state.get("global_step") or 0)
+    total = int(state.get("max_steps") or cfg.get("iterations") or 0)
+    losses = [e for e in state.get("log_history", []) if "loss" in e]
+    finished = (out_dir / "adapter_model.safetensors").is_file()
+    return {
+        "state": "finished" if finished else "running",
+        "current_iter": step,
+        "total_iters": total,
+        "pct": round(100.0 * step / total, 1) if total else 0.0,
+        "train_loss": float(losses[-1]["loss"]) if losses else None,
+        "val_loss": None,
+        "adapter_name": adapter,
+        "base_model": str(cfg.get("base_model") or ""),
+        "started_at": "",
+        "finished_at": "",
+        "error": "",
+        "source": "detached",  # bellekten değil DİSKTEN okundu
+        "log_lines": [],
+    }
+
+
 @app.get("/api/training/progress", dependencies=[api_auth])
 def api_training_progress() -> dict:
-    from app.web.training_manager import get_training_manager
+    """Canlı eğitim ilerlemesi. Bellekte koşu yoksa DİSKTEN okur.
 
-    return get_training_manager().progress.to_dict()
+    ``TrainingManager`` yalnız KENDİ başlattığı (web butonu) koşuyu bilir. Ama projenin
+    önerdiği yol ayrık başlatmadır (``scripts/start-train.ps1`` → ``hektor train --run``),
+    yani CLI'dan doğan koşu. Eskiden böyle bir koşu %42'de bile olsa bu uç ``idle, 0/0``
+    dönüyordu ve kullanıcı kendi eğitimini arayüzden İZLEYEMİYORDU (gerçek olay,
+    2026-09-07). Artık ``storage/train_status.json`` + en son checkpoint'in
+    ``trainer_state.json``'ı okunarak ayrık koşu da raporlanır (salt-okuma).
+    """
+    from app.web.training_manager import TrainState, get_training_manager
+
+    prog = get_training_manager().progress.to_dict()
+    if prog.get("state") != TrainState.IDLE.value:
+        return prog
+
+    disk = _detached_training_progress()
+    return disk or prog
 
 
 @app.get("/api/training/live", dependencies=[api_auth])
