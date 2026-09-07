@@ -34,7 +34,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **1843 passed, 1 skipped** (2026-09-07, `2b0c263`) |
+| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **1999 passed, 1 skipped** (2026-09-07, `ea03b04`) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
@@ -90,6 +90,38 @@ uv run hektor approval-approve <id>
 
 Eğitim sonrası: `lora-eval` (min_n≥5, degenerasyon + boş-cevap vetolu) → adapter **ADAY**;
 production terfisi ayrı insan onayı ister.
+
+---
+
+## Kademe-2 derin av — 2026-09-07: FAIL → 12 bulgu düzeltildi (`ea03b04`)
+
+Eğitim öncesi **zorunlu** Kademe-2 avı çalıştırıldı (8 alt-sistem paralel bulucu →
+HIGH/BLOCKER için 3 bağımsız şüpheci oy). **Verdict FAIL:** 45 ham bulgudan 32'si
+onaylandı, 10'u bloklayan. Hepsi kodda ayrı ayrı doğrulanıp düzeltildi, her biri kendi
+regresyon testiyle kilitlendi. Kapı: pytest **1999 passed**.
+
+| Ciddiyet | Dosya | Neydi |
+|---|---|---|
+| BLOCKER | `market_data_loader` | CSV zaman sırasına göre **sıralanmıyordu** → ters sıralı dosya ters yönde backtest, fiili look-ahead (Kural 4), OOS dilimi en eski veri |
+| HIGH | `peft_lora_train` | Checkpoint'ten koşulsuz devam; eski adım ≥ hedef ise **0 adım eğitip `ok=True`** (Kural 2) |
+| HIGH | `detached_launch` | "1 epoch" fiilen **~4.8 epoch** (profil 300'e kırpıyor); satır-düzeyi bölme **18 makaleyi** train+valid'e dağıtıyordu |
+| HIGH | `evaluate_model` | Garanti-vaadi deseni 17 varyantın 13'ünü kaçırıyordu |
+| HIGH | `delegates` | `approval` aşaması **tek-kullanımlık onayı tüketiyordu** + her resume'da yeni pending (4 birikmişti) |
+| HIGH | `engines` | codex av motoru `hardened=True` iddiasına rağmen **çıplak argv** (av, sürüşten gevşek) |
+| HIGH | `knowledge_card_builder` | Tip sapmasında **içerikli kart kaydedilmeden çöküyordu** (8 sapma ölçüldü) |
+| HIGH | `rag_learning_loop` + `paper_reader` | Başarısız deneme "üretildi" sayılıyor → bütçe tükeniyor, diğer makaleler **açlığa** düşüyordu |
+| HIGH | `rlm/lora_candidate` | §16 atıf kapısı **atıfsız** koşularda boş yere sağlanıyordu (Kural 7) |
+| HIGH | `confidence_scorer` | Aynı kök: atıfsız cevap ağırlıklı ortalamada **bedava 0.30** puan alıyordu |
+| MEDIUM | `rlm_controller` | Zorunlu trading uyarısının idempotens kontrolü serbest cümleye bakıyordu → uyarının kalan 3 satırı eklenmiyordu (Kural 1) |
+| — | `start-train.ps1` + `training-watchdog.ps1` | Resume varsayılanı kapanınca **çökme-kurtarma kırıldı**; `-Resume` switch'i eklendi |
+
+**Yanlış-pozitif disiplini:** garanti deseni genişletilirken gerçek veri setindeki 7 meşru
+akademik "garanti" (konformal tahmin aralığı, drawdown olasılık sınırı, FDP sınırı) elle
+doğrulandı — hepsi hâlâ GO alıyor. Aynı hafta Gate 7'de bir GitHub URL'i API anahtarı
+sanılıp 161 kartlık veri setini kilitlemişti; o sınıf hata tekrarlanmadı.
+
+**Not:** Bu avdan sonra düzeltmelerin kendisi ayrıca şüpheci denetimden geçirilmelidir
+(düzeltme yeni hata üretmiş olabilir). Eğitimden önce av YENİDEN koşturulmalı.
 
 ---
 
