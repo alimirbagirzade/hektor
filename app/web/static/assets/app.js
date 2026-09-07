@@ -1321,8 +1321,10 @@
         base_model: (document.getElementById("drBaseModel") || {}).value || "",
         adapter_name: (document.getElementById("trAdapterName") || {}).value || "hektor_lora",
         iterations: parseInt((document.getElementById("drIterations") || {}).value, 10) || 500,
-        batch_size: parseInt((document.getElementById("drBatch") || {}).value, 10) || 2,
-        num_layers: parseInt((document.getElementById("drLayers") || {}).value, 10) || 8,
+        // batch_size / num_layers BILEREK gonderilmiyor: gercek egitim yolu
+        // (launch -> train --run) bunlari HIC kullanmiyor ve dry-run'da yalniz MLX
+        // (macOS) dalinda gecerliler. Windows/Linux PEFT'te deger girmek kullaniciyi
+        // yaniltiyordu -> alanlar arayuzden kaldirildi; sema varsayilanlari yeterli.
         learning_rate: 1e-4,
       };
       // GERÇEK eğitim onayı (tehlikeli aksiyon — agStopAll/agApprove ile aynı desen).

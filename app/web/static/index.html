@@ -405,7 +405,8 @@
           <div class="dry-run-form">
             <div class="setting-group">
               <label>Temel model<input type="text" id="drBaseModel" value="" placeholder="boş = otomatik (Windows/Linux: 4B brain, macOS: MLX)" /></label>
-              <p class="setting-desc">Boş bırakırsan sunucu backend'e göre seçer: Windows/Linux PEFT → <code>Qwen3-4B-Instruct-2507</code> (tek beyin, Ollama <code>qwen3:4b</code> ile uyumlu), macOS → MLX modeli. Elle girersen o model kullanılır; değiştirirsen önceki adapter'lar uyumsuz olur.</p>
+              <p class="setting-desc">Boş bırakırsan sunucu backend'e göre seçer: Windows/Linux PEFT → <code>Qwen3-4B-Instruct-2507</code> (Ollama <code>qwen3:4b</code> ile uyumlu), macOS → MLX modeli. <strong>Bellek uyarısı:</strong> 4B modeli yerel CPU eğitiminde ~18–20 GB tutar; Ollama da ayrıca 4–7 GB kullanır. 32 GB'lık bir makinede bu sınırda kalır. Dar bellekte <code>Qwen/Qwen2.5-1.5B-Instruct</code> (~6 GB) yaz. Modeli değiştirirsen önceki adapter'lar uyumsuz olur.</p>
+              <p class="setting-desc">Diğer hiper-parametreler (LoRA rank, öğrenme oranı, epoch, batch, maskeleme) <strong>reçete profilinden</strong> gelir: <code>configs/lora/lora_profiles.yaml</code> → varsayılan <code>discipline_safe_local</code>. Buradan tek tek ayarlanmaz — profil, v5 aşırı-öğrenme onarımını da içerdiği için bütün olarak uygulanır.</p>
             </div>
             <div class="setting-group">
               <label>Adapter adı<input type="text" id="trAdapterName" value="hektor_lora" /></label>
@@ -414,14 +415,6 @@
             <div class="setting-group">
               <label>İterasyon<input type="number" id="drIterations" min="50" max="5000" value="500" /></label>
               <p class="setting-desc">Modelin kaç güncelleme adımı yapacağı. <strong>100–200:</strong> hızlı ama yetersiz. <strong>300–500:</strong> çoğu kullanım için yeterli (önerilen). <strong>1000+:</strong> güçlü ama yavaş ve aşırı öğrenme riski taşır.</p>
-            </div>
-            <div class="setting-group">
-              <label>Batch<input type="number" id="drBatch" min="1" max="16" value="2" /></label>
-              <p class="setting-desc">Her adımda aynı anda işlenecek örnek sayısı. <strong>1–2:</strong> düşük RAM / CPU eğitimi için güvenli. <strong>4–8:</strong> CUDA GPU varsa hızlandırır. Bellek hatası alırsan bu değeri düşür.</p>
-            </div>
-            <div class="setting-group">
-              <label>Katman<input type="number" id="drLayers" min="1" max="64" value="8" /></label>
-              <p class="setting-desc">LoRA'nın modelin kaç transformatör katmanını ince ayarlayacağı. <strong>4–8:</strong> hızlı ve az bellek (başlangıç için yeterli). <strong>16–32:</strong> daha güçlü öğrenme ama yavaş ve fazla bellek ister.</p>
             </div>
           </div>
         </div>
