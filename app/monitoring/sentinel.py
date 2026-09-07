@@ -15,10 +15,14 @@ eğitimi duraklatmaz (detached PEFT eğitiminde güvenli duraklat/sürdür yok �
 from __future__ import annotations
 
 import logging
+import os
+import re
 import shutil
 import sqlite3
+import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from app.monitoring.store import MonitoringStore, utcnow
@@ -30,6 +34,13 @@ _DISK_WARN_GB = 10.0
 _DISK_FAIL_GB = 2.0
 _FEEDBACK_BACKLOG_WARN = 50
 _ORCH_STALE_MIN = 30.0
+
+# Otomatik baslatma kayitlari (yalniz Windows). Eski adlar achilles2.0 -> hektor
+# yeniden adlandirmasindan (2026-09-04) kalir ve SILINMIS bir yolu gosterir.
+_WATCHDOG_TASK = "HektorTrainingWatchdog"
+_EXPECTED_TASKS = ("HektorWeb", "HektorUpdate", _WATCHDOG_TASK)
+_LEGACY_TASKS = ("AchillesWeb", "AchillesUpdate", "AchillesTrainingWatchdog")
+_TASK_QUERY_TIMEOUT_S = 20
 
 # Verdict önceliği (agregasyon): büyük olan kazanır.
 _SEVERITY = {"skip": 0, "ok": 1, "warn": 2, "fail": 3}
@@ -176,6 +187,108 @@ def probe_stop_all() -> ProbeResult:
     return _guard("stop_all", _run)
 
 
+def read_scheduled_tasks() -> dict[str, str]:
+    """Kayıtlı Hektor/Achilles görevleri: ad → action argümanı (Windows dışında boş).
+
+    Salt-okuma: yalnız ``Get-ScheduledTask`` sorgular, hiçbir görevi değiştirmez.
+    """
+    if os.name != "nt":
+        return {}
+    ps = (
+        "Get-ScheduledTask -ErrorAction SilentlyContinue | "
+        "Where-Object { $_.TaskName -match 'Hektor|Achilles' } | "
+        "ForEach-Object { $_.TaskName + '|' + [string]$_.Actions[0].Arguments }"
+    )
+    proc = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+        capture_output=True,
+        text=True,
+        timeout=_TASK_QUERY_TIMEOUT_S,
+        check=False,
+    )
+    tasks: dict[str, str] = {}
+    for satir in (proc.stdout or "").splitlines():
+        ad, _, arg = satir.partition("|")
+        if ad.strip():
+            tasks[ad.strip()] = arg.strip()
+    return tasks
+
+
+def _task_script_path(arguments: str) -> str:
+    """Görev argümanlarından ``-File "<yol>"`` betik yolunu çıkar (yoksa boş)."""
+    m = re.search(r'-File\s+"([^"]+)"', arguments) or re.search(r"-File\s+(\S+)", arguments)
+    return m.group(1) if m else ""
+
+
+def probe_autostart(read_tasks: Callable[[], dict[str, str]] | None = None) -> ProbeResult:
+    """Otomatik başlatma kayıtları sağlam mı — ÖLÜ NÖBETÇİ tespiti.
+
+    Neden (2026-09-07 bulgusu): proje yeniden adlandırılınca Windows görevleri
+    taşınmadı. Eski görevler SİLİNMİŞ bir yolu gösterip sessizce başarısız oluyordu,
+    yeni görevlerin hiçbiri kayıtlı değildi → eğitim nöbetçisi, günlük güncelleme ve
+    web otomatik başlatma üçü de ölüydü. Görev listesinde "Ready" göründükleri ve
+    dokümanlar çalıştıklarını söylediği için kimse fark etmedi. Uzun bir CPU eğitimi
+    çökse yeniden başlatan olmayacaktı (Kural 2: doğrulanmadan "çalışıyor" sayma).
+
+    Salt-okuma. Windows dışında ``skip``.
+    """
+
+    def _run() -> ProbeResult:
+        okuyucu = read_tasks or read_scheduled_tasks
+        if os.name != "nt":
+            return ProbeResult("autostart", "skip", "Windows değil — görev kaydı yok.")
+        tasks = okuyucu()
+        if not tasks:
+            return ProbeResult(
+                "autostart",
+                "fail",
+                "Hiçbir Hektor görevi kayıtlı değil — çökme-kurtarma YOK.",
+                "Kur: .\\scripts\\start-server.ps1 -Install (Yönetici PowerShell)",
+            )
+        eksik = [t for t in _EXPECTED_TASKS if t not in tasks]
+        eski = [t for t in _LEGACY_TASKS if t in tasks]
+
+        if _WATCHDOG_TASK not in tasks:
+            return ProbeResult(
+                "autostart",
+                "fail",
+                f"Eğitim nöbetçisi ({_WATCHDOG_TASK}) kayıtlı DEĞİL — eğitim çökerse "
+                f"yeniden başlatan yok. Eski kalıntı: {', '.join(eski) or 'yok'}.",
+                "Kur: .\\scripts\\start-server.ps1 -Install",
+            )
+
+        # Asıl ariza: nöbetçi ARTIK VAR OLMAYAN bir yolu gösteriyor (2026-09-07'de
+        # yaşanan: silinmiş achilles2.0 dizini). "Farklı checkout" tek başına ariza
+        # DEĞİLDİR — git worktree'den bakıldığında nöbetçinin ANA depoyu göstermesi
+        # doğrudur; o yüzden yalnız YOLUN VARLIĞI fail sebebidir.
+        betik = _task_script_path(tasks.get(_WATCHDOG_TASK, ""))
+        if betik and not Path(betik).is_file():
+            return ProbeResult(
+                "autostart",
+                "fail",
+                f"Nöbetçi VAR OLMAYAN bir betiği gösteriyor: {betik}",
+                "Bu kuruluma bağla: .\\scripts\\start-server.ps1 -Install",
+            )
+
+        if eski or eksik:
+            parcalar = []
+            if eski:
+                parcalar.append(f"eski kayıt duruyor: {', '.join(eski)}")
+            if eksik:
+                parcalar.append(f"eksik görev: {', '.join(eksik)}")
+            return ProbeResult(
+                "autostart",
+                "warn",
+                "Nöbetçi çalışıyor ama " + "; ".join(parcalar) + ".",
+                "Temizle/tamamla: .\\scripts\\start-server.ps1 -Install (Yönetici)",
+            )
+        return ProbeResult(
+            "autostart", "ok", f"{len(_EXPECTED_TASKS)} görev kayıtlı, nöbetçi bu depoda."
+        )
+
+    return _guard("autostart", _run)
+
+
 def probe_disk() -> ProbeResult:
     def _run() -> ProbeResult:
         from app.config import get_settings
@@ -294,6 +407,7 @@ def default_probes() -> list[Probe]:
         probe_feedback,
         probe_rag_loop,
         probe_contention,
+        probe_autostart,
     ]
 
 

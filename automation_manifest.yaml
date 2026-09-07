@@ -141,6 +141,7 @@ agents:
       - "Ollama /api/tags (LocalLLM.available)"
       - "http://127.0.0.1:8765/ (web canlılık)"
       - storage/train_status.json + logs/train-full-err.log (eğitim durumu)
+      - "Windows Get-ScheduledTask (Hektor*/Achilles* görevleri — SALT SORGU, autostart probe'u)"
       - "sqlite: orchestration_stages (stale-peek, MUTASYONSUZ)"
       - storage/STOP_ALL
       - "disk kullanımı + PRAGMA quick_check + feedback pending sayısı"
@@ -150,6 +151,8 @@ agents:
       - "contention probe'u DANIŞMAN Resource Negotiator: eğitimi DURAKLAMAZ (detached
         PEFT'te güvenli resume yok), yalnız CPU çekişmesini raporlar"
       - "geçmiş yazılamazsa canlı rapor yine döner (best-effort persist)"
+      - "autostart probe'u yalnız Get-ScheduledTask SORGULAR; görev kaydetmez/silmez —
+        onarım insanın çalıştırdığı `start-server.ps1 -Install/-Repair` işidir"
     approval_required: false
     stop_method: "—; anlık rapor (arka plan döngüsü yok, UI/CLI çağrısıyla koşar)"
     status_location: "sqlite: sentinel_checks"
@@ -157,6 +160,11 @@ agents:
       - "Ollama kapalıyken llm=fail (normal sinyal, nöbetçi hatası değil)"
       - "web sunucu kapalıyken web=warn (CLI onsuz çalışır)"
       - "modül import edilemezse ilgili probe skip"
+      - "autostart: Windows dışında skip; PowerShell çağrılamazsa skip (nöbetçi düşmez)"
+      - "autostart=fail 2026-09-07'de GERÇEKLEŞTİ: achilles2.0→hektor yeniden adlandırması
+        Windows görevlerini taşımadı; 3 eski görev SİLİNMİŞ yolu gösteriyordu ve
+        HektorTrainingWatchdog hiç kayıtlı değildi → eğitim çökme-kurtarması YOKTU, ama
+        görevler listede 'Ready' göründüğü için sessizdi. Bu probe o sınıfı yakalar."
 
   - agent_id: self-healing-controller
     name: Self-Healing Controller (Tamir Döngüsü)
