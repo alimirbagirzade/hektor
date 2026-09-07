@@ -35,6 +35,11 @@ $PidFile    = Join-Path $ProjectDir ".web.pid"
 $VbsFile    = Join-Path $ScriptDir "hektor-autostart.vbs"
 $RegPath    = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $RegKey     = "HektorWeb"
+# Achilles -> Hektor yeniden adlandirmasindan (2026-09-04) kalan ESKI kayitlar.
+# Bunlar silinmis bir yolu gosterir ve sessizce basarisiz olur; temizlenmezlerse
+# kullanici calisan bir nobetci/guncelleme oldugunu SANIR (bkz. Remove-LegacyAutostart).
+$LegacyTaskNames = @("AchillesWeb", "AchillesUpdate", "AchillesTrainingWatchdog")
+$LegacyRegKey    = "AchillesWeb"
 $WebExe     = Join-Path $ProjectDir ".venv\Scripts\hektor-web.exe"
 $WebTaskScript = Join-Path $ScriptDir "run-web-service.ps1"
 
@@ -210,8 +215,34 @@ function Format-PathMatch {
 # (idempotent kendini-onarma). Cagrildigi $ProjectDir/$ScriptDir'e gomer. git'e DOKUNMAZ.
 # Yukseltilmemis (non-admin) oturumda Register-ScheduledTask basarisiz olabilir; sessiz
 # "[OK]" yerine GERCEK sonucu raporlamak icin $script:AutostartOk izlenir.
+# Eski (Achilles donemi) gorev/Registry kayitlarini kaldir. Idempotent: yoksa sessiz gecer.
+# Yeniden adlandirma env + DB icin geriye donuk uyum kancasi biraktı ama gorevler
+# unutulmustu; eski gorev SILINMIS yolu isaret ettigi icin onarilamaz, KALDIRILMALI.
+function Remove-LegacyAutostart {
+    $temizlenen = @()
+    foreach ($eski in $LegacyTaskNames) {
+        if (Get-ScheduledTask -TaskName $eski -ErrorAction SilentlyContinue) {
+            try {
+                Unregister-ScheduledTask -TaskName $eski -Confirm:$false -ErrorAction Stop
+                $temizlenen += $eski
+            } catch {
+                Write-Host "  [!] Eski gorev kaldirilamadi: $eski" -ForegroundColor Yellow
+            }
+        }
+    }
+    if (Get-ItemProperty -Path $RegPath -Name $LegacyRegKey -ErrorAction SilentlyContinue) {
+        Remove-ItemProperty -Path $RegPath -Name $LegacyRegKey -ErrorAction SilentlyContinue
+        $temizlenen += "Registry:$LegacyRegKey"
+    }
+    if ($temizlenen.Count -gt 0) {
+        Write-Host ("  [OK] Eski (Achilles) kayitlar kaldirildi: " + ($temizlenen -join ", ")) -ForegroundColor Green
+    }
+}
+
 function Sync-Autostart {
     $script:AutostartOk = $true
+    # Once eski kayitlari temizle: ayni iste iki gorev (biri kirik) kalmasin.
+    Remove-LegacyAutostart
 
     # VBS olustur: uv tam yolunu degil, start-server.ps1'i (PATH-bagimsiz) cagirir
     $thisScript = Join-Path $ScriptDir "start-server.ps1"
@@ -297,6 +328,11 @@ function Repair-Autostart {
     if (-not $webTask -or $webTask.Actions[0].Execute -ine $expectedWebExe) { $needs = $true }
     if ($webTask -and $webTask.Actions[0].Arguments -notlike "*$WebTaskScript*") { $needs = $true }
     if (-not $watchdogTask) { $needs = $true }
+    # Eski Achilles gorevi HALA duruyorsa bu da bir sapmadir: kirik gorev
+    # "nobetci var" yanilgisi uretir ve Sync-Autostart onu temizler.
+    foreach ($eski in $LegacyTaskNames) {
+        if (Get-ScheduledTask -TaskName $eski -ErrorAction SilentlyContinue) { $needs = $true }
+    }
     if (-not (Test-PathMatchesRepo $updEmb (Join-Path $ProjectDir 'update.ps1'))) { $needs = $true }
     if (-not $regVal -or ($regVal -notlike "*$VbsFile*")) { $needs = $true }
     if (-not $needs) {
@@ -360,6 +396,7 @@ function Uninstall-Autostart {
     Unregister-ScheduledTask -TaskName "HektorWeb"    -Confirm:$false -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName "HektorUpdate" -Confirm:$false -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName "HektorTrainingWatchdog" -Confirm:$false -ErrorAction SilentlyContinue
+    Remove-LegacyAutostart
     Write-Host "  [OK] Otomatik baslatma ve guncelleme kaldirildi." -ForegroundColor Yellow
 }
 
