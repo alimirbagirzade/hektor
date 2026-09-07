@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-06 (boş bilgi kartı arayüz düzeltmesi)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-07 (Gate 7 yanlış pozitifi + eğitim hattı kapıları)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -34,7 +34,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **1839 passed, 1 skipped** (2026-09-06, `75652df`) |
+| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **1843 passed, 1 skipped** (2026-09-07, `2b0c263`) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
@@ -90,6 +90,40 @@ uv run hektor approval-approve <id>
 
 Eğitim sonrası: `lora-eval` (min_n≥5, degenerasyon + boş-cevap vetolu) → adapter **ADAY**;
 production terfisi ayrı insan onayı ister.
+
+---
+
+## Son seans — 2026-09-07: Eğitim hattı kapıları + Gate 7 yanlış pozitifi (kapandı)
+
+**Gate 7 (BLOCKER) meşru veri setini kilitliyordu.** Gece üretimiyle onaylı kart 14 → 161
+olunca `lora-audit` Gate 7 (safety) BAŞARISIZ verdi. Sebep sır DEĞİL, dedektör hatasıydı:
+`_API_KEY_CANDIDATE` aday regex'i `/` ve `-` içerdiğinden bir GitHub bağlantısının host+yolu
+TEK token olarak eşleşti (`com/AThreeH1/Global-Permutation-Entropy`: 3 karakter sınıfı,
+4.41 entropi > 3.5 eşiği). Kartta (`card_ddb93d79f6b9`, paper_044fec06f4ff) hiçbir kimlik
+bilgisi yok — kart okundu ve doğrulandı.
+
+**Düzeltme (`2b0c263`)** veriye değil dedektöre: genel entropi sezgisi artık URL'in
+şema+host+YOL bölümünde uygulanmaz (`_url_path_spans`). Yanlış-negatif korunur:
+bilinen sır ön-ekleri (`ghp_`/`AKIA`/`sk-`/`xox…`) TÜM metinde — URL yolu dahil — önce aranır,
+URL'in query/fragment bölümü maskelenmez (`?api_key=<sır>` hâlâ yakalanır). 3 regresyon testi;
+fikstür dizgeleri parça parça kurulur (gitleaks pre-commit kancası bir kez tetiklendi —
+kanca ATLANMADI, fikstür düzeltildi).
+
+**Eğitim hattı durumu (2026-09-07 08:00):**
+
+| Kapı | Durum |
+|---|---|
+| Stage 1 eşiği | 867/1000 (synth 708 + kart 159) — `synth-qa-bulk` canlı üretiyor |
+| `pretrain-gate` | **GO** (blocker 0; uyarı: 57 maliyet-token'sız cevap, disiplin 289/528) |
+| `lora-audit` Gate 0-7 | **GEÇTİ** (161/161 onaylandı, 20 inceleme işaretli) |
+| `lora-curate` | 159 kanonik kart (orphan 0, çok-versiyon 0) |
+| `lora-split` | train/valid ayrımı hazır |
+| Kademe-2 derin av | **ÇALIŞIYOR** — bitmeden `hunt_ack` YOK |
+| Kural 8 taze insan onayı | **BEKLİYOR** — ajan tüketmez |
+
+**Kural 8 sınırı korundu:** gerçek eğitim başlatılmadı, `approval-approve` / `train --run` /
+`/api/training/run` ÇAĞRILMADI. Orkestrasyon `deep-hunt` kapısında bloke
+(`orc_f8fd6d720df34c24`, `orc_0de294252b6341e2`).
 
 ---
 
