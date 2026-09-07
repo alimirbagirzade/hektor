@@ -6,7 +6,9 @@ Output schema (per spec):
     risk_warnings[], implementation_notes[]
 
 The LLM is asked to return strict JSON. We parse defensively (strip code
-fences, fall back to an empty-but-valid card on parse failure).
+fences, fall back to an empty-but-valid card on parse failure) and normalize
+field TYPES before validation (small models emit ``"year": 2021`` or
+``"methods": "GARCH"``, which pydantic would otherwise reject).
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.brain.local_llm import LocalLLM
 from app.brain.prompt_loader import load_prompt
@@ -61,9 +63,13 @@ class KnowledgeCard(BaseModel):
         return card_has_content(self.model_dump())
 
 
-def _extract_json(text: str) -> dict[str, Any]:
-    """Modelin çıktısından JSON nesnesini çıkar; küçük modellerin tipik
-    bozulmalarını (kod çiti, akıllı tırnak, sondaki virgül) toleranslı onar."""
+def _extract_json(text: str) -> Any:
+    """Modelin çıktısından JSON değerini çıkar; küçük modellerin tipik
+    bozulmalarını (kod çiti, akıllı tırnak, sondaki virgül) toleranslı onar.
+
+    Dönüş tipi bilinçli olarak ``Any``: model bazen nesne yerine dizi/skaler döndürür,
+    "dict garantisi" çağıran tarafta (``_card_json``) verilir.
+    """
     m = _JSON_FENCE.search(text)
     raw = m.group(1) if m else text
     start, end = raw.find("{"), raw.rfind("}")
@@ -75,6 +81,103 @@ def _extract_json(text: str) -> dict[str, Any]:
         repaired = raw.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
         repaired = re.sub(r",\s*([}\]])", r"\1", repaired)  # sondaki virgüller
         return json.loads(repaired)
+
+
+# --- LLM tip sapmalarına karşı savunma -------------------------------------------------
+# Küçük modeller (ör. qwen3:4b) şemayı sık ihlal eder: `"year": 2021` (int, şema
+# `str | None`), `"methods": "GARCH"` (tek string, şema `list[str]`),
+# `"limitations": null`. pydantic v2 gevşek modda bile bunları REDDEDER
+# (ValidationError) → içerikli kart KAYDEDİLMEDEN `build()` çöker, dakikalarca süren
+# yerel LLM emeği boşa gider. Aşağısı yalnız TİPİ düzeltir; Kural 7 gereği hiçbir değer
+# UYDURULMAZ: çevrilemeyen/anlamsız değer boş bırakılır.
+
+# Skaler alan → şema varsayılanı (normalizasyon boş metin ürettiğinde buraya düşülür).
+_SCALAR_DEFAULTS: dict[str, str | None] = {
+    "title": None,
+    "year": None,
+    "domain": None,
+    "main_claim": "",
+    "trading_relevance": "",
+}
+
+_LIST_FIELDS = (
+    "methods",
+    "datasets",
+    "limitations",
+    "possible_strategy_hypotheses",
+    "risk_warnings",
+    "implementation_notes",
+)
+
+# İç içe geçmiş yapıları düzleştirirken azami derinlik (patolojik/döngüsel girdi koruması).
+_MAX_NEST_DEPTH = 3
+
+
+def _as_text(value: Any, *, depth: int = 0) -> str:
+    """Herhangi bir JSON değerini okunabilir TEK SATIR metne indir; çeviremezse "" döner.
+
+    ``bool`` ve boş kapsayıcılar bilinçli olarak "" verir: "True" gibi bir değer alfanümerik
+    olduğu için kartı "doluymuş" gibi gösterip boş-kart kapısını (``card_has_content``)
+    delerdi. Anlamsız değer içerik sayılmaz (Kural 7).
+    """
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        # 2021.0 → "2021" (yıl alanında ".0" kuyruğu gürültü).
+        return str(int(value)) if value.is_integer() else str(value)
+    if depth >= _MAX_NEST_DEPTH:
+        return ""
+    if isinstance(value, list | tuple | set):
+        return "; ".join(t for t in (_as_text(v, depth=depth + 1) for v in value) if t)
+    if isinstance(value, dict):
+        # Tek anahtarlı sözlükte anahtar gürültüdür ({"name": "GARCH"} → "GARCH");
+        # çok anahtarlıda "anahtar: değer" çiftleri korunur.
+        single = len(value) == 1
+        parts: list[str] = []
+        for key, raw in value.items():
+            text = _as_text(raw, depth=depth + 1)
+            if not text:
+                continue
+            parts.append(text if single else f"{_as_text(key, depth=depth + 1)}: {text}")
+        return "; ".join(parts)
+    return ""
+
+
+def _as_text_list(value: Any) -> list[str]:
+    """Liste alanını `list[str]`e indir: None/bool → [], tek string → tek elemanlı liste,
+    iç öğeler (sözlük dâhil) okunabilir tek satıra düşürülür. Boş öğeler atılır."""
+    if value is None or isinstance(value, bool):
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, list | tuple | set):
+        return [t for t in (_as_text(v, depth=1) for v in value) if t]
+    text = _as_text(value)
+    return [text] if text else []
+
+
+def _normalize_card_data(data: Any) -> dict[str, Any]:
+    """LLM'den gelen ham sözlüğü ``KnowledgeCard`` şemasına uygun TİPLERE çevir.
+
+    Yalnız gelen anahtarlara dokunur (eksik alan pydantic varsayılanında kalır) ve
+    hiçbir alanı doldurmaz — boş kartı "dolu" göstermez, boş-kart sözleşmesi korunur.
+    """
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, Any] = dict(data)
+    for field, default in _SCALAR_DEFAULTS.items():
+        if field in out:
+            text = _as_text(out[field])
+            out[field] = text or default
+    for field in _LIST_FIELDS:
+        if field in out:
+            out[field] = _as_text_list(out[field])
+    return out
 
 
 class KnowledgeCardBuilder:
@@ -152,9 +255,12 @@ class KnowledgeCardBuilder:
         except Exception:  # LLM yok / ağ / zaman aşımı — kart boş kalır
             return {}
         try:
-            return _extract_json(out)
+            parsed = _extract_json(out)
         except (json.JSONDecodeError, ValueError):
             return {}
+        # Model bazen nesne yerine dizi/skaler döndürür ("[...]", "null", "3"); sözleşme
+        # dict olduğundan (çağıran `data[...]` ile yazıyor) dict olmayanı boş kart say.
+        return parsed if isinstance(parsed, dict) else {}
 
     def build(self, paper_id: str, max_chars: int | None = None) -> KnowledgeCard:
         """8GB-dostu: kısa girdi + Ollama JSON modu + num_predict cap + retry.
@@ -217,8 +323,19 @@ class KnowledgeCardBuilder:
                     if str(data.get("main_claim") or "").strip():
                         break
 
+        # Şemaya sokmadan ÖNCE tipleri düzelt (int yıl, tek-string methods, null liste...);
+        # aksi hâlde pydantic ValidationError fırlatır ve İÇERİKLİ kart kaydedilmeden
+        # build() çöker — çağıran (web /api/card, `hektor read-all`, RAG döngüsü) hata alır,
+        # yerel CPU'da dakikalar süren LLM emeği boşa gider.
+        data = _normalize_card_data(data)
         data["paper_id"] = paper_id
-        card = KnowledgeCard.model_validate(data)
+        try:
+            card = KnowledgeCard.model_validate(data)
+        except ValidationError as exc:
+            # Normalizasyonun öngörmediği bir sapma kaldıysa: çökme yerine BOŞ kart üret.
+            # Boş kart aşağıda KAYDEDİLMEZ; çağıran "kart üretilemedi" görür.
+            log.warning("Kart şemaya uymadı, boş kart döndürülüyor (%s): %s", paper_id, exc)
+            card = KnowledgeCard(paper_id=paper_id)
 
         # Boş kart KAYDEDİLMEZ. Eskiden LLM zaman aşımı/parse hatası `{}` döndürünce
         # kart yine de `pending` olarak yazılıyordu: onay kuyruğu boş kartla doluyor

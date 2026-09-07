@@ -53,9 +53,18 @@ def _context_score(sufficiency: SufficiencyResult) -> float:
     return level_scores.get(sufficiency.level, 0.5)
 
 
-def _citation_score(citations: list[CitationCheck]) -> float:
+def _citation_score(citations: list[CitationCheck]) -> float | None:
+    """Geçerli atıf oranı; atıf HİÇ yoksa ``None`` (= ölçülemedi).
+
+    Eskiden boş küme 1.0 dönüyordu ("ceza verme") ve bu değer ağırlıklı ortalamaya
+    0.30 ağırlıkla giriyordu: satır-içi atıf taşımayan bir cevap, SIRF atıfsız olduğu
+    için bedava 0.30 puan kazanıp ``score``unu şişiriyordu (Kademe-2 av bulgusu,
+    2026-09-07). Doğru davranış "ölçemediğim bileşeni ortalamadan çıkar": ``None``
+    dönülür, ``score()`` kalan ağırlıkları yeniden normalize eder — ne bedava puan
+    ne de haksız ceza. Dayanaksız cevap zaten grounding bileşeninden düşük alır.
+    """
     if not citations:
-        return 1.0  # Atıf yoksa nötr (ceza verme)
+        return None
     valid = sum(1 for c in citations if c.exists)
     return valid / len(citations)
 
@@ -111,12 +120,17 @@ class ConfidenceScorer:
         gnd = _grounding_score(groundings)
         formula = _formula_integrity_score(quality_flags)
 
-        raw_score = (
-            _WEIGHTS["context"] * ctx
-            + _WEIGHTS["citation"] * cit
-            + _WEIGHTS["grounding"] * gnd
-            + _WEIGHTS["formula"] * formula
-        )
+        # Atıf ölçülemediyse (cevapta satır-içi atıf yok) o bileşen ortalamadan
+        # ÇIKARILIR ve kalan ağırlıklar yeniden normalize edilir (bkz. _citation_score).
+        parts: list[tuple[float, float]] = [
+            (_WEIGHTS["context"], ctx),
+            (_WEIGHTS["grounding"], gnd),
+            (_WEIGHTS["formula"], formula),
+        ]
+        if cit is not None:
+            parts.append((_WEIGHTS["citation"], cit))
+        total_weight = sum(w for w, _ in parts)
+        raw_score = sum(w * v for w, v in parts) / total_weight if total_weight else 0.0
 
         # Çelişki cezası
         contradiction_penalty = min(0.20, len(contradictions) * 0.05)
@@ -132,7 +146,10 @@ class ConfidenceScorer:
         return ConfidenceReport(
             score=round(final_score, 4),
             context_score=round(ctx, 4),
-            citation_score=round(cit, 4),
+            # Atıfsız cevapta 0.0 raporlanır: "geçerli atıf sayısı sıfır" dürüst sinyaldir
+            # ve §16 LoRA aday kapısı (citation_score >= 0.90) bunu doğru eler. Skorun
+            # KENDİSİ bu bileşen olmadan hesaplandı (bkz. details.citation_absent).
+            citation_score=round(cit, 4) if cit is not None else 0.0,
             grounding_score=round(gnd, 4),
             has_contradictions=len(contradictions) > 0,
             formula_integrity=round(formula, 4),
@@ -140,5 +157,6 @@ class ConfidenceScorer:
             details={
                 "contradiction_count": len(contradictions),
                 "contradiction_penalty": round(contradiction_penalty, 4),
+                "citation_absent": cit is None,
             },
         )

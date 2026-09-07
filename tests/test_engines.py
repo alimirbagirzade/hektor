@@ -47,7 +47,15 @@ def test_argv_sablonu_dogru_kurulur() -> None:
     claude_cmd = engines.build_command("claude", "SORU")
     assert claude_cmd[:3] == ["claude", "-p", "SORU"]
     assert "--safe-mode" in claude_cmd
-    assert engines.build_command("codex", "SORU") == ["codex", "exec", "SORU"]
+    # `codex` de artık sertleştirme bayrakları taşır: av (hunt) argv'si eskiden çıplak
+    # `codex exec <prompt>` idi ve motor buna rağmen `hardened=True` kayıtlıydı — yani
+    # "sertleştirilmiş" iddiası argv ile kanıtlanmıyordu (Kademe-2 av bulgusu,
+    # 2026-09-07). Bu satır eski çıplak argv'yi DOĞRU sayarak zafiyeti test olarak
+    # sabitliyordu; değişmez olan yine prompt'un TEK öğe olarak yerine geçmesidir.
+    codex_cmd = engines.build_command("codex", "SORU")
+    assert codex_cmd[:2] == ["codex", "exec"]
+    assert codex_cmd[-1] == "SORU"
+    assert "--sandbox" in codex_cmd
     assert engines.build_command("gemini", "SORU") == ["gemini", "-p", "SORU"]
 
 

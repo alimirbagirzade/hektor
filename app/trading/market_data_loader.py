@@ -7,10 +7,13 @@ real data first.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+log = logging.getLogger(__name__)
 
 _REQUIRED = ["open", "high", "low", "close"]
 
@@ -32,12 +35,48 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _ensure_time_order(df: pd.DataFrame) -> pd.DataFrame:
+    """Zaman indeksini ARTAN sıraya getir; NaT ve tekrarlı damgaları temizle.
+
+    Neden zorunlu (Kademe-2 av bulgusu, 2026-09-07 — BLOCKER): backtest ve indikatör
+    hattı KONUMSALdır (``pct_change``/``ewm``/``rolling``). Satırları yeniden-eskiye
+    sıralı bir CSV (Investing.com / Yahoo dışa aktarımlarının varsayılanı) sıralanmadan
+    işlenirse ``t`` barının göstergesi DAHA SONRAKİ tarihlerin fiyatlarından hesaplanır
+    — fiili look-ahead (Kural 4) — getiriler ters döner ve ``in_out_of_sample``'ın
+    ``iloc`` bölmesi "OOS" diye EN ESKİ veriyi ölçer. Sonuç: sessizce tamamen yanlış
+    bir verdict; aynı dosya ``tool_use_trainer`` tarafından eğitim örneğine dönüşürse
+    dayanağı anlamsız bir "kanıt" eğitim verisine sızar.
+
+    Sessiz düzeltme yapılmaz: her müdahale sayısıyla loglanır (Kural 2).
+    """
+    if not isinstance(df.index, pd.DatetimeIndex):
+        return df  # zaman kolonu yok → sıralanacak bir zaman ekseni de yok
+    n_before = len(df)
+    df = df[df.index.notna()]
+    if len(df) < n_before:
+        log.warning("Zaman damgası okunamayan %d satır düşürüldü (NaT).", n_before - len(df))
+    if df.index.has_duplicates:
+        n_dup = len(df)
+        df = df[~df.index.duplicated(keep="last")]
+        log.warning(
+            "Tekrarlı zaman damgası: %d satır düşürüldü (aynı damganın SON kaydı tutuldu).",
+            n_dup - len(df),
+        )
+    if not df.index.is_monotonic_increasing:
+        log.warning(
+            "CSV zaman sırasında değil — artan sıraya getirildi (look-ahead savunması, Kural 4)."
+        )
+        df = df.sort_index(kind="stable")
+    return df
+
+
 def load_ohlcv(path: str | Path) -> pd.DataFrame:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(path)
     df = pd.read_csv(path)
     df = _normalize_columns(df)
+    df = _ensure_time_order(df)
     missing = [c for c in _REQUIRED if c not in df.columns]
     if missing:
         raise ValueError(f"CSV eksik kolonlar: {missing}")

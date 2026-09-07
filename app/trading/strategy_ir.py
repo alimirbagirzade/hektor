@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 
@@ -52,8 +52,41 @@ class RiskSpec(BaseModel):
 
 
 class CostSpec(BaseModel):
-    commission: float = 0.0005
-    slippage: float = 0.0005
+    """İşlem maliyeti modeli — işlem başına oransal komisyon ve slippage.
+
+    Kural 3 ("maliyetleri yok sayma") burada alan düzeyinde uygulanır; çünkü bu
+    değerler doğrudan ``_net_returns(..., cost_per_turn=commission + slippage)``a
+    gider ve backtest metriklerini (Sharpe/getiri) belirler:
+
+    * **Negatif değer REDDEDİLİR.** Negatif maliyet her pozisyon değişiminde net
+      getiriye ``turnover * |maliyet|`` EKLER, yani maliyeti ödüle çevirir; çok
+      işlemli bir strateji şişirilmiş Sharpe ile ``evaluate()`` kapısını geçebilir.
+      Bu asla meşru bir girdi değildir.
+    * **TOPLAM maliyet sıfır REDDEDİLİR** (``commission + slippage <= 0``). Sıfır
+      toplam = maliyetsiz backtest; Kural 3'ün tam olarak yasakladığı şey. Tek tek
+      bileşenin 0 olması meşrudur (komisyonsuz broker + gerçek slippage, ya da
+      spread'in tamamı komisyona katlanmış modelleme), bu yüzden alan başına ``gt``
+      değil toplam üzerinden kapı konur.
+    * ``allow_inf_nan=False``: ``inf``/``nan`` maliyet tüm metrik serisini sessizce
+      ``nan``a çevirirdi.
+
+    Varsayılanlar (0.0005 + 0.0005) DEĞİŞMEDİ. Doğrulama yalnız kurulum/``model_validate``
+    anında çalışır (``validate_assignment`` kapalı): sınır girdileri (API gövdesi,
+    LLM'in ürettiği JSON) burada yakalanır.
+    """
+
+    commission: float = Field(default=0.0005, ge=0.0, allow_inf_nan=False)
+    slippage: float = Field(default=0.0005, ge=0.0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _reject_costless(self) -> CostSpec:
+        if self.commission + self.slippage <= 0.0:
+            raise ValueError(
+                "Maliyetsiz backtest yasak (Kural 3): commission + slippage > 0 olmalı; "
+                f"verilen commission={self.commission}, slippage={self.slippage}. "
+                "Komisyonsuz broker modelliyorsan slippage'ı gerçekçi bir değerle ver."
+            )
+        return self
 
 
 class StrategyIR(BaseModel):
@@ -143,8 +176,14 @@ class StrategyIR(BaseModel):
                 lines.append(f"[{col}, {col}_signal, {col}_hist] = ta.macd(close, 12, 26, 9)")
                 defined |= {col, f"{col}_signal", f"{col}_hist"}
             elif n in ("BB", "BOLLINGER"):
-                # Kanonik `{col}` = ORTA bant — compute_indicator("BB") ile aynı.
-                lines.append(f"[{col}_upper, {col}, {col}_lower] = ta.bb(close, {ind.period}, 2)")
+                # Kanonik `{col}` = ORTA bant — compute_indicator("BB") ve Python
+                # ihracındaki `df["{col}"] = _mid` ile aynı.
+                # Pine v5 `ta.bb` demeti [middle, upper, lower] SIRASIYLA döner. Eskiden
+                # `[{col}_upper, {col}, {col}_lower]` yazılıyordu; bu, ORTA bandı
+                # `{col}_upper`a, ÜST bandı kanonik `{col}`e bağlıyordu. Sonuç: "close >
+                # bb_20" kuralı backtest'te orta banda, TradingView'de üst banda kıyaslanıyor,
+                # aynı paketin iki kod artefaktı çelişiyordu.
+                lines.append(f"[{col}, {col}_upper, {col}_lower] = ta.bb(close, {ind.period}, 2)")
                 defined |= {f"{col}_upper", col, f"{col}_lower"}
             elif n in ("STOCH", "STOCHASTIC"):
                 # IndicatorSpec yalnız `period` taşır; %K/%D yumuşatma Pine varsayılanı 3.

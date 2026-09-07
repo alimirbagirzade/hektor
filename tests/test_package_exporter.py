@@ -220,7 +220,14 @@ def test_export_rejects_rule_column_the_code_cannot_compute() -> None:
 
 
 def test_pine_defines_every_rule_column() -> None:
-    """MACD/BB Pine çıktısı kuralların atıf yaptığı değişkeni tanımlamalı."""
+    """MACD/BB Pine çıktısı kuralların atıf yaptığı değişkeni tanımlamalı.
+
+    BB demet sırası GÜNCELLENDİ: bu test eskiden `[bb_20_upper, bb_20, bb_20_lower]`
+    dizgesini assert ediyordu, yani hatayı KODLUYORDU. Pine v5 `ta.bb` [middle, upper,
+    lower] döner; eski sıra kanonik `bb_20`i ÜST banda bağlıyordu; oysa hem
+    `compute_indicator("BB")` hem Python ihracı (`df["bb_20"] = _mid`) `bb_20`i ORTA
+    bant sayar. Doğru sıra parite sağlar: aynı kural iki artefaktta aynı bandı kıyaslar.
+    """
     ir = StrategyIR(
         name="pine_cols",
         indicators=[IndicatorSpec(name="MACD", period=12), IndicatorSpec(name="BB", period=20)],
@@ -229,7 +236,7 @@ def test_pine_defines_every_rule_column() -> None:
     )
     pine = ir.to_pine()
     assert "[macd_12, macd_12_signal, macd_12_hist] = ta.macd" in pine
-    assert "[bb_20_upper, bb_20, bb_20_lower] = ta.bb" in pine
+    assert "[bb_20, bb_20_upper, bb_20_lower] = ta.bb" in pine
     assert "???" not in pine
 
 

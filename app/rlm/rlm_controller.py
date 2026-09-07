@@ -48,6 +48,9 @@ _FALLBACK_SYSTEM = (
     "Her iddiadan sonra [paper_id:chunk_id] satır-içi atıf ver. Yatırım tavsiyesi verme."
 )
 
+# Zorunlu uyarı bloğunun başlığı — idempotens kontrolü bunu VE gövdeyi birlikte arar.
+_TRADING_GUARD_HEADER = "Trading uyarıları:"
+
 _TRADING_DISCLAIMER = (
     "- Bu yatırım tavsiyesi değildir.\n"
     "- Bu canlı sinyal değildir.\n"
@@ -99,11 +102,17 @@ def apply_trading_guard(answer: str, query: str, *, allow_live_signal: bool = Fa
     """
     if allow_live_signal:
         return answer
-    if "yatırım tavsiyesi değildir" in answer:
+    # Idempotens kontrolü BLOĞUN KENDİSİNE bakar, jenerik bir alt-dizgeye değil
+    # (Kademe-2 av bulgusu, 2026-09-07). Eski kontrol serbest bir cümle arıyordu;
+    # o cümle modelin metninde ya da alıntılanan makale parçasında geçebiliyor —
+    # o durumda zorunlu uyarının KALAN ÜÇ SATIRI (canlı sinyal değil / backtest
+    # gerekir / veri aralığı kontrol edilmeli) hiç eklenmiyor ve Kural 1 yaptırımı
+    # sessizce eksik uygulanıyordu.
+    if _TRADING_GUARD_HEADER in answer and _TRADING_DISCLAIMER in answer:
         return answer
     if not (_TRADING_SIGNAL_RE.search(query) or _TRADING_SIGNAL_RE.search(answer)):
         return answer
-    return f"{answer}\n\nTrading uyarıları:\n{_TRADING_DISCLAIMER}"
+    return f"{answer}\n\n{_TRADING_GUARD_HEADER}\n{_TRADING_DISCLAIMER}"
 
 
 def _has_content(text: str) -> bool:

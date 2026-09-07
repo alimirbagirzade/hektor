@@ -9,7 +9,9 @@ tarafından log'dan okunur. start-train.ps1 ile aynı mekanik.
 
 Veri kaynağı tek: `data/lora_sft/lora_sft.jsonl` (sentetik + kart birleşik, ~1266).
 Başlatıcı her seferinde bunu train/valid'e böler → `DatasetBuilder` kaynaklı
-clobber (train.jsonl'in 0'a düşmesi) başlatmada otomatik onarılır.
+clobber (train.jsonl'in 0'a düşmesi) başlatmada otomatik onarılır. Bölme
+KAYNAK-GRUPLUdur (aynı `source_id`/`paper_id` tek tarafta) → valid metrikleri
+sızıntısız (Gate 8 sözleşmesiyle aynı).
 """
 
 from __future__ import annotations
@@ -39,6 +41,9 @@ MIN_READY_EXAMPLES = 200
 # Determinist split (Kural 6) — lora-split ile aynı.
 _SPLIT_SEED = 42
 _VALID_RATIO = 0.05
+# `hektor train` PeftTrainConfig'i batch_size GEÇMEDEN kurar (app/main.py) → dataclass
+# varsayılanı 1 kullanılır. Adım sayısı hesabı bununla hizalı: 1 örnek = 1 optimizasyon adımı.
+_TRAIN_BATCH_SIZE = 1
 # Log'a son yazımdan bu kadar dakika geçmediyse eğitim "canlı" sayılır.
 # Yavaş CPU eğitiminde adım ~dakikalar sürer + log seyrek yazılabilir → 45 dk
 # (tamamlanma zaten step>=total ile anında algılanır; bu yalnız ara boşluklar için).
@@ -94,14 +99,77 @@ def _combined_source(settings) -> Path:
     return settings.root / "data" / "lora_sft" / "lora_sft.jsonl"
 
 
+def _source_key(line: str) -> str:
+    """Bir JSONL satırının KAYNAK GRUBU anahtarı (Gate 8'in `source_id` sözleşmesi).
+
+    Öncelik: `metadata.source_id` → `metadata.paper_id` → satır kökündeki aynı alanlar.
+    (Gerçek `lora_sft.jsonl`'de bu iki alan aynı `paper_...` kimliğini taşır; sentetik QA
+    ve kart satırları makaleye bağlıdır, disiplin/adversarial satırlarının kaynağı yoktur.)
+
+    GERİ-DÜŞÜŞ: kaynak kimliği olmayan satır için anahtar satır İÇERİĞİNİN sha256'sıdır →
+    (a) belirlenimci (Kural 6: aynı içerik = aynı anahtar, makineden bağımsız),
+    (b) her satır kendi grubudur — makale-sızıntısı kavramı yoktur, dolayısıyla oran
+    bozulmaz; birebir aynı (kopya) satırlar ise yine aynı tarafta kalır.
+    """
+    row: object = None
+    with contextlib.suppress(Exception):
+        row = json.loads(line)
+    if isinstance(row, dict):
+        meta = row.get("metadata")
+        if isinstance(meta, dict):
+            sid = meta.get("source_id") or meta.get("paper_id")
+            if sid:
+                return f"src:{sid}"
+        sid = row.get("source_id") or row.get("paper_id")
+        if sid:
+            return f"src:{sid}"
+    return "line:" + hashlib.sha256(line.encode("utf-8")).hexdigest()[:16]
+
+
+def split_lines_by_source(lines: list[str], seed: int = _SPLIT_SEED) -> tuple[list[str], list[str]]:
+    """Satırları KAYNAK-GRUPLU böl: (train, valid). Saf fonksiyon → test edilebilir.
+
+    Neden gruplu: satır-düzeyinde karıştırma aynı makalenin (hatta aynı chunk'ın) sentetik
+    QA'larını train ve valid'e dağıtıyordu → valid metrikleri sızıntı yüzünden iyimser
+    (Gate 8'in `app/lora/dataset_splitter.py` içindeki kaynak-gruplu bölmesi eğitim
+    dosyalarına hiç ulaşmıyordu). Artık aynı `source_id` TEK tarafta kalır.
+
+    Nasıl: gruplar `sorted()` ile kanonik sıraya konur, `random.Random(seed)` ile karıştırılır
+    (Kural 6: aynı seed → aynı bölme), valid hedef orana ULAŞANA kadar grup grup doldurulur.
+    Grup bütünlüğü bölünemediği için valid hedefi biraz AŞABİLİR (en çok bir grup kadar).
+    En az bir grup daima train'de bırakılır (tek-gruplu veri train'i boşaltmasın).
+    """
+    import random
+
+    if not lines:
+        return [], []
+
+    groups: dict[str, list[str]] = {}
+    for ln in lines:
+        groups.setdefault(_source_key(ln), []).append(ln)
+
+    keys = sorted(groups)
+    random.Random(seed).shuffle(keys)
+
+    target_valid = max(1, int(len(lines) * _VALID_RATIO)) if len(lines) > 1 else 0
+    valid: list[str] = []
+    valid_keys: set[str] = set()
+    for key in keys:
+        if len(valid) >= target_valid or len(valid_keys) >= len(keys) - 1:
+            break
+        valid.extend(groups[key])
+        valid_keys.add(key)
+
+    train = [ln for key in keys if key not in valid_keys for ln in groups[key]]
+    return train, valid
+
+
 def ensure_train_split(settings=None) -> tuple[int, int]:
-    """`lora_sft.jsonl` → `jsonl_dir/{train,valid}.jsonl` (determinist).
+    """`lora_sft.jsonl` → `jsonl_dir/{train,valid}.jsonl` (determinist, KAYNAK-GRUPLU).
 
     Birleşik kaynak doluysa HER ZAMAN yeniden böler (clobber onarımı). Kaynak
     boş/yoksa mevcut train.jsonl'e dokunmaz. (n_train, n_valid) döndürür.
     """
-    import random
-
     s = settings or get_settings()
     src = _combined_source(s)
     lines = (
@@ -113,9 +181,7 @@ def ensure_train_split(settings=None) -> tuple[int, int]:
         # Kaynak yok → eldeki train/valid neyse onu say (bozma).
         return _count_lines(s.jsonl_dir / "train.jsonl"), _count_lines(s.jsonl_dir / "valid.jsonl")
 
-    random.Random(_SPLIT_SEED).shuffle(lines)
-    n_valid = max(1, int(len(lines) * _VALID_RATIO)) if len(lines) > 1 else 0
-    valid, train = lines[:n_valid], lines[n_valid:]
+    train, valid = split_lines_by_source(lines)
 
     jd = s.jsonl_dir
     jd.mkdir(parents=True, exist_ok=True)
@@ -356,6 +422,60 @@ def _build_train_cmd(
     return cmd
 
 
+def _profile_limits(profile: str | None) -> tuple[int, int]:
+    """Profilden (max_examples, epochs) oku. Profil yok/okunamazsa (0, 1) — kırpmasız, 1 epoch."""
+    if not profile:
+        return 0, 1
+    try:
+        from app.training.peft_lora_train import load_lora_profile
+
+        prof = load_lora_profile(profile)
+    except Exception:
+        log.warning(
+            "LoRA profili okunamadı (%s) — adım sayısı kırpma/epoch bilgisi olmadan hesaplanıyor.",
+            profile,
+        )
+        return 0, 1
+
+    def _as_int(value: object, fallback: int) -> int:
+        """YAML alanını güvenle int'e çevir (yok/None/çöp değer → fallback)."""
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value.strip())
+            except ValueError:
+                return fallback
+        return fallback
+
+    return max(0, _as_int(prof.get("max_examples"), 0)), max(1, _as_int(prof.get("epochs"), 1))
+
+
+def plan_iterations(n_train: int, max_examples: int, profile: str | None) -> tuple[int, int, int]:
+    """Adım sayısını FİİLEN eğitilecek örnek sayısından hesapla. (iters, n_effective, epochs).
+
+    Neden: `hektor train` PeftTrainConfig'i batch_size'sız kurar → batch_size=1, yani
+    1 epoch = eğitilen örnek sayısı kadar adım. Ama trainer `max_steps=cfg.iterations`'ı
+    KIRPILMIŞ alt-kümeden bağımsız uygular. Adım sayısı tam `train.jsonl` satır sayısından
+    hesaplanırsa (eski davranış), profilin `max_examples` kırpması yüzünden aynı küçük
+    alt-küme üzerinde birden çok epoch koşulur ve profilin "epochs: 1" vaadi SESSİZCE
+    ihlal edilir (ör. 1099 adım / 300 örnek ≈ 3.7 epoch → ezber/aşırı-uyum; v5 disiplin
+    regresyonunun sınıfı).
+
+    Hesap:
+      1. Etkin kırpma tavanı = CLI `max_examples` (>0 ise; profili EZER, app/main.py ile
+         aynı öncelik), yoksa profilin `max_examples`'ı, o da yoksa kırpma yok.
+      2. n_effective = min(n_train, tavan)  → trainer'ın `sample_rows` ile alacağı sayı.
+      3. steps_per_epoch = n_effective // batch_size (batch_size=1) — en az 1.
+      4. iters = steps_per_epoch * profildeki `epochs` → profilin epoch vaadi KARŞILANIR.
+    """
+    prof_max, epochs = _profile_limits(profile)
+    cap = max_examples if max_examples > 0 else prof_max
+    n_effective = min(n_train, cap) if cap > 0 else n_train
+    steps_per_epoch = max(1, n_effective // _TRAIN_BATCH_SIZE)
+    return steps_per_epoch * epochs, n_effective, epochs
+
+
 def launch(
     adapter_name: str = "hektor_lora",
     iterations: int = 0,
@@ -366,8 +486,11 @@ def launch(
 ) -> dict:
     """Eğitimi DETACHED başlat (web/terminal kapansa da sürer).
 
-    - Veriyi `lora_sft.jsonl`'den yeniden böler (clobber-proof).
-    - iterations<=0 → 1 epoch (train örnek sayısı kadar adım).
+    - Veriyi `lora_sft.jsonl`'den yeniden böler (clobber-proof, KAYNAK-GRUPLU).
+    - iterations<=0 → adım sayısı `plan_iterations` ile: FİİLEN eğitilecek örnek sayısı
+      (profil/CLI `max_examples` kırpması UYGULANDIKTAN sonra) × profildeki `epochs`.
+      Tam `train.jsonl` satır sayısını kullanmak, kırpılmış alt-küme üzerinde sessizce
+      birkaç epoch koşulmasına (aşırı-uyum) yol açıyordu.
     - profile: LoRA reçete profili. VARSAYILAN `discipline_safe_local` (maskeli + NEFTune)
       — web butonu / auto_pipeline / CLI-detached çağıranlarının HİÇBİRİ profil geçmediği
       için varsayılan vanilya olsaydı bu yollarla başlatılan eğitim SESSİZCE maskesiz koşar
@@ -413,7 +536,10 @@ def launch(
                 "adapter": "",
             }
 
-        iters = iterations if iterations > 0 else n_train  # 1 epoch
+        # Adım sayısı FİİLEN eğitilecek örnek sayısından (profil kırpması UYGULANDIKTAN
+        # sonra) hesaplanır; profildeki `epochs` gerçekten karşılanır (bkz. plan_iterations).
+        planned, n_effective, epochs = plan_iterations(n_train, max_examples, profile)
+        iters = iterations if iterations > 0 else planned
         base = _find_hektor(root)
         if not base:
             return {
@@ -472,14 +598,22 @@ def launch(
             encoding="utf-8",
         )
         spawned = True
-        log.info("Detached eğitim başlatıldı: %s (%d adım, dtype=%s)", adapter_name, iters, dtype)
+        log.info(
+            "Detached eğitim başlatıldı: %s (%d adım = %d örnek × %d epoch, dtype=%s)",
+            adapter_name,
+            iters,
+            n_effective,
+            epochs,
+            dtype,
+        )
         # Süreç spawn edildi; canlı kalıp kalmadığı üst-bar rozetinden/log'dan izlenir
         # (Kural 2: "başladı" değil "başlatıldı" + nereden doğrulanacağı belirtilir).
         return {
             "ok": True,
             "message": (
                 f"Eğitim başlatıldı (detached): {adapter_name} — "
-                f"{n_train} örnek, {iters} adım, {dtype}. "
+                f"{n_effective}/{n_train} örnek (profil kırpması sonrası), "
+                f"{iters} adım ≈ {epochs} epoch, {dtype}. "
                 "İlerlemeyi üst-bar rozetinden izle."
             ),
             "adapter": adapter_name,

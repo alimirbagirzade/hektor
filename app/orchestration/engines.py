@@ -106,7 +106,7 @@ _Q_CODEX = f"{_SHARED} Codex'te pencere 5 saatlik YUVARLANAN kotadır."
 _Q_GEMINI = f"{_SHARED} Google hesabının günlük istek kotasına sayılır."
 _Q_LOCAL = "Abonelik kotası YOK — yerel Ollama hattı (süreç başlatılmaz)."
 
-# ── Sertleştirme (yalnız `claude`) ──────────────────────────────────────────────────────
+# ── Sertleştirme — `claude` (yerleşik araç deny-list'i) ─────────────────────────────────
 # Motorun YASAKLI yerleşik araçları. Derin av SALT-OKUMADIR (Read/Grep/Glob yeter).
 # `Task` de yasak: kısıtsız araçlı bir ALT-ajan doğurup deny-list'i dolaylı aşmasın.
 DISALLOWED_TOOLS: tuple[str, ...] = (
@@ -179,12 +179,32 @@ _CLAUDE_DRIVE_ARGV: tuple[str, ...] = (
     MCP_CONFIG,
 )
 
-# Codex non-interactive modu kayıtlı ChatGPT abonelik oturumunu kullanır. Dosya ve kabuk
-# tarafı read-only sandbox + never approval ile kapanır; tek yazma yüzeyi server-side driver
-# scope ve allow-list ile kısıtlanan Hektor MCP'dir. Kullanıcı config/rules yüklenmez.
-_CODEX_DRIVE_ARGV: tuple[str, ...] = (
-    "codex",
-    "exec",
+# ── Sertleştirme — `codex` (sandbox + izolasyon; HEM av HEM sür için ORTAK) ─────────────
+# ⚠️ REGRESYON TARİHİ: bu bayraklar eskiden YALNIZ sür şablonundaydı; av şablonu çıplak
+# `codex exec <prompt>` iken motor `hardened=True` kayıtlıydı. Yani `run_blocked_reason` /
+# `AutoDriver.drive(mode="hunt")` KISITSIZ bir codex avcısı doğuruyordu — oysa av modu
+# SALT-RAPOR olmalıdır (kod değiştirmez, commit atmaz, eğitim başlatmaz). Bayraklar artık
+# TEK kaynaktan gelir → iki profil bir daha sessizce ayrışamaz.
+#
+# Bayraklar `codex exec --help` (codex-cli 0.146.0) ile DOĞRULANDI — hepsi clap tarafından
+# tanınan gerçek bayraklardır, yani yazım hatası sessiz geçmez, komut HATA ile ölür:
+#   --sandbox read-only      : model üretimi kabuk komutları sandbox'ta koşar. Windows'ta
+#                              "restricted token sandbox" ile uygulanır (`codex sandbox
+#                              --help`) → yazma yüzeyi kapalı. `hektor approval-approve`
+#                              SQLite'a YAZAR → sandbox onu keser (Kural 8 koruması).
+#   --ephemeral              : oturum dosyaları diske kalıcı yazılmaz.
+#   --ignore-user-config     : `$CODEX_HOME/config.toml` YÜKLENMEZ → oradaki `mcp_servers`
+#                              ve özelleştirmeler gelmez (claude'daki `--safe-mode`ın
+#                              codex'teki karşılığı; kanal sınıfını kapatır).
+#   --ignore-rules           : kullanıcı/proje `.rules` execpolicy dosyaları yüklenmez →
+#                              depoya enjekte edilen bir kural sandbox'ı gevşetemez.
+#   -c approval_policy="never": `exec` zaten insansızdır; onay beklemeyi kapatarak asılı
+#                              kalmayı önler. (`approval_policy` gerçek config anahtarıdır;
+#                              `exec` alt-komutu `-a/--ask-for-approval` KABUL ETMEZ.)
+# ⚠️ ARTIK RİSK (dürüst ol): sandbox YAZMAYI keser; 127.0.0.1'e HTTP çağrısını kestiği
+# DOĞRULANMADI. HTTP tarafındaki sınır `require_human` + sürücü token'ıdır ve
+# `api_token` boşken kriptografik değildir — bkz. docs/SCOPE_ISOLATION.md "Dürüst sınır".
+CODEX_HARDENING: tuple[str, ...] = (
     "--sandbox",
     "read-only",
     "--ephemeral",
@@ -192,6 +212,27 @@ _CODEX_DRIVE_ARGV: tuple[str, ...] = (
     "--ignore-rules",
     "-c",
     'approval_policy="never"',
+)
+
+# AV (hunt) modu: salt-rapor → MCP'ye HİÇ ihtiyaç yok. Bu yüzden sür modundan da KATIdır:
+# `-c mcp_servers={}` ile sunucu tablosu açıkça boşaltılır (kemer-askı; `-c` en yüksek
+# önceliklidir, proje düzeyinde bir config sızsa bile üstüne yazar).
+_CODEX_ARGV: tuple[str, ...] = (
+    "codex",
+    "exec",
+    *CODEX_HARDENING,
+    "-c",
+    "mcp_servers={}",
+    PROMPT,
+)
+
+# SÜR (drive) modu: kayıtlı ChatGPT abonelik oturumunu kullanır. Dosya ve kabuk tarafı aynı
+# sandbox ile kapanır; tek yazma yüzeyi server-side driver scope ve allow-list ile kısıtlanan
+# Hektor MCP'dir (MCP_CONFIG → `build_drive_command` içinde `-c mcp_servers…` override'ları).
+_CODEX_DRIVE_ARGV: tuple[str, ...] = (
+    "codex",
+    "exec",
+    *CODEX_HARDENING,
     MCP_CONFIG,
     PROMPT,
 )
@@ -219,7 +260,7 @@ _ENGINES: tuple[Engine, ...] = (
         "codex",
         "Codex CLI (ChatGPT planı)",
         "codex",
-        ("codex", "exec", PROMPT),
+        _CODEX_ARGV,
         _Q_CODEX,
         hardened=True,
         drive_argv_template=_CODEX_DRIVE_ARGV,
@@ -252,6 +293,37 @@ _ENGINES: tuple[Engine, ...] = (
 )
 
 _BY_NAME: dict[str, Engine] = {engine.name: engine for engine in _ENGINES}
+
+# ── `hardened` bayrağını ARGV ile karşılaştıran doğrulama tablosu ───────────────────────
+# ⚠️ NEDEN GEREKLİ: `hardened` yalnız bir BOOLEAN'dır — argv'nin gerçekten kısıtlı olduğunu
+# KANITLAMAZ. Kademe-2 avında tam bu boşluk bulundu: codex `hardened=True` kayıtlıyken av
+# argv'si çıplak `codex exec <prompt>` idi; `run_blocked_reason` bayrağa bakıp motoru
+# "sertleştirilmiş" sayıyor, AutoDriver da KISITSIZ bir avcı doğuruyordu.
+#
+# Bu tablo, sertleştirilmiş SAYILAN her motorun AV argv'sinde BULUNMASI ZORUNLU belirteçleri
+# tutar; `run_blocked_reason` her çağrıda doğrular. Bayrak ile argv ayrışırsa motor RUN'a
+# KAPANIR (fail-closed) — sessiz "sertleştirilmiş" iddiası kabul edilmez.
+REQUIRED_HARDENING: dict[str, tuple[str, ...]] = {
+    "claude": ("--safe-mode", "--strict-mcp-config", "--disallowedTools"),
+    "codex": ("--sandbox", "read-only", "--ignore-user-config", "--ignore-rules"),
+}
+
+
+def hardening_gap(name: str) -> tuple[str, ...]:
+    """Sertleştirilmiş SAYILAN motorun av argv'sinde EKSİK olan zorunlu izolasyon belirteçleri.
+
+    Boş tuple = iddia argv ile örtüşüyor. `hardened=False` ya da spawn etmeyen motorlarda
+    doğrulanacak bir iddia yoktur → boş döner (asıl reddi `run_blocked_reason` verir).
+    Beklenti tablosunda KAYDI OLMAYAN bir motor doğrulanamaz → iddia KANITSIZ sayılır.
+    """
+    engine = get_engine(name)
+    if not engine.hardened or not engine.spawns:
+        return ()
+    required = REQUIRED_HARDENING.get(engine.name)
+    if required is None:
+        return ("<REQUIRED_HARDENING kaydı yok>",)
+    return tuple(token for token in required if token not in engine.argv_template)
+
 
 DEFAULT_ENGINE = "claude"
 
@@ -383,6 +455,15 @@ def run_blocked_reason(name: str, *, which: Which | None = None) -> str:
         return (
             f"{engine.label} araç seviyesinde kısıtlanamıyor — kısıtsız motor kendi "
             "eğitimini onaylayabilir (Kural 8), bu yüzden doğurulmaz."
+        )
+    # `hardened` bayrağına TEK BAŞINA güvenilmez: argv gerçekten kısıtlı mı, doğrula.
+    # (Kademe-2 bulgusu: codex `hardened=True` iken av argv'si çıplaktı.)
+    gap = hardening_gap(name)
+    if gap:
+        return (
+            f"{engine.label} 'sertleştirilmiş' işaretli ama av argv'sinde şu zorunlu "
+            f"izolasyon bayrakları YOK: {', '.join(gap)} — kanıtsız sertleştirme iddiası "
+            "kabul edilmez, motor doğurulmaz."
         )
     if not available(name, which=which):
         return f"`{engine.binary}` CLI PATH'te bulunamadı — {engine.label} kurulu değil."

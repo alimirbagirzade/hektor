@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -133,6 +134,14 @@ class PeftTrainConfig:
     # eğitim-zamanı ek loss terimi; mimari/ağırlık şekli değişmez. OPT-IN (0.0=kapalı).
     kl_reg_beta: float = 0.0
     seed: int = 42
+    # --- Checkpoint'ten devam (resume) — VARSAYILAN KAPALI, AÇIK TERCİH ---
+    # Eskiden train() çıktı klasöründeki en son checkpoint'ten KOŞULSUZ devam ederdi:
+    # (a) aynı adapter adıyla ikinci koşu eski adapter ağırlıklarını SESSİZCE sürdürüyor,
+    # (b) daha kötüsü eski global_step >= yeni max_steps ise SIFIR adım eğitip ok=True
+    # dönüyordu — "eğitim yapıldı" denip hiçbir şey öğrenilmemiş oluyordu. Bu tam olarak
+    # v5 sessiz-başarısızlık sınıfıdır ve CLAUDE.md Kural 2'yi ihlal eder. Artık devam
+    # AÇIKÇA istenmeli: bu alan True ya da ortam değişkeni HEKTOR_TRAIN_RESUME=1.
+    resume_from_checkpoint: bool = False
     # max_examples: yalnız N örnekle eğit (0 = hepsi). CPU'da makul süre için ZORUNLU
     # kaldıraç — 4B/1.5B'de tam set (~2000) tek epoch'ta bile saatlerce sürer; bu yüzden
     # yerel eğitim temsilî bir alt-kümeyle yapılır. Determinist örnekleme (seed).
@@ -286,10 +295,135 @@ def load_lora_profile(name: str, profiles_path: Path | None = None) -> dict:
     return out
 
 
+_CHECKPOINT_RE = re.compile(r"^checkpoint-(\d+)$")
+
+
+@dataclass(frozen=True)
+class ResumeDecision:
+    """``train()``'in checkpoint kararı: nereden devam edilecek, ne uyarılacak, hata var mı.
+
+    ``checkpoint is None`` → eğitim SIFIRDAN başlar. ``error`` doluysa eğitim HİÇ
+    başlatılmaz (çağıran ``ok=False`` döndürür) — sessizce sıfır adım koşmak yerine.
+    """
+
+    checkpoint: str | None = None
+    last_step: int = 0
+    error: str | None = None
+    warnings: tuple[str, ...] = ()
+
+
+def find_last_checkpoint(output_dir: Path | str) -> tuple[str | None, int]:
+    """``output_dir`` içindeki en yüksek adımlı ``checkpoint-<N>`` klasörünü bul.
+
+    transformers ``get_last_checkpoint`` ile aynı kuralı uygular ama o import'u
+    GEREKTİRMEZ → çevrimdışı test edilebilir. ``(yol, adım)`` döner; checkpoint yoksa
+    ``(None, 0)``. Adım sayısı öncelikle ``trainer_state.json``'daki ``global_step``'ten,
+    okunamazsa klasör adından alınır.
+    """
+    d = Path(output_dir)
+    if not d.is_dir():
+        return None, 0
+    best: tuple[int, Path] | None = None
+    for child in sorted(d.iterdir()):
+        m = _CHECKPOINT_RE.match(child.name)
+        if not m or not child.is_dir():
+            continue
+        step = int(m.group(1))
+        if best is None or step > best[0]:
+            best = (step, child)
+    if best is None:
+        return None, 0
+    step, path = best
+    try:
+        state = json.loads((path / "trainer_state.json").read_text(encoding="utf-8"))
+        step = int(state["global_step"])
+    except Exception:  # trainer_state yok/bozuk → klasör adındaki adım geçerli
+        pass
+    return str(path), step
+
+
+def zero_step_error(checkpoint: str, last_step: int, max_steps: int) -> str:
+    """Devam edilecek checkpoint hedefi zaten karşılıyorsa gösterilecek HATA metni.
+
+    Bu durumda HF Trainer sıfır adım atar; eskiden bu "başarılı eğitim" olarak
+    raporlanıyordu (Kural 2 ihlali — sessiz başarısızlık).
+    """
+    return (
+        f"Devam edilecek checkpoint hedefi zaten karşılıyor: {checkpoint} "
+        f"(global_step={last_step} >= hedef adım={max_steps}). Eğitim SIFIR adım atardı; "
+        "bu 'başarılı eğitim' DEĞİLDİR (CLAUDE.md Kural 2) — yeni veri modele hiç girmez. "
+        f"Ya adım hedefini {last_step}'ten büyük seç, ya yeni bir adapter adı kullan, "
+        "ya da devamı kapat (resume_from_checkpoint=False → sıfırdan eğitim)."
+    )
+
+
+def resolve_resume_checkpoint(
+    output_dir: Path | str, *, resume: bool, max_steps: int = 0
+) -> ResumeDecision:
+    """Checkpoint'ten devam kararını ver (saf fonksiyon → çevrimdışı test edilebilir).
+
+    Kurallar:
+    * ``resume=False`` (VARSAYILAN): mevcut checkpoint KULLANILMAZ. Klasörde checkpoint
+      varsa bu sessizce geçilmez, GÖRÜNÜR uyarı üretilir (eski adapter üzerine yazılacak).
+    * ``resume=True`` ama checkpoint yok: uyarı + sıfırdan eğitim (hata değil).
+    * ``resume=True`` ve checkpoint'in adımı hedefi karşılıyorsa: ``error`` — eğitim
+      başlatılmaz, "başarılı" DENMEZ.
+
+    ``max_steps<=0`` hedef henüz bilinmiyor demektir (``cfg.iterations<=0`` iken hedef
+    ancak veri tokenize edildikten sonra belli olur); bu halde sıfır-adım kıyası atlanır
+    ve çağıran hedef netleştiğinde ``zero_step_error`` guard'ını yeniden uygular.
+    """
+    checkpoint, last_step = find_last_checkpoint(output_dir)
+    if not resume:
+        if checkpoint:
+            return ResumeDecision(
+                checkpoint=None,
+                last_step=last_step,
+                warnings=(
+                    f"Çıktı klasöründe checkpoint VAR ({checkpoint}, global_step={last_step}) "
+                    "ama devam KAPALI (varsayılan) → eğitim SIFIRDAN başlıyor ve klasördeki "
+                    "adapter ÜZERİNE yazılacak. Devam etmek için resume_from_checkpoint=True "
+                    "(veya HEKTOR_TRAIN_RESUME=1). Not: eski checkpoint klasörleri silinmez; "
+                    "temiz bir koşu için yeni bir adapter adı verin.",
+                ),
+            )
+        return ResumeDecision()
+    if not checkpoint:
+        return ResumeDecision(
+            warnings=(f"Devam istendi ama {output_dir} içinde checkpoint yok → sıfırdan eğitim.",)
+        )
+    if max_steps > 0 and last_step >= max_steps:
+        return ResumeDecision(
+            checkpoint=None,
+            last_step=last_step,
+            error=zero_step_error(checkpoint, last_step, max_steps),
+        )
+    return ResumeDecision(
+        checkpoint=checkpoint,
+        last_step=last_step,
+        warnings=(
+            f"Eğitim son checkpoint'ten SÜRDÜRÜLÜYOR (açık tercih): {checkpoint} "
+            f"(global_step={last_step}, hedef adım={max_steps or 'veriden'}).",
+        ),
+    )
+
+
+def resume_requested(cfg: PeftTrainConfig) -> bool:
+    """Checkpoint'ten devam AÇIKÇA istendi mi? config alanı VEYA HEKTOR_TRAIN_RESUME=1.
+
+    Ortam değişkeni, henüz ``--resume`` bayrağı geçirmeyen çağıranların (web butonu,
+    detached launch) çökme sonrası kurtarma için devamı bilinçli açabilmesi içindir.
+    """
+    if cfg.resume_from_checkpoint:
+        return True
+    return os.environ.get("HEKTOR_TRAIN_RESUME", "").strip().lower() in {"1", "true", "yes", "evet"}
+
+
 def dry_run(cfg: PeftTrainConfig) -> dict:
     missing = _check_deps()
     return {
         "dry_run": True,
+        "resume_from_checkpoint": resume_requested(cfg),
         "base_model": cfg.base_model,
         "train_jsonl": str(cfg.train_jsonl),
         "valid_jsonl": str(cfg.valid_jsonl),
@@ -495,6 +629,17 @@ def train(cfg: PeftTrainConfig) -> dict:
             "error": f"Eksik paketler: {missing}. Kur: uv pip install {' '.join(missing)}",
         }
 
+    # Devam (resume) kararı EN BAŞTA verilir: hatalıysa GB'lık model yüklenmeden dönülür.
+    # Varsayılan KAPALI → mevcut checkpoint sessizce kullanılmaz (bkz. PeftTrainConfig).
+    resume_plan = resolve_resume_checkpoint(
+        cfg.adapter_output_path, resume=resume_requested(cfg), max_steps=cfg.iterations
+    )
+    for _msg in resume_plan.warnings:
+        logger.warning("%s", _msg)
+    if resume_plan.error:
+        logger.error("%s", resume_plan.error)
+        return {"ok": False, "error": resume_plan.error}
+
     import torch
     from peft import LoraConfig, get_peft_model
     from transformers import (
@@ -682,12 +827,15 @@ def train(cfg: PeftTrainConfig) -> dict:
     import datetime as _dt
 
     started_at = _dt.datetime.now().isoformat(timespec="seconds")
-    from transformers.trainer_utils import get_last_checkpoint
 
-    last_checkpoint = get_last_checkpoint(output_dir) if Path(output_dir).is_dir() else None
-    if last_checkpoint:
-        logger.warning("Eğitim son checkpoint'ten sürdürülüyor: %s", last_checkpoint)
-    trainer.train(resume_from_checkpoint=last_checkpoint)
+    # Sıfır-adım guard'ının SON uygulanışı: cfg.iterations<=0 iken hedef (max_steps) ancak
+    # burada belli olur, dolayısıyla baştaki kontrol kıyası atlamıştı. Sıfır adım eğitip
+    # "başarılı" demektense burada açıkça hata döneriz (Kural 2).
+    if resume_plan.checkpoint and resume_plan.last_step >= max_steps:
+        err = zero_step_error(resume_plan.checkpoint, resume_plan.last_step, max_steps)
+        logger.error("%s", err)
+        return {"ok": False, "error": err}
+    trainer.train(resume_from_checkpoint=resume_plan.checkpoint)
     finished_at = _dt.datetime.now().isoformat(timespec="seconds")
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
@@ -770,8 +918,12 @@ def generate_colab_notebook(
 
 
 def build_command(cfg: PeftTrainConfig) -> list[str]:
-    """TrainingManager.start() için subprocess komutu üretir."""
-    return [
+    """TrainingManager.start() için subprocess komutu üretir.
+
+    ``--resume`` YALNIZ config'te açıkça istendiğinde eklenir; varsayılan komut eskisiyle
+    birebir aynıdır (çağıran sözleşmesi korunur).
+    """
+    cmd = [
         sys.executable,
         str(Path(__file__).resolve()),
         "--train",
@@ -786,6 +938,9 @@ def build_command(cfg: PeftTrainConfig) -> list[str]:
         str(cfg.iterations),
         "--run",
     ]
+    if cfg.resume_from_checkpoint:
+        cmd.append("--resume")
+    return cmd
 
 
 if __name__ == "__main__":
@@ -801,6 +956,11 @@ if __name__ == "__main__":
     parser.add_argument("--iters", type=int, default=300)
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--colab", action="store_true")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Cikti klasorundeki son checkpoint'ten devam et (varsayilan: KAPALI - sifirdan).",
+    )
     parsed = parser.parse_args()
 
     cfg = PeftTrainConfig(
@@ -809,6 +969,7 @@ if __name__ == "__main__":
         valid_jsonl=Path(parsed.valid),
         adapter_output_path=Path(parsed.output),
         iterations=parsed.iters,
+        resume_from_checkpoint=parsed.resume,
     )
 
     if parsed.colab:

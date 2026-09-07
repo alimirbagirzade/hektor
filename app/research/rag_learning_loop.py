@@ -45,6 +45,29 @@ def _state_file() -> Path:
 # bozuk/0KB) sonsuza dek denemesin → bu kadar denemeden sonra bırakılır (boşa LLM yok).
 _MAX_REBUILD_ATTEMPTS = 3
 
+# Kartsız makale için kart üretme deneme tavanı (aynı gerekçe, bkz. _build_missing_cards).
+# "Boş kart = kart yok" semantiğinde kartlanamayan makale `has_knowledge_card` süzgecinden
+# HİÇ düşmez; tavan olmasa liste başındaki (en yeni) aynı makaleler her turda bütçeyi yer,
+# alttaki kartsız makaleler sıraya HİÇ gelmezdi (açlık).
+_MAX_CARD_ATTEMPTS = 3
+
+
+def _as_attempt_ledger(raw: Any) -> dict[str, int]:
+    """Deneme defterini güvenle oku — eski/elle düzenlenmiş state dosyası çökertmesin.
+
+    Alan eski sürümlerde YOKTU (o zaman varsayılan `{}` gelir) ya da bozuk tipte olabilir;
+    okunamayan giriş sessizce atılır (en kötü hâlde defter sıfırlanır, veri kaybı olmaz).
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, int] = {}
+    for key, val in raw.items():
+        try:
+            out[str(key)] = int(val)
+        except (TypeError, ValueError):
+            continue
+    return out
+
 
 def _utcnow() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
@@ -113,6 +136,10 @@ class RagLoopState:
     # (builder düzelince eski boş kartlar yeniden denensin ama bozuk-kaynak sonsuz dönmesin).
     # (legacy `rebuilt_paper_ids` yerine geçer.)
     rebuild_attempts: dict[str, int] = field(default_factory=dict)
+    # paper_id → kartsız makale için kart üretme deneme sayısı; _MAX_CARD_ATTEMPTS'e
+    # ulaşınca makale ATLANIR (sıra diğer kartsız makalelere geçer — açlık önlemi).
+    # Eski state dosyalarında bu alan YOKTUR → `from_dict` varsayılan `{}` ile okur.
+    card_attempts: dict[str, int] = field(default_factory=dict)
 
     mastery_percent: int | None = None
     history: list[dict[str, Any]] = field(default_factory=list)  # son ~20 tur özeti
@@ -300,7 +327,24 @@ class RagLearningLoop:
         return False
 
     def _build_missing_cards(self, limit: int) -> int:
-        """Kartı olmayan makalelere bilgi kartı üret + içerikliyse onayla (en çok `limit`)."""
+        """Kartı olmayan makalelere bilgi kartı üret + içerikliyse onayla.
+
+        Dönüş GERÇEKTEN üretilen (içerikli → kaydedilmiş) kart sayısıdır; deneme sayısı
+        DEĞİL. Eskiden her deneme `built += 1` sayılıyordu: builder boş kart döndürünce
+        (kaydedilmez — bkz. `KnowledgeCard.has_content`) hem tur bütçesi boşa gidiyor hem
+        "kart +N" YANLIŞ raporlanıyordu (CLAUDE.md kural 2: test edilmeden "üretildi" deme).
+
+        Açlık (starvation) önlemi: "boş kart = kart yok" semantiğinde kartlanamayan makale
+        `has_knowledge_card` süzgecinden hiç düşmez; `list_papers()` en yeniden eskiye
+        sıralı olduğundan aynı makaleler her turda bütçeyi yiyip alttaki kartsız makaleleri
+        sıraya HİÇ getirmiyordu. Artık deneme sayısı defterde (`card_attempts`) tutulur;
+        `_MAX_CARD_ATTEMPTS`'e ulaşan makale ATLANIR ve sıra diğerlerine geçer
+        (`_rebuild_empty_cards`'taki `rebuild_attempts` deseninin aynısı).
+
+        Bütçe (`limit`) DENEME sayısını kelepçeler — CPU sınırı LLM çağrısı başına
+        işlediğinden, "yalnız başarılar sayılsın" kuralı tur başına çağrı sayısını
+        artırmamalı.
+        """
         if limit <= 0:
             return 0
         from app.brain.knowledge_card_builder import KnowledgeCardBuilder
@@ -308,18 +352,40 @@ class RagLearningLoop:
 
         store = SqliteStore()
         builder = KnowledgeCardBuilder()
-        built = 0
+        attempts = _as_attempt_ledger(self._state.card_attempts)
+        built = 0  # içerikli + kaydedilmiş kart
+        tried = 0  # bu turda yapılan builder çağrısı (bütçe bunu kelepçeler)
         for p in store.list_papers():
-            if built >= limit:
+            if tried >= limit:
                 break
             if store.has_knowledge_card(p.paper_id):
                 continue
+            if attempts.get(p.paper_id, 0) >= _MAX_CARD_ATTEMPTS:
+                continue  # tavana ulaştı → kalıcı atla, sıra diğer kartsız makalelere
+            attempts[p.paper_id] = attempts.get(p.paper_id, 0) + 1
+            tried += 1
             try:
-                builder.build(p.paper_id)
+                card = builder.build(p.paper_id)
+                if not bool(getattr(card, "has_content", False)):
+                    # Boş kart KAYDEDİLMEDİ → "üretildi" sayma; defterdeki deneme kalır.
+                    log.warning(
+                        "RAG loop: kart içeriksiz döndü, sayılmadı (%d/%d deneme): %s",
+                        attempts[p.paper_id],
+                        _MAX_CARD_ATTEMPTS,
+                        p.paper_id,
+                    )
+                    continue
                 self._approve_if_content(store, p.paper_id)
+                attempts.pop(p.paper_id, None)  # başarılı → defteri şişirme
                 built += 1
             except Exception as exc:
                 log.warning("RAG loop: kart üretilemedi (%s): %s", p.paper_id, exc)
+        self._state.card_attempts = attempts
+        # Defter DİSKE de yazılır: bu adım `run_one_cycle` dışından da çağrılır
+        # (makale-okuyucu ajanı her koşuda yeni bir örnek kurar) — kalıcı olmayan defter
+        # tavanı işlevsiz bırakır. Yazma hatası turu bozmasın (defter en kötü bir tur geriler).
+        with contextlib.suppress(Exception):
+            self._save_state()
         return built
 
     def _rebuild_empty_cards(self, limit: int) -> int:
@@ -336,6 +402,9 @@ class RagLearningLoop:
         bir makale içerik üretene kadar en çok `_MAX_REBUILD_ATTEMPTS` kez denenir. Başaran
         makale `with_real`'e girip doğal elenir; üretemeyen (ör. kaynak metni bozuk/0KB)
         tavana ulaşınca bırakılır → boşa/sonsuz LLM çağrısı yok.
+
+        Dönüş, `_build_missing_cards` ile aynı sözleşme: GERÇEKTEN içerik kazanan kart
+        sayısı (deneme sayısı değil); bütçe ise deneme sayısını kelepçeler.
         """
         if limit <= 0 or not self._state.rebuild_empty:
             return 0
@@ -352,20 +421,25 @@ class RagLearningLoop:
             str(e.metadata.get("paper_id", "")) for e in examples if e.metadata.get("paper_id")
         }
         carded = {str(c["paper_id"]) for c in cards if c.get("paper_id")}
-        attempts = dict(self._state.rebuild_attempts)
+        attempts = _as_attempt_ledger(self._state.rebuild_attempts)
         gave_up = {pid for pid, n in attempts.items() if n >= _MAX_REBUILD_ATTEMPTS}
         empty = [pid for pid in carded if pid not in with_real and pid not in gave_up]
         if not empty:
             return 0
 
         builder = KnowledgeCardBuilder()
-        done = 0
+        done = 0  # GERÇEKTEN içerik kazanan kart (deneme değil — bkz. _build_missing_cards)
+        tried = 0  # builder çağrısı; bütçe (`limit`) bunu kelepçeler
         for pid in empty:
-            if done >= limit:
+            if tried >= limit:
                 break
             attempts[pid] = attempts.get(pid, 0) + 1  # denemeyi say (tavan için)
+            tried += 1
             try:
-                builder.build(pid)
+                card = builder.build(pid)
+                if not bool(getattr(card, "has_content", False)):
+                    log.warning("RAG loop: rebuild içeriksiz döndü, sayılmadı: %s", pid)
+                    continue
                 self._approve_if_content(store, pid)  # içerikliyse onayla → coverage'a girsin
                 done += 1
             except Exception as exc:
@@ -513,7 +587,8 @@ class RagLearningLoop:
                 self._save_state()
 
             log.info(
-                "RAG loop turu bitti: +%d makale, +%d kart, +%d rebuild, +%d skor (ustalık %s%%)",
+                "RAG loop turu bitti: +%d makale, +%d içerikli kart, +%d rebuild, "
+                "+%d skor (ustalık %s%%)",
                 ingested,
                 cards,
                 rebuilt,

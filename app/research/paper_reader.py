@@ -82,6 +82,12 @@ def run_reader(
 
     Döngüye GİRMEZ (kalıcı olarak kartlanamayan makale sonsuz tekrar üretmesin); kalan iş
     `sonra` alanında raporlanır, çağıran isterse yeniden tetikler.
+
+    `kart` alanı GERÇEKTEN üretilen (içerikli → kaydedilmiş) kart sayısıdır, deneme sayısı
+    değil (CLAUDE.md kural 2). Boş/parse edilemez LLM yanıtı kart SAYILMAZ; o makale
+    `kalan_kartsiz` içinde görünmeye devam eder. `cards`/`scores` bütçesi deneme sayısını
+    kelepçeler, bu yüzden `kart <= cards`'tır ama eşit olmayabilir. Kalıcı olarak
+    kartlanamayan makale döngünün deneme tavanına ulaşınca atlanır (sıra diğerlerine geçer).
     """
     with track_agent_run(AGENT_ID, trigger_type=trigger_type):
         once = topla_plan(store)
@@ -102,13 +108,16 @@ def run_reader(
         loop._state.score_use_llm = use_llm_score
 
         kart = loop._build_missing_cards(max(0, cards)) if once.kartsiz else 0
-        log_step(f"Kart üretildi: {kart}")
+        # "üretildi" = içerikli + kaydedilmiş kart (boş yanıt sayılmaz); denenip içerik
+        # gelmeyen makaleler kartsız kalır ve `kalan_kartsiz`'da raporlanır.
+        log_step(f"İçerikli kart üretildi: {kart}")
         skor = loop._score_missing(max(0, scores))
         log_step(f"Anlama skoru hesaplandı: {skor}")
 
         sonra = topla_plan(store)
         log_step(
-            f"Okunmuşluk: {sonra.okunmus}/{sonra.toplam} (%{sonra.yuzde})",
+            f"Okunmuşluk: {sonra.okunmus}/{sonra.toplam} (%{sonra.yuzde}) — "
+            f"hâlâ kartsız: {len(sonra.kartsiz)}",
             payload=sonra.to_dict(),
         )
         return {

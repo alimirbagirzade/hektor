@@ -12,9 +12,12 @@ try {
     $running = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='uv.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like '*peft_lora_train*' -or $_.CommandLine -like '*train*--run*' }
     if ($running) { exit 0 }
-    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile "discipline_safe_local"
+    # -Resume: bu bir COKME-KURTARMA yeniden baslatmasidir; yarim kalan kosu sifirdan
+    # baslamasin (trainer'da resume artik varsayilan KAPALI -- Kademe-2 av bulgusu).
+    # Sifir-adim ("ogrenilecek bir sey kalmamis") durumu trainer'da hata verir, sessizce
+    # "basarili" donmez; dolayisiyla kurtarma guvenli.
+    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile "discipline_safe_local" -Resume
 } finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()
 }
-

@@ -20,6 +20,12 @@ param(
     # kosar -> prompt kalibi ezberlenir = v5 disiplin-regresyon recetesi (Kademe-2 av bulgusu).
     # Profili tamamen atlamak icin -Profile "" ver.
     [string]$Profile = "discipline_safe_local",
+    # Cokme-kurtarma: son checkpoint'ten DEVAM et. Trainer'da resume artik ACIK TERCIH
+    # (varsayilan KAPALI) -- ayni adapter adiyla ikinci kosu eskiden sessizce eski
+    # agirliklari yeniden kullaniyor, hatta eski adim >= hedef ise SIFIR adim egitip
+    # "basarili" doneyordu (Kademe-2 av bulgusu; Kural 2). Watchdog olen egitimi
+    # surdururken bu switch'i gecer; sifir-adim durumu artik trainer'da hata verir.
+    [switch]$Resume,
     [switch]$Stop,
     [switch]$Status
 )
@@ -78,6 +84,9 @@ if (-not $uv) { Write-Host "  [HATA] uv bulunamadi." -ForegroundColor Red; exit 
 
 $null = New-Item -ItemType Directory -Path (Split-Path $LogOut) -Force
 $env:HEKTOR_TRAIN_DTYPE = $Dtype
+# Resume yalniz ACIKCA istendiginde; aksi halde ortamda kalmis eski degeri TEMIZLE
+# (kalici HEKTOR_TRAIN_RESUME=1 devami yeniden ortuk hale getirirdi).
+if ($Resume) { $env:HEKTOR_TRAIN_RESUME = "1" } else { $env:HEKTOR_TRAIN_RESUME = "0" }
 # Bu script yalnız merkezi unattended eğitim servisi tarafından kullanılır. STOP_ALL
 # yine CLI içinde zorunludur; tekrar başlatmalarda tek kullanımlık insan onayı aranmaz.
 $env:HEKTOR_TRAIN_SUPERVISED = "1"
@@ -98,6 +107,7 @@ $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
 ('{"adapter":"' + $Adapter + '","dtype":"' + $Dtype + '","iterations":' + $Iterations + '}') |
     Out-File -FilePath $StatusFile -Encoding ascii -Force
 $profLabel = if ($Profile -and $Profile.Trim() -ne "") { $Profile } else { "(vanilya)" }
-Write-Host "  [OK] Egitim DETACHED baslatildi (dtype=$Dtype, adapter=$Adapter, iters=$Iterations, profil=$profLabel)." -ForegroundColor Green
+$resumeLabel = if ($Resume) { "devam(checkpoint)" } else { "sifirdan" }
+Write-Host "  [OK] Egitim DETACHED baslatildi (dtype=$Dtype, adapter=$Adapter, iters=$Iterations, profil=$profLabel, mod=$resumeLabel)." -ForegroundColor Green
 Write-Host "       Claude Code/terminal kapansa da surer. PC acik + oturum acik kalmali." -ForegroundColor Cyan
 Write-Host "       Ilerleme: logs\train-full-err.log" -ForegroundColor Gray

@@ -6,7 +6,7 @@ edilir (eksikse aşama makul biçimde blocked/skipped olur, koşu çökmez).
 Güvenlik sınırı (CLAUDE.md Kural 8):
   - Salt-okuma aşamaları (preflight/data-gate/curriculum/dry-run) GERÇEK çalışır.
   - `deep-hunt` zorunlu Kademe-2 avı temsil eder → hunt_ack olmadan blocked.
-  - `approval` TAZE insan onayı ister → onaysız blocked.
+  - `approval` TAZE insan onayını yalnız GÖZLER (tüketmez, üretmez) → onaysız blocked.
   - `train`/`evaluate`/`registry` varsayılan olarak HANDOFF'tur (gerçek detached
     yürütme bilinçli olarak gözetimsiz BAŞLATILMAZ; web tek-tık akışı ayrı, onay-kapılı
     bir "yürüten delege" seti enjekte ederek devralır).
@@ -27,6 +27,11 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _SFT_REL = ("data", "lora_sft", "lora_sft.jsonl")
+
+# Gerçek `train --run` yolunun kullandığı onay anahtarı — TEK anahtar, iki yüzey.
+_APPROVAL_AGENT_ID = "lora-trainer"
+_APPROVAL_ACTION = "train_run"
+_APPROVAL_KEY = f"{_APPROVAL_AGENT_ID}/{_APPROVAL_ACTION}"
 
 
 def _result(status: StageStatus, message: str, output: dict | None = None) -> StageResult:
@@ -240,43 +245,66 @@ def approval(ctx: RunContext) -> StageResult:
     """Gerçek eğitim için TAZE onay kapısı (Kural 8) — onayı TÜKETMEZ, yalnız gözler.
 
     Varsayılan `train` delegesi handoff'tur (gerçek eğitimi inline başlatmaz). Onayı burada
-    `require_fresh_approval` ile TÜKETMEK iki sorun doğururdu: (1) hiçbir gerçek eğitime
-    karşılık gelmeyen onayı boşa harcardı (tek-kullanımlık onay sözleşmesi ihlali) ve mesaj
-    "eğitim yetkili" diyerek yanıltırdı; (2) taze onay yokken her başarısız resume YENİ bir
-    PENDING onay üretip biriktirirdi. Bunun yerine gerçek `train --run` yolunun kullandığı
-    AYNI anahtarı (lora-trainer/train_run) TÜKETMEDEN gözler (`has_fresh_approval`): onay o
-    yolda oluşturulup gerçek eğitim noktasında tüketilir. Böylece tek onay her iki yolu da
-    yetkilendirir ve onay hiçbir zaman boşa harcanmaz.
+    `authorize_training_action` → `require_fresh_approval` ile TÜKETMEK iki sorun doğurur:
+    (1) hiçbir gerçek eğitime karşılık gelmeyen onayı boşa harcar (tek-kullanımlık onay
+    sözleşmesi ihlali) ve mesaj "eğitim yetkili" diyerek yanıltır; (2) taze onay yokken her
+    başarısız resume YENİ bir PENDING onay üretip biriktirir. Bu yüzden bu aşama gerçek
+    `train --run` yolunun kullandığı AYNI anahtarı (lora-trainer/train_run) TÜKETMEDEN
+    gözler (`has_fresh_approval`): onay o yolda oluşturulur ve gerçek eğitim noktasında
+    tüketilir. Böylece tek onay her iki yolu da yetkilendirir ve onay boşa harcanmaz.
+
+    Politika sırası TEK OTORİTE (`unattended_policy.authorize_training_action`) ile aynıdır —
+    STOP_ALL > gözetimsiz mod (gate'ler geçti) > taze insan onayı — ama tüketen çağrı hiçbir
+    dalda yapılmaz. Kapı GEVŞETİLMEZ: otomatik yetkilendirme yoktur; onay yoksa blocked.
     """
     try:
-        from app.training.unattended_policy import authorize_training_action
+        from app.agents.runtime import approvals, supervisor
+        from app.config import get_settings
     except Exception as exc:
         return _result(StageStatus.failed, f"Onay altyapısı yüklenemedi: {exc}", {})
 
-    decision = authorize_training_action(
-        "train_run",
-        "Orkestrasyon gate'leri geçmiş yerel LoRA eğitimi",
-        gates_passed=True,
-        agent_id="lora-trainer",
-    )
-    if decision.authorized:
+    out: dict = {"approval_key": _APPROVAL_KEY}
+    try:
+        if supervisor.is_stop_all_active():
+            out["stop_all"] = True
+            return _result(
+                StageStatus.blocked, "STOP_ALL aktif — eğitim yetkisi verilmez (Kural 8).", out
+            )
+        if bool(get_settings().unattended_training_enabled):
+            out["authorization_mode"] = "unattended_policy"
+            return _result(
+                StageStatus.completed,
+                "Eğitim yetkisi verildi (unattended_policy) — train aşaması devralabilir.",
+                out,
+            )
+        # Salt-okuma: taze (onaylı + tüketilmemiş) onay VAR MI — TÜKETMEZ, yenisini ÜRETMEZ.
+        has_fresh = bool(approvals.has_fresh_approval(_APPROVAL_AGENT_ID, _APPROVAL_ACTION))
+    except Exception as exc:
+        return _result(StageStatus.failed, f"Onay durumu okunamadı: {exc}", out)
+
+    if has_fresh:
+        out["authorization_mode"] = "human_approval"
+        out["approval_consumed"] = False
         return _result(
             StageStatus.completed,
-            f"Eğitim yetkisi verildi ({decision.mode}) — train aşaması devralabilir.",
-            {"authorization_mode": decision.mode, "approval_key": "lora-trainer/train_run"},
+            (
+                f"Taze insan onayı mevcut ({_APPROVAL_KEY}) — TÜKETİLMEDİ; gerçek "
+                "'train --run' noktasında tüketilecek."
+            ),
+            out,
         )
+    out["needs_approval"] = True
+    out["approval_id"] = ""  # bu aşama onay ÜRETMEZ (pending birikmesin)
     return _result(
         StageStatus.blocked,
         (
-            "Gerçek eğitim TAZE onay gerektirir (Kural 8). Onay akışını 'hektor train --run' "
-            "başlatır (lora-trainer/train_run onayı oluşturur ve gerçek eğitim noktasında "
-            "tüketir); onaylandıktan sonra orkestrasyonu sürdür."
+            "Gerçek eğitim TAZE insan onayı gerektirir (Kural 8). Bu aşama onay ÜRETMEZ ve "
+            "TÜKETMEZ. Onay akışını 'hektor train --run' (veya web'deki eğitim butonu) "
+            f"başlatır: {_APPROVAL_KEY} anahtarıyla bir onay oluşturur, 'hektor "
+            "approval-approve <id>' ile onaylarsın ve onay gerçek eğitim noktasında "
+            "tüketilir. Onaydan sonra orkestrasyonu sürdür."
         ),
-        {
-            "needs_approval": True,
-            "approval_id": decision.approval_id,
-            "approval_key": "lora-trainer/train_run",
-        },
+        out,
     )
 
 
