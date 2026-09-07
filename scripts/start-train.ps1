@@ -20,6 +20,10 @@ param(
     # kosar -> prompt kalibi ezberlenir = v5 disiplin-regresyon recetesi (Kademe-2 av bulgusu).
     # Profili tamamen atlamak icin -Profile "" ver.
     [string]$Profile = "discipline_safe_local",
+    # Temel model. BOS ise ayardaki varsayilan (Qwen3-4B) kullanilir. Yerel CPU'da
+    # 4B bf16 ~8 GB tutar; dusuk RAM'li makinede kucuk model (or. Qwen2.5-1.5B-Instruct)
+    # sec. Secim train_status.json'a yazilir ki nobetci yeniden baslatirken UNUTMASIN.
+    [string]$BaseModel = "",
     # Cokme-kurtarma: son checkpoint'ten DEVAM et. Trainer'da resume artik ACIK TERCIH
     # (varsayilan KAPALI) -- ayni adapter adiyla ikinci kosu eskiden sessizce eski
     # agirliklari yeniden kullaniyor, hatta eski adim >= hedef ise SIFIR adim egitip
@@ -90,6 +94,8 @@ if ($Resume) { $env:HEKTOR_TRAIN_RESUME = "1" } else { $env:HEKTOR_TRAIN_RESUME 
 # Bu script yalnız merkezi unattended eğitim servisi tarafından kullanılır. STOP_ALL
 # yine CLI içinde zorunludur; tekrar başlatmalarda tek kullanımlık insan onayı aranmaz.
 $env:HEKTOR_TRAIN_SUPERVISED = "1"
+# Temel model secimi alt surece ORTAM uzerinden gecer (Start-Process ortami miras alir).
+if ($BaseModel -and $BaseModel.Trim() -ne "") { $env:HEKTOR_PEFT_BASE_MODEL = $BaseModel }
 # Egitim verisi: lora_sft.jsonl -> train/valid (clobber-proof; bos train.jsonl onarilir)
 & $uv run --project "$ProjectDir" hektor lora-split | Out-Null
 # Temel argumanlar + (profil verildiyse) --profile. Profil bos ise EKLENMEZ (vanilya).
@@ -104,10 +110,12 @@ Start-Process -FilePath $uv `
     -WindowStyle Hidden
 # Rozet/durum icin: adapter adini storage'a yaz (web /api/training/live okur)
 $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
-('{"adapter":"' + $Adapter + '","dtype":"' + $Dtype + '","iterations":' + $Iterations + '}') |
+('{"adapter":"' + $Adapter + '","dtype":"' + $Dtype + '","iterations":' + $Iterations + ',"base_model":"' + $BaseModel + '"}') |
     Out-File -FilePath $StatusFile -Encoding ascii -Force
 $profLabel = if ($Profile -and $Profile.Trim() -ne "") { $Profile } else { "(vanilya)" }
 $resumeLabel = if ($Resume) { "devam(checkpoint)" } else { "sifirdan" }
+$modelLabel = if ($BaseModel) { $BaseModel } else { "ayardaki varsayilan" }
+Write-Host "  Temel model: $modelLabel" -ForegroundColor DarkGray
 Write-Host "  [OK] Egitim DETACHED baslatildi (dtype=$Dtype, adapter=$Adapter, iters=$Iterations, profil=$profLabel, mod=$resumeLabel)." -ForegroundColor Green
 Write-Host "       Claude Code/terminal kapansa da surer. PC acik + oturum acik kalmali." -ForegroundColor Cyan
 Write-Host "       Ilerleme: logs\train-full-err.log" -ForegroundColor Gray

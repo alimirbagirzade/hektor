@@ -16,7 +16,10 @@ try {
     # baslamasin (trainer'da resume artik varsayilan KAPALI -- Kademe-2 av bulgusu).
     # Sifir-adim ("ogrenilecek bir sey kalmamis") durumu trainer'da hata verir, sessizce
     # "basarili" donmez; dolayisiyla kurtarma guvenli.
-    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile "discipline_safe_local" -Resume
+    # Temel model status dosyasindan GERI OKUNUR: yoksa varsayilana (4B) doner ve
+    # dusuk RAM'li makinede OOM olur -- kurtarma sessizce basarisiz olurdu.
+    $bm = if ($status.PSObject.Properties.Name -contains "base_model") { [string]$status.base_model } else { "" }
+    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile "discipline_safe_local" -BaseModel $bm -Resume
 } finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()
