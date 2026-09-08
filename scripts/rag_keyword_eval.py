@@ -59,6 +59,7 @@ _STOP = {
 def main() -> None:
     from app.memory.bm25_corpus import get_corpus_bm25
     from app.memory.reranking_retriever import RerankingRetriever
+    from app.memory.retrieval_service import RetrievalService
 
     limit = int(os.environ.get("RAG_KW_LIMIT", "50"))
 
@@ -95,8 +96,10 @@ def main() -> None:
     print(f"# keyword queries: {len(queries)}", flush=True)
 
     # 4) Isınma embed (BM25 zaten kurulu → CPU serbest → ollama saptanır, sahte-fallback yok).
-    warm = RerankingRetriever(enabled=False)
+    base = RetrievalService()  # TEK paylasilan sicak dense taban (adil kosul, tek Chroma)
+    warm = RerankingRetriever(base=base, enabled=False)
     warm.retrieve("warmup volatility", top_k=3)
+    print(f"# embedder mode: {base.embedder.mode}", flush=True)  # 'fake' ise OLCUM GECERSIZ
 
     def measure(name: str, retr: object) -> dict:
         rec = {1: 0, 5: 0, 10: 0}
@@ -132,8 +135,19 @@ def main() -> None:
         }
 
     configs = [
-        ("dense_only", RerankingRetriever(enabled=False)),
-        ("router(lexical->convex-hybrid)", RerankingRetriever(enabled=True, router=True)),
+        ("dense_only", RerankingRetriever(base=base, enabled=False)),
+        # Canli varsayilan (kod): rerank+hibrit, router yok -> "once" olcumu.
+        ("hybrid+rerank(canli)", RerankingRetriever(base=base, enabled=True, hybrid=True)),
+        # Router: lexical -> konveks-hibrit. `hybrid` bayragi router yolunda OKUNMUYOR
+        # -> iki satir AYNI cikmali (bayrak cakismasi olmadiginin kaniti).
+        (
+            "router(hybrid=false)",
+            RerankingRetriever(base=base, enabled=True, router=True, hybrid=False),
+        ),
+        (
+            "router(hybrid=true)",
+            RerankingRetriever(base=base, enabled=True, router=True, hybrid=True),
+        ),
     ]
     rows = []
     for name, r in configs:
@@ -141,11 +155,11 @@ def main() -> None:
         rows.append(row)
         print(json.dumps(row, ensure_ascii=False), flush=True)
 
-    print("\n# config                            recall@1 recall@5 mrr    lat_p50", flush=True)
+    print("\n# config                recall@1 recall@5 recall@10 mrr    lat_p50", flush=True)
     for r in rows:
         print(
-            f"# {r['config']:<33} {r['recall@1']:>7} {r['recall@5']:>8} "
-            f"{r['mrr']:>6} {r['lat_p50']:>8}",
+            f"# {r['config']:<21} {r['recall@1']:>7} {r['recall@5']:>8} "
+            f"{r['recall@10']:>9} {r['mrr']:>6} {r['lat_p50']:>8}",
             flush=True,
         )
 

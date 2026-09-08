@@ -74,6 +74,7 @@ def _measure(name: str, retriever, items: list[tuple[str, dict]]) -> dict:
 def main() -> None:
     from app.memory.bm25_corpus import get_corpus_bm25
     from app.memory.reranking_retriever import RerankingRetriever
+    from app.memory.retrieval_service import RetrievalService
     from app.memory.sqlite_store import SqliteStore
     from app.research.rag_learning_loop import is_substantive_card
 
@@ -98,10 +99,28 @@ def main() -> None:
         flush=True,
     )
 
+    # TEK paylasilan dense taban: her config ayni SICAK Chroma'yi kullansin (adil kosul,
+    # 5 ayri koleksiyon yuklemesi yok). `_convex_hybrid_retrieve` de bu chroma'yi paylasir.
+    base = RetrievalService()
+    print(f"# embedder mode: {base.embedder.mode}", flush=True)  # 'fake' ise OLCUM GECERSIZ
+
     configs = [
-        ("dense_only", RerankingRetriever(enabled=False)),
-        ("hybrid+rerank", RerankingRetriever(enabled=True, hybrid=True, rrf=False, graph=False)),
-        ("rrf", RerankingRetriever(enabled=True, hybrid=True, rrf=True, graph=False)),
+        ("dense_only", RerankingRetriever(base=base, enabled=False)),
+        (
+            "hybrid+rerank(canli)",
+            RerankingRetriever(base=base, enabled=True, hybrid=True, rrf=False, graph=False),
+        ),
+        ("rrf", RerankingRetriever(base=base, enabled=True, hybrid=True, rrf=True, graph=False)),
+        # Router: lexical -> konveks-hibrit, semantik -> saf dense. `hybrid` bayragi router
+        # yolunda OKUNMUYOR -> iki satir AYNI cikmali (bayrak cakismasi yok kaniti).
+        (
+            "router(hybrid=false)",
+            RerankingRetriever(base=base, enabled=True, router=True, hybrid=False),
+        ),
+        (
+            "router(hybrid=true)",
+            RerankingRetriever(base=base, enabled=True, router=True, hybrid=True),
+        ),
     ]
     results = []
     for name, retr in configs:
@@ -110,11 +129,11 @@ def main() -> None:
         print(json.dumps(r, ensure_ascii=False), flush=True)
 
     # karşılaştırma tablosu
-    print("\n# config            recall@1 recall@3 recall@5 mrr    lat_p50ms", flush=True)
+    print("\n# config               recall@1 recall@5 recall@10 mrr    lat_p50ms", flush=True)
     for r in results:
         print(
-            f"# {r['config']:<17} {r['recall@1']:>7} {r['recall@3']:>8} "
-            f"{r['recall@5']:>8} {r['mrr']:>6} {r['lat_ms_p50']:>9}",
+            f"# {r['config']:<21} {r['recall@1']:>7} {r['recall@5']:>8} "
+            f"{r['recall@10']:>9} {r['mrr']:>6} {r['lat_ms_p50']:>9}",
             flush=True,
         )
 
