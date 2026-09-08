@@ -6,10 +6,12 @@ Amaç: araştırma entegrasyonunun (doküman v1.2) config→PEFT kwargs köprüs
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 
+from app.training import peft_lora_train
 from app.training.peft_lora_train import (
     PeftTrainConfig,
     build_lora_kwargs,
@@ -108,7 +110,13 @@ def test_build_training_kwargs_defaults() -> None:
     kw = build_training_kwargs(_cfg(), num_epochs=2, output_dir="out", on_cuda=False)
     assert kw["num_train_epochs"] == 2
     assert kw["weight_decay"] == 0.01
-    assert kw["warmup_ratio"] == 0.03
+    # Isınma kurulu transformers sürümüne bağlıdır: `warmup_ratio` kabul ediliyorsa oran
+    # olarak geçer, kaldırıldıysa (≥5.16) uyum katmanı anahtarı düşürür. İki rejim de
+    # geçerli; ayrıntılı davranış aşağıdaki "warmup uyumluluk katmanı" testlerinde.
+    if peft_lora_train._training_arguments_supports("warmup_ratio"):
+        assert kw["warmup_ratio"] == 0.03
+    else:
+        assert "warmup_ratio" not in kw
     assert kw["lr_scheduler_type"] == "cosine"
     assert kw["max_grad_norm"] == 1.0
     assert kw["seed"] == 42
@@ -132,6 +140,47 @@ def test_build_training_kwargs_max_steps_caps() -> None:
     # max_steps>0 → adım sayısı TAM kapanır (kök bug fix: iterations artık epoch'a kaçmaz).
     kw = build_training_kwargs(_cfg(), num_epochs=1, output_dir="out", on_cuda=False, max_steps=200)
     assert kw["max_steps"] == 200
+
+
+# --- warmup uyumluluk katmanı (transformers ≥5.16 `warmup_ratio`yu KALDIRDI) ---
+# Katmanın kendi birim testleri tests/test_warmup_ratio_compat.py'de; burada YALNIZ
+# reçetenin varsayılan oranının (0.03) iki rejimde de doğru aktığı korunur.
+
+
+def _force_warmup_support(monkeypatch: pytest.MonkeyPatch, *, supported: bool) -> None:
+    """`TrainingArguments` `warmup_ratio` kabul ediyor/etmiyor rejimini zorla.
+
+    Kurulu transformers sürümünden bağımsız olarak iki yolu da sınamak için; uyum
+    katmanının davranışı DEĞİŞTİRİLMEZ (bkz. commit f1c0bae).
+    """
+    monkeypatch.setattr(
+        peft_lora_train,
+        "_training_arguments_supports",
+        lambda param: supported if param == "warmup_ratio" else True,
+    )
+
+
+def test_default_warmup_ratio_passes_through_when_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _force_warmup_support(monkeypatch, supported=True)
+    kw = build_training_kwargs(_cfg(), num_epochs=1, output_dir="out", on_cuda=False, max_steps=200)
+    assert kw["warmup_ratio"] == 0.03
+    assert "warmup_steps" not in kw
+
+
+def test_default_warmup_ratio_becomes_steps_when_unsupported(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Desteklenmiyorsa anahtar HİÇ geçmez (TypeError) ve oran adıma çevrilir."""
+    _force_warmup_support(monkeypatch, supported=False)
+    caplog.set_level(logging.INFO, logger=peft_lora_train.logger.name)
+
+    kw = build_training_kwargs(_cfg(), num_epochs=1, output_dir="out", on_cuda=False, max_steps=200)
+    assert "warmup_ratio" not in kw
+    assert kw["warmup_steps"] == 6  # 0.03 × 200
+    # Isınma sessizce kaybolmadı: dönüşüm logda görünür (Kural 2).
+    assert any("warmup_steps=6" in r.getMessage() for r in caplog.records)
 
 
 # --- recipe_summary ---
