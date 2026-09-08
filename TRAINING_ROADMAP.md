@@ -1,7 +1,7 @@
 # Eğitim Yol Haritası — Evrensel + Hektor Durumu
 
-> Kaynak: `İLGİLENECEĞİMİZ EĞİTİM TÜRLERİ.docx`  
-> Sıralama: pratikte en kolay kurulandan en zora doğru.  
+> Kaynak: `İLGİLENECEĞİMİZ EĞİTİM TÜRLERİ.docx`\
+> Sıralama: pratikte en kolay kurulandan en zora doğru.\
 > Bu dosya **şablon** niteliğindedir — yeni bir AI projesine başlarken kopyala,
 > "Proje Durumu" sütununu güncelle.
 
@@ -23,8 +23,8 @@
 
 ## 1. RAG — Retrieval-Augmented Generation
 
-**Ne yapar:** Modeli yeniden eğitmeden dış bilgi deposuna bağlar.  
-**Avantaj:** Ucuz, güncellemesi kolay, kaynak gösterilebilir.  
+**Ne yapar:** Modeli yeniden eğitmeden dış bilgi deposuna bağlar.\
+**Avantaj:** Ucuz, güncellemesi kolay, kaynak gösterilebilir.\
 **Dezavantaj:** Modelin "düşünme karakterini" değiştirmez.
 
 ### Hektor ✅
@@ -39,7 +39,7 @@
 
 ## 2. Tool Use Training
 
-**Ne yapar:** LLM'in araçları (backtest, grafik, hesaplama, API) kullanmayı öğrenmesi.  
+**Ne yapar:** LLM'in araçları (backtest, grafik, hesaplama, API) kullanmayı öğrenmesi.\
 **Finans için kritik:** Agent sadece konuşmamalı, test etmeli ve ölçmeli.
 
 ### Hektor 🟡
