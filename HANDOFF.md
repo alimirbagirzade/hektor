@@ -34,7 +34,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2039 passed, 4 skipped** (2026-09-08, `3d9e60c`) |
+| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2041 passed, 2 skipped** (2026-09-08, `bba2518`, bu makinede ölçüldü) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
@@ -119,9 +119,10 @@ değiştirmiyor. Dikkat gereken tek yer `TRAINING_ROADMAP.md` idi: 5 satır, son
 markdown hard-line-break olarak kullanıyordu — körlemesine silinseydi paragraflar sessizce
 birleşecekti; yerine görünür ve hook-güvenli CommonMark satır sonu kullanıldı.
 
-**Kapı:** ruff check temiz · mypy 217 dosya temiz · pytest **2039 passed, 4 skipped** (`3d9e60c`).
-Düzeltme ayrıca transformers 5.16.1'in kurulu olduğu ana venv'de de doğrulandı (ilgili iki dosya
-39 passed) — yani hem "destekli" hem "desteksiz" rejim ölçüldü.
+**Kapı (bu makine, ana kopya):** ruff check temiz · mypy 217 dosya temiz · pytest **2041 passed,
+2 skipped** (12dk42sn). Aynı ağaç, transformers'ın KURULU OLMADIĞI bir venv'de 2039 passed /
+4 skipped verir — fark yalnız `importorskip("transformers")` ile korunan iki testtir. Yani
+düzeltme hem "destekli" hem "desteksiz" rejimde ölçüldü; sayı farkı rejim farkıdır.
 
 **AÇIK İŞ:** transformers 5.16.1 ile GERÇEK eğitim koşulmadı; doğrulanan yalnız config→kwargs
 köprüsü. Sürüm sıçraması bağımlılığın üst sınırsız olmasından (`transformers>=4.40`) geldi —
