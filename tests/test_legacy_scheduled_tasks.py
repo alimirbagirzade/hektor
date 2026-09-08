@@ -86,6 +86,6 @@ def test_verify_install_uv_sync_inexact_kullanir() -> None:
     sync_satirlari = [s for s in betik.splitlines() if "sync" in s and "$UvPath" in s]
     assert sync_satirlari, "verify-install.ps1 içinde uv sync çağrısı bulunamadı"
     for satir in sync_satirlari:
-        assert (
-            "--inexact" in satir
-        ), f"uv sync --inexact kullanmıyor → eğitim paketleri silinir: {satir.strip()}"
+        assert "--inexact" in satir, (
+            f"uv sync --inexact kullanmıyor → eğitim paketleri silinir: {satir.strip()}"
+        )

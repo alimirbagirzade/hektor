@@ -122,6 +122,6 @@ def test_zaman_kolonu_yoksa_UYARIR(tmp_path: Path, caplog) -> None:
         out = load_ohlcv(path)
 
     assert len(out) == 10  # kabul edilir (mevcut çağıranlar kırılmaz)
-    assert any(
-        "zaman kolonu" in r.message.lower() for r in caplog.records
-    ), "zaman kolonu yokken uyarı basılmadı — sessiz look-ahead riski"
+    assert any("zaman kolonu" in r.message.lower() for r in caplog.records), (
+        "zaman kolonu yokken uyarı basılmadı — sessiz look-ahead riski"
+    )
