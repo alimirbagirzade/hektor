@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-07 (Gate 7 yanlış pozitifi + eğitim hattı kapıları)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-08 (kapıyı kıran `warmup_ratio` testi + araç sürüm hizalaması)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -34,7 +34,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **1999 passed, 1 skipped** (2026-09-07, `ea03b04`) |
+| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2039 passed, 4 skipped** (2026-09-08, `3d9e60c`) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
@@ -93,10 +93,47 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-08: Kapıyı kıran `warmup_ratio` testi + araç sürüm hizalaması
+
+**Belirti.** Bu makinede kapı KIRMIZI, tek düşen test:
+`tests/test_peft_lora_recipe.py::test_build_training_kwargs_defaults` → `KeyError: 'warmup_ratio'`.
+
+**Kök sebep — kod değil, testin beklentisi.** Kurulu transformers **5.16.1**,
+`TrainingArguments.__init__` imzasından `warmup_ratio`yu KALDIRMIŞ. `f1c0bae`'deki uyumluluk
+katmanı bunu zaten doğru ele alıyor (parametre desteklenmiyorsa kwargs'tan çıkar; `max_steps`
+biliniyorsa `warmup_steps`e çevirir, bilinmiyorsa uyarır). Test ise hâlâ sabit
+`kw["warmup_ratio"] == 0.03` bekliyordu → **shim'in ta kendisi testi düşürüyordu.**
+
+**Düzeltme (`1d02ddd`) — uyumluluk davranışına DOKUNULMADI** (bilinçli; bkz. f1c0bae).
+Yalnız test iki rejimi de kapsar oldu: destekleniyorsa oran 0.03 aynen geçer; desteklenmiyorsa
+anahtar HİÇ geçmez ve varsayılan oran adıma çevrilir (0.03 × 200 = 6) — üstelik dönüşüm log'a
+düşer, yani ısınma sessizce kaybolmuyor (Kural 2). Katmanın birim testleri zaten
+`tests/test_warmup_ratio_compat.py`'dedir; kopya test yazılmadı.
+
+**Araç zinciri hijyeni (`7ef46f4`, `3d9e60c`).** pre-commit ruff `v0.8.4`'te sabitliyken kurulu
+ruff `0.15.15`'ti; ikisi iki test dosyasını TERS biçimlendiriyordu (`make format` bir hâli
+yazıyor, `git commit` geri çeviriyordu). rev hizalandı, hook id `ruff` → `ruff-check` (yeni
+sürümde `ruff` yalnızca legacy alias). Ardından `pre-commit run --all-files`'ın biriktirdiği
+boşluk/satır-sonu düzeltmeleri 17 dosyada tek seferde kapatıldı; artık hiçbir hook dosya
+değiştirmiyor. Dikkat gereken tek yer `TRAINING_ROADMAP.md` idi: 5 satır, sondaki iki boşluğu
+markdown hard-line-break olarak kullanıyordu — körlemesine silinseydi paragraflar sessizce
+birleşecekti; yerine görünür ve hook-güvenli CommonMark satır sonu kullanıldı.
+
+**Kapı:** ruff check temiz · mypy 217 dosya temiz · pytest **2039 passed, 4 skipped** (`3d9e60c`).
+Düzeltme ayrıca transformers 5.16.1'in kurulu olduğu ana venv'de de doğrulandı (ilgili iki dosya
+39 passed) — yani hem "destekli" hem "desteksiz" rejim ölçüldü.
+
+**AÇIK İŞ:** transformers 5.16.1 ile GERÇEK eğitim koşulmadı; doğrulanan yalnız config→kwargs
+köprüsü. Sürüm sıçraması bağımlılığın üst sınırsız olmasından (`transformers>=4.40`) geldi —
+eğitime dönmeden önce 1.5B ile kısa bir duman koşusu şart (Kural 2).
+
+---
+
 ## Yerel eğitim denemesi — 2026-09-07: onay yarışı + bellek darboğazı
 
 **Yerel eğitim yolu ÇALIŞIR durumda ve hiçbir eksiği yok.** Ölçüldü: `train` dry-run
-`missing_packages: []`; torch 2.12+cpu / peft 0.19.1 / transformers 5.9.0 kurulu;
+`missing_packages: []`; torch 2.12+cpu / peft 0.19.1 / transformers 5.9.0 kurulu
+(**2026-09-08: transformers 5.16.1'e sıçradı** — üstteki seansa bak);
 `Qwen3-4B-Instruct-2507` (7.6 GB) ve `Qwen2.5-1.5B-Instruct` (2.9 GB, ChatML şablonlu)
 HF önbelleğinde indirilmiş; veri bölünmüş (train=1447, valid=76). Disk 158 GB boş.
 
