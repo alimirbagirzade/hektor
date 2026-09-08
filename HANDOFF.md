@@ -16,17 +16,25 @@ Ne çıkarıldığı ve neden: **[docs/MIGRASYON_2.0.md](docs/MIGRASYON_2.0.md)*
 v1 geçmişi arşiv olarak eski depoda durur; bu depo tek "initial commit" ile başlar.
 
 **2026-09-04 — proje `achilles2.0` → `hektor` olarak yeniden adlandırıldı.** CLI `hektor`
-/ `hektor-web`, ortam öneki `HEKTOR_`. Mevcut kurulumlar bozulmasın diye iki geriye dönük
-uyum kancası korunur (bkz. `app/config/settings.py`, `tests/test_legacy_env_migration.py`):
+/ `hektor-web`, ortam öneki `HEKTOR_`.
 
-- Eski `ACHILLES_*` ortam değişkenleri ve `.env` satırları hâlâ okunur (uyarı loglar);
-  açık `HEKTOR_*` ayarı her zaman kazanır. Bu destek **geçicidir**.
-- Yalnız eski `storage/sqlite/achilles_trader_ai.db` varsa ona düşülür — korpus/kart
-  geçmişi öksüz kalmaz. Dosyayı (WAL/SHM ile birlikte) yeniden adlandırmak yeterlidir.
+**2026-09-08 — geçiş kancaları KALDIRILDI** (görevini tamamladı; bu makinede `.env`'de tek
+bir `ACHILLES_*` satırı ve diskte `achilles_trader_ai.db` yoktu):
+
+- Eski `ACHILLES_*` önekini taşıyan `_promote_legacy_env` **silindi** — artık yalnız
+  `HEKTOR_*` okunur. Eski `.env`'i olan bir makine varsa önekleri elle değiştirmelidir.
+- Eski `storage/sqlite/achilles_trader_ai.db` yedek yolu **silindi**; `sqlite_file` artık
+  doğrudan `sqlite_path`'i çözer. Eski DB'si olan kurulum dosyayı (WAL/SHM ile) yeniden
+  adlandırmalıdır.
 
 Bilinçli olarak **değişmeyen** dış sözleşme: `.achpkg` uzantısı, JSON'daki
 `achilles_package_version` anahtarı ve `source: achilles_research` değeri — bunları
-Entropia tarafı okur, kırılmasınlar diye korundu.
+Entropia tarafı okur, kırılmasınlar diye korundu. Bunlar Hektor'un eski adı değil
+**karşı tarafın alan adlarıdır**; gerekçe `app/trading/package_exporter.py` docstring'inde.
+Ayrıca `app/monitoring/sentinel.py` içindeki `_LEGACY_TASKS` listesi de artık DEĞİL:
+bu makinelerde hâlâ kayıtlı olan ölü Windows görevlerini (`AchillesWeb/Update/
+TrainingWatchdog`) yakalamak içindir; görevler yönetici hakkıyla silinince o liste de
+kaldırılabilir.
 
 ---
 

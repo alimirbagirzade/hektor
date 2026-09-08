@@ -3,6 +3,16 @@
 Bir StrategyIR'ı Entropia arayüzüne yüklenebilir .achpkg (JSON) formatına dönüştürür.
 Package, Pine Script (TradingView) ve Python modülü olmak üzere iki kod çıktısı içerir.
 Entropia tarafı JS/TS ile bu dosyayı okuyup kendi strategy tester'ında çalıştırır.
+
+⚠️ ADLANDIRMA — BUNLAR DIŞ SÖZLEŞMEDİR, PROJE ADI DEĞİLDİR:
+``.achpkg`` uzantısı, ``achilles_package_version`` anahtarı ve ``source:
+"achilles_research"`` değeri **Entropia tarafının okuduğu** alanlardır. Proje 2026-09-04'te
+Achilles → Hektor olarak yeniden adlandırıldığında bu üçü BİLEREK dokunulmadan bırakıldı:
+adları Hektor'a çevirmek, Entropia tarafı aynı anda güncellenmedikçe paket içe aktarmayı
+SESSİZCE bozar (dosya okunur ama sürüm/kaynak alanı tanınmaz). Yani buradaki "achilles"
+Hektor'un eski adı değil, **karşı tarafın alan adıdır** — kozmetik olarak değiştirme.
+Değiştirilecekse iki tarafı birlikte sürümleyen bir geçiş gerekir (önce çift anahtar yaz,
+Entropia yeni anahtarı okuduktan sonra eskisini düşür).
 """
 
 from __future__ import annotations
@@ -25,11 +35,12 @@ class HektorPackage:
     python_code: str
     backtest_verdict: str | None = None
     backtest_metrics: dict = field(default_factory=dict)
-    source: str = "achilles_research"
+    source: str = "achilles_research"  # DIŞ SÖZLEŞME (Entropia okur) — bkz. modül docstring
     created_at: str = ""
 
     def to_dict(self) -> dict:
         return {
+            # DIŞ SÖZLEŞME anahtarı (Entropia okur) — yeniden adlandırılamaz, bkz. docstring.
             "achilles_package_version": ACHPKG_VERSION,
             "name": self.name,
             "version": self.version,

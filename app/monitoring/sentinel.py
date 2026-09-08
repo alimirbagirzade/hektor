@@ -37,6 +37,12 @@ _ORCH_STALE_MIN = 30.0
 
 # Otomatik baslatma kayitlari (yalniz Windows). Eski adlar achilles2.0 -> hektor
 # yeniden adlandirmasindan (2026-09-04) kalir ve SILINMIS bir yolu gosterir.
+# NOT (2026-09-08): buradaki "Achilles" adlari kod artigi DEGIL, bu makinelerde HALA
+# KAYITLI olan olu gorevlerin adlaridir -> nobetci onlari bulup bildirsin diye durur.
+# Silinme kosulu: gorevler makinelerden kalktiginda (yonetici PowerShell:
+# Unregister-ScheduledTask -TaskName AchillesWeb,AchillesUpdate,AchillesTrainingWatchdog)
+# bu liste ve _LEGACY_TASKS taramasi da kaldirilabilir. Once liste silinirse olu gorev
+# sessizce kalir ve kullanici calisan bir nobetci/guncelleme oldugunu SANIR.
 _WATCHDOG_TASK = "HektorTrainingWatchdog"
 _EXPECTED_TASKS = ("HektorWeb", "HektorUpdate", _WATCHDOG_TASK)
 _LEGACY_TASKS = ("AchillesWeb", "AchillesUpdate", "AchillesTrainingWatchdog")

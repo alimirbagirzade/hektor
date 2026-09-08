@@ -7,7 +7,6 @@ or by a local ``.env`` file. Paths are resolved relative to the project root.
 from __future__ import annotations
 
 import logging
-import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -20,59 +19,8 @@ log = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 ENV_PREFIX = "HEKTOR_"
-# Proje Achilles → Hektor olarak yeniden adlandırıldı. Mevcut makinelerdeki .env ve
-# kabuk değişkenleri sessizce ETKİSİZ kalmasın diye eski önek okunmaya devam eder.
-LEGACY_ENV_PREFIX = "ACHILLES_"
 
-# Yeniden adlandırma öncesi/sonrası SQLite dosya adları (bkz. Settings.sqlite_file).
 _DEFAULT_SQLITE_PATH = Path("storage/sqlite/hektor_trader_ai.db")
-_LEGACY_SQLITE_PATH = Path("storage/sqlite/achilles_trader_ai.db")
-
-
-def _promote_legacy_env(env_file: Path | None) -> list[str]:
-    """Eski ``ACHILLES_*`` ayarlarını ``HEKTOR_*`` karşılığına taşı (yalnız boşsa).
-
-    Hem süreç ortamını hem ``.env`` dosyasını tarar. Yeni önek zaten tanımlıysa ASLA
-    ezilmez — açık ayar her zaman kazanır. Taşınan her anahtar bir kez uyarı loglar;
-    böylece geçiş sessiz değil, görünür olur.
-
-    ``env_file=None`` → dosya hiç okunmaz. Bu, ``Settings`` ``.env``'i devre dışı
-    bıraktığında (test oturumu) bu kancanın onu ARKA KAPIDAN ``os.environ``'a
-    taşımasını engeller; iki yol da aynı yapılandırmaya uyar.
-    """
-    legacy: dict[str, str] = {
-        k: v for k, v in os.environ.items() if k.startswith(LEGACY_ENV_PREFIX)
-    }
-    if env_file is not None and env_file.is_file():
-        try:
-            for raw in env_file.read_text(encoding="utf-8").splitlines():
-                line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                key = key.strip()
-                if key.startswith(LEGACY_ENV_PREFIX):
-                    # Süreç ortamı .env'i ezer (pydantic-settings ile aynı öncelik).
-                    legacy.setdefault(key, value.strip().strip("\"'"))
-        except OSError:  # pragma: no cover - okunamayan .env ayarları engellememeli
-            pass
-
-    promoted: list[str] = []
-    for key, value in sorted(legacy.items()):
-        new_key = ENV_PREFIX + key[len(LEGACY_ENV_PREFIX) :]
-        if os.environ.get(new_key) is None:
-            os.environ[new_key] = value
-            promoted.append(key)
-    if promoted:
-        log.warning(
-            "Eski %s* ortam değişkenleri kullanılıyor (%s). Proje Hektor olarak "
-            "yeniden adlandırıldı; lütfen %s* önekine geçin — eski önek desteği "
-            "geçicidir.",
-            LEGACY_ENV_PREFIX,
-            ", ".join(promoted),
-            ENV_PREFIX,
-        )
-    return promoted
 
 
 class Settings(BaseSettings):
@@ -317,26 +265,8 @@ class Settings(BaseSettings):
 
     @property
     def sqlite_file(self) -> Path:
-        """SQLite dosyası — yeniden adlandırma öncesi veritabanını öksüz bırakmaz.
-
-        Achilles → Hektor geçişinde varsayılan dosya adı ``achilles_trader_ai.db``'den
-        ``hektor_trader_ai.db``'ye döndü. Mevcut kurulumda YALNIZ eski dosya varsa ona
-        düşülür (yeni dosya oluşup korpus/kart geçmişi kaybolmuş gibi görünmesin diye).
-        Açık ``HEKTOR_SQLITE_PATH`` ayarı her zaman kazanır.
-        """
-        path = self._under_root(self.sqlite_path)
-        if path.exists() or self.sqlite_path != _DEFAULT_SQLITE_PATH:
-            return path
-        legacy = self._under_root(_LEGACY_SQLITE_PATH)
-        if legacy.exists():
-            log.warning(
-                "Eski veritabanı kullanılıyor: %s. Hektor'a geçiş için dosyayı "
-                "%s olarak yeniden adlandırabilirsiniz (WAL/SHM dosyalarıyla birlikte).",
-                legacy,
-                path.name,
-            )
-            return legacy
-        return path
+        """SQLite dosyası (`root` altına çözülür; mutlak yol verilirse aynen kullanılır)."""
+        return self._under_root(self.sqlite_path)
 
     @property
     def chroma_dir(self) -> Path:
@@ -420,12 +350,6 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    # Eski ACHILLES_* önekini Settings kurulmadan ÖNCE taşı; aksi halde
-    # yeniden adlandırma sonrası mevcut .env sessizce yok sayılırdı. Hangi dosyanın
-    # okunacağı Settings'in KENDİ yapılandırmasından gelir — böylece `.env` kapalıyken
-    # (test oturumu) bu kanca da onu okumaz.
-    env_file = Settings.model_config.get("env_file")
-    _promote_legacy_env(Path.cwd() / str(env_file) if env_file else None)
     return Settings()
 
 
