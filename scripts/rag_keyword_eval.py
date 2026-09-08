@@ -134,6 +134,17 @@ def main() -> None:
             "lat_p50": round(statistics.median(lat), 1) if lat else 0.0,
         }
 
+    # Router lexical kolunun fuzyon agirligi (alpha) SWEEP'i: alpha dense agirligidir;
+    # keyword rejiminde dense EN ZAYIF taraf oldugundan dusuk alpha mantikli — ama
+    # varsayma, olc (Kural 2). RAG_KW_ALPHAS ile virgullu liste verilir.
+    alphas = [float(a) for a in os.environ.get("RAG_KW_ALPHAS", "0.7").split(",") if a.strip()]
+
+    def _router(alpha: float) -> RerankingRetriever:
+        r = RerankingRetriever(base=base, enabled=True, router=True, hybrid=False)
+        # Ayar singleton'ini KIRLETME: yalniz bu retriever'in kopyasinda alpha'yi degistir.
+        r.settings = r.settings.model_copy(update={"rag_router_alpha": alpha})
+        return r
+
     configs = [
         ("dense_only", RerankingRetriever(base=base, enabled=False)),
         # Canli varsayilan (kod): rerank+hibrit, router yok -> "once" olcumu.
@@ -141,14 +152,16 @@ def main() -> None:
         # Router: lexical -> konveks-hibrit. `hybrid` bayragi router yolunda OKUNMUYOR
         # -> iki satir AYNI cikmali (bayrak cakismasi olmadiginin kaniti).
         (
-            "router(hybrid=false)",
-            RerankingRetriever(base=base, enabled=True, router=True, hybrid=False),
-        ),
-        (
             "router(hybrid=true)",
             RerankingRetriever(base=base, enabled=True, router=True, hybrid=True),
         ),
+        *((f"router(alpha={a})", _router(a)) for a in alphas),
     ]
+    # Graf modu (SPRIG-lite PPR + RRF) OPT-IN: korpus grafi kurmak + sorgu basina PPR
+    # pahali; RAG_KW_GRAPH=1 ile olculur. Router'la BIRLIKTE calismaz (router once doner),
+    # yani alternatiftir — bu yuzden ayri satir.
+    if os.environ.get("RAG_KW_GRAPH") == "1":
+        configs.append(("graph(PPR+RRF)", RerankingRetriever(base=base, enabled=True, graph=True)))
     rows = []
     for name, r in configs:
         row = measure(name, r)

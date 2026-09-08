@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-07 (Gate 7 yanlış pozitifi + eğitim hattı kapıları)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-08 (RAG retrieval config'i ölçümle düzeltildi)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -34,10 +34,11 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **1999 passed, 1 skipped** (2026-09-07, `ea03b04`) |
+| Kapı (`make ci`) | ⚠️ 2026-09-08: ruff + mypy (217 dosya) ✅, pytest **2039 passed, 1 failed**, 1 skipped. Tek hata `tests/test_peft_lora_recipe.py::test_build_training_kwargs_defaults` — kurulu **transformers 5.16.1** `warmup_ratio`'yu artık kabul etmiyor; `peft_lora_train.py` uyum katmanı doğru davranıyor, TEST bayat. Ayrı görevde düzeltiliyor |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
+| RAG retrieval | **Router AÇIK** (`.env`: `HEKTOR_RAG_ROUTER=true`, `ROUTER_ALPHA=0.3`, `RERANK=true`). 2026-09-08 ölçümü: keyword recall@1 66→84, semantik gecikme 1074→212 ms. Gerekçe + tablolar: `reports/rag_retrieval_ab_findings.md` §5. Cross-encoder/FlashRank/RRF ölçümle elenmiş → KAPALI |
 | Bilgi kartı tanımı | "Kartı var" = canlı (`rejected` değil) **ve içerikli** (`card_has_content`: title veya main_claim alfanümerik). Boş kart = kart yok → makale yeniden kartlanabilir (`has_knowledge_card` / `get_latest_knowledge_card`) |
 | Test izolasyonu | Testler gerçek `data/` · `storage/` ağacına **yazamaz**; ihlal ederse paket FAIL verir |
 
@@ -223,11 +224,41 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
 
 ---
 
+## Son seans — 2026-09-08: RAG retrieval config'i ölçümle düzeltildi (router ENABLE, α 0.7→0.3)
+
+Rapor (`reports/rag_retrieval_ab_findings.md`) iki karar veriyordu ama **hiçbiri
+uygulanmamıştı**; uygulamadan önce yeniden ölçtüm — ikisi de kısmen yanlış çıktı.
+
+- **Korpus arada yeniden kurulmuş:** 161 makale / **13.103 chunk** (rapor: 153 / ~94k).
+  Eski mutlak sayılar kıyaslanamaz → her config baştan ölçüldü.
+- **Semantik metrik DOYDU:** beş config de recall@1 %100 / MRR 1.0. Yani §3'ün
+  `HEKTOR_RAG_HYBRID=false` kararının dayanağı (68.6 > 64.3) artık ölçülemiyor.
+- **Keyword rejimi karar verdi:** canlı `hybrid+rerank` 66.0/MRR 0.7475; router VARSAYILAN
+  α=0.7 ile 46.0/0.5799 (yani §4b'nin "router'ı aç" kararı varsayılan α ile KALİTE KAYBI
+  olurdu — rapor router'ı yalnız dense ile kıyasladığı için görememişti).
+- **Kök neden füzyon ağırlığı:** α dense ağırlığıdır; keyword rejiminde dense en zayıf
+  taraftır. α süpürüldü (0.7/0.5/0.3/0.15/0.0) → **α=0.3'te 84.0/0.8733**, gecikme aynı.
+- **Bayrak çakışması ölçümle çözüldü:** `rag_rerank` ANA KAPI (false → router hiç çalışmaz),
+  `rag_hybrid` router altında ÖLÜ (`router hybrid=false` ve `hybrid=true` sonuçları birebir aynı).
+
+**Karar (.env, kod varsayılanı değişmedi, geri alınabilir; yedek `.env.bak-20260908-rag`):**
+`HEKTOR_RAG_ROUTER=true` · `HEKTOR_RAG_ROUTER_ALPHA=0.3` · `HEKTOR_RAG_RERANK=true`.
+`HEKTOR_RAG_HYBRID` bilerek yazılmadı: router kapatılırsa dense-only'e (keyword recall@1
+42.0 — en kötü) düşmesin.
+
+**Ölçüm hijyeni (bu makinenin bilinen tuzağı):** ölçümler otomatik "temiz ortam" kapısının
+arkasında koştu — ağır süreç yok (lora-eval/pytest/mypy/hektor CLI), Ollama'da üretim modeli
+yok, toplam CPU < %30 (üst üste 2 yoklama). `HEKTOR_ALLOW_FAKE_EMBEDDINGS=false` + her koşuda
+`# embedder mode:` basılır; ikisi de `ollama` raporladı (sahte embedding ile "sonuç" üretme
+riski kapatıldı).
+
 ## Bilinen açık işler
 
 
 - `docs/MIGRASYON_2.0.md` §"Kalan adaylar" — Phase-4 GitHub otomasyonu (hiç aktive edilmedi),
   `training/dataset_builder.py` ikinci veri hattı, bulut-GPU protokol dokümanları.
+- **Daha zor semantik golden-set gerek** — kart-türevi self-retrieval metriği doydu (tüm config'ler %100), retrieval kalitesini semantik rejimde artık ayırt edemiyor.
+- `rag_contextual_embed` HÂLÂ ÖLÇÜLMEDİ — önce `hektor reindex-contextual` ister (tüm korpusu Ollama ile yeniden embed eder, AĞIR); eğitim hattı boştayken yapılmalı.
 - `docs/MIMARI_REFERANS.md` v1 temizliğinden ÖNCE yazıldı; kaldırılan modülleri hâlâ anlatır
   (dosya başında uyarı vardır).
 
