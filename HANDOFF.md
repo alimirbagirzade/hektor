@@ -27,14 +27,20 @@ bir `ACHILLES_*` satırı ve diskte `achilles_trader_ai.db` yoktu):
   doğrudan `sqlite_path`'i çözer. Eski DB'si olan kurulum dosyayı (WAL/SHM ile) yeniden
   adlandırmalıdır.
 
-Bilinçli olarak **değişmeyen** dış sözleşme: `.achpkg` uzantısı, JSON'daki
-`achilles_package_version` anahtarı ve `source: achilles_research` değeri — bunları
-Entropia tarafı okur, kırılmasınlar diye korundu. Bunlar Hektor'un eski adı değil
-**karşı tarafın alan adlarıdır**; gerekçe `app/trading/package_exporter.py` docstring'inde.
-Ayrıca `app/monitoring/sentinel.py` içindeki `_LEGACY_TASKS` listesi de artık DEĞİL:
-bu makinelerde hâlâ kayıtlı olan ölü Windows görevlerini (`AchillesWeb/Update/
-TrainingWatchdog`) yakalamak içindir; görevler yönetici hakkıyla silinince o liste de
-kaldırılabilir.
+**2026-09-08 (aynı gün, ikinci adım) — ölü Windows görevleri KALDIRILDI.** Yükseltilmiş
+oturumda `AchillesWeb` / `AchillesUpdate` / `AchillesTrainingWatchdog` silindi; üç kaynakla
+doğrulandı (`Get-ScheduledTask`, `schtasks`, `C:\Windows\System32\Tasks`). Yerlerine
+`HektorWeb` · `HektorUpdate` (03:00) · `HektorTrainingWatchdog` kayıtlı ve hepsi bu repoyu
+gösteriyor. Bunun üzerine `sentinel.py`'deki `_LEGACY_TASKS` taraması ve
+`start-server.ps1`'deki `Remove-LegacyAutostart` temizleyicisi de kaldırıldı (işi bitti).
+Not: `AchillesUpdate` son çalışmasında `0x8007010B` ("dizin adı geçersiz") ile düşmüştü —
+her gece deneyip sessizce başarısız oluyordu.
+
+Kodda kalan TEK "achilles" ibaresi bilinçli **dış sözleşmedir**: `.achpkg` uzantısı,
+JSON'daki `achilles_package_version` anahtarı ve `source: achilles_research` değeri.
+Bunlar Hektor'un eski adı değil **Entropia'nın okuduğu alan adlarıdır**; tek taraflı
+değiştirmek paket içe aktarmayı sessizce bozar. Gerekçe ve geçiş reçetesi
+`app/trading/package_exporter.py` docstring'inde.
 
 ---
 

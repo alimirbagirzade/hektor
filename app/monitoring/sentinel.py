@@ -35,17 +35,9 @@ _DISK_FAIL_GB = 2.0
 _FEEDBACK_BACKLOG_WARN = 50
 _ORCH_STALE_MIN = 30.0
 
-# Otomatik baslatma kayitlari (yalniz Windows). Eski adlar achilles2.0 -> hektor
-# yeniden adlandirmasindan (2026-09-04) kalir ve SILINMIS bir yolu gosterir.
-# NOT (2026-09-08): buradaki "Achilles" adlari kod artigi DEGIL, bu makinelerde HALA
-# KAYITLI olan olu gorevlerin adlaridir -> nobetci onlari bulup bildirsin diye durur.
-# Silinme kosulu: gorevler makinelerden kalktiginda (yonetici PowerShell:
-# Unregister-ScheduledTask -TaskName AchillesWeb,AchillesUpdate,AchillesTrainingWatchdog)
-# bu liste ve _LEGACY_TASKS taramasi da kaldirilabilir. Once liste silinirse olu gorev
-# sessizce kalir ve kullanici calisan bir nobetci/guncelleme oldugunu SANIR.
+# Otomatik baslatma kayitlari (yalniz Windows).
 _WATCHDOG_TASK = "HektorTrainingWatchdog"
 _EXPECTED_TASKS = ("HektorWeb", "HektorUpdate", _WATCHDOG_TASK)
-_LEGACY_TASKS = ("AchillesWeb", "AchillesUpdate", "AchillesTrainingWatchdog")
 _TASK_QUERY_TIMEOUT_S = 20
 
 # Verdict önceliği (agregasyon): büyük olan kazanır.
@@ -194,7 +186,7 @@ def probe_stop_all() -> ProbeResult:
 
 
 def read_scheduled_tasks() -> dict[str, str]:
-    """Kayıtlı Hektor/Achilles görevleri: ad → action argümanı (Windows dışında boş).
+    """Kayıtlı Hektor görevleri: ad → action argümanı (Windows dışında boş).
 
     Salt-okuma: yalnız ``Get-ScheduledTask`` sorgular, hiçbir görevi değiştirmez.
     """
@@ -202,7 +194,7 @@ def read_scheduled_tasks() -> dict[str, str]:
         return {}
     ps = (
         "Get-ScheduledTask -ErrorAction SilentlyContinue | "
-        "Where-Object { $_.TaskName -match 'Hektor|Achilles' } | "
+        "Where-Object { $_.TaskName -match 'Hektor' } | "
         "ForEach-Object { $_.TaskName + '|' + [string]$_.Actions[0].Arguments }"
     )
     proc = subprocess.run(
@@ -252,19 +244,18 @@ def probe_autostart(read_tasks: Callable[[], dict[str, str]] | None = None) -> P
                 "Kur: .\\scripts\\start-server.ps1 -Install (Yönetici PowerShell)",
             )
         eksik = [t for t in _EXPECTED_TASKS if t not in tasks]
-        eski = [t for t in _LEGACY_TASKS if t in tasks]
 
         if _WATCHDOG_TASK not in tasks:
             return ProbeResult(
                 "autostart",
                 "fail",
                 f"Eğitim nöbetçisi ({_WATCHDOG_TASK}) kayıtlı DEĞİL — eğitim çökerse "
-                f"yeniden başlatan yok. Eski kalıntı: {', '.join(eski) or 'yok'}.",
+                f"yeniden başlatan yok.",
                 "Kur: .\\scripts\\start-server.ps1 -Install",
             )
 
         # Asıl ariza: nöbetçi ARTIK VAR OLMAYAN bir yolu gösteriyor (2026-09-07'de
-        # yaşanan: silinmiş achilles2.0 dizini). "Farklı checkout" tek başına ariza
+        # yaşanan: görev silinmiş bir depo dizinini gösteriyordu). "Farklı checkout" ariza
         # DEĞİLDİR — git worktree'den bakıldığında nöbetçinin ANA depoyu göstermesi
         # doğrudur; o yüzden yalnız YOLUN VARLIĞI fail sebebidir.
         betik = _task_script_path(tasks.get(_WATCHDOG_TASK, ""))
@@ -276,12 +267,8 @@ def probe_autostart(read_tasks: Callable[[], dict[str, str]] | None = None) -> P
                 "Bu kuruluma bağla: .\\scripts\\start-server.ps1 -Install",
             )
 
-        if eski or eksik:
-            parcalar = []
-            if eski:
-                parcalar.append(f"eski kayıt duruyor: {', '.join(eski)}")
-            if eksik:
-                parcalar.append(f"eksik görev: {', '.join(eksik)}")
+        if eksik:
+            parcalar = [f"eksik görev: {', '.join(eksik)}"]
             return ProbeResult(
                 "autostart",
                 "warn",

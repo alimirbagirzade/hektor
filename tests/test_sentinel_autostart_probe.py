@@ -1,12 +1,15 @@
 """Sentinel `autostart` probe'u — ÖLÜ NÖBETÇİ tespiti (çevrimdışı).
 
-Gerçek olay (2026-09-07): achilles2.0 → hektor yeniden adlandırması Windows
-zamanlanmış görevlerini taşımadı. Üç eski görev SİLİNMİŞ bir yolu gösteriyordu,
-`Hektor*` görevlerinin hiçbiri kayıtlı değildi → eğitim nöbetçisi, günlük güncelleme
-ve web otomatik başlatma üçü de ölüydü. Görevler listede "Ready" göründüğü ve
-dokümanlar çalıştıklarını söylediği için kimse fark etmedi; elle bulundu. Bu probe
-o sınıfı sistemin KENDİSİNİN yakalaması içindir (Kural 2: doğrulanmadan
-"çalışıyor" sayma).
+Gerçek olay (2026-09-07): yeniden adlandırma Windows zamanlanmış görevlerini taşımadı.
+Üç eski görev SİLİNMİŞ bir yolu gösteriyordu, `Hektor*` görevlerinin hiçbiri kayıtlı
+değildi → eğitim nöbetçisi, günlük güncelleme ve web otomatik başlatma üçü de ölüydü.
+Görevler listede "Ready" göründüğü ve dokümanlar çalıştıklarını söylediği için kimse
+fark etmedi; elle bulundu. Bu probe o sınıfı sistemin KENDİSİNİN yakalaması içindir
+(Kural 2: doğrulanmadan "çalışıyor" sayma).
+
+2026-09-08: ölü görevler makineden kaldırıldı ve `Hektor*` görevlerinin üçü de kayıtlı;
+bu yüzden testler artık eski görev ADLARIYLA değil, aynı ariza SINIFLARIYLA yazılıdır
+(nöbetçi yok / betik yolu ölü / beklenen görev eksik).
 
 Probe okuyucusu enjekte edilebilir → testler PowerShell çağırmaz, platform bağımsızdır.
 """
@@ -42,33 +45,37 @@ def test_hic_gorev_yoksa_fail() -> None:
 
 
 def test_nobetci_eksikse_fail(tmp_path: Path) -> None:
-    """ASIL OLAY: yalnız eski görevler duruyor, nöbetçi yok."""
-    r = probe_autostart(
-        lambda: {
-            "AchillesTrainingWatchdog": _args(tmp_path / "silinmis.ps1"),
-            "AchillesUpdate": _args(tmp_path / "silinmis.ps1"),
-        }
-    )
+    """ASIL OLAY sınıfı: başka görevler kayıtlı ama EĞİTİM NÖBETÇİSİ yok.
+
+    Görev listesi dolu olduğu için yüzeyden "otomasyon kurulu" görünür; eğitim
+    çökerse yeniden başlatan yoktur → fail (sessiz güvenlik ağı kaybı).
+    """
+    betik = tmp_path / "run-web-service.ps1"
+    betik.write_text("# test", encoding="utf-8")
+    r = probe_autostart(lambda: {"HektorWeb": _args(betik), "HektorUpdate": _args(betik)})
     assert r.status == "fail"
     assert "nöbetçi" in r.detail.lower()
-    assert "AchillesTrainingWatchdog" in r.detail  # kalıntı raporlanmalı
 
 
 def test_nobetci_var_olmayan_betigi_gosteriyorsa_fail(tmp_path: Path) -> None:
     """Yeniden adlandırma sonrası tam olarak bu oldu: yol artık yok."""
-    yok = tmp_path / "achilles2.0" / "scripts" / "training-watchdog.ps1"
+    yok = tmp_path / "silinmis-depo" / "scripts" / "training-watchdog.ps1"
     r = probe_autostart(lambda: {_WD: _args(yok)})
     assert r.status == "fail"
     assert "var olmayan" in r.detail.lower()
 
 
-def test_eski_kayit_duruyorsa_warn(tmp_path: Path) -> None:
-    """Nöbetçi sağlam ama kalıntı var → uyarı (kırık görev yanılgı üretir)."""
+def test_eksik_gorev_varsa_warn(tmp_path: Path) -> None:
+    """Nöbetçi sağlam ama beklenen görevlerden biri kayıtlı değil → uyarı.
+
+    2026-09-08'de gerçekleşti: yükseltilmemiş kurulum `HektorUpdate`'i kaydedemedi,
+    betik yine de "güncelleme her gece 03:00'de yapılır" dedi. Eksiklik görünür olmalı.
+    """
     betik = tmp_path / "training-watchdog.ps1"
     betik.write_text("# test", encoding="utf-8")
-    r = probe_autostart(lambda: {_WD: _args(betik), "AchillesUpdate": _args(betik)})
+    r = probe_autostart(lambda: {_WD: _args(betik), "HektorWeb": _args(betik)})
     assert r.status == "warn"
-    assert "AchillesUpdate" in r.detail
+    assert "HektorUpdate" in r.detail
 
 
 def test_tam_kurulum_ok(tmp_path: Path) -> None:
