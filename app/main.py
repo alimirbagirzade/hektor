@@ -2086,6 +2086,7 @@ def lora_audit(
     dry_run: bool = typer.Option(
         True, "--dry-run/--run", help="Yalnız denetle (varsayılan); --run ile tam hat."
     ),
+    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir JSON çıktı."),
 ) -> None:
     """LoRA dataset denetim hattını (Gate 0-7, --run ile 0-8) çalıştır."""
     from app.lora.control_plane import LoRAControlPlane
@@ -2093,6 +2094,39 @@ def lora_audit(
 
     plane = LoRAControlPlane(store=SqliteStore())
     report = plane.run_audit() if dry_run else plane.run_full()
+
+    settings = get_settings()
+    report_path = settings.root / "reports" / "lora" / "audit_report.md"
+
+    if as_json:
+        # Kapı betikleri (scripts/start-train.ps1) sonucu BURADAN okur; tablo/rich
+        # biçimi ayrıştırılabilir sözleşme değildir. Rapor yine diske yazılır ama
+        # yolu JSON'a girer — stdout saf JSON kalsın diye ayrıca yazdırılmaz.
+        plane.generate_report(report, output_path=report_path)
+        console.print_json(
+            json.dumps(
+                {
+                    "passed": report.passed,
+                    "total_input": report.total_input,
+                    "total_approved": report.total_approved,
+                    "total_rejected": report.total_rejected,
+                    "total_review_needed": report.total_review_needed,
+                    "report_path": str(report_path),
+                    "stages": [
+                        {
+                            "gate_id": stage.gate_id,
+                            "name": stage.name,
+                            "passed": stage.passed,
+                            "rejected_count": stage.rejected_count,
+                            "review_count": stage.review_count,
+                        }
+                        for stage in report.stages
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        )
+        return
 
     table = Table(title="LoRA Denetim — Kapılar")
     table.add_column("Gate", justify="right")
@@ -2117,8 +2151,6 @@ def lora_audit(
     verdict = "[green]GEÇTİ[/green]" if report.passed else "[red]BAŞARISIZ[/red]"
     console.print(f"Genel sonuç: {verdict}")
 
-    settings = get_settings()
-    report_path = settings.root / "reports" / "lora" / "audit_report.md"
     plane.generate_report(report, output_path=report_path)
     console.print(f"[dim]Rapor:[/dim] {report_path}")
 
