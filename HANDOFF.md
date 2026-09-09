@@ -93,6 +93,49 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-08 (gece): v8 koşusu DURDURULDU — 600 adım ≠ 600 örnek
+
+**Belirti.** `hektor_lora_v8_4b` koşusu "1616 örneğin yalnız 300'ü kullanıldığı için
+dejenerasyon oldu → 600 örnekle eğit" gerekçesiyle başlatılmıştı. Trainer log'u aksini
+söylüyordu: `max_examples=300 → 300/1616 örnek (determinist, seed=42)`. Yani koşu
+**300 örnek × 2 epoch**'tu — v7 ile AYNI alt-küme (seed=42, aynı havuz), yalnız iki kat
+uzun. Az-veri hipotezi test edilmiyor, ezber riski artıyordu. Koşu 13/600 adımda (2 saat)
+durduruldu; hiç checkpoint yazılmamıştı (`save_steps=25`), kaybedilen tek şey 2 saat CPU.
+
+**Kök sebep — kod, insan hatası değil.** `scripts/start-train.ps1`'de **`-MaxExamples`
+parametresi yoktu**: betik `train --run`'a `--iterations` + `--profile` geçiyor, örnek
+tavanı olarak profildeki `discipline_safe_local: max_examples: 300` yürürlükte kalıyordu.
+Bu betikten başlatılan hiçbir koşu 300 örneğin üstüne çıkamazdı; `-Iterations` büyütmek
+yalnız **epoch** büyütüyordu — `plan_iterations` docstring'inin "profilin `epochs: 1` vaadi
+SESSİZCE ihlal edilir" diye adlandırdığı v5-sınıfı hata, bu kez başlatıcı tarafında.
+`train_status.json` da yalnız (adapter, dtype, iterations, base_model) taşıdığı için
+nöbetçinin kurtarma koşusu profili/tavanı UNUTUYORDU.
+
+**Düzeltme (3 nokta, kapı yeşil).**
+
+| Dosya | Ne değişti |
+|---|---|
+| `scripts/start-train.ps1` | `-MaxExamples` eklendi (→ `--max-examples`); `-Iterations 0` artık **profil planından** hesaplar (kanonik `plan_iterations`'a sorar, PowerShell'de tekrar etmez); adım plandan büyükse görünür **çok-epoch uyarısı**; durum dosyasına reçetenin tamamı yazılır |
+| `scripts/training-watchdog.ps1` | profil + `max_examples` reçeteden geri okunur (profil artık sabit yazılı değil) |
+| `app/training/detached_launch.py` | `_status_payload()` — web/auto_pipeline yolu da `profile` + `max_examples` + `base_model` yazar |
+| `tests/test_train_recipe_persistence.py` | reçetenin bütün taşınmasını kilitleyen regresyon testleri |
+
+**Sıradaki koşu (insan onayı BEKLİYOR — Kural 8).** Düzeltme `main`'e alındıktan sonra:
+
+```powershell
+.\scripts\start-train.ps1 -Adapter hektor_lora_v8_4b -MaxExamples 600 -Profile discipline_safe_local
+```
+
+Onay hakkında: bu betik `HEKTOR_TRAIN_SUPERVISED=1` yazar, yani `train --run`'ın CLI onay
+kapısı ATLANIR (`app/main.py:460`) — komutu çalıştıran insan onayın kendisidir; tüketilecek
+bekleyen istek yoktur (`approvals-list --status pending` boş). Bir ajan/otomasyon bu betiği
+insan talimatı olmadan çalıştırırsa Kural 8 fiilen devre dışı kalır.
+
+`-Iterations` VERME: plan `600 örnek × 1 epoch = 600 adım` üretir (doğrulandı). Ölçülen hız
+~200 sn/adım → **~33 saat**. Başlatmadan önce boş RAM > 15 GB ve `ollama stop qwen3:4b`.
+
+---
+
 ## Son seans — 2026-09-08: Kapıyı kıran `warmup_ratio` testi + araç sürüm hizalaması
 
 **Belirti.** Bu makinede kapı KIRMIZI, tek düşen test:

@@ -18,8 +18,17 @@ try {
     # "basarili" donmez; dolayisiyla kurtarma guvenli.
     # Temel model status dosyasindan GERI OKUNUR: yoksa varsayilana (4B) doner ve
     # dusuk RAM'li makinede OOM olur -- kurtarma sessizce basarisiz olurdu.
-    $bm = if ($status.PSObject.Properties.Name -contains "base_model") { [string]$status.base_model } else { "" }
-    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile "discipline_safe_local" -BaseModel $bm -Resume
+    # Receteyi durum dosyasindan OLDUGU GIBI geri oku. Eksik okunan her alan, kurtarma
+    # kosusunu SESSIZCE baska bir receteye kaydirir:
+    #   * base_model yoksa -> varsayilan 4B, dusuk RAM'li makinede OOM,
+    #   * profile sabit yazilirsa -> baska profille baslamis kosu profil degistirir,
+    #   * max_examples unutulursa -> ornek tavani profil varsayilanina duser, adim sayisi
+    #     ayni kalir, yani ayni kucuk alt-kume uzerinde COKLU EPOCH (ezber; 2026-09-08 v8).
+    $prop = $status.PSObject.Properties.Name
+    $bm = if ($prop -contains "base_model") { [string]$status.base_model } else { "" }
+    $prof = if ($prop -contains "profile" -and "$($status.profile)".Trim() -ne "") { [string]$status.profile } else { "discipline_safe_local" }
+    $mx = if ($prop -contains "max_examples") { [int]$status.max_examples } else { 0 }
+    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -Resume
 } finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()

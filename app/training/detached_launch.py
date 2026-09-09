@@ -422,6 +422,37 @@ def _build_train_cmd(
     return cmd
 
 
+def _status_payload(
+    adapter_name: str,
+    dtype: str,
+    iters: int,
+    base_model: str | None,
+    profile: str | None,
+    max_examples: int,
+    pid: int,
+) -> dict:
+    """``storage/train_status.json`` içeriği — reçetenin TAMAMI (saf, test edilebilir).
+
+    Neden tamamı: ``scripts/training-watchdog.ps1`` çöken eğitimi YALNIZ bu dosyadan
+    okuduğu reçeteyle diriltir. Dosya (adapter, dtype, iterations) ile sınırlı kaldığı
+    sürece yeniden başlatma ``max_examples`` ve ``profile``ı UNUTUR: adım sayısı korunur
+    ama örnek tavanı profil varsayılanına düşer → aynı küçük alt-küme üzerinde sessizce
+    çok-epoch koşulur, profilin ``epochs: 1`` vaadi ihlal edilir (bkz. plan_iterations;
+    v5 disiplin-regresyonunun sınıfı). 2026-09-08'de v8 koşusu tam bu boşluk yüzünden
+    600 örnek yerine 300 örnek × 2 epoch eğitti.
+    """
+    return {
+        "adapter": adapter_name,
+        "dtype": dtype,
+        "iterations": iters,
+        "base_model": base_model or "",
+        "profile": profile or "",
+        "max_examples": max(0, int(max_examples)),
+        "pid": pid,
+        "started_at": _utcnow_iso(),
+    }
+
+
 def _profile_limits(profile: str | None) -> tuple[int, int]:
     """Profilden (max_examples, epochs) oku. Profil yok/okunamazsa (0, 1) — kırpmasız, 1 epoch."""
     if not profile:
@@ -585,15 +616,13 @@ def launch(
 
         (root / "storage").mkdir(parents=True, exist_ok=True)
         # pid kaydı (Phase 2): /api/training/stop detached koşuyu pid ile durdurabilsin.
+        # Reçetenin tamamı yazılır — nöbetçi yeniden başlatırken profil/örnek tavanını
+        # unutmasın (bkz. _status_payload).
         (root / "storage" / "train_status.json").write_text(
             json.dumps(
-                {
-                    "adapter": adapter_name,
-                    "dtype": dtype,
-                    "iterations": iters,
-                    "pid": proc.pid,
-                    "started_at": _utcnow_iso(),
-                }
+                _status_payload(
+                    adapter_name, dtype, iters, base_model, profile, max_examples, proc.pid
+                )
             ),
             encoding="utf-8",
         )

@@ -13,7 +13,14 @@
 
 param(
     [string]$Adapter = "hektor_lora_v5",
-    [int]$Iterations = 1203,
+    # Adim sayisi. 0 = PROFIL PLANINDAN hesapla (onerilen; plan_iterations ile
+    # ornek_sayisi x epochs). Elle buyuk bir sayi vermek, ornek tavani sabit oldugu
+    # icin AYNI kucuk alt-kume uzerinde sessizce coklu epoch demektir (ezber riski;
+    # 2026-09-08 v8 kosusu: 600 adim / 300 ornek = 2 epoch).
+    [int]$Iterations = 0,
+    # Egitilecek ornek TAVANI (0 = profildeki max_examples gecerli). Daha COK VERI
+    # istiyorsan adim sayisini degil BUNU buyut; adim sayisi plandan turer.
+    [int]$MaxExamples = 0,
     [string]$Dtype = "bf16",
     # LoRA recete profili. VARSAYILAN discipline_safe_local (assistant_only_loss maskeleme +
     # NEFTune). --profile GECMEZSEK `train --run` vanilya varsayilanla (maskesiz, lr=2e-4)
@@ -98,10 +105,40 @@ $env:HEKTOR_TRAIN_SUPERVISED = "1"
 if ($BaseModel -and $BaseModel.Trim() -ne "") { $env:HEKTOR_PEFT_BASE_MODEL = $BaseModel }
 # Egitim verisi: lora_sft.jsonl -> train/valid (clobber-proof; bos train.jsonl onarilir)
 & $uv run --project "$ProjectDir" hektor lora-split | Out-Null
+
+# Adim plani: hesabi burada TEKRARLAMA -- kanonik kaynak plan_iterations
+# (app/training/detached_launch.py). Plan = min(train_satiri, tavan) x profil epochs.
+$nTrain = 0
+$trainJsonl = Join-Path $ProjectDir "data\training\jsonl\train.jsonl"
+if (Test-Path $trainJsonl) { $nTrain = (Get-Content $trainJsonl | Measure-Object -Line).Lines }
+$profArg = if ($Profile -and $Profile.Trim() -ne "") { "'$Profile'" } else { "None" }
+$pyPlan = "import json;from app.training.detached_launch import plan_iterations as p;i,n,e=p($nTrain,$MaxExamples,$profArg);print(json.dumps({'iters':i,'n':n,'epochs':e}))"
+$plan = $null
+try { $plan = & $uv run --project "$ProjectDir" python -c $pyPlan | ConvertFrom-Json } catch { $plan = $null }
+
+if ($plan) {
+    Write-Host "  Plan: $($plan.n) ornek x $($plan.epochs) epoch = $($plan.iters) adim (egitim havuzu: $nTrain satir)." -ForegroundColor DarkGray
+    if ($Iterations -le 0) { $Iterations = [int]$plan.iters }
+    elseif ($Iterations -gt [int]$plan.iters) {
+        # Adim sayisi plandan buyukse fark SESSIZ coklu epoch'tur; profilin epochs
+        # vaadi asilir (v5 disiplin-regresyonunun sinifi) -- gorunur uyar.
+        $effEpochs = [math]::Round($Iterations / [math]::Max(1, [int]$plan.n), 2)
+        Write-Host "  [UYARI] -Iterations $Iterations plandan ($($plan.iters)) BUYUK -> ayni $($plan.n) ornek uzerinde ~$effEpochs epoch." -ForegroundColor Yellow
+        Write-Host "          Daha cok VERI icin adim sayisini degil -MaxExamples degerini buyut." -ForegroundColor Yellow
+    }
+} elseif ($Iterations -le 0) {
+    Write-Host "  [HATA] Adim plani hesaplanamadi (plan_iterations cagrilamadi) ve -Iterations verilmedi." -ForegroundColor Red
+    Write-Host "         Kor adim sayisiyla egitim baslatilmaz; -Iterations <n> ile acikca belirt." -ForegroundColor Red
+    exit 1
+}
+
 # Temel argumanlar + (profil verildiyse) --profile. Profil bos ise EKLENMEZ (vanilya).
 $trainArgs = @("run", "--project", "`"$ProjectDir`"", "hektor", "train", "--run",
                "--backend", "peft", "--adapter-name", $Adapter, "--iterations", "$Iterations")
 if ($Profile -and $Profile.Trim() -ne "") { $trainArgs += @("--profile", $Profile) }
+# Ornek tavani: verilmezse profildeki max_examples gecerli olur. Bayrak GECMEZSEK
+# -MaxExamples sessizce YOK SAYILIR (2026-09-08 v8: 600 ornek istendi, 300 egitildi).
+if ($MaxExamples -gt 0) { $trainArgs += @("--max-examples", "$MaxExamples") }
 Start-Process -FilePath $uv `
     -ArgumentList $trainArgs `
     -WorkingDirectory $ProjectDir `
@@ -110,7 +147,17 @@ Start-Process -FilePath $uv `
     -WindowStyle Hidden
 # Rozet/durum icin: adapter adini storage'a yaz (web /api/training/live okur)
 $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
-('{"adapter":"' + $Adapter + '","dtype":"' + $Dtype + '","iterations":' + $Iterations + ',"base_model":"' + $BaseModel + '"}') |
+# Recetenin TAMAMI yazilir: nobetci (training-watchdog.ps1) coken egitimi YALNIZ bu
+# dosyadan diriltir; profil/ornek tavani eksik kalirsa yeniden baslatma sessizce
+# BASKA bir receteye kayar (bkz. _status_payload, detached_launch.py).
+([ordered]@{
+    adapter      = $Adapter
+    dtype        = $Dtype
+    iterations   = $Iterations
+    base_model   = $BaseModel
+    profile      = $Profile
+    max_examples = $MaxExamples
+} | ConvertTo-Json -Compress) |
     Out-File -FilePath $StatusFile -Encoding ascii -Force
 $profLabel = if ($Profile -and $Profile.Trim() -ne "") { $Profile } else { "(vanilya)" }
 $resumeLabel = if ($Resume) { "devam(checkpoint)" } else { "sifirdan" }
