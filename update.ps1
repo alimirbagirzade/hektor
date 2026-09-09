@@ -4,7 +4,11 @@
 #   .\update.ps1 -Force    -- yereli AT, origin/main ile birebir esitle (salt-kopya kurulum)
 #
 # Yapar: web sunucusunu durdur -> 'main' dalina yakinsa (origin/main) -> uv sync --extra dev ->
-#        web'i yeniden baslat -> saglik kontrolu.  EGITIME DOKUNMAZ.
+#        web'i yeniden baslat -> saglik kontrolu.
+#
+# EGITIM KOSARKEN ATLANIR. (Eskiden burada 'EGITIME DOKUNMAZ' yaziyordu; YANLISTI:
+# 'uv sync' egitimin bagli oldugu venv'i degistirir -- 2026-09-09 03:00'te bu gorev
+# tokenizers'i 0.23.2'den 0.22.2'ye dusurdu ve 'import transformers' kirildi.)
 #
 # NOT (kok-neden duzeltmesi): Bu betik artik MEVCUT dal ne olursa olsun makineyi
 # 'main' dalina + origin/main'e yakinsatir. Eskiden bir feature dalina parklanmis
@@ -18,6 +22,22 @@ param([switch]$Force)
 $ErrorActionPreference = "Continue"
 $ProjectDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 Set-Location $ProjectDir
+
+# --- EGITIM KORUMASI ---------------------------------------------------------
+# Bu betik "uv sync --extra dev" kosar. Egitim paketleri (torch/transformers/peft)
+# AYRI "train-cpu" extra'sindadir ve kilit dosyasindaki ortak bagimlilik surumleri
+# onlarla catisir: 2026-09-09 gecesi tokenizers geri dusurulunce transformers
+# import edilemez hale geldi. Kosan egitim bellekteki moduller sayesinde ayakta
+# kalir ama COKME SONRASI nobetci (training-watchdog.ps1) kirik ortamla karsilasir
+# -> otomatik kurtarma sessizce basarisiz olur. Bu yuzden egitim varken guncelleme
+# YAPILMAZ; atlamak hata degildir (exit 0), bir sonraki turda tekrar denenir.
+$egitimProc = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='uv.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*peft_lora_train*' -or $_.CommandLine -like '*train*--run*' }
+if ($egitimProc) {
+    Write-Host "  [ATLANDI] LoRA egitimi kosuyor -> guncelleme yapilmadi (venv'e dokunulmaz)." -ForegroundColor Yellow
+    Write-Host "            Egitim bitince elle calistir: update.ps1" -ForegroundColor DarkGray
+    exit 0
+}
 
 function Find-Uv {
     $fromPath = (Get-Command uv -ErrorAction SilentlyContinue).Source
