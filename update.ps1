@@ -3,12 +3,19 @@
 #   .\update.ps1           -- normal: origin/main'e GUVENLI yakinsama (ff-only)
 #   .\update.ps1 -Force    -- yereli AT, origin/main ile birebir esitle (salt-kopya kurulum)
 #
-# Yapar: web sunucusunu durdur -> 'main' dalina yakinsa (origin/main) -> uv sync --extra dev ->
-#        web'i yeniden baslat -> saglik kontrolu.
+# Yapar: web sunucusunu durdur -> 'main' dalina yakinsa (origin/main) ->
+#        uv sync --extra dev --extra train-cpu -> web'i yeniden baslat -> saglik kontrolu.
 #
 # EGITIM KOSARKEN ATLANIR. (Eskiden burada 'EGITIME DOKUNMAZ' yaziyordu; YANLISTI:
 # 'uv sync' egitimin bagli oldugu venv'i degistirir -- 2026-09-09 03:00'te bu gorev
 # tokenizers'i 0.23.2'den 0.22.2'ye dusurdu ve 'import transformers' kirildi.)
+#
+# KOK NEDEN 2026-09-11'de KAPANDI: o koruma yalniz egitim KOSARKEN devreye giriyordu.
+# v8 kosusu 2026-09-10 23:27'de bittikten sonra 03:00 gorevi kendini serbest sandi ve
+# ortami yeniden bozdu -- tam da 39 saatlik kosunun degerlendirilecegi (lora-eval)
+# adimin oncesinde. Koruma kosuyu koruyor, kosunun DEGERLENDIRILMESINI korumuyordu.
+# Gercek cozum burada: 'train-cpu' senkrona dahil + pyproject'te transformers tabani
+# v8'in egitildigi surume sabitlendi, boylece kilit ile kurulu ortam ayrisamaz.
 #
 # NOT (kok-neden duzeltmesi): Bu betik artik MEVCUT dal ne olursa olsun makineyi
 # 'main' dalina + origin/main'e yakinsatir. Eskiden bir feature dalina parklanmis
@@ -205,10 +212,17 @@ if ($updated) {
     "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Kod $($localHash.Substring(0,7)) -> $($newHash.Substring(0,7))." | Add-Content $LogFile
 }
 
-# --- 3. Bagimliliklar (WEB extra DAHIL -- duz 'uv sync' web paketlerini budar) ---
+# --- 3. Bagimliliklar (WEB + EGITIM extra'lari DAHIL) -------------------------
+# 'train-cpu' de senkronlanir. Eskiden yalniz '--extra dev' kosuluyordu: egitim
+# paketleri (torch/transformers/peft) YONETILMEYEN kalir, ama ortak bagimliliklari
+# (tokenizers/safetensors) kilide cekilirdi -> kurulu transformers ile cift bozulur.
+# 2026-09-09 ve 2026-09-11 03:00'te tam bu oldu (tokenizers 0.23.2 -> 0.22.2,
+# 'import transformers' kirildi). Egitim yigini artik kilidin kapsaminda; kilit
+# (pyproject 'train-cpu' extra'si) v8'i egiten surumleri tutar, dolayisiyla bu
+# senkron o yigini KORUR, bozmaz.
 if ($updated -or $Force) {
-    Write-Host "[..] Bagimliliklar esitleniyor (uv sync --extra dev)..." -ForegroundColor Gray
-    & $UvPath sync --extra dev 2>&1 | Out-Null
+    Write-Host "[..] Bagimliliklar esitleniyor (uv sync --extra dev --extra train-cpu)..." -ForegroundColor Gray
+    & $UvPath sync --extra dev --extra train-cpu 2>&1 | Out-Null
 }
 
 # --- 4. Web'i yeniden baslat ---

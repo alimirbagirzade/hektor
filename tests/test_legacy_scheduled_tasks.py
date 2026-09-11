@@ -89,3 +89,39 @@ def test_verify_install_uv_sync_inexact_kullanir() -> None:
         assert "--inexact" in satir, (
             f"uv sync --inexact kullanmıyor → eğitim paketleri silinir: {satir.strip()}"
         )
+
+
+# --------------------------------------------------------------------------- #
+# Gece güncellemesi eğitim yığınını YÖNETMELİ (2026-09-09 ve 2026-09-11'de yaşandı)
+# --------------------------------------------------------------------------- #
+_UPDATE = Path(__file__).resolve().parents[1] / "update.ps1"
+
+
+@pytest.fixture(scope="module")
+def update_betik() -> str:
+    assert _UPDATE.is_file(), f"update.ps1 bulunamadı: {_UPDATE}"
+    return _UPDATE.read_text(encoding="utf-8", errors="replace")
+
+
+def test_update_sync_train_cpu_extrasini_kapsar(update_betik: str) -> None:
+    """Gece 03:00 görevi eğitim yığınını yönetmeli — yoksa kilitle ayrışır.
+
+    `train-cpu` senkron kümesinin DIŞINDA kalırsa torch/transformers/peft
+    yönetilmeyen olur, ama ORTAK bağımlılıkları (tokenizers/safetensors) kilide
+    çekilir → kurulu transformers ile çift bozulur. 2026-09-09 ve 2026-09-11
+    03:00'te tam bu oldu: tokenizers 0.23.2 → 0.22.2 düştü, `import transformers`
+    kırıldı. 09-11'de zarar eğitimin kendisinde değil, 39 saatlik koşuyu
+    değerlendirecek `lora-eval` adımındaydı — eğitim koruması bitmiş koşuyu
+    kapsamıyor (Kural 2: değerlendirilmeden "başarılı" sayma).
+    """
+    sync_satirlari = [s for s in update_betik.splitlines() if "sync" in s and "$UvPath" in s]
+    assert sync_satirlari, "update.ps1 içinde uv sync çağrısı bulunamadı"
+    for satir in sync_satirlari:
+        assert "--extra train-cpu" in satir, (
+            f"uv sync eğitim extra'sını kapsamıyor → kilit/venv ayrışır: {satir.strip()}"
+        )
+
+
+def test_update_egitim_korumasi_durmuyor(update_betik: str) -> None:
+    """Eğitim koşarken güncelleme atlanmalı (3a551b0'de eklendi; regresyon kapısı)."""
+    assert "peft_lora_train" in update_betik, "eğitim süreci yoklaması kayboldu"
