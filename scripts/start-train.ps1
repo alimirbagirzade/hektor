@@ -4,8 +4,13 @@
 #   .\scripts\start-train.ps1                         -- bf16, hektor_lora_v5, 1 epoch (1203)
 #   .\scripts\start-train.ps1 -Iterations 2406        -- 2 epoch
 #   .\scripts\start-train.ps1 -Dtype fp32             -- fp32 (hizli ama web/Ollama kapatilmali)
+#   .\scripts\start-train.ps1 -SkipGate               -- kalite kapisini ATLA (acik insan karari)
 #   .\scripts\start-train.ps1 -Stop                   -- egitimi durdur
 #   .\scripts\start-train.ps1 -Status                 -- durum
+#
+# KALITE KAPISI: egitim, veri `pretrain-gate` (GO/NO-GO) ve `lora-audit` (Gate 0-7)
+# kapilarindan gecmeden BASLAMAZ. NO-GO/FAIL -> cikis 1, egitim yok. Kapi calistirilamazsa
+# da baslamaz (Kural 2). Bilincli atlamak icin -SkipGate.
 #
 # Start-Process ile baslatildigi icin baslatan kabuk (Claude Code dahil) kapansa da
 # egitim bagimsiz surer. KOSULLAR: bilgisayar acik kalmali (uyku/hazirda bekleme YOK),
@@ -37,6 +42,14 @@ param(
     # "basarili" doneyordu (Kademe-2 av bulgusu; Kural 2). Watchdog olen egitimi
     # surdururken bu switch'i gecer; sifir-adim durumu artik trainer'da hata verir.
     [switch]$Resume,
+    # Kaliteyi kapiyi ATLA -- ACIK INSAN KARARI. Varsayilan KAPALI: egitim, veri
+    # `pretrain-gate` (GO/NO-GO) ve `lora-audit` (Gate 0-7) kapilarindan gecmeden
+    # baslamaz. Bu kapi, 31 ajanlik denetim mimarisi ile FIILEN egitilen veri
+    # arasindaki tek zorunlu bagdir (bkz. reports/agent-inventory/, bulgu B2:
+    # v7/v8 kosulari bu betikle baslatildi ve hicbir kapidan gecmedi).
+    # Kapi ARIZALANIRSA da egitim baslamaz (Kural 2: dogrulanmadan devam etme);
+    # uzun bir kosuyu kurtarmak icin bilinctli override olarak bunu gec.
+    [switch]$SkipGate,
     [switch]$Stop,
     [switch]$Status
 )
@@ -103,6 +116,66 @@ if ($Resume) { $env:HEKTOR_TRAIN_RESUME = "1" } else { $env:HEKTOR_TRAIN_RESUME 
 $env:HEKTOR_TRAIN_SUPERVISED = "1"
 # Temel model secimi alt surece ORTAM uzerinden gecer (Start-Process ortami miras alir).
 if ($BaseModel -and $BaseModel.Trim() -ne "") { $env:HEKTOR_PEFT_BASE_MODEL = $BaseModel }
+# ---------------------------------------------------------------------------
+# KALITE KAPISI -- lora-split'ten ONCE. pretrain-gate kaynak dosyayi
+# (data/lora_sft/lora_sft.jsonl) denetler; split o dosyadan turer, dolayisiyla
+# kapi bolmeden once calismali. Ikisi de LLM'siz ve deterministik.
+# ---------------------------------------------------------------------------
+$gateSummary = "atlandi (-SkipGate)"
+if ($SkipGate) {
+    Write-Host "  [UYARI] Kalite kapisi ATLANDI (-SkipGate). Egitilen veri denetimden GECMEDI." -ForegroundColor Yellow
+} else {
+    Write-Host "  Kalite kapisi calisiyor (pretrain-gate + lora-audit)..." -ForegroundColor DarkGray
+
+    # 1) On egitim kalite kapisi: garanti-vaadi regex, acilis-ezberi, minimum boyut.
+    $pg = $null
+    try { $pg = & $uv run --project "$ProjectDir" hektor pretrain-gate --json | ConvertFrom-Json } catch { $pg = $null }
+    if (-not $pg -or -not $pg.verdict) {
+        Write-Host "  [HATA] pretrain-gate calistirilamadi -- kapi sonucu OKUNAMADI." -ForegroundColor Red
+        Write-Host "         Dogrulanmamis veriyle egitim baslatilmaz (Kural 2)." -ForegroundColor Red
+        Write-Host "         Elle bak: uv run hektor pretrain-gate" -ForegroundColor Gray
+        Write-Host "         Bilincli atlamak icin: -SkipGate" -ForegroundColor Gray
+        exit 1
+    }
+    if ($pg.verdict -ne "GO") {
+        Write-Host "  [ENGEL] pretrain-gate: $($pg.verdict) -- egitim BASLATILMADI." -ForegroundColor Red
+        if ($pg.blockers) { foreach ($b in $pg.blockers) { Write-Host "          - $b" -ForegroundColor Red } }
+        Write-Host "         Ayrinti: uv run hektor pretrain-gate" -ForegroundColor Gray
+        exit 1
+    }
+
+    # 2) LoRA denetim hatti (Gate 0-7): kaynak butunlugu, sema, kopya, alan, guvenlik.
+    $la = $null
+    try { $la = & $uv run --project "$ProjectDir" hektor lora-audit --json | ConvertFrom-Json } catch { $la = $null }
+    if ($null -eq $la -or $null -eq $la.passed) {
+        Write-Host "  [HATA] lora-audit calistirilamadi -- kapi sonucu OKUNAMADI." -ForegroundColor Red
+        Write-Host "         Dogrulanmamis veriyle egitim baslatilmaz (Kural 2)." -ForegroundColor Red
+        Write-Host "         Elle bak: uv run hektor lora-audit" -ForegroundColor Gray
+        Write-Host "         Bilincli atlamak icin: -SkipGate" -ForegroundColor Gray
+        exit 1
+    }
+    # Bos girdi kapiyi BOSUNA gecer: `passed` = tum kapilarin AND'i, hicbir kart
+    # yoksa reddedilecek kart da yoktur -> True. Sifir kartla egitim anlamsizdir ve
+    # kartlarin sifir olmasi, jsonl doluysa katmanlar arasi tutarsizlik demektir.
+    if ([int]$la.total_input -le 0 -or [int]$la.total_approved -le 0) {
+        Write-Host "  [ENGEL] lora-audit girdi/onay sayisi SIFIR (girdi=$($la.total_input), onay=$($la.total_approved))." -ForegroundColor Red
+        Write-Host "          Bos denetim 'gecti' sayilmaz; korpus/kart katmanini kontrol et." -ForegroundColor Red
+        Write-Host "          Elle bak: uv run hektor lora-audit" -ForegroundColor Gray
+        exit 1
+    }
+    if (-not $la.passed) {
+        Write-Host "  [ENGEL] lora-audit BASARISIZ -- egitim BASLATILMADI." -ForegroundColor Red
+        foreach ($s in $la.stages) {
+            if (-not $s.passed) { Write-Host "          - Gate $($s.gate_id) $($s.name): red=$($s.rejected_count) inceleme=$($s.review_count)" -ForegroundColor Red }
+        }
+        Write-Host "         Rapor: $($la.report_path)" -ForegroundColor Gray
+        exit 1
+    }
+
+    $gateSummary = "GO (pretrain-gate: $($pg.total) ornek; lora-audit: $($la.total_approved)/$($la.total_input) kart)"
+    Write-Host "  [OK] Kapi GECILDI -- $gateSummary" -ForegroundColor Green
+}
+
 # Egitim verisi: lora_sft.jsonl -> train/valid (clobber-proof; bos train.jsonl onarilir)
 & $uv run --project "$ProjectDir" hektor lora-split | Out-Null
 
@@ -164,5 +237,6 @@ $resumeLabel = if ($Resume) { "devam(checkpoint)" } else { "sifirdan" }
 $modelLabel = if ($BaseModel) { $BaseModel } else { "ayardaki varsayilan" }
 Write-Host "  Temel model: $modelLabel" -ForegroundColor DarkGray
 Write-Host "  [OK] Egitim DETACHED baslatildi (dtype=$Dtype, adapter=$Adapter, iters=$Iterations, profil=$profLabel, mod=$resumeLabel)." -ForegroundColor Green
+Write-Host "       Kalite kapisi: $gateSummary" -ForegroundColor DarkGray
 Write-Host "       Claude Code/terminal kapansa da surer. PC acik + oturum acik kalmali." -ForegroundColor Cyan
 Write-Host "       Ilerleme: logs\train-full-err.log" -ForegroundColor Gray

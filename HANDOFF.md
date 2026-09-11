@@ -93,6 +93,43 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-10: 31 ajan envanteri + eğitim yolu artık kalite kapısından geçiyor
+
+**Envanter (salt-okuma).** `reports/agent-inventory/envanter-2026-09-09.md` — depodaki üç
+ajan popülasyonu ayrıştırıldı (31 runtime modül / 21 Claude alt-ajanı / 18 skill; hepsi
+sayımla doğrulandı), determinizm sınıflaması yapıldı ve beş yapısal bulgu kanıta bağlandı.
+Raporun tüm yük taşıyan iddiaları depoya karşı yeniden çalıştırıldı, hepsi tuttu (§6).
+
+**Kapatılan bulgu — B2 (en kritik).** 31 ajanlık denetim mimarisi ile *fiilen eğitilen veri*
+arasında zorunlu bağ yoktu: v7/v8 koşuları `scripts/start-train.ps1` ile başlatıldı ve
+`pretrain-gate`/`lora-audit`'in hiçbirinden geçmedi. Artık betik, `lora-split`'ten **önce**
+her iki kapıyı da çalıştırır:
+
+- `pretrain-gate --json` → `verdict != GO` ise **eğitim başlamaz**.
+- `lora-audit --json` → `passed=False` ise **eğitim başlamaz**.
+- Kapı *çalıştırılamazsa* da başlamaz (Kural 2 — doğrulanmadan devam etme).
+- Bilinçli insan override'ı: `-SkipGate` (görünür uyarı basar).
+
+**Yeni CLI sözleşmesi.** `lora-audit` artık `--json` kabul ediyor (`pretrain-gate`'in mevcut
+deseniyle aynı); rich tablosu ayrıştırılabilir arayüz değildi. Alanlar
+`tests/test_lora_audit_json_cli.py` ile sabitlendi — alan adı değişirse kapı sessizce
+"okunamadı"ya düşüp eğitimi hiç başlatmaz.
+
+**Test sırasında bulunan ek açık.** Boş dataset kapıyı boşuna geçiyordu: `passed` tüm
+kapıların AND'i olduğundan sıfır kartla `True` dönüyor. Betik artık `total_input` ya da
+`total_approved` sıfırsa da engelliyor.
+
+**Dikkat — nöbetçi etkileşimi.** `scripts/training-watchdog.ps1` çöken eğitimi diriltmek
+için `start-train.ps1`'i çağırır, yani kapı diriltme yolunda da geçerlidir (bilinçli:
+fail-closed). Geçici bir kapı arızası uzun bir koşuyu kurtarılamaz hale getirirse
+`-SkipGate` ile elle diriltilir.
+
+**Manifest drift (B1) kısmen kapandı.** `dataset-quality-gate` girdisi "CLI komutu KAYIP"
+diyordu; gerçek trigger ve `ZORLANIR:` satırları yazıldı (`lora-control-plane` için de).
+Genel drift testi hâlâ açık — bkz. açık işler.
+
+---
+
 ## Son seans — 2026-09-08 (gece): v8 koşusu DURDURULDU — 600 adım ≠ 600 örnek
 
 **Belirti.** `hektor_lora_v8_4b` koşusu "1616 örneğin yalnız 300'ü kullanıldığı için
@@ -306,7 +343,16 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
 
 ## Bilinen açık işler
 
-
+- **Ajan envanteri §5, sıra 2-6** (`reports/agent-inventory/envanter-2026-09-09.md`).
+  Sıra 1 (eğitim kapısı) 2026-09-10'da kapandı. Kalanlar:
+  2. Manifest `safety_gates` ↔ test kimliği eşlemesi + drift testi (B1'in genel hâli).
+  3. `grounding_verifier` mutasyon testi — detektörün yakalama/yanlış-alarm oranı hiç
+     ölçülmedi (karar kuralı 3/5 token örtüşmesi; olumsuzlamaya ve sayıya kör).
+  4. Kart + SFT hattını `grounding_verifier`'dan geçir — doğrulayıcı şu an **eğitilen
+     veriye bağlı değil** (B5-1); 3'e bağımlı.
+  5. K3 normlarının (rubrik/eşik) tek dosyada toplanması + referans/ratifikasyon — insan
+     kararı gerekir.
+  6. Eval setini büyüt (`discipline_core.jsonl` = 16 soru); verdict'i güven aralığıyla yaz.
 - `docs/MIGRASYON_2.0.md` §"Kalan adaylar" — Phase-4 GitHub otomasyonu (hiç aktive edilmedi),
   `training/dataset_builder.py` ikinci veri hattı, bulut-GPU protokol dokümanları.
 - `docs/MIMARI_REFERANS.md` v1 temizliğinden ÖNCE yazıldı; kaldırılan modülleri hâlâ anlatır

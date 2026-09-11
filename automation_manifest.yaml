@@ -433,6 +433,8 @@ agents:
       - "boş/içeriksiz kart filtresi (_card_text)"
       - "Gate 7 safety scanner = BLOCKER"
       - "herhangi gate başarısız → PipelineReport.passed=False (eğitim BAŞLATMAZ)"
+      - "ZORLANIR: start-train.ps1 `lora-audit --json` okur; passed=False ya da
+         girdi/onay=0 ise eğitimi başlatmaz (override: -SkipGate)"
     approval_required: false
     stop_method: "yok (senkron audit)"
     status_location: "reports/lora/ + PipelineReport"
@@ -468,10 +470,10 @@ agents:
     name: Dataset Quality Gate (pretrain-gate #3)
     file: app/training/dataset_quality.py
     entrypoint: audit_dataset
-    trigger: "python'dan (CLI komutu KAYIP — Phase 2/ileride re-add)"
+    trigger: "CLI `hektor pretrain-gate [--json]` + scripts/start-train.ps1 kalite kapısı"
     autonomy: semi_auto
     dangerous: false
-    default_enabled: false
+    default_enabled: true
     writes:
       - reports/evals/pretrain_gate.json  # çağıran yazar
     reads:
@@ -480,6 +482,7 @@ agents:
       - "GO/NO-GO: garanti-vaadi zehiri → NO-GO"
       - "açılış-ezberi (>%40 tek bigram açılış) → NO-GO (v5 mekanizması)"
       - "eğitim BAŞLATMAZ; deterministik"
+      - "ZORLANIR: start-train.ps1 NO-GO'da eğitimi başlatmaz (override: -SkipGate)"
     approval_required: false
     stop_method: "yok (saf rapor)"
     status_location: reports/evals/pretrain_gate.json
