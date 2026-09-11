@@ -34,7 +34,9 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2041 passed, 2 skipped** (2026-09-08, `bba2518`, bu makinede ölçüldü) |
+| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2050 passed, 4 skipped, 2 deselected** (2026-09-11, `9439355`, bu makinede ölçüldü) |
+| Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
+| Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
@@ -80,7 +82,7 @@ uv run hektor ingest                 # PDF'leri data/papers/raw_pdf/ altına koy
 uv run hektor synth-qa-bulk --target 1000
 uv run hektor lora-curate --run
 uv run python scripts/assemble_sft.py  # → data/lora_sft/lora_sft.jsonl (KANONİK)
-uv run hektor lora-audit             # Gate 0-7 (--run ile 0-8)
+uv run hektor lora-audit             # Gate 0-7 (--run ile 0-8) · --json ile makine-okunabilir
 uv run hektor pretrain-gate          # GO / NO-GO
 uv run hektor lora-split
 # Kural 8 kapısı:
@@ -88,8 +90,96 @@ uv run hektor approval-approve <id>
 .\scripts\start-train.ps1 -Profile discipline_safe_local   # DETACHED
 ```
 
+**Kapılar artık betikte ZORUNLU** (2026-09-10, `139a4bd`): `start-train.ps1`,
+`lora-split`'ten önce `pretrain-gate` + `lora-audit` koşar; NO-GO / FAIL / girdi=0 ise
+**eğitim başlamaz**, kapı çalıştırılamazsa da başlamaz (Kural 2). Bilinçli insan
+override'ı: `-SkipGate`. Yukarıdaki elle çağrılar artık teşhis içindir, ön koşul değil.
+
 Eğitim sonrası: `lora-eval` (min_n≥5, degenerasyon + boş-cevap vetolu) → adapter **ADAY**;
 production terfisi ayrı insan onayı ister.
+
+> **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
+> rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-11: v8 REJECT (tekrar patolojisi) + gece senkronu kök nedeni kapandı
+
+### 1. v8 değerlendirildi → **REJECT**, terfi etmedi
+
+`hektor_lora_v8_4b` 2026-09-10 23:27'de bitti (600/600 adım, 39s 32dk).
+`lora-eval` · `discipline_core` · n=16:
+
+| | skor | bayrak |
+|---|---|---|
+| base (Qwen3-4B) | −0.125 | 18 |
+| adapter (v8) | **+0.8125** | **3** |
+
+Verdict **REJECT** — skor ve bayrak her ikisinde de büyük iyileşmeye rağmen. Sebep
+`adapter_degenerate` vetosu: `app/training/adapter_eval.py` bunu açıkça _"skordan
+BAĞIMSIZ veto"_ olarak tanımlar (v5 dersi). Veto doğru çalıştı.
+
+**Bayrakların tek tek okunması, sayının gösterdiğinden kötü bir tablo verdi:**
+
+- **#11 — gerçek çöküş.** `"Hayır — bu kural kural kural kural…"` token sınırına
+  kadar ~70 kez. Tartışmasız dejenerasyon.
+- **#5 — aynı patoloji, eşiğin ALTINDA kaldı.** `"Ölçülmesi gereken bir hipotez var."`
+  üç kez birebir. `_is_degenerate`'in cümle-tekrarı eşiği (`unique <= len//2`) bunu
+  yakalamadı; bayrak `ignores_costs` olarak düştü. **Dedektör boşluğu** — bkz. açık işler.
+- **#3 — dedektör yanlış alarmı, ama masum değil.** `"komisyon + spread dahil getiri,
+  komisyon + spread dahil max drawdown ve komisyon + spread dahil Sharpe"` → 3-gram
+  döngüsü tetikledi. Çöküş değil; anlamı sağlam ama şablonvari. Aynı eğilimin hafifi.
+
+Yani tekrar patolojisi **16 cevabın 3'ünde (~%19)**, 1'inde değil. v5 disiplin
+regresyonunun aynı sınıfı, düşük oranda.
+
+**Madalyonun öteki yüzü güçlü.** Base'in bayrak dağılımı projenin yasakladığı
+davranışların listesi: `ignores_costs` ×10, `guaranteed_profit`, "garanti", "kesin
+kazan", `success_without_test`, "net rakam", "bu sefer farklı", "agresif gir". v8
+bunların hepsini bıraktı — düzgün çekimser kalıyor, maliyet token'larını adlandırıyor,
+test noktası çerçeveliyor. **Ne söyleyeceğini öğrendi; nasıl söyleyeceğinde bozuluyor.**
+
+Rapor: `reports/evals/adapter_eval_hektor_lora_v8_4b_discipline_core.json`.
+Diğer iki eval seti (`overfit_awareness`, `risk_management`) **koşulmadı** — açık iş.
+
+### 2. Gece 03:00 senkronu artık eğitim yığınını bozamaz (kök neden)
+
+**Belirti.** v8 bitti, `lora-eval` `ImportError: tokenizers>=0.23.1 … found 0.22.2`
+ile düştü. Yani 39 saatlik koşu, tam değerlendirileceği anda ölçülemez hâldeydi.
+
+**Zincir.** `train-cpu` extra'sı (torch/transformers/peft/accelerate) senkron kümesinin
+DIŞINDAydı. Paketler yönetilmeyen kalırken ORTAK bağımlılıkları (tokenizers/safetensors)
+kilide çekiliyor, kurulu transformers ile çift bozuluyordu. 2026-09-09 **ve** 2026-09-11
+03:00'te tam bu oldu.
+
+**`3a551b0`'deki koruma neden yetmedi.** O koruma yalnız eğitim **CANLIYKEN** devreye
+giriyor. v8 23:27'de bitince 03:00 görevi kendini serbest sandı. Koruma koşuyu
+koruyordu, koşunun **DEĞERLENDİRİLMESİNİ** değil.
+
+**Düzeltme (`9439355`).** pyproject'te `train-cpu` sürümleri v8'i eğiten ve
+değerlendiren yığına sabitlendi (taban+tavan); `uv.lock` altı pakette de kurulu ortamla
+birebir; `update.ps1` senkronu `--extra dev --extra train-cpu` koşuyor.
+
+> **Sıra önemliydi:** `--extra train-cpu` TEK BAŞINA yeni bir bozulma yaratırdı — kilit
+> torch 2.12.0 derken makinede 2.14.0 kuruluydu, gece senkronu torch'u DÜŞÜRÜRDÜ.
+> Önce kilit kurulu ortama hizalandı, extra sonra eklendi.
+
+Ayrıca (repo kendi dersi, `test_verify_install_uv_sync_inexact_kullanir`): `uv sync`
+istenen küme dışındaki paketleri **siler**; 2026-09-07'de torch/transformers/peft böyle
+silinmişti. `update.ps1` `--inexact` kullanmıyordu — `train-cpu`'yu kümeye almak bunu da
+kapatır. Diğer extra'lar (fastmcp/markdown-pdf/mlx-lm) makinede kurulu değil (doğrulandı).
+
+İki regresyon testi eklendi (`tests/test_legacy_scheduled_tasks.py`): senkron
+`train-cpu`'yu kapsıyor mu, eğitim koruması duruyor mu.
+
+### 3. Zamanlayıcı + git hijyeni
+
+- `start-server.ps1 -Repair` koşuldu: Registry autostart ✅, eğitim watchdog ✅.
+  **`HektorWeb` ve `HektorUpdate` kaydedilemedi — Yönetici PowerShell gerekiyor.**
+- Yerel `main` `3a551b0`'de takılıydı ve `origin/main`'den sapmıştı (`update.ps1`
+  ff-only yakınsar → güncelleme oturmaz). Commit dala cherry-pick edildi (`b0c0266`);
+  **PR merge edilince** yerel main sıfırlanmalı:
+  `git fetch origin && git reset --hard origin/main`.
 
 ---
 
@@ -343,6 +433,18 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
 
 ## Bilinen açık işler
 
+- **v8 sonrası (2026-09-11):**
+  1. **Dedektör boşluğu** — `_is_degenerate` cümle-tekrarı eşiği (`unique <= len//2`)
+     #5'teki üçlü birebir tekrarı kaçırdı. Eşik, tekrar ORANINI değil çeşitliliği
+     ölçüyor. Düzeltmeden önce mutasyon testi yaz (envanter §5 sıra 3 ile aynı iş).
+  2. **Diğer iki eval seti koşulmadı** — `overfit_awareness` + `risk_management`
+     (24 soru, CPU'da ~6 saat). v8'in disiplin kazanımı orada da duruyor mu, tekrar
+     patolojisi oranı ne?
+  3. **Tekrar patolojisinin kökü** — reçete mi (NEFTune/lr/epoch) yoksa veri mi
+     (şablonvari SFT cevapları)? v8 dataset'inde birebir tekrar eden cevap kalıpları
+     aranmalı; `pretrain-gate`'in açılış-ezberi kuralı cümle İÇİ tekrarı görmüyor.
+  4. **Yönetici `-Repair`** — `HektorWeb` + `HektorUpdate` görevleri hâlâ eski yolda.
+  5. **PR merge sonrası** yerel main sıfırlaması (yukarıda).
 - **Ajan envanteri §5, sıra 2-6** (`reports/agent-inventory/envanter-2026-09-09.md`).
   Sıra 1 (eğitim kapısı) 2026-09-10'da kapandı. Kalanlar:
   2. Manifest `safety_gates` ↔ test kimliği eşlemesi + drift testi (B1'in genel hâli).
