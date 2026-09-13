@@ -125,3 +125,19 @@ def test_update_sync_train_cpu_extrasini_kapsar(update_betik: str) -> None:
 def test_update_egitim_korumasi_durmuyor(update_betik: str) -> None:
     """Eğitim koşarken güncelleme atlanmalı (3a551b0'de eklendi; regresyon kapısı)."""
     assert "peft_lora_train" in update_betik, "eğitim süreci yoklaması kayboldu"
+
+
+def test_update_web_baslatma_ortuk_senkron_yapmaz(update_betik: str) -> None:
+    """Web yeniden başlatması `uv run --no-sync` olmalı — örtük senkron YASAK.
+
+    `uv run` varsayılan olarak ortamı kilide göre senkronlar (inexact: fazlalığı
+    silmez ama kilitli sürümleri ayarlar). 2026-09-09, 09-11 ve 09-12 koşularının
+    ÜÇÜNDE de açık `uv sync` adımı atlanmıştı (kod güncellenmedi / iraksama) —
+    tokenizers'ı 0.23.2 → 0.22.2 düşüren bu örtük senkrondu; extra'daki
+    transformers dokunulmadan kaldığı için çift bozuldu. Tek meşru senkron noktası
+    3. adımdaki açık `uv sync --extra dev --extra train-cpu`'dur.
+    """
+    web_satirlari = [s for s in update_betik.splitlines() if '"run"' in s and "hektor-web" in s]
+    assert web_satirlari, "update.ps1 içinde `uv run ... hektor-web` çağrısı bulunamadı"
+    for satir in web_satirlari:
+        assert '"--no-sync"' in satir, f"web başlatma örtük senkron yapıyor: {satir.strip()}"

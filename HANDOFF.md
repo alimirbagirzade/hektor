@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-08 (kapıyı kıran `warmup_ratio` testi + araç sürüm hizalaması)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-13 (CI 6 gündür kırmızıydı · asıl tetikleyici örtük senkron · düzeltme makineye ulaşmamıştı)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -34,7 +34,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2050 passed, 4 skipped, 2 deselected** (2026-09-11, `9439355`, bu makinede ölçüldü) |
+| Kapı (`make ci`) | **Yerel (Windows):** ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2051 passed, 4 skipped, 2 deselected** (2026-09-13, `-m "not ollama"`; sonrasında eklenen tek test ayrıca 10/10). **CI (Linux):** ❌ 2026-09-07'den beri kırmızıydı (`test_sentinel_autostart_probe` ×2) — düzeltme PR #2'de, CI doğrulaması bekleniyor. **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
 | Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
@@ -103,7 +103,73 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
-## Son seans — 2026-09-11: v8 REJECT (tekrar patolojisi) + gece senkronu kök nedeni kapandı
+## Son seans — 2026-09-13: CI 6 gündür kırmızıydı · düzeltme makineye ulaşmamıştı · asıl tetikleyici örtük senkron
+
+### 1. 2026-09-11 düzeltmesi makineye hiç ulaşmadı → ortam yine bozuldu
+
+İki gece sonra ölçüldü: tokenizers yine **0.22.2**, `import transformers` yine kırık
+(dist-info damgası 12 Eyl 07:55). `logs/update.log`:
+
+```
+[2026-09-12 07:55] ff-only IRAKSAK HATASI.  HEAD=3a551b0 ahead=1 behind=2
+[2026-09-13 08:40] ff-only IRAKSAK HATASI.  HEAD=3a551b0 ahead=1 behind=2
+```
+
+PR merge edilmemişti; ana checkout push edilmemiş `3a551b0`'de takılı olduğu için
+`origin/main`'e yakınsayamıyordu — yeni kilit ve betik oraya hiç inmedi. **"Commit
+edildi" ≠ "makinede".** Önceki seansın "görev bir kez koşmadan doğrulanmış sayma"
+uyarısı tuttu: görev koştu, düzeltme orada değildi.
+
+### 2. Önceki iki teşhis YANLIŞ adımı suçluyordu — asıl tetikleyici örtük senkron
+
+| Kanıt | Ne gösteriyor |
+|---|---|
+| `update.log` 09-09 (`behind=0`), 09-11 (`behind=0`), 09-12 (iraksama) | Üçünde de "Kod x → y" satırı YOK → açık `uv sync` adımı (`$updated -or $Force`) **üç seferde de atlandı** |
+| `update.ps1` 4. adım | Web `uv run --project … hektor-web` ile başlıyordu — `--no-sync` yok, `UV_NO_SYNC` yok |
+| `uv run --help` (uv 0.11.19) | Varsayılan **inexact senkron**; `--exact` ayrı bayrak, `--no-sync` senkronu kapatır |
+| dist-info damgaları | "Sunucu başlatıldı" satırıyla **aynı dakika** |
+| Kurulu sürümler | Yalnız taban kümedeki tokenizers değişti; extra'daki torch/transformers/peft dokunulmadı |
+
+Yani tokenizers'ı düşüren, web yeniden başlatmasının örtük senkronuydu: taban küme
+kilide çekildi, extra'daki transformers yerinde kaldı → çift bozuldu. `3a551b0`'in commit
+mesajı ("`uv sync --extra dev` düşürdü") ve aşağıdaki 2026-09-11 kaydı olayı yanlış
+adıma bağlamıştı.
+
+**Düzeltme:** `update.ps1` web başlatma `--no-sync` → tek senkron noktası açık 3. adım.
+09-11'deki kilit hizalaması + `--extra train-cpu` doğru kalıyor (açık senkron koştuğunda
+yığını korur), ama tek başına tetikleyiciyi kapatmıyordu. Kilit:
+`test_update_web_baslatma_ortuk_senkron_yapmaz`.
+
+### 3. CI (Linux) 2026-09-07'den beri kırmızıydı — "Kapı ✅" hep yerel Windows ölçümüydü
+
+main'e her push (`57ad396` → `41407dd`) başarısız; **PR #1 kırmızıyken merge edildi.** Son
+koşularda düşen yalnız iki test: `test_sentinel_autostart_probe.py::test_eski_kayit_duruyorsa_warn`
+ve `::test_tam_kurulum_ok`.
+
+**Kök neden:** fixture `sentinel.os.name = "nt"` yamalıyordu — o **global** `os` modülü.
+Python 3.12'de `Path.__new__` sınıfı `os.name`'e göre seçer → Linux'ta `Path` →
+`WindowsPath`, `/tmp/x.ps1` → `\tmp\x.ps1`, `is_file()` False → "fail". Windows'ta yama
+no-op olduğundan yerel kapı hiç görmedi. Betiğin **var olduğu** iki senaryo düşüyordu;
+olmadığı senaryo tesadüfen geçiyordu.
+
+**Düzeltme:** `sentinel._is_windows()` dikişi; testler onu yamalar, global `os.name`'e
+dokunmaz. Kilit: `test_fixture_global_os_name_degistirmez`. Linux'ta ancak CI doğrular.
+
+**Ders:** Durum tablosundaki "Kapı" satırı bundan sonra yerel sonucun yanında **CI
+durumunu** da yazar.
+
+### 4. Bağımlılık onay kapısı hiç ısırmamış
+
+`.github/workflows/claude-code-task.yml` → `dependency-approval-label` işi pyproject/uv.lock
+değişince `needs-approval` etiketi ekler (_"insan onayı şart"_). PR #2 ikisini de
+değiştiriyor, iş SUCCESS — ama PR'da etiket yok. Sebep: **`needs-approval` etiketi repoda
+yok** → `gh pr edit --add-label` düşüyor, `::warning::`'e iniyor, iş yine yeşil.
+Bu PR'daki bağımlılık değişikliğinin insan onayı sohbette açıkça verildi (relock için
+"Yap", merge için "gerekiyorsa push yap"). Etiketin oluşturulması ayrı karar — açık işler.
+
+---
+
+## Son seans — 2026-09-11: v8 REJECT (tekrar patolojisi) + gece senkronu (teşhis 2026-09-13'te düzeltildi)
 
 ### 1. v8 değerlendirildi → **REJECT**, terfi etmedi
 
@@ -142,15 +208,17 @@ test noktası çerçeveliyor. **Ne söyleyeceğini öğrendi; nasıl söyleyece�
 Rapor: `reports/evals/adapter_eval_hektor_lora_v8_4b_discipline_core.json`.
 Diğer iki eval seti (`overfit_awareness`, `risk_management`) **koşulmadı** — açık iş.
 
-### 2. Gece 03:00 senkronu artık eğitim yığınını bozamaz (kök neden)
+### 2. Gece senkronu ve eğitim yığını (⚠ teşhis 2026-09-13'te DÜZELTİLDİ — üstteki kayda bak)
 
 **Belirti.** v8 bitti, `lora-eval` `ImportError: tokenizers>=0.23.1 … found 0.22.2`
 ile düştü. Yani 39 saatlik koşu, tam değerlendirileceği anda ölçülemez hâldeydi.
 
-**Zincir.** `train-cpu` extra'sı (torch/transformers/peft/accelerate) senkron kümesinin
-DIŞINDAydı. Paketler yönetilmeyen kalırken ORTAK bağımlılıkları (tokenizers/safetensors)
-kilide çekiliyor, kurulu transformers ile çift bozuluyordu. 2026-09-09 **ve** 2026-09-11
-03:00'te tam bu oldu.
+**Zincir (bu seansta yazıldığı hâliyle — YANLIŞ ADIM).** Burada tetikleyici açık
+`uv sync --extra dev` sanıldı: `train-cpu` senkron kümesinin dışında kaldığı için ortak
+bağımlılıkların kilide çekildiği düşünüldü. 2026-09-13'te `update.log` gösterdi ki
+olayların üçünde de açık senkron **atlanmıştı**; düşüren, web başlatmanın `--no-sync`'siz
+`uv run`'ıydı. Aşağıdaki kilit hizalaması ve `--extra train-cpu` yine doğru, ama
+tetikleyiciyi kapatmıyordu.
 
 **`3a551b0`'deki koruma neden yetmedi.** O koruma yalnız eğitim **CANLIYKEN** devreye
 giriyor. v8 23:27'de bitince 03:00 görevi kendini serbest sandı. Koruma koşuyu
@@ -444,7 +512,18 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
      (şablonvari SFT cevapları)? v8 dataset'inde birebir tekrar eden cevap kalıpları
      aranmalı; `pretrain-gate`'in açılış-ezberi kuralı cümle İÇİ tekrarı görmüyor.
   4. **Yönetici `-Repair`** — `HektorWeb` + `HektorUpdate` görevleri hâlâ eski yolda.
-  5. **PR merge sonrası** yerel main sıfırlaması (yukarıda).
+- **2026-09-13 sonrası:**
+  1. **Uçtan uca doğrulama (görülene kadar AÇIK)** — PR #2 merge edilince ana checkout'ta
+     SIRAYLA: `git fetch origin && git reset --hard origin/main`, SONRA `.\update.ps1 -Force`.
+     Önce sıfırla ki YENİ betik koşsun (eskisi `--no-sync`'siz başlatır); `-Force` açık
+     senkronu zorlar. Ardından: `import transformers` çalışmalı, altı paket kilitle birebir
+     olmalı, ve **ertesi gece** `update.log` koşusundan sonra tokenizers damgası değişmemiş
+     olmalı.
+  2. **`needs-approval` etiketi repoda yok** — bağımlılık onay kapısı kurulduğundan beri
+     hiç ısırmadı. Etiketi oluşturmak ya da işi etiket yoksa FAIL edecek hâle getirmek:
+     insan kararı.
+  3. **CI yeşil olmadan merge** — main korumasız; PR #1 kırmızıyken merge edildi. main için
+     "CI zorunlu" dal koruması açılsın mı: insan kararı.
 - **Ajan envanteri §5, sıra 2-6** (`reports/agent-inventory/envanter-2026-09-09.md`).
   Sıra 1 (eğitim kapısı) 2026-09-10'da kapandı. Kalanlar:
   2. Manifest `safety_gates` ↔ test kimliği eşlemesi + drift testi (B1'in genel hâli).

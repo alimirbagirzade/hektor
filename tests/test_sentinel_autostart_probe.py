@@ -13,6 +13,7 @@ Probe okuyucusu enjekte edilebilir → testler PowerShell çağırmaz, platform 
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -21,16 +22,28 @@ from app.monitoring import sentinel
 from app.monitoring.sentinel import _task_script_path, probe_autostart
 
 _WD = "HektorTrainingWatchdog"
+_GERCEK_OS_NAME = os.name  # import anında yakalanır; fixture bunu DEĞİŞTİRMEMELİ
 
 
 @pytest.fixture(autouse=True)
 def _windows_varsay(monkeypatch: pytest.MonkeyPatch):
-    """Probe Windows dışında skip döner; mantığı sınamak için nt varsay."""
-    monkeypatch.setattr(sentinel.os, "name", "nt", raising=False)
+    """Probe Windows dışında skip döner; mantığı sınamak için Windows varsay.
+
+    GLOBAL ``os.name`` DEĞİL, ``sentinel._is_windows`` dikişi yamalanır. Global
+    yama Linux'ta ``pathlib``'e sızar (``Path`` → ``WindowsPath``, ``/tmp/x`` →
+    ``\\tmp\\x``) ve betik dosyası var olsa bile ``is_file()`` False döner — CI
+    2026-09-07'den beri tam bu yüzden kırmızıydı.
+    """
+    monkeypatch.setattr(sentinel, "_is_windows", lambda: True)
 
 
 def _args(script: str | Path) -> str:
     return f'-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{script}"'
+
+
+def test_fixture_global_os_name_degistirmez() -> None:
+    """Regresyon kilidi: fixture global ``os.name``'e dokunursa Linux CI yine kırılır."""
+    assert os.name == _GERCEK_OS_NAME
 
 
 def test_hic_gorev_yoksa_fail() -> None:
@@ -83,7 +96,7 @@ def test_tam_kurulum_ok(tmp_path: Path) -> None:
 
 def test_windows_disinda_skip(monkeypatch: pytest.MonkeyPatch) -> None:
     """Linux/macOS'ta görev kaydı kavramı yok → sessiz skip, fail DEĞİL."""
-    monkeypatch.setattr(sentinel.os, "name", "posix", raising=False)
+    monkeypatch.setattr(sentinel, "_is_windows", lambda: False)
     assert probe_autostart(lambda: {}).status == "skip"
 
 

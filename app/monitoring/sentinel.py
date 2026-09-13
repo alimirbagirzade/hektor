@@ -187,12 +187,25 @@ def probe_stop_all() -> ProbeResult:
     return _guard("stop_all", _run)
 
 
+def _is_windows() -> bool:
+    """Görev kaydı kavramı yalnız Windows'ta var — testler BU dikişi yamalar.
+
+    Testler eskiden ``sentinel.os.name``'i yamalıyordu; o GLOBAL ``os`` modülüdür.
+    Python 3.12'de ``Path.__new__`` sınıfı ``os.name``'e göre seçer, yani Linux'ta
+    ``os.name = "nt"`` her ``Path(...)``'i ``WindowsPath`` yapar: ``/tmp/x.ps1`` →
+    ``\\tmp\\x.ps1`` olur ve ``is_file()`` False döner. CI (Linux) bu yüzden
+    2026-09-07'den beri iki autostart testinde kırmızıydı; Windows'ta geçtiği için
+    yerel kapı bunu hiç görmedi.
+    """
+    return os.name == "nt"
+
+
 def read_scheduled_tasks() -> dict[str, str]:
     """Kayıtlı Hektor/Achilles görevleri: ad → action argümanı (Windows dışında boş).
 
     Salt-okuma: yalnız ``Get-ScheduledTask`` sorgular, hiçbir görevi değiştirmez.
     """
-    if os.name != "nt":
+    if not _is_windows():
         return {}
     ps = (
         "Get-ScheduledTask -ErrorAction SilentlyContinue | "
@@ -235,7 +248,7 @@ def probe_autostart(read_tasks: Callable[[], dict[str, str]] | None = None) -> P
 
     def _run() -> ProbeResult:
         okuyucu = read_tasks or read_scheduled_tasks
-        if os.name != "nt":
+        if not _is_windows():
             return ProbeResult("autostart", "skip", "Windows değil — görev kaydı yok.")
         tasks = okuyucu()
         if not tasks:
