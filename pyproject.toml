@@ -47,7 +47,27 @@ train = ["mlx-lm>=0.16; platform_system == 'Darwin' and platform_machine == 'arm
 # Windows/Linux CPU veya CUDA ile LoRA egitimi icin: uv pip install -e ".[train-cpu]"
 # NOT: HF `datasets` kullanilmiyor (bkz. app/training/peft_lora_train.py) — yerel datasets/ dizini
 # kastedilir. `accelerate` dogrudan import edilmez ama transformers.Trainer runtime'da ister.
-train-cpu = ["torch>=2.2", "transformers>=4.40", "peft>=0.10", "accelerate>=0.29"]
+# transformers TABANI 5.16: `>=4.40` fazla gevsekti -- kilit 5.9.0'a cozulurken
+# makineye 5.16.1 kuruluydu ve `uv sync` ortak bagimliliklari kilide cekince
+# tokenizers 0.23.2 -> 0.22.2 dustu, `import transformers` kirildi (2026-09-09 ve
+# 2026-09-11 03:00 gece gorevi; bkz. update.ps1 basligi). hektor_lora_v8_4b
+# transformers 5.16.1 altinda egitildi; taban onu yansitir ki kilit ile kurulu
+# ortam ayrisamasin. tokenizers ayrica pinlenmez -- transformers kendi araligini
+# (>=0.23.1,<0.24) dayatir, cift boylece tek kaynaktan turer.
+# Ust sinir <5.17 BILINCLI: hektor_lora_v8_4b 5.16.1 altinda egitildi VE
+# degerlendirildi; kilit onu tutmazsa gece senkronu yigini 5.17'ye tasir ve ayni
+# adapter'in skorlari yeniden uretilemez (Kural 6). Yukseltmek tek satirlik ACIK
+# karardir; ardindan adapter yeniden degerlendirilmelidir.
+# Digerleri de ayni gerekce ile sabit: kilit torch 2.12.0 / peft 0.19.1 /
+# accelerate 1.13.0 cozuyordu, makinede 2.14.0 / 0.20.0 / 1.14.0 kuruluydu. Gece
+# senkronu 'train-cpu'yu kapsayinca bu fark torch'u DUSURURDU. Taban+tavan,
+# v8'i egiten ve degerlendiren yigini aynen tutar.
+train-cpu = [
+    "torch>=2.14,<2.15",
+    "transformers>=5.16,<5.17",
+    "peft>=0.20,<0.21",
+    "accelerate>=1.14,<1.15",
+]
 # Egitim dokumanlarini PDF e cevirmek icin: uv pip install -e ".[docs]" (scripts/gen_egitim_pdf.py)
 docs = ["markdown-pdf>=1.13"]
 # OPSIYONEL: mcp_server/hektor_mcp.py (FastMCP proxy) icin. Bu extra kurulmadan

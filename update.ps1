@@ -3,8 +3,25 @@
 #   .\update.ps1           -- normal: origin/main'e GUVENLI yakinsama (ff-only)
 #   .\update.ps1 -Force    -- yereli AT, origin/main ile birebir esitle (salt-kopya kurulum)
 #
-# Yapar: web sunucusunu durdur -> 'main' dalina yakinsa (origin/main) -> uv sync --extra dev ->
-#        web'i yeniden baslat -> saglik kontrolu.  EGITIME DOKUNMAZ.
+# Yapar: web sunucusunu durdur -> 'main' dalina yakinsa (origin/main) ->
+#        uv sync --extra dev --extra train-cpu -> web'i yeniden baslat -> saglik kontrolu.
+#
+# EGITIM KOSARKEN ATLANIR. (Eskiden burada 'EGITIME DOKUNMAZ' yaziyordu; YANLISTI:
+# bu betik egitimin bagli oldugu venv'i degistirir.)
+#
+# OLAY + KOK NEDEN (2026-09-13'te DOGRULANDI; onceki iki teshis YANLIS adima bagliydi):
+# 2026-09-09, 09-11 ve 09-12 kosularinin UCUNDE de tokenizers 0.23.2 -> 0.22.2 dustu ve
+# 'import transformers' kirildi. Ucunde de 3. adimdaki acik 'uv sync' ATLANMISTI
+# (update.log: kod guncellenmedi / ff-only iraksama; "Kod x -> y" satiri yok). Dusuren,
+# 4. adimdaki web baslatmanin '--no-sync'SIZ 'uv run'i idi: uv run ortami kilide gore
+# ORTUK senkronlar (inexact) -> taban kumedeki tokenizers kilide cekilir, extra'daki
+# transformers dokunulmaz -> cift bozulur. dist-info damgalari "Sunucu baslatildi"
+# satiriyla ayni dakikadadir.
+#   Duzeltme: (a) web baslatma '--no-sync' (tek senkron noktasi 3. adim),
+#             (b) 3. adim '--extra dev --extra train-cpu',
+#             (c) pyproject 'train-cpu' surumleri v8'i egiten yigina sabit; kilit = kurulu.
+#   Egitim korumasi ise yalniz egitim CANLIYKEN devreye girer; bitmis kosunun
+#   DEGERLENDIRILMESINI (lora-eval) korumaz -- kok neden o degil, ama o da yetmezdi.
 #
 # NOT (kok-neden duzeltmesi): Bu betik artik MEVCUT dal ne olursa olsun makineyi
 # 'main' dalina + origin/main'e yakinsatir. Eskiden bir feature dalina parklanmis
@@ -18,6 +35,22 @@ param([switch]$Force)
 $ErrorActionPreference = "Continue"
 $ProjectDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 Set-Location $ProjectDir
+
+# --- EGITIM KORUMASI ---------------------------------------------------------
+# Bu betik venv'i degistirir: 3. adimda acik 'uv sync --extra dev --extra train-cpu'
+# (yalniz kod guncellendiyse ya da -Force). Kosan egitim bellekteki moduller sayesinde
+# ayakta kalir ama COKME SONRASI nobetci (training-watchdog.ps1) degismis ortamla
+# karsilasabilir -> otomatik kurtarma sessizce basarisiz olur. Bu yuzden egitim varken
+# guncelleme YAPILMAZ; atlamak hata degildir (exit 0), bir sonraki turda tekrar denenir.
+# (tokenizers olayinin gercek tetikleyicisi bu adim DEGIL, 4. adimdaki ortuk senkrondu;
+# bkz. basliktaki OLAY + KOK NEDEN.)
+$egitimProc = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='uv.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*peft_lora_train*' -or $_.CommandLine -like '*train*--run*' }
+if ($egitimProc) {
+    Write-Host "  [ATLANDI] LoRA egitimi kosuyor -> guncelleme yapilmadi (venv'e dokunulmaz)." -ForegroundColor Yellow
+    Write-Host "            Egitim bitince elle calistir: update.ps1" -ForegroundColor DarkGray
+    exit 0
+}
 
 function Find-Uv {
     $fromPath = (Get-Command uv -ErrorAction SilentlyContinue).Source
@@ -185,18 +218,31 @@ if ($updated) {
     "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Kod $($localHash.Substring(0,7)) -> $($newHash.Substring(0,7))." | Add-Content $LogFile
 }
 
-# --- 3. Bagimliliklar (WEB extra DAHIL -- duz 'uv sync' web paketlerini budar) ---
+# --- 3. Bagimliliklar (WEB + EGITIM extra'lari DAHIL) -------------------------
+# 'train-cpu' de senkronlanir. Eskiden yalniz '--extra dev' kosuluyordu: egitim
+# paketleri (torch/transformers/peft) YONETILMEYEN kalir, ama ortak bagimliliklari
+# (tokenizers/safetensors) kilide cekilirdi -> kurulu transformers ile cift bozulur.
+# 2026-09-09 ve 2026-09-11 03:00'te tam bu oldu (tokenizers 0.23.2 -> 0.22.2,
+# 'import transformers' kirildi). Egitim yigini artik kilidin kapsaminda; kilit
+# (pyproject 'train-cpu' extra'si) v8'i egiten surumleri tutar, dolayisiyla bu
+# senkron o yigini KORUR, bozmaz.
 if ($updated -or $Force) {
-    Write-Host "[..] Bagimliliklar esitleniyor (uv sync --extra dev)..." -ForegroundColor Gray
-    & $UvPath sync --extra dev 2>&1 | Out-Null
+    Write-Host "[..] Bagimliliklar esitleniyor (uv sync --extra dev --extra train-cpu)..." -ForegroundColor Gray
+    & $UvPath sync --extra dev --extra train-cpu 2>&1 | Out-Null
 }
 
 # --- 4. Web'i yeniden baslat ---
+# '--no-sync' ZORUNLU. 'uv run' varsayilan olarak ortami kilide gore ORTUK senkronlar
+# (inexact: fazlaligi silmez ama kilitli surumleri ayarlar). 2026-09-09, 09-11 ve
+# 09-12 kosularinin UCUNDE de 3. adimdaki acik 'uv sync' ATLANMISTI (kod guncellenmedi
+# / iraksama) -- tokenizers'i 0.23.2 -> 0.22.2 dusuren BU ortuk senkrondu. Extra'daki
+# transformers dokunulmadan kaldigi icin cift bozuldu. Tek mesru senkron noktasi
+# 3. adimdir; start-server.ps1 de ayni sebeple '--no-sync' kullanir.
 $LogOut = Join-Path $LogDir "hektor-web.log"
 $LogErr = Join-Path $LogDir "hektor-web-err.log"
 $proc = Start-Process `
     -FilePath $UvPath `
-    -ArgumentList "run", "--project", "`"$ProjectDir`"", "hektor-web" `
+    -ArgumentList "run", "--no-sync", "--project", "`"$ProjectDir`"", "hektor-web" `
     -WorkingDirectory $ProjectDir `
     -RedirectStandardOutput $LogOut `
     -RedirectStandardError  $LogErr `
