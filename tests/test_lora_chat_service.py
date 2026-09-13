@@ -47,7 +47,12 @@ class _StubRetriever:
 def fake_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Any]:
     """Ayarları tmp'ye yönlendir; model yükleme/üretimi kaydedici sahtelerle değiştir."""
     rec: dict[str, Any] = {"loads": 0, "generate": []}
-    settings = SimpleNamespace(adapters_dir=tmp_path, peft_base_model="base-4b")
+    settings = SimpleNamespace(
+        adapters_dir=tmp_path,
+        peft_base_model="base-4b",
+        rag_abstain_min_similarity=0.55,
+        rag_abstain_min_margin=0.02,
+    )
     monkeypatch.setattr("app.config.get_settings", lambda: settings)
 
     def _load(base: str, adapter_dir: str | None) -> tuple[str, str]:
@@ -94,7 +99,20 @@ def test_kaynakli_mod_baglami_egitim_bicimiyle_gomer(fake_model: dict[str, Any])
     retriever = _StubRetriever(
         [_chunk("Pozisyon shift(1) ile gecikmeli."), _chunk("İkinci.", "c2")]
     )
-    out = svc.chat("Nasıl önlenir?", None, use_context=True, top_k=4, retriever=retriever)
+    looked: list[str] = []
+
+    def _cards(pid: str) -> dict | None:
+        looked.append(pid)
+        return {"title": "Backtest tuzakları", "main_claim": "Lag positions by one bar."}
+
+    out = svc.chat(
+        "Nasıl önlenir?",
+        None,
+        use_context=True,
+        top_k=4,
+        retriever=retriever,
+        card_lookup=_cards,
+    )
 
     assert retriever.calls == [("Nasıl önlenir?", 4)]
     (call,) = fake_model["generate"]
@@ -112,11 +130,33 @@ def test_kaynakli_mod_baglami_egitim_bicimiyle_gomer(fake_model: dict[str, Any])
         "page": 3,
         "distance": 0.21,
     }
+    # Hibrit cevap: model yalnız Kısa Cevap; kart tek makale için bir kez çekildi
+    assert looked == ["paper_x"]
+    titles = [s["title"] for s in out["sections"]]
+    assert len(titles) == 8 and titles[0] == "Kısa Cevap"
+    assert out["sections"][0] == {
+        "title": "Kısa Cevap",
+        "body": "cevap",
+        "source": "model",
+        "warning": False,
+    }
+    assert "Lag positions by one bar." in out["sections"][3]["body"]
+
+
+def test_kaynaksiz_modda_bolum_sablonu_yok(fake_model: dict[str, Any]) -> None:
+    out = svc.chat("soru", None)
+    assert out["sections"] == []
 
 
 def test_kaynak_yoksa_model_hic_cagrilmaz(fake_model: dict[str, Any]) -> None:
     retriever = _StubRetriever([_chunk("   ")])  # yalnız boş metinli parça = kaynak yok
-    out = svc.chat("Nasıl önlenir?", None, use_context=True, retriever=retriever)
+
+    def _no_cards(pid: str) -> dict | None:
+        raise AssertionError("kaynak yokken kart çekilmemeli")
+
+    out = svc.chat(
+        "Nasıl önlenir?", None, use_context=True, retriever=retriever, card_lookup=_no_cards
+    )
 
     assert fake_model["loads"] == 0
     assert fake_model["generate"] == []

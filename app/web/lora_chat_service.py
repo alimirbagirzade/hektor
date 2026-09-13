@@ -9,6 +9,10 @@ biçimli örneklerle eğitildi. Sohbet de aynı sistem prompt'unu gönderir; `us
 ise soru korpustan retrieval ile getirilen parçalar eğitimdeki BİREBİR biçimde gömülür.
 Retrieval boşsa model hiç çağrılmaz (Kural 7 — kaynak uydurma yok).
 
+Kaynaklı modda cevap HİBRİTTİR (`app/brain/hybrid_answer.py`): model yalnız Kısa Cevap'ı
+yazar; Kaynaklar / Bağlam Kalitesi / Akademik Bulgu / Trading Hipotezi / Test Planı /
+Riskler / Sonraki Adım retrieval, bilgi kartları ve kurallardan deterministik kurulur.
+
 `adapter_eval._load_model`/`_generate`/`_resolve_base_model` tekrar kullanılır (eğitim
 doğrulamasıyla AYNI yükleme/üretim yolu → tutarlılık). Üretim ağırdır (CPU'da dakikalar);
 endpoint senkron `def` olmalı ki FastAPI'nin threadpool'unda koşsun, event loop'u bloklamasın.
@@ -21,6 +25,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from app.brain.hybrid_answer import CardLookup
     from app.memory.retrieval_service import RetrievedChunk
 
 log = logging.getLogger(__name__)
@@ -105,12 +110,14 @@ def chat(
     use_context: bool = False,
     top_k: int | None = None,
     retriever: Any = None,
+    card_lookup: CardLookup | None = None,
 ) -> dict:
     """Adapter (veya base) ile cevap üret. adapter=None/"" → yalnız base model.
 
-    Dönüş: {answer, adapter, base_model, used_context, llm_used, sources}.
+    Dönüş: {answer, adapter, base_model, used_context, llm_used, sources, sections}.
     Adapter yoksa FileNotFoundError. `use_context=True` ve retrieval boşsa model
-    yüklenmez; `llm_used=False` ile açık "kaynak bulunamadı" döner.
+    yüklenmez; `llm_used=False` ile açık "kaynak bulunamadı" döner. Kaynaklı modda
+    `sections` 8 bölümlü hibrit cevaptır; kaynaksız modda boştur (şablon sahte güven vermesin).
     """
     from app.config import get_settings
     from app.lora.dataset_builder import SYSTEM_PROMPT
@@ -131,10 +138,15 @@ def chat(
         "base_model": base,
         "used_context": use_context,
         "sources": [],
+        "sections": [],
     }
 
     user_content = question
+    chunks: list[RetrievedChunk] = []
+    cards: dict[str, dict] = {}
     if use_context:
+        from app.brain.hybrid_answer import load_cards
+
         if retriever is None:
             from app.memory.reranking_retriever import RerankingRetriever
 
@@ -142,6 +154,13 @@ def chat(
         chunks = [c for c in retriever.retrieve(question, top_k=top_k) if c.text.strip()]
         if not chunks:
             return {**result, "answer": NO_SOURCE_ANSWER, "llm_used": False}
+        if card_lookup is None:
+            from app.memory.sqlite_store import SqliteStore
+
+            card_lookup = SqliteStore().get_latest_knowledge_card
+        # Kartlar PAHALI üretimden ÖNCE çekilir: DB hatası dakikalarca bekledikten sonra değil
+        # hemen görünsün.
+        cards = load_cards(chunks, card_lookup)
         user_content = build_user_content(question, chunks)
         result["sources"] = _source_dicts(chunks)
 
@@ -158,5 +177,17 @@ def chat(
             max_new_tokens=max_tokens,
             system=SYSTEM_PROMPT,
         )
+
+    if use_context:
+        from app.brain.hybrid_answer import build_sections
+
+        sections = build_sections(
+            answer,
+            chunks,
+            cards,
+            min_similarity=s.rag_abstain_min_similarity,
+            min_margin=s.rag_abstain_min_margin,
+        )
+        result["sections"] = [sec.to_dict() for sec in sections]
 
     return {**result, "answer": answer, "llm_used": True}

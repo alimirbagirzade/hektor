@@ -240,8 +240,9 @@
             Ollama gerektirmez. CPU'da yavaştır (cevap dakikalar sürebilir). Liste boşsa
             önce EĞİTİM sekmesinden bir adapter eğit. <strong>Kaynaklı</strong> açıkken soru
             korpustan getirilen parçalarla, eğitim verisindeki "BAĞLAM / SORU" biçiminde
-            sorulur; kaynak bulunamazsa model çağrılmaz. Kapalıyken cevap modelin ezberidir
-            (doğrulanmamış).
+            sorulur ve cevap 8 bölümlüdür: model yalnız Kısa Cevap'ı yazar; diğer bölümler
+            kaynak kartlarından (özgün dilinde alıntı) ve kural listesinden gelir. Kaynak
+            bulunamazsa model çağrılmaz. Kapalıyken cevap modelin ezberidir (doğrulanmamış).
           </p>
           <form id="loraChatForm" class="ask-form">
             <textarea
@@ -1167,7 +1168,7 @@
       </div>
     </div>
 
-    <script src="/assets/app.js?v=14"></script>
+    <script src="/assets/app.js?v=15"></script>
     <script src="/assets/canli-badge.js?v=1"></script>
   </body>
 </html>

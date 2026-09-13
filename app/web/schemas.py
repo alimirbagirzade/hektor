@@ -78,6 +78,15 @@ class LoraChatRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=20)
 
 
+class AnswerSectionOut(BaseModel):
+    """Hibrit cevabın bir bölümü (app/brain/hybrid_answer.py)."""
+
+    title: str
+    body: str
+    source: str  # model | kaynak | kural | kural+kaynak
+    warning: bool = False
+
+
 class LoraChatResponse(BaseModel):
     answer: str
     adapter: str
@@ -85,6 +94,7 @@ class LoraChatResponse(BaseModel):
     used_context: bool = False
     llm_used: bool = True  # False → retrieval boştu, model çağrılmadı
     sources: list[SourceOut] = Field(default_factory=list)
+    sections: list[AnswerSectionOut] = Field(default_factory=list)  # yalnız kaynaklı modda dolu
 
 
 # ---------- Model değerlendirme ----------

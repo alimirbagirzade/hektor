@@ -590,6 +590,40 @@
               );
             })
             .join("");
+          var sections = data.sections || [];
+          if (sections.length) {
+            // Hibrit cevap: her bölüm nereden geldiğini rozetle söyler (model/kaynak/kural).
+            var srcCls = {
+              model: "badge-llm",
+              kaynak: "badge-rag",
+              kural: "badge-info",
+              "kural+kaynak": "badge-info",
+            };
+            res.innerHTML =
+              '<div class="result-section">' +
+              badge +
+              "</div>" +
+              sections
+                .map(function (sec, i) {
+                  return (
+                    '<div class="result-section"><strong>' +
+                    (i + 1) +
+                    ". " +
+                    esc(sec.title) +
+                    '</strong> <span class="badge ' +
+                    (srcCls[sec.source] || "badge-info") +
+                    '">' +
+                    esc(sec.source) +
+                    "</span>" +
+                    (sec.warning ? ' <span class="badge badge-warning">uyarı</span>' : "") +
+                    '<div class="result-body">' +
+                    esc(sec.body).replace(/\n/g, "<br>") +
+                    "</div></div>"
+                  );
+                })
+                .join("");
+            return;
+          }
           res.innerHTML =
             '<div class="result-section">' +
             badge +
