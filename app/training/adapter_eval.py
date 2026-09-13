@@ -124,10 +124,25 @@ def _load_model(base_model: str, adapter_dir: str | None):
     return tok, model
 
 
-def _generate(tok, model, question: str, max_new_tokens: int = 220) -> str:
+def _build_messages(question: str, system: str | None = None) -> list[dict]:
+    """Chat mesajlarını kur; `system` verilirse eğitimdeki rol düzeniyle başa eklenir.
+
+    Eval bilerek system'siz çağırır (disiplin kötü-sorunun kendisinden ölçülsün); web
+    sohbeti ise eğitim örneklerinin çoğunda bulunan SYSTEM_PROMPT'u geçer.
+    """
+    msgs: list[dict] = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.append({"role": "user", "content": question})
+    return msgs
+
+
+def _generate(
+    tok, model, question: str, max_new_tokens: int = 220, *, system: str | None = None
+) -> str:
     import torch
 
-    msgs = [{"role": "user", "content": question}]
+    msgs = _build_messages(question, system)
     text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
     ids = tok(text, return_tensors="pt")
     with torch.no_grad():
