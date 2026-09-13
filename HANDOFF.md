@@ -167,6 +167,39 @@ yok** → `gh pr edit --add-label` düşüyor, `::warning::`'e iniyor, iş yine 
 Bu PR'daki bağımlılık değişikliğinin insan onayı sohbette açıkça verildi (relock için
 "Yap", merge için "gerekiyorsa push yap"). Etiketin oluşturulması ayrı karar — açık işler.
 
+### 5. `update.ps1` üç yerde SESSİZCE başarı bildiriyordu (merge sonrası ilk koşuda görüldü)
+
+PR #2 merge edilip ana checkout sıfırlandıktan sonra `update.ps1 -Force` koşuldu: ekranda
+"[OK] Web çalışıyor" — ama **exit 2**. Üç ayrı sessiz başarısızlık:
+
+| Adım | Ne oldu | Neden görünmedi |
+|---|---|---|
+| 1. web durdurma | 08:40'taki `HektorUpdate` koşusunun başlattığı web (PID 18760) durmadı: **yükseltilmiş süreç** (görev `RunLevel=Highest`; açık `Stop-Process` → "Erişim engellendi", doğrulandı) | Üç yöntem de `-ErrorAction SilentlyContinue`; port boşaldı mı bakılmıyordu |
+| 3. senkron | `uv sync` exit 2; o koşuda site-packages'ta hiçbir şey değişmedi | Çıktı `Out-Null`'a yutuluyor, çıkış kodu kontrol edilmiyordu |
+| 5. sağlık | Yeni sunucu `[Errno 10048]` ile port'a bağlanamayıp kapandı | Yalnız "port dinliyor mu"ya bakılıyordu → eski süreci başarı saydı |
+
+**Senkronu ne kilitledi (güçlü çıkarım, kesin değil):** o sırada ana `.venv`'in python'u ile
+**başka bir oturumun** (`hektor-rag-config-607e2c` · "4b LLM soru cevapları") `repro_lora_chat.py`
+betiği koşuyordu (19:59'dan itibaren); yükseltilmiş web de ana venv'den koşuyor. Windows'ta
+yüklü `.pyd` silinemez. Aynı oturum 20:09'da ana venv'e **elle `tokenizers==0.23.2`** kurmuş
+(transkriptte doğrulandı) — ortamın merge'ten önce doğru olmasının sebebi o, benim senkronum
+değil. **Ders: birden çok oturum aynı ana `.venv`'i paylaşıyor**; senkron/kurulum öncesi venv'i
+kullanan süreçlere bakılmalı.
+
+**Düzeltme (`update.ps1`):** durdurma port boşalana kadar doğrulanır, boşalmazsa loglanıp
+**exit 1** (senkrona ve başlatmaya geçilmez); senkron `Start-Process` ile gerçek çıkış koduyla
+koşar, çıktı `logs\uv-sync*.log`'a, sonuç `update.log`'a yazılır; venv'i kullanan başka python
+süreci varsa senkron **ertelenir**; sağlık kontrolü port sahibinin **başlatılan süreç ağacı**
+olduğunu doğrular; betik yalnız her adım başarılıysa **exit 0** (görev sonucu gerçeği yansıtır).
+Kilitler: `tests/test_legacy_scheduled_tasks.py` içindeki beş `test_update_*` testi.
+
+**Makinenin bu kayıt anındaki durumu:** HEAD = `origin/main` (`1ceb867`); altı eğitim paketi
+kilitle birebir, `import transformers` çalışıyor. Web **reset öncesi kodla** (yükseltilmiş PID 18760)
+koşuyor; senkronun kalan üç farkı (regex, setuptools, proje paketinin editable yeniden kurulumu)
+uygulanmadı. Bu düzeltme main'e girdikten sonraki yükseltilmiş `HektorUpdate` koşusu web'i
+durdurup senkronu tamamlayabilir (kod değiştiği için senkron koşar). Beklemeden: Yönetici
+PowerShell'den `Stop-Process -Id 18760 -Force`, ardından `.\update.ps1 -Force`.
+
 ---
 
 ## Son seans — 2026-09-11: v8 REJECT (tekrar patolojisi) + gece senkronu (teşhis 2026-09-13'te düzeltildi)

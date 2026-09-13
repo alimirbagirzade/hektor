@@ -187,24 +187,52 @@ function Sync-ToMain {
 }
 
 # --- 1. Web sunucusunu KESIN durdur (port 8765 + hektor-web). EGITIME dokunma. ---
+# Durdurma DOGRULANIR. Eskiden uc yontem de '-ErrorAction SilentlyContinue' ile sessizce
+# basarisiz olabiliyordu: 2026-09-13'te HektorUpdate gorevinin (RunLevel=Highest) 08:40'ta
+# baslattigi web, 20:31 kosusunca OLDURULEMEDI; yeni sunucu port 8765'e baglanamadi
+# ([Errno 10048]) ama saglik kontrolu eski sureci gorup "[OK]" dedi. Artik port
+# bosalmazsa betik senkrona ve yeniden baslatmaya GECMEZ, sifir-disi cikar.
+$script:Hatalar = New-Object System.Collections.Generic.List[string]
+function Get-PortSahibi {
+    Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique
+}
 function Stop-Web {
     $pidFile = Join-Path $ProjectDir ".web.pid"
+    $hedefler = @()
     if (Test-Path $pidFile) {
         $stored = Get-Content $pidFile -ErrorAction SilentlyContinue
-        if ($stored -match '^\d+$') { Stop-Process -Id ([int]$stored) -Force -ErrorAction SilentlyContinue }
+        if ($stored -match '^\d+$') { $hedefler += [int]$stored }
         Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     }
-    try {
-        Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue |
-            Select-Object -ExpandProperty OwningProcess -Unique |
-            ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
-    } catch {}
-    Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='uv.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match 'hektor-web|hektor_web' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    $hedefler += @(Get-PortSahibi)
+    $hedefler += @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='uv.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match 'hektor-web|hektor_web|app\.web\.server' } |
+        Select-Object -ExpandProperty ProcessId)
+    foreach ($h in ($hedefler | Where-Object { $_ } | Select-Object -Unique)) {
+        if (-not (Get-Process -Id $h -ErrorAction SilentlyContinue)) { continue }
+        & taskkill /PID $h /T /F 2>$null | Out-Null
+        if (Get-Process -Id $h -ErrorAction SilentlyContinue) {
+            try { Stop-Process -Id $h -Force -ErrorAction Stop } catch {
+                Write-Host "  [!] PID $h durdurulamadi: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+    }
+    for ($i = 0; $i -lt 10; $i++) {
+        if (-not (Get-PortSahibi)) { return $true }
+        Start-Sleep -Seconds 1
+    }
+    return $false
 }
-Stop-Web
-Start-Sleep -Seconds 1
+if (-not (Stop-Web)) {
+    $sahip = (Get-PortSahibi) -join ','
+    $msg = "Port 8765 BOSALMADI (PID $sahip) -- eski web durdurulamadi. Yukseltilmis (Yonetici) surec olabilir: HektorUpdate/HektorWeb gorevleri RunLevel=Highest ile baslatir. Senkron ve yeniden baslatma YAPILMADI."
+    Write-Host "[HATA] $msg" -ForegroundColor Red
+    Write-Host "       Yonetici PowerShell'den: Stop-Process -Id $sahip -Force ; sonra .\update.ps1" -ForegroundColor Gray
+    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] HATA: $msg" | Add-Content $LogFile
+    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] SONUC: HATA (web durdurulamadi)" | Add-Content $LogFile
+    exit 1
+}
 
 # --- 2. origin/main'e DETERMINISTIK yakinsama (parklanmis dali zorla main'e al) ---
 $localHash = (& $GitPath rev-parse HEAD 2>$null).Trim()
@@ -219,16 +247,40 @@ if ($updated) {
 }
 
 # --- 3. Bagimliliklar (WEB + EGITIM extra'lari DAHIL) -------------------------
-# 'train-cpu' de senkronlanir. Eskiden yalniz '--extra dev' kosuluyordu: egitim
-# paketleri (torch/transformers/peft) YONETILMEYEN kalir, ama ortak bagimliliklari
-# (tokenizers/safetensors) kilide cekilirdi -> kurulu transformers ile cift bozulur.
-# 2026-09-09 ve 2026-09-11 03:00'te tam bu oldu (tokenizers 0.23.2 -> 0.22.2,
-# 'import transformers' kirildi). Egitim yigini artik kilidin kapsaminda; kilit
-# (pyproject 'train-cpu' extra'si) v8'i egiten surumleri tutar, dolayisiyla bu
-# senkron o yigini KORUR, bozmaz.
+# 'train-cpu' de senkronlanir: egitim yigini (torch/transformers/peft/accelerate)
+# kilidin kapsamindadir ve kilit v8'i egiten surumleri tutar -> bu senkron o yigini
+# KORUR. (tokenizers olaylarinin tetikleyicisi bu adim DEGILDI; bkz. 4. adim.)
+#
+# Cikis kodu DENETLENIR, cikti logs\uv-sync*.log'a yazilir. 2026-09-13'te bu senkron
+# exit 2 ile basarisiz oldu; cikti '| Out-Null' ile yutuldugu icin betik "[OK]" dedi.
+# O sirada ayni venv'den BASKA bir python sureci (baska bir oturumun betigi) kosuyordu:
+# Windows'ta yuklu .pyd silinemez, tam senkron yarida kalip venv'i YARIM birakabilir ->
+# boyle bir surec varsa senkron ERTELENIR (sonraki turda tekrar denenir).
+$SyncOut = Join-Path $LogDir "uv-sync.log"
+$SyncErr = Join-Path $LogDir "uv-sync-err.log"
 if ($updated -or $Force) {
-    Write-Host "[..] Bagimliliklar esitleniyor (uv sync --extra dev --extra train-cpu)..." -ForegroundColor Gray
-    & $UvPath sync --extra dev --extra train-cpu 2>&1 | Out-Null
+    $venvDir = Join-Path $ProjectDir ".venv"
+    $kullananlar = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like "$venvDir*" })
+    if ($kullananlar.Count -gt 0) {
+        $ids = ($kullananlar | ForEach-Object { $_.ProcessId }) -join ','
+        $msg = "Senkron ERTELENDI: venv'i kullanan baska python sureci var (PID $ids); yuklu .pyd dosyalari kilitli."
+        Write-Host "[UYARI] $msg" -ForegroundColor Yellow
+        "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] UYARI: $msg" | Add-Content $LogFile
+        $script:Hatalar.Add("senkron ertelendi (PID $ids)")
+    } else {
+        Write-Host "[..] Bagimliliklar esitleniyor (uv sync --extra dev --extra train-cpu)..." -ForegroundColor Gray
+        $sp = Start-Process -FilePath $UvPath -ArgumentList "sync --extra dev --extra train-cpu" -WorkingDirectory $ProjectDir -RedirectStandardOutput $SyncOut -RedirectStandardError $SyncErr -NoNewWindow -Wait -PassThru
+        if ($sp.ExitCode -ne 0) {
+            $son = (Get-Content $SyncErr -Tail 5 -ErrorAction SilentlyContinue) -join ' | '
+            $msg = "uv sync BASARISIZ (cikis=$($sp.ExitCode)): $son"
+            Write-Host "[HATA] $msg" -ForegroundColor Red
+            "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] HATA: $msg" | Add-Content $LogFile
+            $script:Hatalar.Add("uv sync cikis=$($sp.ExitCode)")
+        } else {
+            "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Senkron OK." | Add-Content $LogFile
+        }
+    }
 }
 
 # --- 4. Web'i yeniden baslat ---
@@ -251,16 +303,42 @@ $proc = Start-Process `
 $proc.Id | Out-File (Join-Path $ProjectDir ".web.pid") -Force -Encoding ascii
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Sunucu baslatildi (PID $($proc.Id))." | Add-Content $LogFile
 
-# --- 5. Saglik kontrolu (port dinliyor mu) ---
+# --- 5. Saglik kontrolu: port BIZIM baslattigimiz surecte mi ---
+# Eskiden yalniz "port dinliyor mu"ya bakiliyordu: 2026-09-13'te yeni sunucu
+# baglanamayip kapandi, port hala ESKI surecteydi ve betik "[OK]" dedi.
+function Test-BizimSurec([int]$Sahip, [int]$Kok) {
+    $cur = $Sahip
+    for ($d = 0; ($d -lt 6) -and ($cur -gt 0); $d++) {
+        if ($cur -eq $Kok) { return $true }
+        $w = Get-CimInstance Win32_Process -Filter "ProcessId=$cur" -ErrorAction SilentlyContinue
+        if (-not $w) { return $false }
+        $cur = [int]$w.ParentProcessId
+    }
+    return $false
+}
 $ok = $false
+$sahip = $null
 for ($i = 0; $i -lt 15; $i++) {
-    if (Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue) { $ok = $true; break }
+    $sahip = Get-PortSahibi | Select-Object -First 1
+    if ($sahip -and (Test-BizimSurec ([int]$sahip) $proc.Id)) { $ok = $true; break }
+    if ($proc.HasExited) { break }
     Start-Sleep -Seconds 2
 }
 Write-Host ""
 if ($ok) {
-    Write-Host "[OK] Web calisiyor: http://127.0.0.1:8765" -ForegroundColor Green
+    Write-Host "[OK] Web calisiyor: http://127.0.0.1:8765 (PID $sahip)" -ForegroundColor Green
     Write-Host "     >> Son halini gormek icin tarayicida: Ctrl+Shift+R (sert yenileme!)" -ForegroundColor Cyan
 } else {
-    Write-Host "[UYARI] Web 30 sn'de acilmadi -- log: logs\hektor-web-err.log" -ForegroundColor Yellow
+    if ($sahip) { $msg = "Port 8765 BASKA bir surecte (PID $sahip); baslatilan sunucu (PID $($proc.Id)) baglanamadi." } else { $msg = "Web 30 sn'de acilmadi." }
+    Write-Host "[HATA] $msg -- log: logs\hektor-web-err.log" -ForegroundColor Red
+    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] HATA: $msg" | Add-Content $LogFile
+    $script:Hatalar.Add("web")
 }
+
+# --- 6. Sonuc: yalniz her adim basariliysa 0 (zamanlanmis gorevin sonucu gercegi yansitsin) ---
+if ($script:Hatalar.Count -gt 0) {
+    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] SONUC: HATA ($($script:Hatalar -join '; '))" | Add-Content $LogFile
+    exit 1
+}
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] SONUC: OK" | Add-Content $LogFile
+exit 0
