@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-13 (CI 6 gündür kırmızıydı · asıl tetikleyici örtük senkron · düzeltme makineye ulaşmamıştı)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-13 (LoRA sohbeti teşhisi + hibrit kaynaklı cevap · öncesinde: CI kırmızısı + örtük senkron)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -34,7 +34,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | **Yerel (Windows):** ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2051 passed, 4 skipped, 2 deselected** (2026-09-13, `-m "not ollama"`; sonrasında eklenen tek test ayrıca 10/10). **CI (Linux):** ❌ 2026-09-07'den beri kırmızıydı (`test_sentinel_autostart_probe` ×2) — düzeltme PR #2'de, CI doğrulaması bekleniyor. **Yerel ✅ tek başına kapı sayılmaz.** |
+| Kapı (`make ci`) | **Yerel (Windows):** ✅ ruff format --check (430) + ruff check + mypy (218 dosya) + pytest **2077 passed, 4 skipped, 2 deselected** (2026-09-14, `-m "not ollama"`, LoRA sohbeti + hibrit cevap dalı `origin/main` üzerine rebase edildikten sonra). **CI (Linux):** 2026-09-07'den beri kırmızıydı; düzeltme PR #2 ile main'e girdi — bu dalın CI sonucu PR'da görülecek. **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
 | Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
@@ -100,6 +100,66 @@ production terfisi ayrı insan onayı ister.
 
 > **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
 > rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-13 (akşam): "Eğitilen model istediğimiz gibi cevap vermiyor" → hibrit kaynaklı cevap
+
+**Belirti.** Web'deki "3 · Eğitilen Modelle Sohbet" istenen tarzda cevap vermiyor; "model
+bağlanmıyor mu?" şüphesi. Bulgular ölçülerek doğrulandı:
+
+1. **Bağlantı gerçekten kopuktu:** `tokenizers 0.22.2` ↔ `transformers 5.16.1` →
+   `/api/lora-chat` 503. Kök neden ve kalıcı düzeltme bir alttaki kayıttadır (örtük senkron,
+   `4dec640` / `9439355` / `b24c355`). Bu makinenin ana venv'ine `tokenizers==0.23.2` uv
+   önbelleğinden elle geri kuruldu; `import transformers/peft` OK.
+2. **İki farklı "4B":** ARAŞTIRMA RAG kutusu / `hektor ask` / RLM = Ollama `qwen3:4b` (base,
+   adapter'sız). Adapter Ollama'ya hiç aktarılmadı; `/api/ask`'in adapter yolu MLX (Windows'ta
+   çalışamaz). Adapter base'i `Qwen3-4B-Instruct-2507` ≠ Ollama `qwen3:4b`.
+3. **Eğitim verisi istenen formatı içermiyor:** `train.jsonl` (1616) içinde 9 bölümlü
+   `Kısa Cevap/Test Planı` biçimi **%0**; cevap medyanı 209 karakter; %72 "BAĞLAM/SORU".
+4. **Çıkarım ↔ eğitim uyuşmazlığı:** sohbet system prompt'suz ve bağlamsız soruyordu (eğitimde
+   %92 system, %72 bağlam); arayüz varsayılanı alfabetik ilk = **v7**.
+5. **Hız (ölçüldü):** PEFT bf16 CPU ~0,37 token/sn; Ollama Q4 4,1 token/sn (~11×).
+   Canlı v8: çıplak soru → 110 token kalıp metin; eğitim formatı → 43 token, bağlama sadık cümle.
+
+**Düzeltmeler (`be47281`).** Sohbet (web + CLI `lora-chat`) SYSTEM_PROMPT gönderir; "kaynaklı"
+mod retrieval + eğitimle BİREBİR `BAĞLAM:\n…\n\nSORU: …` (≤2400 karakter), retrieval boşsa
+model çağrılmaz; adapter listesi en yeni önce; 503 mesajı sürüm çatışmasını da söyler;
+`adapter_eval._generate` opsiyonel `system` (eval bilinçli olarak system'siz kalır).
+
+**Format kararı (kullanıcı): HİBRİT · yalnız Türkçe · kart içeriği özgün alıntı (`7f31696`).**
+Gerekçe: tam raporu modele yazdırmak soru başına 30-60 dk; kartların ~%98'i İngilizce ve
+`qwen3:4b` ile otomatik çeviri güvenilmez (düşünme sızıntısı + "5-10%"→"5-1.0%").
+Reddedilenler: yeniden eğitim (Kademe 2 + ~33 sa + yavaş çıkarım), yalnız RAG yolu (LoRA devre
+dışı), tek seferlik kart çevirisi (önce sızıntı çözülmeli).
+
+`app/brain/hybrid_answer.py` (saf, deterministik) — kaynaklı modda 8 bölüm, her biri rozetli:
+
+| # | Bölüm | Kaynak |
+|---|---|---|
+| 1 | Kısa Cevap | **model** (tek üretim, eğitim formatı) |
+| 2 | Kaynaklar | kaynak (retrieval atıfları) |
+| 3 | Bağlam Kalitesi | kural (`assess_confidence`, CRAG eşikleri 0,55/0,02 → Güçlü/Orta/Zayıf+uyarı) |
+| 4 | Akademik Bulgu | kaynak (kart `main_claim`, ≤2 makale, "(kaynak, çevrilmedi)") |
+| 5 | Trading Hipotezi | kaynak (kart hipotezleri ≤3 + sabit "test edilmemiş, sayılar doğrulanmamış") |
+| 6 | Test Planı | kural (OOS, komisyon+slippage, `shift(1)`, seed, `/backtest-auditor`) |
+| 7 | Riskler | kural (+ kart `risk_warnings` alıntısı) |
+| 8 | Sonraki Adım | kural |
+
+Formül bölümü yok (kartlarda formül alanı yok). Kaynaksız modda bölüm şablonu yok. Kartlar
+üretimden ÖNCE çekilir. Gerçek retrieval + kartlarla uçtan uca denendi (model üretimi taklit):
+8 bölüm doğru kaynaklardan doldu; "look-ahead bias" sorusunda Bağlam Kalitesi dürüstçe "Zayıf".
+**Denenmedi:** v8'in bu moddaki gerçek Kısa Cevap'ı web üzerinden (CPU'da ~2-5 dk).
+
+**Kapı (rebase sonrası):** ruff format --check + ruff check + mypy (218) + pytest **2077 passed,
+4 skipped, 2 deselected**. Dal ilk hâlinde `update.ps1` / `uv.lock` için aynı amaçlı değişiklik
+taşıyordu; main'deki düzeltme (bir alttaki kayıt) üst küme olduğu için rebase'te bırakıldı.
+
+**Açık işler.**
+- Ollama 0.34.0 `qwen3:4b` `think:false` + `/no_think`'e rağmen düz metin düşünüyor; `LocalLLM`
+  ile önemsiz soru 240 sn'de bitmedi → RAG kutusu / `hektor ask` / kart üretimi etkilenebilir
+  (ayrı seansta ele alınıyor).
+- Eğitilmiş modeli ana soru-cevap hattına bağlamak (GGUF→Ollama, ~11× hız).
 
 ---
 
