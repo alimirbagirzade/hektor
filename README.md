@@ -34,7 +34,7 @@ Kurulum açılır ve **9 yerel model seçeneği** sunar (hepsi internetsiz ve ü
 API anahtarı istenmez):
 
 ```
-  [1] qwen3:4b        ~2.5 GB    8 GB+ RAM   Hızlı   ← önerilen başlangıç
+  [1] qwen3:4b-instruct-2507  ~2.5 GB   8 GB+ RAM  Hızlı ← önerilen (düşünmesiz)
   [2] qwen3:8b        ~5 GB     16 GB+ RAM   Dengeli
   [3] qwen3:14b       ~9 GB     32 GB+ RAM   Güçlü
   [4] qwen3:30b      ~20 GB     32 GB+ RAM   Çok güçlü
@@ -910,7 +910,7 @@ cp .env.example .env
 # .env → HEKTOR_LLM_BACKEND=ollama     (varsayılan; API anahtarı gerekmez)
 
 # 4. Ollama modelini indir
-ollama pull qwen3:4b         # 8 GB RAM için önerilen
+ollama pull qwen3:4b-instruct-2507-q4_K_M  # 8 GB RAM için önerilen (düşünmesiz)
 ollama pull nomic-embed-text # embedding modeli
 
 # 5. Web arayüzünü başlat
@@ -921,7 +921,7 @@ uv run hektor-web
 
 | RAM | Model | Hız |
 |:---:|-------|-----|
-| 8 GB | `qwen3:4b` | Hızlı |
+| 8 GB | `qwen3:4b-instruct-2507-q4_K_M` | Hızlı (düşünmesiz; çıplak `qwen3:4b` = Thinking-2507, yavaş) |
 | 16 GB | `qwen3:8b` | Dengeli |
 | 32 GB | `qwen3:14b` | Güçlü |
 
@@ -1160,8 +1160,8 @@ uv run hektor train --run               # macOS Apple Silicon gerekli
 | Sayfa eski veya boş | **Cmd+Shift+R** (Mac) / **Ctrl+Shift+R** (Win) — önbellek temizle |
 | "Bu siteye ulaşılamıyor" | Sunucu kapalı → `uv run hektor-web` çalıştır |
 | 🔴 "Ollama yok" uyarısı | `brew services start ollama` → tarayıcıyı yenile |
-| Kart üretimi çok uzun | OpenAI kullan (çok daha hızlı) veya `.env` → `HEKTOR_LLM_MODEL=qwen3:4b` |
-| 🔴 "LLM yok" uyarısı | `ollama serve` çalıştır, sonra `ollama pull qwen3:4b` |
+| Kart üretimi çok uzun | `.env` → `HEKTOR_LLM_MODEL=qwen3:4b-instruct-2507-q4_K_M` (düşünmesiz, çok daha hızlı) |
+| 🔴 "LLM yok" uyarısı | `ollama serve` çalıştır, sonra `ollama pull qwen3:4b-instruct-2507-q4_K_M` |
 | 50 MB az geldi | `.env` → `HEKTOR_MAX_UPLOAD_MB=200` → sunucuyu yeniden başlat |
 | "Yetkisiz" hatası | Token ayarlıysa **08 SİSTEM** → token gir → KAYDET bas |
 | Backtest FAIL ama getiri pozitif | OOS kısmı başarısız — bu kasıtlı, overfit koruması |
