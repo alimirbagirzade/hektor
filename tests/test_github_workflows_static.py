@@ -166,3 +166,50 @@ def test_task_pull_request_needs_approval_job() -> None:
     assert "dependency-approval-label" in c
     assert "gh pr edit" in c  # mekanik label-add (PR numarası bilinir)
     assert "github.event.pull_request.number" in c
+
+
+# --- 2026-09-13: onay kapısı FAIL-CLOSED ---
+def _approval_job(c: str) -> str:
+    """`dependency-approval-label` işinin gövdesi (iş anahtarından dosya sonuna)."""
+    return c.split("dependency-approval-label:", 1)[1]
+
+
+def test_approval_label_failure_is_red_not_warning() -> None:
+    """Etiket eklenemezse iş KIRMIZI dönmeli; uyarıya düşürülmemeli.
+
+    2026-09-13: `needs-approval` etiketi repoda hiç yoktu; `gh pr edit` düşüyor,
+    hata `::warning::`'e iniyor ve iş yeşil dönüyordu — onay kapısı kurulduğundan
+    beri hiç ısırmamıştı.
+    """
+    job = _approval_job(_r(_TASK))
+    assert "::warning::" not in job, "etiket hatası hâlâ uyarıya düşürülüyor"
+    assert "::error::" in job
+    assert "exit 1" in job
+
+
+def test_approval_label_is_verified_after_adding() -> None:
+    """`gh pr edit` başarılı dönse bile etiketin PR'da gerçekten göründüğü doğrulanmalı."""
+    job = _approval_job(_r(_TASK))
+    assert "gh pr view" in job and "labels" in job
+
+
+def test_approval_diff_failure_is_not_swallowed() -> None:
+    """Fark hesaplanamazsa boş sayılıp kapı sessizce geçilmemeli (`|| true` yok)."""
+    job = _approval_job(_r(_TASK))
+    diff_lines = [s for s in job.splitlines() if "git diff" in s]
+    assert diff_lines, "değişiklik tespiti için git diff bulunamadı"
+    for s in diff_lines:
+        assert "|| true" not in s, f"git diff hatası yutuluyor: {s.strip()}"
+    assert "set -euo pipefail" in job
+
+
+def test_approval_match_does_not_pipe_into_grep_q() -> None:
+    """pipefail altında `... | grep -q` erken çıkışta SIGPIPE → eşleşme "yok" sayılabilir.
+
+    Değişiklik tespiti yanlış negatif verirse iş "gerekmez" deyip YEŞİL döner; bu
+    yüzden grep -q'ya boru değil here-string beslenir.
+    """
+    job = _approval_job(_r(_TASK))
+    for s in job.splitlines():
+        if "grep -" in s and "q" in s.split("grep -", 1)[1].split()[0]:
+            assert "|" not in s.split("grep", 1)[0], f"grep -q'ya boru besleniyor: {s.strip()}"

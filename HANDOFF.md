@@ -552,9 +552,11 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
      senkronu zorlar. Ardından: `import transformers` çalışmalı, altı paket kilitle birebir
      olmalı, ve **ertesi gece** `update.log` koşusundan sonra tokenizers damgası değişmemiş
      olmalı.
-  2. **`needs-approval` etiketi repoda yok** — bağımlılık onay kapısı kurulduğundan beri
-     hiç ısırmadı. Etiketi oluşturmak ya da işi etiket yoksa FAIL edecek hâle getirmek:
-     insan kararı.
+  2. ~~**`needs-approval` etiketi repoda yok**~~ — **kapandı (2026-09-13).** Etiket
+     oluşturuldu; `dependency-approval-label` işi artık fail-closed: etiket eklenemez ya
+     da PR'da doğrulanamazsa KIRMIZI döner, fark hesaplanamazsa sessizce geçmez. İlk canlı
+     sınama bu düzeltmenin kendi PR'ıydı (iş akışı dosyasını değiştirdiği için etiketlenmesi
+     gerekir).
   3. **CI yeşil olmadan merge** — main korumasız; PR #1 kırmızıyken merge edildi. main için
      "CI zorunlu" dal koruması açılsın mı: insan kararı.
 - **Ajan envanteri §5, sıra 2-6** (`reports/agent-inventory/envanter-2026-09-09.md`).

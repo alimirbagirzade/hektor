@@ -191,6 +191,13 @@ jobs:
 
   # PR'da bağımlılık/iş-akışı değişiyorsa 'needs-approval' etiketi EKLE (mekanik).
   # YALNIZ pull_request olaylarında koşar; PR numarası burada bilinir. MERGE YAPMAZ.
+  #
+  # FAIL-CLOSED (2026-09-13): etiket eklenemezse ya da eklendiği doğrulanamazsa iş
+  # KIRMIZI döner. Eskiden hata '::warning::'e düşürülüyordu; 'needs-approval' etiketi
+  # repoda hiç yokken iş kurulduğundan beri yeşil dönmüş, onay kapısı hiç ısırmamıştı.
+  # Aynı sınıftan iki açık daha kapatıldı: fark hesaplanamazsa '|| true' ile boş
+  # sayılıp geçilmiyor; 'printf | grep -q' yerine here-string kullanılıyor (pipefail
+  # altında grep erken çıkınca printf SIGPIPE alır ve eşleşme "yok" sayılabilirdi).
   dependency-approval-label:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -203,17 +210,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Bağımlılık/iş-akışı değişirse needs-approval ekle
+      - name: Bağımlılık/iş-akışı değişirse needs-approval ekle (fail-closed)
         env:
           GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          base="origin/${{ github.event.pull_request.base.ref }}"
-          changed="$(git diff --name-only "$base"...HEAD || true)"
-          if printf '%s\n' "$changed" | grep -Eq '^(pyproject\.toml|uv\.lock|requirements.*\.txt|\.github/workflows/)'; then
-            echo "Bağımlılık/iş-akışı değişti → 'needs-approval' etiketi ekleniyor (insan onayı şart)."
-            gh pr edit "${{ github.event.pull_request.number }}" \
-              --repo "${{ github.repository }}" --add-label needs-approval || \
-              echo "::warning::needs-approval etiketi eklenemedi (etiket repo'da yoksa önce oluştur)."
-          else
+          set -euo pipefail
+          changed="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
+          if ! grep -Eq '^(pyproject\.toml|uv\.lock|requirements.*\.txt|\.github/workflows/)' <<< "$changed"; then
             echo "Bağımlılık/iş-akışı değişimi yok — needs-approval gerekmez."
+            exit 0
           fi
+          echo "Bağımlılık/iş-akışı değişti → 'needs-approval' etiketi ekleniyor (insan onayı şart)."
+          if ! gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-approval; then
+            echo "::error::needs-approval etiketi EKLENEMEDİ (etiket repoda yok ya da izin yok). Onay kapısı sessizce geçemez."
+            exit 1
+          fi
+          labels="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')"
+          if ! grep -qx 'needs-approval' <<< "$labels"; then
+            echo "::error::needs-approval eklendi denildi ama PR'da GÖRÜNMÜYOR. Onay kapısı sessizce geçemez."
+            exit 1
+          fi
+          echo "needs-approval etiketi eklendi ve PR'da doğrulandı."
