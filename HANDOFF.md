@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-13 (LoRA sohbeti teşhisi + hibrit kaynaklı cevap · öncesinde: CI kırmızısı + örtük senkron)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-14 (gece doğrulaması geçti · needs-approval kapısı fail-closed ve canlı sınamada ısırdı · 2026-09-13 akşam: LoRA sohbeti teşhisi + hibrit kaynaklı cevap)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -34,7 +34,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | **Yerel (Windows):** ✅ ruff format --check (430) + ruff check + mypy (218 dosya) + pytest **2085 passed, 4 skipped, 2 deselected** (2026-09-14, `-m "not ollama"`, PR #4 dalı: LoRA sohbeti + hibrit cevap + tekrar koruması, `origin/main` üzerine rebase sonrası). **CI (Linux):** 2026-09-07'den beri kırmızıydı; düzeltme PR #2 ile main'e girdi — bu dalın CI sonucu PR'da görülecek. **Yerel ✅ tek başına kapı sayılmaz.** |
+| Kapı (`make ci`) | **CI (Linux):** ✅ main'de yeşil — `1ceb867`, `e99a3bb`, `5841f7c` ve `4f32768` push koşuları success. 2026-09-07 ile 2026-09-13 arası kırmızıydı (`test_sentinel_autostart_probe` ×2; bkz. 2026-09-13 kaydı). **Yerel (Windows):** ✅ ruff format --check (421 dosya, app+tests) + ruff check + mypy (218 dosya) + pytest **2089 passed, 4 skipped, 2 deselected** (2026-09-14, `-m "not ollama"`, `4f32768` kodu + bu HANDOFF). **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
 | Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
@@ -100,6 +100,48 @@ production terfisi ayrı insan onayı ister.
 
 > **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
 > rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-14: gece doğrulaması geçti · onay kapısı canlı sınamada ısırdı
+
+### 1. Gece senkronu düzeltmesi gerçek koşuda doğrulandı
+
+`HektorUpdate` (RunLevel=Highest) 2026-09-14 03:00 koşusu, `logs/update.log`:
+
+```
+[2026-09-14 03:00] Guncelleme basliyor (Force=False)...
+[2026-09-14 03:00] DURUM dal=main HEAD=e99a3bb ahead=0 behind=0
+[2026-09-14 03:00] Sunucu baslatildi (PID 5388).
+[2026-09-14 03:00] SONUC: OK
+```
+
+- **tokenizers damgası değişmedi** (2026-09-13 20:09:32). Web `uv run --no-sync` ile yeniden
+  başladı ve ortamı senkronlamadı; üç gece üst üste bozan tetikleyici tetiklenmedi.
+- `import transformers` çalışıyor (5.16.1 / 0.23.2); görev sonucu 0.
+- Yükseltilmiş görev eski yükseltilmiş web'i (PID 18760) durdurabildi; web artık yeni kodla
+  koşuyor (PID 4548, 03:00:07). Yeni sağlık kontrolü port sahibinin başlatılan süreç
+  olduğunu doğruladı. 2026-09-13 kaydındaki Yönetici adımına **gerek kalmadı**.
+- Senkron adımı koşmadı (kod değişmedi, `-Force` yok). Kalan üç fark (regex, setuptools,
+  proje paketinin editable yeniden kurulumu) hâlâ uygulanmadı; kod değiştiren ilk gece koşusu
+  uygular. Aciliyeti yok.
+- 2026-09-13 21:01 ve 21:08'deki yükseltilmemiş `-Force` koşuları yeni betikle beklendiği gibi
+  açıkça `SONUC: HATA (web durdurulamadi)` verdi (21:08'i başka biri koşturdu).
+
+### 2. `needs-approval` onay kapısı fail-closed — canlı sınamada ısırdı (PR #5, `5841f7c`)
+
+`dependency-approval-label` işi etiket eklenemezse `::warning::`'e düşüp yeşil dönüyordu ve
+etiket repoda hiç yoktu. Etiket oluşturuldu, iş fail-closed yapıldı:
+
+- etiket eklenemez ya da PR'da doğrulanamazsa `::error::` + kırmızı;
+- `git diff … || true` kaldırıldı (fark hesaplanamazsa sessizce geçmez);
+- `printf | grep -q` yerine here-string (pipefail altında SIGPIPE → yanlış negatif → yeşil).
+
+Sahte `git`/`gh` ile 6/6 senaryo; `tests/test_github_workflows_static.py`'de 4 yeni kilit.
+
+**Canlı sınama:** PR #5 iş akışı dosyasını değiştirdiği için kapsamdaydı. Etiketi
+`github-actions[bot]` ekledi; iş çıktısı: "needs-approval etiketi eklendi ve PR'da
+doğrulandı". PR #2 aynı durumda etiketsiz geçmişti.
 
 ---
 
@@ -637,12 +679,10 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
      bayraklar, tekrarları gösterimde keser, ham çıktıyı korur — üretim ayarıyla gizlemez.
   4. **Yönetici `-Repair`** — `HektorWeb` + `HektorUpdate` görevleri hâlâ eski yolda.
 - **2026-09-13 sonrası:**
-  1. **Uçtan uca doğrulama (görülene kadar AÇIK)** — PR #2 merge edilince ana checkout'ta
-     SIRAYLA: `git fetch origin && git reset --hard origin/main`, SONRA `.\update.ps1 -Force`.
-     Önce sıfırla ki YENİ betik koşsun (eskisi `--no-sync`'siz başlatır); `-Force` açık
-     senkronu zorlar. Ardından: `import transformers` çalışmalı, altı paket kilitle birebir
-     olmalı, ve **ertesi gece** `update.log` koşusundan sonra tokenizers damgası değişmemiş
-     olmalı.
+  1. ~~**Uçtan uca doğrulama**~~ — **kapandı (2026-09-14).** 03:00 gece koşusu `SONUC: OK`,
+     tokenizers damgası değişmedi, `import transformers` çalışıyor, web yeni kodla yeniden
+     başladı. Kalan tek şey: senkronun üç küçük farkı kod değiştiren ilk gece koşusunda
+     uygulanacak (bkz. 2026-09-14 kaydı).
   2. ~~**`needs-approval` etiketi repoda yok**~~ — **kapandı (2026-09-13).** Etiket
      oluşturuldu; `dependency-approval-label` işi artık fail-closed: etiket eklenemez ya
      da PR'da doğrulanamazsa KIRMIZI döner, fark hesaplanamazsa sessizce geçmez. İlk canlı
