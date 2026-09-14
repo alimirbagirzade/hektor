@@ -674,13 +674,26 @@ def api_lora_chat(req: LoraChatRequest) -> LoraChatResponse:
     from app.web.lora_chat_service import chat
 
     try:
-        out = chat(req.question, req.adapter, max_tokens=req.max_tokens)
+        out = chat(
+            req.question,
+            req.adapter,
+            max_tokens=req.max_tokens,
+            use_context=req.use_context,
+            top_k=req.top_k,
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ImportError as exc:
+        # İki ayrı arıza aynı ImportError'la gelir: paket HİÇ yok, ya da kurulu ama sürüm
+        # çatışıyor (2026-09-12: tokenizers 0.22.2 ↔ transformers 5.16.1). Eski mesaj yalnız
+        # "eksik" diyordu ve ikinci durumda yanlış yöne yolluyordu.
         raise HTTPException(
             status_code=503,
-            detail=f"PEFT/transformers eksik: {exc}. Kur: uv pip install torch transformers peft",
+            detail=(
+                f"Eğitim paketleri import edilemedi: {exc}. Paket eksikse: "
+                "uv pip install torch transformers peft accelerate. Sürüm çatışmasıysa "
+                "(ör. tokenizers): uv sync --extra dev --inexact"
+            ),
         ) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"LoRA sohbet hatası: {exc}") from exc

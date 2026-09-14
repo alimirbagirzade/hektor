@@ -198,3 +198,21 @@ def test_update_basarisizlikta_sifir_disi_cikar(update_betik: str) -> None:
     bolum = update_betik.split("# --- 6.", 1)[1]
     assert "SONUC: HATA" in bolum and "exit 1" in bolum
     assert "SONUC: OK" in bolum and "exit 0" in bolum
+
+
+def test_uv_lock_transformers_tokenizers_uyumlu() -> None:
+    """Lock'taki tokenizers, lock'taki transformers'ın istediği aralıkta olmalı.
+
+    transformers ≥5.16 `tokenizers>=0.23.1,<0.24` ister. Çift uyumsuz kilitlenirse her
+    lock hizalaması (uv sync / örtük uv run senkronu) `import transformers`'ı kırar ve
+    web LoRA sohbeti 503 verir (2026-09-12'de tam bu oldu).
+    """
+    lock = (_SCRIPT.parents[1] / "uv.lock").read_text(encoding="utf-8")
+
+    def _ver(name: str) -> tuple[int, ...]:
+        blok = lock.split(f'\nname = "{name}"\n', 1)[1]
+        v = blok.split('version = "', 1)[1].split('"', 1)[0]
+        return tuple(int(p) for p in v.split(".")[:3])
+
+    if _ver("transformers") >= (5, 16, 0):
+        assert (0, 23, 1) <= _ver("tokenizers") < (0, 24, 0)
