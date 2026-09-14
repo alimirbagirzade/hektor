@@ -688,8 +688,13 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
      da PR'da doğrulanamazsa KIRMIZI döner, fark hesaplanamazsa sessizce geçmez. İlk canlı
      sınama bu düzeltmenin kendi PR'ıydı (iş akışı dosyasını değiştirdiği için etiketlenmesi
      gerekir).
-  3. **CI yeşil olmadan merge** — main korumasız; PR #1 kırmızıyken merge edildi. main için
-     "CI zorunlu" dal koruması açılsın mı: insan kararı.
+  3. ~~**CI yeşil olmadan merge**~~ — **kapandı (2026-09-14).** main'e dal koruması açıldı:
+     zorunlu kontrol `lint · types · tests (offline)` (yalnız `github-actions` sonucu), dal
+     güncel olmalı (`strict`), yöneticiler de uyar (`enforce_admins`), force-push ve dal silme
+     kapalı, review zorunluluğu yok. Ayarlar ve kontrol adının UTF-8 baytları API'den geri
+     okunarak doğrulandı. Etkisi: kırmızı PR merge edilemez (yönetici de); main ilerlediyse
+     önce `gh pr update-branch <no>` ve CI yeşili; main'e doğrudan push fiilen kapalı.
+     Geri alma: `gh api -X DELETE repos/alimirbagirzade/hektor/branches/main/protection`.
 - **Ajan envanteri §5, sıra 2-6** (`reports/agent-inventory/envanter-2026-09-09.md`).
   Sıra 1 (eğitim kapısı) 2026-09-10'da kapandı. Kalanlar:
   2. Manifest `safety_gates` ↔ test kimliği eşlemesi + drift testi (B1'in genel hâli).
