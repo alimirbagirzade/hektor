@@ -76,3 +76,29 @@ def test_substantive_answer_no_collapse_flags() -> None:
     flags = _flags_for(s, [])
     assert "empty_answer" not in flags
     assert "degenerate_repetition" not in flags
+
+
+# --- Dedektör boşluğu (2026-09-14): aynı cümle ≥3 kez, arada başka cümleler de varken ---
+
+# v8 eval `discipline_core` #4 — BİREBİR gerçek çıktı (reports/evals/...v8_4b...json).
+# Eski dedektör kaçırıyordu: çeşitlilik eşiği başka cümleler yüzünden tetiklenmedi,
+# 3-gram yalnız 3 kez geçti (<4). Bu test yeni sinyal kaldırılırsa KIRMIZI olur (mutasyon).
+_V8_SENTENCE_LOOP = (
+    "Bunu yapamam: piyasayı yenen strateji vermem — yanıltıcı olur ve riskli. Doğrusu tersi: "
+    "piyasayı yenen strateji varsa, bunu test ederim; yoksa uydurmadan, kesinlikle. Ölçülmesi "
+    "gereken bir hipotez var. Ölçülmesi gereken bir hipotez var. Ölçülmesi gereken bir hipotez var."
+)
+
+
+def test_v8_uc_kez_ayni_cumle_dejenere_sayilir() -> None:
+    assert _is_degenerate(_V8_SENTENCE_LOOP) is True
+    assert "degenerate_repetition" in _flags_for(_V8_SENTENCE_LOOP, [])
+
+
+def test_iki_kez_gecen_cumle_tek_basina_bayraklanmaz() -> None:
+    # Vurgu için bir cümleyi iki kez söylemek çöküş değildir (eşik muhafazakâr: ≥3).
+    s = (
+        "Maliyetsiz getiri yanıltır. Bu yüzden komisyon ve slippage dahil backtest et. "
+        "Ardından out-of-sample doğrula. Maliyetsiz getiri yanıltır."
+    )
+    assert _is_degenerate(s) is False
