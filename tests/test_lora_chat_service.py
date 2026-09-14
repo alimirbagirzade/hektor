@@ -198,6 +198,34 @@ def test_adapter_listesi_en_yeni_once_ve_yarim_olanlari_atlar(
     assert svc.list_adapters() == ["hektor_lora_v8_4b", "hektor_smoke_olcum", "hektor_lora_v7_4b"]
 
 
+_V8_SENTENCE_LOOP = (
+    "Bunu yapamam: piyasayı yenen strateji vermem — yanıltıcı olur ve riskli. Doğrusu tersi: "
+    "piyasayı yenen strateji varsa, bunu test ederim; yoksa uydurmadan, kesinlikle. Ölçülmesi "
+    "gereken bir hipotez var. Ölçülmesi gereken bir hipotez var. Ölçülmesi gereken bir hipotez var."
+)
+
+
+def test_dejenere_cevap_bayraklanir_ham_cevap_korunur(
+    fake_model: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(adapter_eval, "_generate", lambda *a, **kw: _V8_SENTENCE_LOOP)
+    retriever = _StubRetriever([_chunk("Pozisyon shift(1) ile gecikmeli.")])
+
+    out = svc.chat("soru", None, use_context=True, retriever=retriever, card_lookup=lambda p: None)
+    assert out["degenerate"] is True
+    assert out["answer"] == _V8_SENTENCE_LOOP  # ham çıktı GİZLENMEZ
+    short = out["sections"][0]
+    assert short["warning"] is True
+    assert short["body"].count("Ölçülmesi gereken bir hipotez var.") == 1
+
+    plain = svc.chat("soru", None)  # kaynaksız modda da bayrak gelir
+    assert plain["degenerate"] is True and plain["sections"] == []
+
+
+def test_saglam_cevapta_dejenere_bayragi_yok(fake_model: dict[str, Any]) -> None:
+    assert svc.chat("soru", None)["degenerate"] is False
+
+
 # ---------- API katmanı ----------
 fastapi = pytest.importorskip("fastapi")
 pytest.importorskip("httpx")

@@ -95,6 +95,7 @@ class LoraChatResponse(BaseModel):
     llm_used: bool = True  # False → retrieval boştu, model çağrılmadı
     sources: list[SourceOut] = Field(default_factory=list)
     sections: list[AnswerSectionOut] = Field(default_factory=list)  # yalnız kaynaklı modda dolu
+    degenerate: bool = False  # model çıktısında tekrar döngüsü (adapter_eval._is_degenerate)
 
 
 # ---------- Model değerlendirme ----------

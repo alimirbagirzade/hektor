@@ -14,6 +14,7 @@ rozet olarak gösterir; kullanıcı neyin üretildiğini, neyin alıntılandığ
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 
@@ -44,6 +45,31 @@ NEXT_STEP = (
     "Hipotezi `hektor backtest` ile maliyetli ve out-of-sample doğrulamalı test et, ardından "
     "`/backtest-auditor` ile denetle. Verdict `pass` değilse çıktı yalnızca adaydır."
 )
+DEGENERATE_NOTE = (
+    "Uyarı: model çıktısı tekrar döngüsüne girdi (dejenere). Okunabilsin diye tekrarlar "
+    "kesildi; ham çıktı API yanıtındaki `answer` alanında durur. Bu cevaba dayanma."
+)
+
+# Ardışık kelime/ifade döngüsü: 1-4 kelimelik bir ifadenin arka arkaya ≥3 geçişi.
+# (v8 eval #10: "Hayır — bu kural kuralı kuralı kuralı …")
+_TOKEN_LOOP_RE = re.compile(r"(\b\w+(?:\W+\w+){0,3}?)(?:\W+\1\b){2,}")
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def collapse_repetition(text: str) -> str:
+    """Dejenere çıktıyı okunur kıl: ifade döngüsünü tek geçişe indir, birebir tekrar eden
+    uzun cümlelerin yalnız ilkini tut. Yalnız GÖSTERİM içindir; tespit `_is_degenerate`'tir.
+    """
+    collapsed = _TOKEN_LOOP_RE.sub(r"\1", text)
+    seen: set[str] = set()
+    kept: list[str] = []
+    for sentence in _SENTENCE_SPLIT_RE.split(collapsed):
+        key = sentence.strip()
+        if len(key) > 15 and key in seen:
+            continue
+        seen.add(key)
+        kept.append(sentence)
+    return " ".join(kept).strip()
 
 
 @dataclass(frozen=True)
@@ -176,14 +202,21 @@ def build_sections(
     *,
     min_similarity: float,
     min_margin: float,
+    degenerate: bool = False,
 ) -> list[AnswerSection]:
-    """8 bölümlü hibrit cevap. Model yalnız "Kısa Cevap"ı yazar; gerisi kaynak/kural."""
+    """8 bölümlü hibrit cevap. Model yalnız "Kısa Cevap"ı yazar; gerisi kaynak/kural.
+
+    `degenerate=True` (çağıran `_is_degenerate` ile tespit eder): Kısa Cevap uyarılı,
+    tekrarları kesilmiş ve açık notlu gösterilir — üretim ayarıyla GİZLENMEZ (Kural 2).
+    """
     answer = model_answer.strip()
-    short = (
-        AnswerSection("Kısa Cevap", answer, "model")
-        if answer
-        else AnswerSection("Kısa Cevap", "(model boş cevap üretti)", "model", warning=True)
-    )
+    if not answer:
+        short = AnswerSection("Kısa Cevap", "(model boş cevap üretti)", "model", warning=True)
+    elif degenerate:
+        body = f"{collapse_repetition(answer)}\n\n{DEGENERATE_NOTE}"
+        short = AnswerSection("Kısa Cevap", body, "model", warning=True)
+    else:
+        short = AnswerSection("Kısa Cevap", answer, "model")
     return [
         short,
         sources_section(chunks),

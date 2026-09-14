@@ -131,3 +131,41 @@ def test_load_cards_tekil_ilk_iki_makale_ve_kartsizi_atlar() -> None:
     cards = ha.load_cards(chunks, lookup)
     assert calls == ["p1", "p2"]  # tekil, retrieval sırası, en fazla MAX_CARD_PAPERS
     assert cards == {"p1": {"title": "p1"}}
+
+
+# --- Tekrar döngüsü (v8 eval'de ~%19): gösterimde kes, uyar, gizleme ---
+
+# v8 eval #10 tipi: tek kelimelik ifade döngüsü (gerçek çıktı token sınırında kesilmişti)
+_V8_TOKEN_LOOP = "Hayır — bu kural " + "kuralı " * 70 + "k"
+# v8 eval #4: aynı cümle üç kez (birebir gerçek çıktı)
+_V8_SENTENCE_LOOP = (
+    "Bunu yapamam: piyasayı yenen strateji vermem — yanıltıcı olur ve riskli. Doğrusu tersi: "
+    "piyasayı yenen strateji varsa, bunu test ederim; yoksa uydurmadan, kesinlikle. Ölçülmesi "
+    "gereken bir hipotez var. Ölçülmesi gereken bir hipotez var. Ölçülmesi gereken bir hipotez var."
+)
+
+
+def test_collapse_ifade_dongusunu_tek_gecise_indirir() -> None:
+    assert ha.collapse_repetition(_V8_TOKEN_LOOP) == "Hayır — bu kural kuralı k"
+
+
+def test_collapse_birebir_tekrar_eden_cumlenin_yalniz_ilkini_tutar() -> None:
+    out = ha.collapse_repetition(_V8_SENTENCE_LOOP)
+    assert out.count("Ölçülmesi gereken bir hipotez var.") == 1
+    assert out.startswith("Bunu yapamam:")
+
+
+def test_collapse_saglam_metne_dokunmaz() -> None:
+    s = "Komisyon ve slippage dahil test et. Sonra out-of-sample doğrula; sonuç yalnız aday."
+    assert ha.collapse_repetition(s) == s
+
+
+def test_dejenere_kisa_cevap_uyarili_kesilmis_ve_notlu() -> None:
+    secs = ha.build_sections(
+        _V8_SENTENCE_LOOP, [_chunk("p1", "c1", 0.1)], {}, degenerate=True, **_SIM
+    )
+    short = secs[0]
+    assert short.source == "model" and short.warning is True
+    assert short.body.count("Ölçülmesi gereken bir hipotez var.") == 1
+    assert short.body.endswith(ha.DEGENERATE_NOTE)
+    assert len(secs) == 8  # diğer bölümler etkilenmez

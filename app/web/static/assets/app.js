@@ -574,7 +574,10 @@
             "</span>" +
             (data.used_context
               ? ' <span class="badge badge-rag">kaynaklı (BAĞLAM)</span>'
-              : ' <span class="muted small">kaynaksız — cevap doğrulanmamış</span>');
+              : ' <span class="muted small">kaynaksız — cevap doğrulanmamış</span>') +
+            (data.degenerate
+              ? ' <span class="badge badge-warning">tekrar döngüsü — cevaba dayanma</span>'
+              : "");
           var srcHtml = (data.sources || [])
             .map(function (s) {
               var page = s.page ? ", s." + s.page : "";

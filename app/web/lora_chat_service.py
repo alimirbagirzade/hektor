@@ -121,7 +121,12 @@ def chat(
     """
     from app.config import get_settings
     from app.lora.dataset_builder import SYSTEM_PROMPT
-    from app.training.adapter_eval import _generate, _load_model, _resolve_base_model
+    from app.training.adapter_eval import (
+        _generate,
+        _is_degenerate,
+        _load_model,
+        _resolve_base_model,
+    )
 
     s = get_settings()
     adapter_dir: str | None = None
@@ -139,6 +144,7 @@ def chat(
         "used_context": use_context,
         "sources": [],
         "sections": [],
+        "degenerate": False,
     }
 
     user_content = question
@@ -178,6 +184,12 @@ def chat(
             system=SYSTEM_PROMPT,
         )
 
+    # Tekrar döngüsü (v8 eval'de ~%19): eval'deki AYNI dedektörle tespit edilir ve açıkça
+    # bayraklanır; üretim ayarıyla (repetition_penalty vb.) gizlenmez — kusur ölçülebilir kalsın.
+    degenerate = _is_degenerate(answer)
+    if degenerate:
+        log.warning("lora-chat: dejenere (tekrar döngüsü) çıktı — adapter=%s", adapter or "(base)")
+
     if use_context:
         from app.brain.hybrid_answer import build_sections
 
@@ -187,7 +199,8 @@ def chat(
             cards,
             min_similarity=s.rag_abstain_min_similarity,
             min_margin=s.rag_abstain_min_margin,
+            degenerate=degenerate,
         )
         result["sections"] = [sec.to_dict() for sec in sections]
 
-    return {**result, "answer": answer, "llm_used": True}
+    return {**result, "answer": answer, "llm_used": True, "degenerate": degenerate}
