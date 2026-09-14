@@ -73,12 +73,29 @@ class LoraChatRequest(BaseModel):
     question: str = Field(min_length=2, max_length=4000)
     adapter: str | None = None  # boş/None → yalnız base model
     max_tokens: int = Field(default=256, ge=16, le=1024)
+    # True → korpustan retrieval, parçalar eğitim verisindeki "BAĞLAM: … SORU: …" biçimiyle gömülür
+    use_context: bool = False
+    top_k: int | None = Field(default=None, ge=1, le=20)
+
+
+class AnswerSectionOut(BaseModel):
+    """Hibrit cevabın bir bölümü (app/brain/hybrid_answer.py)."""
+
+    title: str
+    body: str
+    source: str  # model | kaynak | kural | kural+kaynak
+    warning: bool = False
 
 
 class LoraChatResponse(BaseModel):
     answer: str
     adapter: str
     base_model: str
+    used_context: bool = False
+    llm_used: bool = True  # False → retrieval boştu, model çağrılmadı
+    sources: list[SourceOut] = Field(default_factory=list)
+    sections: list[AnswerSectionOut] = Field(default_factory=list)  # yalnız kaynaklı modda dolu
+    degenerate: bool = False  # model çıktısında tekrar döngüsü (adapter_eval._is_degenerate)
 
 
 # ---------- Model değerlendirme ----------

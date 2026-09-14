@@ -524,11 +524,9 @@
           opts += '<option value="' + esc(a) + '">' + esc(a) + "</option>";
         });
         sel.innerHTML = opts;
-        // Varsayılan: EĞİTİLMİŞ 1.5B adapter (kullanıcı kazara base=4B'ye düşmesin).
+        // Varsayılan: EN SON eğitilen adapter (API en yeni önce döner; base'e kazara düşülmesin).
         if (cur) {
           sel.value = cur;
-        } else if (adapters.indexOf("hektor_lora_qwen15b") >= 0) {
-          sel.value = "hektor_lora_qwen15b";
         } else if (adapters.length) {
           sel.value = adapters[0];
         }
@@ -548,6 +546,8 @@
       var adapter = document.getElementById("loraChatAdapter").value || null;
       var maxTokens =
         parseInt(document.getElementById("loraChatMaxTokens").value, 10) || 256;
+      var ctxBox = document.getElementById("loraChatUseContext");
+      var useContext = !!(ctxBox && ctxBox.checked);
       var btn = document.getElementById("loraChatBtn");
       var res = document.getElementById("loraChatResult");
       btn.disabled = true;
@@ -558,7 +558,12 @@
       api("/lora-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q, adapter: adapter, max_tokens: maxTokens }),
+        body: JSON.stringify({
+          question: q,
+          adapter: adapter,
+          max_tokens: maxTokens,
+          use_context: useContext,
+        }),
       })
         .then(function (data) {
           var badge =
@@ -566,13 +571,69 @@
             esc(data.adapter) +
             '</span> <span class="muted small">base: ' +
             esc(data.base_model) +
-            "</span>";
+            "</span>" +
+            (data.used_context
+              ? ' <span class="badge badge-rag">kaynaklı (BAĞLAM)</span>'
+              : ' <span class="muted small">kaynaksız — cevap doğrulanmamış</span>') +
+            (data.degenerate
+              ? ' <span class="badge badge-warning">tekrar döngüsü — cevaba dayanma</span>'
+              : "");
+          var srcHtml = (data.sources || [])
+            .map(function (s) {
+              var page = s.page ? ", s." + s.page : "";
+              return (
+                '<div class="source-chip"><span class="cite">[' +
+                esc(s.paper_id) +
+                ":" +
+                esc(s.chunk_id) +
+                page +
+                "]" +
+                (s.title ? " — " + esc(s.title) : "") +
+                "</span></div>"
+              );
+            })
+            .join("");
+          var sections = data.sections || [];
+          if (sections.length) {
+            // Hibrit cevap: her bölüm nereden geldiğini rozetle söyler (model/kaynak/kural).
+            var srcCls = {
+              model: "badge-llm",
+              kaynak: "badge-rag",
+              kural: "badge-info",
+              "kural+kaynak": "badge-info",
+            };
+            res.innerHTML =
+              '<div class="result-section">' +
+              badge +
+              "</div>" +
+              sections
+                .map(function (sec, i) {
+                  return (
+                    '<div class="result-section"><strong>' +
+                    (i + 1) +
+                    ". " +
+                    esc(sec.title) +
+                    '</strong> <span class="badge ' +
+                    (srcCls[sec.source] || "badge-info") +
+                    '">' +
+                    esc(sec.source) +
+                    "</span>" +
+                    (sec.warning ? ' <span class="badge badge-warning">uyarı</span>' : "") +
+                    '<div class="result-body">' +
+                    esc(sec.body).replace(/\n/g, "<br>") +
+                    "</div></div>"
+                  );
+                })
+                .join("");
+            return;
+          }
           res.innerHTML =
             '<div class="result-section">' +
             badge +
             '</div><div class="result-section result-body">' +
             esc(data.answer).replace(/\n/g, "<br>") +
-            "</div>";
+            "</div>" +
+            (srcHtml ? '<div class="result-section">' + srcHtml + "</div>" : "");
         })
         .catch(function (err) {
           res.innerHTML =
