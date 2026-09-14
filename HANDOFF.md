@@ -37,7 +37,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 | Kapı (`make ci`) | **Yerel (Windows):** ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2051 passed, 4 skipped, 2 deselected** (2026-09-13, `-m "not ollama"`; sonrasında eklenen tek test ayrıca 10/10). **CI (Linux):** ❌ 2026-09-07'den beri kırmızıydı (`test_sentinel_autostart_probe` ×2) — düzeltme PR #2'de, CI doğrulaması bekleniyor. **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
 | Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı) |
-| LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
+| LLM | Yalnız yerel Ollama (`qwen3:4b-instruct-2507-q4_K_M` varsayılan, 2026-09-13'ten beri; önceki `qwen3:4b` = Thinking-2507). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
 | Bilgi kartı tanımı | "Kartı var" = canlı (`rejected` değil) **ve içerikli** (`card_has_content`: title veya main_claim alfanümerik). Boş kart = kart yok → makale yeniden kartlanabilir (`has_knowledge_card` / `get_latest_knowledge_card`) |
@@ -55,7 +55,7 @@ make ci                        # format + lint + typecheck + test
 uv run hektor-web            # http://127.0.0.1:8765
 ```
 
-Ollama kapalıysa: `ollama serve` → `ollama pull qwen3:4b` → `ollama pull nomic-embed-text`.
+Ollama kapalıysa: `ollama serve` → `ollama pull qwen3:4b-instruct-2507-q4_K_M` → `ollama pull nomic-embed-text`.
 
 ---
 
@@ -100,6 +100,62 @@ production terfisi ayrı insan onayı ister.
 
 > **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
 > rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-13 (akşam): `qwen3:4b` düşünmesi kapatılamıyor → LocalLLM düzeltmesi
+
+**Belirti:** `think:false` + `/no_think` verilse de qwen3:4b cevaba etiketsiz düz metin
+düşünme yazıyordu ("Okay, let's tackle…"); `LocalLLM` ile "2+2" 240 sn'de bitmedi.
+RAG kutusu, `hektor ask`, RLM ve kart üretimi aynı yolu kullanır.
+
+**Kök neden (ölçüldü, Ollama 0.34.0):** yereldeki `qwen3:4b` manifest özeti
+(`359d7dd4bcda`) = `qwen3:4b-thinking-2507-q4_K_M` → hibrit değil, **yalnız-düşünen**
+model. Şablon asistan turunu koşulsuz `<think>` ile açıyor, `.Think` dalı yok. Canlı
+denendi, HEPSİ etkisiz: `/api/generate` think:false, `/api/chat` think:false, raw prompt +
+boş `<think></think>` ön-dolgusu, chat asistan ön-dolgusu. `think:true` ise düşünmeyi
+`thinking` alanına doğru ayırıyor (2+2 → `"4"`, 43 sn, ~4 tok/s). `format=json` +
+`think:false` hızlı ve temiz (15 token); `format=json` + `think:true` JSON'u `thinking`'e
+yazıp cevabı BOŞALTIYOR. Eski kod boş cevapta `thinking`'i döndürüyordu → sızıntı yolu.
+
+**Düzeltme (`app/brain/local_llm.py`):** `/api/show` ile kip sınıflandırması
+(`none`/`toggle`/`forced`); `forced` + serbest metin → `think:true` + ek bütçe
+(`HEKTOR_LLM_THINKING_EXTRA_TOKENS=1024`), format'lı çağrı → `think:false`;
+`num_predict` artık her zaman sınırlı (`HEKTOR_LLM_DEFAULT_MAX_TOKENS=1024`,
+tavan `HEKTOR_LLM_MAX_TOKENS_CAP=4096`); `thinking` alanı ASLA cevap değil; `<think>`
+etiketleri temizlenir; bütçe cevaba geçmeden biterse `LLMUnavailable` (çağıranlar
+zaten ele alıyor). Testler: `tests/test_local_llm_thinking.py` (sahte HTTP) + 2 canlı
+`@pytest.mark.ollama` (2+2 temiz cevap 74 sn · JSON 4.6 sn).
+
+**Varsayılan model değişti (kullanıcı kararı):** `qwen3:4b-instruct-2507-q4_K_M` çekildi
+(ID `0edcdef34593` = registry manifesti) ve varsayılan yapıldı: `settings.llm_model`,
+`.env.example`, `setup.ps1`/`setup.sh` [1], README, `docs/MIMARI_REFERANS.md`,
+`model_registry.yaml` (id `qwen3_4b_q4` aynı, yalnız ollama adı), ana checkout `.env`.
+Bu, PEFT base'i (`Qwen/Qwen3-4B-Instruct-2507`) ile Ollama modelini İLK KEZ birebir eşler
+(`settings.py`'daki "qwen3:4b = Instruct-2507" yorumu yanlıştı, düzeltildi).
+
+| Aynı çağrı (CPU, temperature 0) | `qwen3:4b` (Thinking-2507) | `qwen3:4b-instruct-2507-q4_K_M` |
+|---|---|---|
+| "Tek kelimeyle: 2+2" | 43 sn (think:true) · think:false → düşünme sızıntısı | **1.5 sn**, `"4"` |
+| EN→TR çeviri ("5-10%") | 1536 token düşünme, cevap YOK (450 sn) | **9.5 sn**, doğru, "5-10%" korundu |
+| `format=json` | 6.8 sn | 3.9 sn |
+
+**Sınıflandırıcı tuzağı (düzeltildi):** Instruct-2507 de `thinking` yeteneği ilan ediyor ve
+şablonunda (geçmiş turlar için) kapalı `<think>…</think>` var → ilk kural onu `forced`
+sayardı. Kural artık "şablondaki son `<think>` kapanmıyorsa forced"; prompt token'larıyla
+doğrulandı (thinking modelde `<think>`=151667 var, instruct'ta yok).
+
+**Eski etiket hâlâ yerel diskte** (`qwen3:4b`, 2.5 GB) — `ollama rm qwen3:4b` kullanıcı kararı.
+
+**Canlı doğrulama durumu (2026-09-14):** `LocalLLM().think_mode()` → `qwen3:4b`=`forced`,
+instruct=`toggle` ✅; varsayılan modelle çeviri doğru ve "5-10%" korundu ✅. Canlı
+`test_canli_ollama_dusunme_cevaba_sizmaz` ✅; `test_canli_ollama_json_hizli_ve_gecerli` ❌ —
+**kuyruk yüzünden**: aynı anda ana checkout'ta `hektor read-all --cards 38 --scores 38`
+(başlangıç 09-14 17:52) Ollama'nın tek slotunu kullanıyordu; istekler 2-5 dk bekledi, 120 sn
+timeout düştü (server.log'da 1m59s `500`). Boşta ölçüm 3.9 sn idi. Test timeout'u 600 sn'ye
+çekildi; **read-all bitince yeniden koşulmalı** (`uv run pytest -m ollama
+tests/test_local_llm_thinking.py`). O read-all koşusu `.env` değişikliğinden SONRA
+başladığı için kartları zaten yeni instruct modelle üretiyor.
 
 ---
 
@@ -557,6 +613,14 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
      insan kararı.
   3. **CI yeşil olmadan merge** — main korumasız; PR #1 kırmızıyken merge edildi. main için
      "CI zorunlu" dal koruması açılsın mı: insan kararı.
+- **2026-09-13 akşam (LLM düşünme):**
+  1. **Yeni baseline** — varsayılan model `qwen3:4b-instruct-2507-q4_K_M` oldu (2026-09-13,
+     KAPANDI: çekildi + varsayılan). `understanding_record` kıyası aynı `llm_model` şartı
+     arar → yeni modelde anlama/sınav baseline'ı yeniden ölçülmeli; eski `qwen3:4b`
+     skorlarıyla kıyaslanmaz. Diğer makinelerde `.env` + `ollama pull` elle yapılmalı.
+  2. **Baseline karşılaştırılabilirliği** — bu düzeltmeden ÖNCE qwen3:4b ile alınan serbest
+     metin ölçümleri (sınav/eval cevapları) düşünme sızıntısı + kesik cevap içerebilir;
+     aynı `llm_model` adına rağmen yeni ölçümlerle birebir kıyaslanmamalı.
 - **Ajan envanteri §5, sıra 2-6** (`reports/agent-inventory/envanter-2026-09-09.md`).
   Sıra 1 (eğitim kapısı) 2026-09-10'da kapandı. Kalanlar:
   2. Manifest `safety_gates` ↔ test kimliği eşlemesi + drift testi (B1'in genel hâli).

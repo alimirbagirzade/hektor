@@ -184,7 +184,7 @@ dataset-quality-gate → model-data-registry (requires_approval → supervisor B
 
 | Rol | Varsayılan | Env |
 |---|---|---|
-| LLM (Ollama) | `qwen3:4b` (8 GB RAM); 16 GB → `qwen3:8b`; 32 GB → `qwen3:14b`; eğitimde `qwen2.5:1.5b` | `HEKTOR_LLM_MODEL` |
+| LLM (Ollama) | `qwen3:4b-instruct-2507-q4_K_M` (8 GB RAM); 16 GB → `qwen3:8b`; 32 GB → `qwen3:14b`; eğitimde `qwen2.5:1.5b` | `HEKTOR_LLM_MODEL` |
 | Embedding | `nomic-embed-text` (Ollama `/api/embed`, 64'lük batch) | `HEKTOR_EMBED_MODEL` |
 | PEFT base | `Qwen/Qwen3-4B-Instruct-2507` (1.5B pivotunda `Qwen/Qwen2.5-1.5B-Instruct`) | `HEKTOR_PEFT_BASE_MODEL` |
 | MLX base | `mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit` (settings) / `models/mlx/Qwen3-4B-4bit` (.env.example) | `HEKTOR_MLX_BASE_MODEL` |
@@ -259,7 +259,7 @@ hektor/
 |---|---|---|
 | `llm_backend` | `"auto"` (.env.example: `ollama`) | ollama / auto / openai |
 | `ollama_host` | `http://127.0.0.1:11434` | IP, localhost değil |
-| `llm_model` | `qwen3:4b` | |
+| `llm_model` | `qwen3:4b-instruct-2507-q4_K_M` | düşünmesiz; `qwen3:4b` = Thinking-2507 |
 | `ollama_keep_alive` | `30s` | Eğitim sırasında `0` (OOM) |
 | `embed_model` | `nomic-embed-text` | |
 | `openai_api_key/model/base_url` | `""` / `gpt-4o-mini` / `https://api.openai.com/v1` | Opsiyonel, LiteLLM kancası |

@@ -33,7 +33,7 @@ echo "  |  (Ollama programi + model dosyasi otomatik indirilir)              |"
 echo "  |  Bu proje API anahtari istemez; bulut modeli yoktur.               |"
 echo "  |                                                                    |"
 echo "  |  -- Qwen3 (Alibaba) --                                             |"
-echo "  |  [1] qwen3:4b     ~2.5 GB disk    8 GB+ RAM   Hizli   [ONERILEN]   |"
+echo "  |  [1] qwen3:4b-instruct-2507 ~2.5GB  8GB+ RAM   Hizli [ONERILEN]    |"
 echo "  |  [2] qwen3:8b     ~5 GB disk     16 GB+ RAM   Dengeli              |"
 echo "  |  [3] qwen3:14b    ~9 GB disk     32 GB+ RAM   Guclu                |"
 echo "  |  [4] qwen3:30b    ~20 GB disk    32 GB+ RAM   Cok guclu            |"
@@ -52,18 +52,18 @@ echo "  |                                                                    |"
 echo "  +--------------------------------------------------------------------+"
 echo ""
 
-read -r -p "  Seciminiz [1-9] (Enter = 1 / qwen3:4b): " CHOICE
+read -r -p "  Seciminiz [1-9] (Enter = 1 / qwen3:4b-instruct-2507): " CHOICE
 CHOICE="${CHOICE:-1}"
 
 # Bu proje YALNIZ yerel Ollama kullanir; API anahtari istemez.
-LLM_MODEL="qwen3:4b"
+LLM_MODEL="qwen3:4b-instruct-2507-q4_K_M"
 MODEL_ENV="HEKTOR_LLM_MODEL"
 NEED_OLLAMA=true
 OLLAMA_RAM=8
 OLLAMA_DSK=3
 
 case "$CHOICE" in
-  1) LLM_MODEL="qwen3:4b";        OLLAMA_RAM=8;  OLLAMA_DSK=3  ;;
+  1) LLM_MODEL="qwen3:4b-instruct-2507-q4_K_M"; OLLAMA_RAM=8;  OLLAMA_DSK=3  ;;
   2) LLM_MODEL="qwen3:8b";        OLLAMA_RAM=16; OLLAMA_DSK=5  ;;
   3) LLM_MODEL="qwen3:14b";       OLLAMA_RAM=32; OLLAMA_DSK=9  ;;
   4) LLM_MODEL="qwen3:30b";       OLLAMA_RAM=32; OLLAMA_DSK=20 ;;
@@ -72,7 +72,7 @@ case "$CHOICE" in
   7) LLM_MODEL="mistral:7b";      OLLAMA_RAM=8;  OLLAMA_DSK=4  ;;
   8) LLM_MODEL="deepseek-r1:8b";  OLLAMA_RAM=16; OLLAMA_DSK=5  ;;
   9) LLM_MODEL="deepseek-r1:14b"; OLLAMA_RAM=32; OLLAMA_DSK=9  ;;
-  *) LLM_MODEL="qwen3:4b";        OLLAMA_RAM=8;  OLLAMA_DSK=3  ;;
+  *) LLM_MODEL="qwen3:4b-instruct-2507-q4_K_M"; OLLAMA_RAM=8;  OLLAMA_DSK=3  ;;
 esac
 
 # ==========================================================================

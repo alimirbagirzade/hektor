@@ -1473,8 +1473,8 @@ def api_training_colab_notebook() -> Response:
         valid_path = s.jsonl_dir / "valid.jsonl"
 
     ts = dt.datetime.now(dt.UTC).strftime("%Y%m%d_%H%M%S")
-    # Tek beyin: 4B (Ollama qwen3:4b ile birebir). Eski 1.5B hardcode adapter'ı
-    # uyumsuz kılıyordu — base mutlaka peft_base_model olmalı.
+    # Tek beyin: 4B (Ollama qwen3:4b-instruct-2507-q4_K_M = Qwen3-4B-Instruct-2507 ile
+    # birebir). Eski 1.5B hardcode adapter'ı uyumsuz kılıyordu — base mutlaka peft_base_model.
     cfg = PeftTrainConfig(
         base_model=s.peft_base_model,
         train_jsonl=train_path,
