@@ -33,33 +33,34 @@ def _max_ngram_repeat(answer: str, n: int = 3) -> int:
 
 # Cümle sınırları: nokta yanında ! ? 。 ve satır sonu (v8: "!" ile biten tekrar kaçıyordu).
 _SENT_SPLIT_RE = re.compile(r"[.!?。\n]+")
-# Aynı (15+ karakterlik) cümle bu kadar kez geçerse dejenere — farklı cümlelerle karışık olsa bile.
-_SENT_REPEAT_MIN = 3
+_SENTENCE_REPEAT_MIN = 3  # aynı cümle bu kadar kez BİREBİR geçerse dejenere
 
 
 def _is_degenerate(answer: str) -> bool:
     """Tekrar döngüsü / overfit-çöküş sezgisi (v5 dersi: token-düzeyi döngüyü de yakala).
 
-    Üç sinyalden herhangi biri: (1) aynı CÜMLE tekrarı, (2) aynı 3-gram'ın ≥4 kez
-    tekrarı (cümle ayıracı olmasa da; v5 adapter aynı ifadeyi 5 kez yazdı), (3) aynı
-    SATIRın (madde/liste) tekrarı. Eşikler muhafazakâr — sağlam cevabı yanlış-flag'lemez.
+    Dört sinyalden herhangi biri: (1) cümle çeşitliliği yarıya düşmüş, (2) aynı cümle
+    ≥`_SENTENCE_REPEAT_MIN` kez birebir, (3) aynı 3-gram'ın ≥4 kez tekrarı (cümle ayıracı
+    olmasa da; v5 adapter aynı ifadeyi 5 kez yazdı), (4) aynı SATIRın (madde/liste) tekrarı.
 
-    Cümle tekrarı iki yoldan yakalanır: çeşitlilik oranı düşükse VEYA herhangi bir cümle
-    ≥3 kez birebir geçiyorsa. v8 dersi: "Ölçülmesi gereken bir hipotez var." üç kez
-    tekrarlandı ama araya farklı cümleler girdiği için yalnız orana bakan eşik kaçırdı.
+    (2) 2026-09-14'te eklendi — dedektör boşluğu: v8 eval #4 "Ölçülmesi gereken bir hipotez
+    var." cümlesini üç kez yazdı ama çeşitlilik eşiği (1) başka cümleler de olduğu için
+    tetiklenmedi; eşik tekrar SAYISINI değil çeşitliliği ölçüyordu. Kalibrasyon: v7+v8
+    eval'lerindeki 64 gerçek cevapta yalnız bu vakayı ekledi, 32 base cevabından hiçbirini
+    bayraklamadı. 2026-09-15 (Kademe-2 av): cümleler ! ? 。 ve satır sonuyla da bölünür ve
+    büyük/küçük harf + boşluk normalize edilir ("!" ile biten 3× tekrar kaçıyordu).
+    Eşikler muhafazakâr — sağlam cevabı yanlış-flag'lemez.
     """
     sents = [
         " ".join(s.lower().split()) for s in _SENT_SPLIT_RE.split(answer) if len(s.strip()) > 15
     ]
     sent_counts = Counter(sents)
-    sent_dup = bool(sents) and (
-        max(sent_counts.values()) >= _SENT_REPEAT_MIN
-        or (len(sents) >= 3 and len(sent_counts) <= max(1, len(sents) // 2))
-    )
+    sent_dup = len(sents) >= 3 and len(sent_counts) <= max(1, len(sents) // 2)
+    sent_repeat = bool(sents) and max(sent_counts.values()) >= _SENTENCE_REPEAT_MIN
     ngram_loop = _max_ngram_repeat(answer, 3) >= 4
     lines = [ln.strip() for ln in answer.splitlines() if len(ln.strip()) > 15]
     line_dup = len(lines) >= 4 and len(set(lines)) <= max(1, len(lines) // 2)
-    return sent_dup or ngram_loop or line_dup
+    return sent_dup or sent_repeat or ngram_loop or line_dup
 
 
 def _flags_for(answer: str, must_avoid: list[str]) -> list[str]:
@@ -140,10 +141,25 @@ def _load_model(base_model: str, adapter_dir: str | None):
     return tok, model
 
 
-def _generate(tok, model, question: str, max_new_tokens: int = 220) -> str:
+def _build_messages(question: str, system: str | None = None) -> list[dict]:
+    """Chat mesajlarını kur; `system` verilirse eğitimdeki rol düzeniyle başa eklenir.
+
+    Eval bilerek system'siz çağırır (disiplin kötü-sorunun kendisinden ölçülsün); web
+    sohbeti ise eğitim örneklerinin çoğunda bulunan SYSTEM_PROMPT'u geçer.
+    """
+    msgs: list[dict] = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.append({"role": "user", "content": question})
+    return msgs
+
+
+def _generate(
+    tok, model, question: str, max_new_tokens: int = 220, *, system: str | None = None
+) -> str:
     import torch
 
-    msgs = [{"role": "user", "content": question}]
+    msgs = _build_messages(question, system)
     text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
     ids = tok(text, return_tensors="pt")
     with torch.no_grad():

@@ -87,11 +87,20 @@ class Settings(BaseSettings):
     # Pay-per-token bulut API'si (OpenAI/Anthropic/Google) bu projede KULLANILMAZ;
     # istemci kodu ve ayarları bilinçli olarak yoktur (kalıcı proje kısıtı).
     ollama_host: str = "http://127.0.0.1:11434"  # localhost yerine IP — Windows IPv6 sorununu önler
-    llm_model: str = "qwen3:4b"
+    # Düşünmesiz Qwen3-4B-Instruct-2507 (PEFT base ile aynı checkpoint). Çıplak `qwen3:4b`
+    # etiketi = Qwen3-4B-Thinking-2507: düşünme kapatılamaz, CPU'da cevap dakikalar sürer.
+    llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
     # Modeli sorgu sonrası ne kadar yüklü tutsun. RAM darsa (ör. aynı anda LoRA eğitimi)
     # "0" → hemen boşalt (eğitimle ~7GB çakışmayı önler). Varsayılan "30s"; büyük
     # makinede ".env: HEKTOR_OLLAMA_KEEP_ALIVE=5m" hızlı ardışık sorgu için.
     ollama_keep_alive: str = "30s"
+    # LocalLLM num_predict bütçesi: çağıran max_tokens vermezse varsayılan; verse de tavanı
+    # aşamaz. Sınırsız üretimde qwen3:4b "2+2" sorusunu 240 sn'de bitiremedi (2026-09-13).
+    llm_default_max_tokens: int = 1024
+    llm_max_tokens_cap: int = 4096
+    # Yalnız düşünmesi KAPATILAMAYAN modelde (qwen3:4b = Qwen3-4B-Thinking-2507) serbest
+    # metin çağrısına eklenen düşünme payı — düşünme cevaptan önce harcanır.
+    llm_thinking_extra_tokens: int = 1024
     embed_model: str = "nomic-embed-text"
 
     # mlx-lm LoRA eğitimi için HuggingFace model ID (Ollama formatı geçersiz)
@@ -99,8 +108,9 @@ class Settings(BaseSettings):
 
     # PEFT (Windows/Linux) LoRA eğitimi için HuggingFace base model.
     # MLX 4-bit formatı transformers ile yüklenemez; bu yüzden ayrı HF model gerekir.
-    # DİKKAT: Ollama'daki `qwen3:4b` tag'i Instruct-2507 checkpoint'idir (256K ctx);
-    # adapter'ın Ollama'da çalışması için eğitim base'i BİREBİR aynı olmalı.
+    # DİKKAT: Instruct-2507'nin Ollama karşılığı `qwen3:4b-instruct-2507-q4_K_M`'dir; çıplak
+    # `qwen3:4b` Thinking-2507'dir (manifest özetiyle doğrulandı, 2026-09-13). Adapter'ın
+    # Ollama'da çalışması için eğitim base'i BİREBİR aynı olmalı.
     peft_base_model: str = "Qwen/Qwen3-4B-Instruct-2507"
 
     # --- Storage ---

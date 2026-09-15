@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-13 (CI 6 gündür kırmızıydı · asıl tetikleyici örtük senkron · düzeltme makineye ulaşmamıştı)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-14 (gece doğrulaması geçti · needs-approval kapısı fail-closed ve canlı sınamada ısırdı · 2026-09-13 akşam: LoRA sohbeti teşhisi + hibrit kaynaklı cevap)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -34,10 +34,10 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | **Yerel (Windows):** ✅ ruff format + ruff check + mypy (217 dosya) + pytest **2051 passed, 4 skipped, 2 deselected** (2026-09-13, `-m "not ollama"`; sonrasında eklenen tek test ayrıca 10/10). **CI (Linux):** ❌ 2026-09-07'den beri kırmızıydı (`test_sentinel_autostart_probe` ×2) — düzeltme PR #2'de, CI doğrulaması bekleniyor. **Yerel ✅ tek başına kapı sayılmaz.** |
+| Kapı (`make ci`) | **CI (Linux):** ✅ main'de yeşil — `1ceb867`, `e99a3bb`, `5841f7c` ve `4f32768` push koşuları success. 2026-09-07 ile 2026-09-13 arası kırmızıydı (`test_sentinel_autostart_probe` ×2; bkz. 2026-09-13 kaydı). **Yerel (Windows):** ✅ ruff format --check (421 dosya, app+tests) + ruff check + mypy (218 dosya) + pytest **2089 passed, 4 skipped, 2 deselected** (2026-09-14, `-m "not ollama"`, `4f32768` kodu + bu HANDOFF). **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
 | Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı) |
-| LLM | Yalnız yerel Ollama (`qwen3:4b` varsayılan). Bulut API istemcisi YOK. |
+| LLM | Yalnız yerel Ollama (`qwen3:4b-instruct-2507-q4_K_M` varsayılan, 2026-09-13'ten beri; önceki `qwen3:4b` = Thinking-2507). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
 | Bilgi kartı tanımı | "Kartı var" = canlı (`rejected` değil) **ve içerikli** (`card_has_content`: title veya main_claim alfanümerik). Boş kart = kart yok → makale yeniden kartlanabilir (`has_knowledge_card` / `get_latest_knowledge_card`) |
@@ -55,7 +55,7 @@ make ci                        # format + lint + typecheck + test
 uv run hektor-web            # http://127.0.0.1:8765
 ```
 
-Ollama kapalıysa: `ollama serve` → `ollama pull qwen3:4b` → `ollama pull nomic-embed-text`.
+Ollama kapalıysa: `ollama serve` → `ollama pull qwen3:4b-instruct-2507-q4_K_M` → `ollama pull nomic-embed-text`.
 
 ---
 
@@ -156,9 +156,188 @@ uv run hektor pretrain-gate && uv run hektor lora-audit
 ```
 Not: sentetik QA bugün 211 makalenin yalnız 40'ını kapsıyor; tüm korpus CPU'da onlarca saat.
 
+> **Birleştirme notu:** `main`'deki 2026-09-14 kaydının v8-3 açık işi (şablon
+> çeşitlendirme / frekans tavanı / pretrain-gate kuralı) bu dalla karşılandı; dedektör
+> iki çözümün birleşimidir (`_SENTENCE_REPEAT_MIN` + genişletilmiş cümle ayırıcı).
+> NEFTune-kapalı kontrol koşusu hâlâ açık.
+
 ---
 
-## Önceki seans — 2026-09-13: CI 6 gündür kırmızıydı · düzeltme makineye ulaşmamıştı · asıl tetikleyici örtük senkron
+## Son seans — 2026-09-14: gece doğrulaması geçti · onay kapısı canlı sınamada ısırdı
+
+### 1. Gece senkronu düzeltmesi gerçek koşuda doğrulandı
+
+`HektorUpdate` (RunLevel=Highest) 2026-09-14 03:00 koşusu, `logs/update.log`:
+
+```
+[2026-09-14 03:00] Guncelleme basliyor (Force=False)...
+[2026-09-14 03:00] DURUM dal=main HEAD=e99a3bb ahead=0 behind=0
+[2026-09-14 03:00] Sunucu baslatildi (PID 5388).
+[2026-09-14 03:00] SONUC: OK
+```
+
+- **tokenizers damgası değişmedi** (2026-09-13 20:09:32). Web `uv run --no-sync` ile yeniden
+  başladı ve ortamı senkronlamadı; üç gece üst üste bozan tetikleyici tetiklenmedi.
+- `import transformers` çalışıyor (5.16.1 / 0.23.2); görev sonucu 0.
+- Yükseltilmiş görev eski yükseltilmiş web'i (PID 18760) durdurabildi; web artık yeni kodla
+  koşuyor (PID 4548, 03:00:07). Yeni sağlık kontrolü port sahibinin başlatılan süreç
+  olduğunu doğruladı. 2026-09-13 kaydındaki Yönetici adımına **gerek kalmadı**.
+- Senkron adımı koşmadı (kod değişmedi, `-Force` yok). Kalan üç fark (regex, setuptools,
+  proje paketinin editable yeniden kurulumu) hâlâ uygulanmadı; kod değiştiren ilk gece koşusu
+  uygular. Aciliyeti yok.
+- 2026-09-13 21:01 ve 21:08'deki yükseltilmemiş `-Force` koşuları yeni betikle beklendiği gibi
+  açıkça `SONUC: HATA (web durdurulamadi)` verdi (21:08'i başka biri koşturdu).
+
+### 2. `needs-approval` onay kapısı fail-closed — canlı sınamada ısırdı (PR #5, `5841f7c`)
+
+`dependency-approval-label` işi etiket eklenemezse `::warning::`'e düşüp yeşil dönüyordu ve
+etiket repoda hiç yoktu. Etiket oluşturuldu, iş fail-closed yapıldı:
+
+- etiket eklenemez ya da PR'da doğrulanamazsa `::error::` + kırmızı;
+- `git diff … || true` kaldırıldı (fark hesaplanamazsa sessizce geçmez);
+- `printf | grep -q` yerine here-string (pipefail altında SIGPIPE → yanlış negatif → yeşil).
+
+Sahte `git`/`gh` ile 6/6 senaryo; `tests/test_github_workflows_static.py`'de 4 yeni kilit.
+
+**Canlı sınama:** PR #5 iş akışı dosyasını değiştirdiği için kapsamdaydı. Etiketi
+`github-actions[bot]` ekledi; iş çıktısı: "needs-approval etiketi eklendi ve PR'da
+doğrulandı". PR #2 aynı durumda etiketsiz geçmişti.
+
+---
+
+## Son seans — 2026-09-13 (akşam): `qwen3:4b` düşünmesi kapatılamıyor → LocalLLM düzeltmesi
+
+**Belirti:** `think:false` + `/no_think` verilse de qwen3:4b cevaba etiketsiz düz metin
+düşünme yazıyordu ("Okay, let's tackle…"); `LocalLLM` ile "2+2" 240 sn'de bitmedi.
+RAG kutusu, `hektor ask`, RLM ve kart üretimi aynı yolu kullanır.
+
+**Kök neden (ölçüldü, Ollama 0.34.0):** yereldeki `qwen3:4b` manifest özeti
+(`359d7dd4bcda`) = `qwen3:4b-thinking-2507-q4_K_M` → hibrit değil, **yalnız-düşünen**
+model. Şablon asistan turunu koşulsuz `<think>` ile açıyor, `.Think` dalı yok. Canlı
+denendi, HEPSİ etkisiz: `/api/generate` think:false, `/api/chat` think:false, raw prompt +
+boş `<think></think>` ön-dolgusu, chat asistan ön-dolgusu. `think:true` ise düşünmeyi
+`thinking` alanına doğru ayırıyor (2+2 → `"4"`, 43 sn, ~4 tok/s). `format=json` +
+`think:false` hızlı ve temiz (15 token); `format=json` + `think:true` JSON'u `thinking`'e
+yazıp cevabı BOŞALTIYOR. Eski kod boş cevapta `thinking`'i döndürüyordu → sızıntı yolu.
+
+**Düzeltme (`app/brain/local_llm.py`):** `/api/show` ile kip sınıflandırması
+(`none`/`toggle`/`forced`); `forced` + serbest metin → `think:true` + ek bütçe
+(`HEKTOR_LLM_THINKING_EXTRA_TOKENS=1024`), format'lı çağrı → `think:false`;
+`num_predict` artık her zaman sınırlı (`HEKTOR_LLM_DEFAULT_MAX_TOKENS=1024`,
+tavan `HEKTOR_LLM_MAX_TOKENS_CAP=4096`); `thinking` alanı ASLA cevap değil; `<think>`
+etiketleri temizlenir; bütçe cevaba geçmeden biterse `LLMUnavailable` (çağıranlar
+zaten ele alıyor). Testler: `tests/test_local_llm_thinking.py` (sahte HTTP) + 2 canlı
+`@pytest.mark.ollama` (2+2 temiz cevap 74 sn · JSON 4.6 sn).
+
+**Varsayılan model değişti (kullanıcı kararı):** `qwen3:4b-instruct-2507-q4_K_M` çekildi
+(ID `0edcdef34593` = registry manifesti) ve varsayılan yapıldı: `settings.llm_model`,
+`.env.example`, `setup.ps1`/`setup.sh` [1], README, `docs/MIMARI_REFERANS.md`,
+`model_registry.yaml` (id `qwen3_4b_q4` aynı, yalnız ollama adı), ana checkout `.env`.
+Bu, PEFT base'i (`Qwen/Qwen3-4B-Instruct-2507`) ile Ollama modelini İLK KEZ birebir eşler
+(`settings.py`'daki "qwen3:4b = Instruct-2507" yorumu yanlıştı, düzeltildi).
+
+| Aynı çağrı (CPU, temperature 0) | `qwen3:4b` (Thinking-2507) | `qwen3:4b-instruct-2507-q4_K_M` |
+|---|---|---|
+| "Tek kelimeyle: 2+2" | 43 sn (think:true) · think:false → düşünme sızıntısı | **1.5 sn**, `"4"` |
+| EN→TR çeviri ("5-10%") | 1536 token düşünme, cevap YOK (450 sn) | **9.5 sn**, doğru, "5-10%" korundu |
+| `format=json` | 6.8 sn | 3.9 sn |
+
+**Sınıflandırıcı tuzağı (düzeltildi):** Instruct-2507 de `thinking` yeteneği ilan ediyor ve
+şablonunda (geçmiş turlar için) kapalı `<think>…</think>` var → ilk kural onu `forced`
+sayardı. Kural artık "şablondaki son `<think>` kapanmıyorsa forced"; prompt token'larıyla
+doğrulandı (thinking modelde `<think>`=151667 var, instruct'ta yok).
+
+**Eski etiket hâlâ yerel diskte** (`qwen3:4b`, 2.5 GB) — `ollama rm qwen3:4b` kullanıcı kararı.
+
+**Canlı doğrulama durumu (2026-09-14):** `LocalLLM().think_mode()` → `qwen3:4b`=`forced`,
+instruct=`toggle` ✅; varsayılan modelle çeviri doğru ve "5-10%" korundu ✅. Canlı
+`test_canli_ollama_dusunme_cevaba_sizmaz` ✅; `test_canli_ollama_json_hizli_ve_gecerli` ❌ —
+**kuyruk yüzünden**: aynı anda ana checkout'ta `hektor read-all --cards 38 --scores 38`
+(başlangıç 09-14 17:52) Ollama'nın tek slotunu kullanıyordu; istekler 2-5 dk bekledi, 120 sn
+timeout düştü (server.log'da 1m59s `500`). Boşta ölçüm 3.9 sn idi. Test timeout'u 600 sn'ye
+çekildi; **read-all bitince yeniden koşulmalı** (`uv run pytest -m ollama
+tests/test_local_llm_thinking.py`). O read-all koşusu `.env` değişikliğinden SONRA
+başladığı için kartları zaten yeni instruct modelle üretiyor.
+
+---
+
+## Son seans — 2026-09-13 (akşam): "Eğitilen model istediğimiz gibi cevap vermiyor" → hibrit kaynaklı cevap
+
+**Belirti.** Web'deki "3 · Eğitilen Modelle Sohbet" istenen tarzda cevap vermiyor; "model
+bağlanmıyor mu?" şüphesi. Bulgular ölçülerek doğrulandı:
+
+1. **Bağlantı gerçekten kopuktu:** `tokenizers 0.22.2` ↔ `transformers 5.16.1` →
+   `/api/lora-chat` 503. Kök neden ve kalıcı düzeltme bir alttaki kayıttadır (örtük senkron,
+   `4dec640` / `9439355` / `b24c355`). Bu makinenin ana venv'ine `tokenizers==0.23.2` uv
+   önbelleğinden elle geri kuruldu; `import transformers/peft` OK.
+2. **İki farklı "4B":** ARAŞTIRMA RAG kutusu / `hektor ask` / RLM = Ollama `qwen3:4b` (base,
+   adapter'sız). Adapter Ollama'ya hiç aktarılmadı; `/api/ask`'in adapter yolu MLX (Windows'ta
+   çalışamaz). Adapter base'i `Qwen3-4B-Instruct-2507` ≠ Ollama `qwen3:4b`.
+3. **Eğitim verisi istenen formatı içermiyor:** `train.jsonl` (1616) içinde 9 bölümlü
+   `Kısa Cevap/Test Planı` biçimi **%0**; cevap medyanı 209 karakter; %72 "BAĞLAM/SORU".
+4. **Çıkarım ↔ eğitim uyuşmazlığı:** sohbet system prompt'suz ve bağlamsız soruyordu (eğitimde
+   %92 system, %72 bağlam); arayüz varsayılanı alfabetik ilk = **v7**.
+5. **Hız (ölçüldü):** PEFT bf16 CPU ~0,37 token/sn; Ollama Q4 4,1 token/sn (~11×).
+   Canlı v8: çıplak soru → 110 token kalıp metin; eğitim formatı → 43 token, bağlama sadık cümle.
+
+**Düzeltmeler (`be47281`).** Sohbet (web + CLI `lora-chat`) SYSTEM_PROMPT gönderir; "kaynaklı"
+mod retrieval + eğitimle BİREBİR `BAĞLAM:\n…\n\nSORU: …` (≤2400 karakter), retrieval boşsa
+model çağrılmaz; adapter listesi en yeni önce; 503 mesajı sürüm çatışmasını da söyler;
+`adapter_eval._generate` opsiyonel `system` (eval bilinçli olarak system'siz kalır).
+
+**Format kararı (kullanıcı): HİBRİT · yalnız Türkçe · kart içeriği özgün alıntı (`7f31696`).**
+Gerekçe: tam raporu modele yazdırmak soru başına 30-60 dk; kartların ~%98'i İngilizce ve
+`qwen3:4b` ile otomatik çeviri güvenilmez (düşünme sızıntısı + "5-10%"→"5-1.0%").
+Reddedilenler: yeniden eğitim (Kademe 2 + ~33 sa + yavaş çıkarım), yalnız RAG yolu (LoRA devre
+dışı), tek seferlik kart çevirisi (önce sızıntı çözülmeli).
+
+`app/brain/hybrid_answer.py` (saf, deterministik) — kaynaklı modda 8 bölüm, her biri rozetli:
+
+| # | Bölüm | Kaynak |
+|---|---|---|
+| 1 | Kısa Cevap | **model** (tek üretim, eğitim formatı) |
+| 2 | Kaynaklar | kaynak (retrieval atıfları) |
+| 3 | Bağlam Kalitesi | kural (`assess_confidence`, CRAG eşikleri 0,55/0,02 → Güçlü/Orta/Zayıf+uyarı) |
+| 4 | Akademik Bulgu | kaynak (kart `main_claim`, ≤2 makale, "(kaynak, çevrilmedi)") |
+| 5 | Trading Hipotezi | kaynak (kart hipotezleri ≤3 + sabit "test edilmemiş, sayılar doğrulanmamış") |
+| 6 | Test Planı | kural (OOS, komisyon+slippage, `shift(1)`, seed, `/backtest-auditor`) |
+| 7 | Riskler | kural (+ kart `risk_warnings` alıntısı) |
+| 8 | Sonraki Adım | kural |
+
+Formül bölümü yok (kartlarda formül alanı yok). Kaynaksız modda bölüm şablonu yok. Kartlar
+üretimden ÖNCE çekilir. Gerçek retrieval + kartlarla uçtan uca denendi (model üretimi taklit):
+8 bölüm doğru kaynaklardan doldu; "look-ahead bias" sorusunda Bağlam Kalitesi dürüstçe "Zayıf".
+**Gerçek v8 ile canlı deneme (2026-09-14, web değil servis katmanı):** gerçek model + retrieval +
+kartlar, "Trend takip stratejisinde look-ahead bias nasıl önlenir?". 8 bölüm doldu, Bağlam
+Kalitesi "Zayıf" (0,66 / marj 0,02) uyardı. **Kısa Cevap zayıf ve yanıltıcı:** _"…geçmiş verileri
+kullanarak gelecekteki performansı tahmin etmek yerine, stratejiyi geçmişteki verilerle test
+ederek önlenir."_ — `shift(1)` gecikmesini hiç anmıyor; dejenere değil. Doğru disiplini yalnız
+kural bölümleri taşıdı (hibrit tasarımın gerekçesi). Süre 2545 sn — CPU başka seansın kart
+üretimi + test paketiyle paylaşıldı; boş CPU'da beklenti 2-5 dk (ölçülmedi). v8 zaten
+REJECT; bu çıktı "adapter'a dayanma, kural/kaynak bölümlerine bak" kararını destekliyor.
+
+**Kapı (rebase + tekrar koruması sonrası):** ruff format + ruff check + mypy (218) + pytest
+**2085 passed, 4 skipped, 2 deselected**. PR #4 CI (Linux, ilk 3 commit): "lint · types ·
+tests (offline)" yeşil. Dal ilk hâlinde `update.ps1` / `uv.lock` için aynı amaçlı değişiklik
+taşıyordu; main'deki düzeltme (bir alttaki kayıt) üst küme olduğu için rebase'te bırakıldı.
+
+**Tekrar koruması (2026-09-14).** v8'in ~%19 tekrar patolojisi eğitimle çözülmeden sohbette
+görünür kalsın diye: `lora_chat_service` her çıktıyı eval'deki AYNI `_is_degenerate` ile
+denetler → API `degenerate` bayrağı + arayüzde "tekrar döngüsü — cevaba dayanma" rozeti;
+hibrit modda Kısa Cevap uyarılı, `collapse_repetition` ile tekrarları kesilmiş ve notlu.
+Ham çıktı `answer`'da korunur; `repetition_penalty` gibi üretim ayarı KULLANILMADI (kusur
+ölçülebilir kalsın). Aynı değişiklikle dedektör boşluğu kapandı ve kök neden sıraya kondu —
+bkz. "Bilinen açık işler → v8 sonrası" 1 ve 3.
+
+**Açık işler.**
+- ~~Ollama 0.34.0 `qwen3:4b` `think:false` + `/no_think`'e rağmen düz metin düşünüyor~~ →
+  **çözüldü** (bir üstteki "LocalLLM düzeltmesi" kaydı): `qwen3:4b` = Thinking-2507,
+  varsayılan artık `qwen3:4b-instruct-2507-q4_K_M`. Kart çevirisi önündeki sızıntı engeli kalktı.
+- Eğitilmiş modeli ana soru-cevap hattına bağlamak (GGUF→Ollama, ~11× hız).
+
+---
+
+## Son seans — 2026-09-13: CI 6 gündür kırmızıydı · düzeltme makineye ulaşmamıştı · asıl tetikleyici örtük senkron
 
 ### 1. 2026-09-11 düzeltmesi makineye hiç ulaşmadı → ortam yine bozuldu
 
@@ -590,28 +769,59 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
 ## Bilinen açık işler
 
 - **v8 sonrası (2026-09-11):**
-  1. **Dedektör boşluğu** — `_is_degenerate` cümle-tekrarı eşiği (`unique <= len//2`)
-     #5'teki üçlü birebir tekrarı kaçırdı. Eşik, tekrar ORANINI değil çeşitliliği
-     ölçüyor. Düzeltmeden önce mutasyon testi yaz (envanter §5 sıra 3 ile aynı iş).
+  1. ~~**Dedektör boşluğu**~~ **KAPANDI (2026-09-14, PR #4).** `_is_degenerate`'e "aynı
+     cümle ≥3 kez birebir" sinyali eklendi. Mutasyon testi v8 eval #4'ün (HANDOFF'taki
+     "#5", sıfır tabanlı 4) birebir metniyle yazıldı: sinyal kaldırılırsa kırmızı. Kalibrasyon
+     (v7+v8 eval, 64 gerçek cevap): yalnız bu vakayı ekledi, 32 base cevabından hiçbirini
+     bayraklamadı. Sonuç: v8'in dedektörle ölçülen tekrar oranı 2/16 → **3/16** (HANDOFF'un
+     elle saydığı ~%19 artık otomatik ölçülüyor). `grounding_verifier` mutasyon testi
+     (envanter §5 sıra 3) ayrı iş olarak açık.
   2. **Diğer iki eval seti koşulmadı** — `overfit_awareness` + `risk_management`
      (24 soru, CPU'da ~6 saat). v8'in disiplin kazanımı orada da duruyor mu, tekrar
      patolojisi oranı ne?
-  3. **Tekrar patolojisinin kökü** — reçete mi (NEFTune/lr/epoch) yoksa veri mi
-     (şablonvari SFT cevapları)? v8 dataset'inde birebir tekrar eden cevap kalıpları
-     aranmalı; `pretrain-gate`'in açılış-ezberi kuralı cümle İÇİ tekrarı görmüyor.
+  3. **Tekrar patolojisinin kökü — SIRADA (bir sonraki eğitimden ÖNCE; Kademe 2 kapsamında).**
+     Reçete mi (NEFTune/lr/epoch) yoksa veri mi? **Veri tarafı ölçüldü (2026-09-14):**
+     v8'in `train.jsonl`'ında (1616) cevap İÇİNDE tekrar eden cümle **0**; ama cevaplar
+     ARASINDA birebir kalıp cümleler çok sık: "'pass' çıksa bile bu bir ADAY'dır." 92 cevap
+     (%5,7) · "Doğru test noktası: pozisyonu shift(1) ile gecikmeli uygula…" 92 · "Ölçülmesi
+     gereken bir hipotez var: shift(1)…" 58 · "Sonuç 'pass' değilse aday değildir." 58.
+     v8'in eval'de döngüye soktuğu ifade tam bu 58'lik kalıp → **hipotez** (kanıt değil):
+     yüksek frekanslı şablon cümle ezberi. Yapılacaklar: (a) `discipline_dataset`
+     cevap şablonlarını çeşitlendir / aynı cümlenin cevaplar arası frekansına tavan koy,
+     (b) `pretrain-gate`'e "cevaplar arası birebir cümle frekansı" kuralı (açılış-ezberi
+     kuralı bunu görmüyor), (c) reçete tarafını ayırmak için aynı veriyle NEFTune kapalı
+     kontrol koşusu. Doğrulama ancak yeniden eğitim + `lora-eval` ile (Kural 8, insan onayı).
+     Kullanıcıya dönük geçici koruma PR #4'te: web sohbeti dejenere çıktıyı aynı dedektörle
+     bayraklar, tekrarları gösterimde keser, ham çıktıyı korur — üretim ayarıyla gizlemez.
   4. **Yönetici `-Repair`** — `HektorWeb` + `HektorUpdate` görevleri hâlâ eski yolda.
 - **2026-09-13 sonrası:**
-  1. **Uçtan uca doğrulama (görülene kadar AÇIK)** — PR #2 merge edilince ana checkout'ta
-     SIRAYLA: `git fetch origin && git reset --hard origin/main`, SONRA `.\update.ps1 -Force`.
-     Önce sıfırla ki YENİ betik koşsun (eskisi `--no-sync`'siz başlatır); `-Force` açık
-     senkronu zorlar. Ardından: `import transformers` çalışmalı, altı paket kilitle birebir
-     olmalı, ve **ertesi gece** `update.log` koşusundan sonra tokenizers damgası değişmemiş
-     olmalı.
-  2. **`needs-approval` etiketi repoda yok** — bağımlılık onay kapısı kurulduğundan beri
-     hiç ısırmadı. Etiketi oluşturmak ya da işi etiket yoksa FAIL edecek hâle getirmek:
-     insan kararı.
-  3. **CI yeşil olmadan merge** — main korumasız; PR #1 kırmızıyken merge edildi. main için
-     "CI zorunlu" dal koruması açılsın mı: insan kararı.
+  1. ~~**Uçtan uca doğrulama**~~ — **kapandı (2026-09-14).** 03:00 gece koşusu `SONUC: OK`,
+     tokenizers damgası değişmedi, `import transformers` çalışıyor, web yeni kodla yeniden
+     başladı. Kalan tek şey: senkronun üç küçük farkı kod değiştiren ilk gece koşusunda
+     uygulanacak (bkz. 2026-09-14 kaydı).
+  2. ~~**`needs-approval` etiketi repoda yok**~~ — **kapandı (2026-09-13).** Etiket
+     oluşturuldu; `dependency-approval-label` işi artık fail-closed: etiket eklenemez ya
+     da PR'da doğrulanamazsa KIRMIZI döner, fark hesaplanamazsa sessizce geçmez. İlk canlı
+     sınama bu düzeltmenin kendi PR'ıydı (iş akışı dosyasını değiştirdiği için etiketlenmesi
+     gerekir).
+  3. **CI yeşil olmadan merge — dal koruması DIŞARIDAN kaldırılıyor (AÇIK).** main'e
+     2026-09-14'te iki kez dal koruması açıldı: zorunlu `lint · types · tests (offline)`
+     (yalnız `github-actions`), `strict`, `enforce_admins`, force-push ve silme kapalı. İkisi de
+     API'den bayt düzeyinde geri okunarak doğrulandı; ikincisinde kontrol PR #8'in zorunlu
+     kontrol listesinde de göründü. **İkisinde de sonradan kaldırıldı** (2026-09-15
+     kontrolünde `protected=false`). Bu makinedeki Claude oturumu transkriptlerinde kaldırma
+     izi yok; arada main'e giren tek değişiklik PR #7 merge'ü ve o merge koruma açıkken de
+     `CLEAN` olurdu. Kimin kaldırdığı bilinmiyor → github.com/settings/security-log içinde
+     `protected_branch.destroy`. Üçüncü kez açmadan önce kaldıran bulunmalı (yoksa çekişilir).
+     Durum kontrolü: `gh api repos/alimirbagirzade/hektor/branches/main --jq .protected`.
+- **2026-09-13 akşam (LLM düşünme):**
+  1. **Yeni baseline** — varsayılan model `qwen3:4b-instruct-2507-q4_K_M` oldu (2026-09-13,
+     KAPANDI: çekildi + varsayılan). `understanding_record` kıyası aynı `llm_model` şartı
+     arar → yeni modelde anlama/sınav baseline'ı yeniden ölçülmeli; eski `qwen3:4b`
+     skorlarıyla kıyaslanmaz. Diğer makinelerde `.env` + `ollama pull` elle yapılmalı.
+  2. **Baseline karşılaştırılabilirliği** — bu düzeltmeden ÖNCE qwen3:4b ile alınan serbest
+     metin ölçümleri (sınav/eval cevapları) düşünme sızıntısı + kesik cevap içerebilir;
+     aynı `llm_model` adına rağmen yeni ölçümlerle birebir kıyaslanmamalı.
 - **Ajan envanteri §5, sıra 2-6** (`reports/agent-inventory/envanter-2026-09-09.md`).
   Sıra 1 (eğitim kapısı) 2026-09-10'da kapandı. Kalanlar:
   2. Manifest `safety_gates` ↔ test kimliği eşlemesi + drift testi (B1'in genel hâli).

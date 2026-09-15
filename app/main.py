@@ -658,6 +658,7 @@ def lora_chat(
     greedy/deterministtir (Kural 6). AĞIR: CPU'da model yükleme + üretim dakikalar sürer.
     """
     from app.config import get_settings
+    from app.lora.dataset_builder import SYSTEM_PROMPT
     from app.training.adapter_eval import _generate, _load_model, _resolve_base_model
 
     s = get_settings()
@@ -680,7 +681,8 @@ def lora_chat(
     tok, model = _load_model(base, adapter_dir)
 
     def _answer(question: str) -> str:
-        return _generate(tok, model, question, max_new_tokens=max_tokens)
+        # Eğitimdeki SYSTEM_PROMPT'la sor (web sohbetiyle aynı; çıplak prompt dağılım dışıdır).
+        return _generate(tok, model, question, max_new_tokens=max_tokens, system=SYSTEM_PROMPT)
 
     if q:
         console.print(Panel(_answer(q), title=f"cevap ({'adapter' if adapter_dir else 'base'})"))
