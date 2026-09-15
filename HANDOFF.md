@@ -744,8 +744,16 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
      da PR'da doğrulanamazsa KIRMIZI döner, fark hesaplanamazsa sessizce geçmez. İlk canlı
      sınama bu düzeltmenin kendi PR'ıydı (iş akışı dosyasını değiştirdiği için etiketlenmesi
      gerekir).
-  3. **CI yeşil olmadan merge** — main korumasız; PR #1 kırmızıyken merge edildi. main için
-     "CI zorunlu" dal koruması açılsın mı: insan kararı.
+  3. **CI yeşil olmadan merge — dal koruması DIŞARIDAN kaldırılıyor (AÇIK).** main'e
+     2026-09-14'te iki kez dal koruması açıldı: zorunlu `lint · types · tests (offline)`
+     (yalnız `github-actions`), `strict`, `enforce_admins`, force-push ve silme kapalı. İkisi de
+     API'den bayt düzeyinde geri okunarak doğrulandı; ikincisinde kontrol PR #8'in zorunlu
+     kontrol listesinde de göründü. **İkisinde de sonradan kaldırıldı** (2026-09-15
+     kontrolünde `protected=false`). Bu makinedeki Claude oturumu transkriptlerinde kaldırma
+     izi yok; arada main'e giren tek değişiklik PR #7 merge'ü ve o merge koruma açıkken de
+     `CLEAN` olurdu. Kimin kaldırdığı bilinmiyor → github.com/settings/security-log içinde
+     `protected_branch.destroy`. Üçüncü kez açmadan önce kaldıran bulunmalı (yoksa çekişilir).
+     Durum kontrolü: `gh api repos/alimirbagirzade/hektor/branches/main --jq .protected`.
 - **2026-09-13 akşam (LLM düşünme):**
   1. **Yeni baseline** — varsayılan model `qwen3:4b-instruct-2507-q4_K_M` oldu (2026-09-13,
      KAPANDI: çekildi + varsayılan). `understanding_record` kıyası aynı `llm_model` şartı
