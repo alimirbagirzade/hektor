@@ -75,6 +75,27 @@ def test_eval_inconclusive_not_promoted(tmp_path: Path, monkeypatch: pytest.Monk
     assert p._state.stage == PipelineStage.EVAL_SKIPPED
 
 
+def test_degenerate_reject_in_one_set_blocks_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bir sette dejenerasyon 'reject'i (skor regresyonu YOK) başka setin 'accept'i altında
+    kaybolmamalı → EVAL_FAILED (Kademe-2 av: eskiden EVAL_PASSED'e çıkıyordu)."""
+    p = _setup(tmp_path, monkeypatch)
+    (tmp_path / "evals" / "other.jsonl").write_text(
+        '{"question": "q2?", "must_avoid": []}\n', encoding="utf-8"
+    )
+    results = {
+        "core": _FakeRes(regression=False, verdict="reject"),
+        "other": _FakeRes(regression=False, verdict="accept"),
+    }
+    monkeypatch.setattr(
+        "app.training.adapter_eval.evaluate_adapter",
+        lambda _dir, es, **k: results[Path(es).stem],
+    )
+    asyncio.run(p._run_eval("adapter_x"))
+    assert p._state.stage == PipelineStage.EVAL_FAILED
+
+
 def test_eval_skipped_when_deps_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     p = _setup(tmp_path, monkeypatch)
 

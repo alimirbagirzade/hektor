@@ -64,7 +64,10 @@ def test_leakage_prefix_warns_without_blocking() -> None:
         "Bunu yapma look-ahead olur.",
     ]
     lines = [_line("pasaja göre dayanak budur ve sonuç budur.") for _ in range(3)]
-    lines += [_line(_varied[i % len(_varied)] + f" ek {i}") for i in range(97)]
+    # Kapanışlar da çeşitli olmalı (yoksa kapanış-ezberi bloku tetiklenir).
+    lines += [
+        _line(_varied[i % len(_varied)] + f" Ayrıntı notu numarası {i} burada.") for i in range(97)
+    ]
     rep = audit_dataset(lines)
     assert rep.verdict == "GO", rep.blockers
     assert rep.leakage_prefix_hits == 3

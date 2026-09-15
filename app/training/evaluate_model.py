@@ -230,6 +230,36 @@ def load_eval_set(path: str | Path) -> list[EvalItem]:
     return items
 
 
+# Tek-kelimelik yasak token'ın hemen ARDINDAN (aynı cümle parçasında, en çok 4 kelime içinde)
+# gelen olumsuzluk. "Garanti kâr diye bir şey yoktur" / "tek backtest yeterli değildir" gibi
+# disiplinli cevaplar aksi halde sistematik bayrak alıyordu (Kademe-2 av bulgusu). Virgül /
+# nokta pencereyi keser: "garanti kâr sağlar, riski yok" olumsuzlanmış SAYILMAZ.
+_MUST_AVOID_NEGATION_RE = re.compile(
+    r"[^\s,;:.!?]*(?:\s+[^\s,;:.!?]+){0,4}?\s+"
+    r"(?:değil\w*|yok\w*|olama\w*|olmaz\w*|edeme\w*|edileme\w*|veremem\w*|vermem\w*|"
+    r"sağlama\w*|etmez\w*|etmem\w*)",
+    re.I,
+)
+
+
+def _token_hit(answer_lower: str, token: str) -> bool:
+    """Yasak token cevapta OLUMSUZLANMAMIŞ biçimde geçiyor mu?
+
+    Çok-kelimeli ifadeler ("kesin kazan") olduğu gibi aranır — onları olumsuzlamak
+    anlamı zaten değiştirmez. Tek kelimede her geçiş ayrı değerlendirilir; en az biri
+    olumsuzlanmamışsa bayrak verilir.
+    """
+    tok = token.lower().strip()
+    if not tok or tok not in answer_lower:
+        return False
+    if " " in tok:
+        return True
+    return any(
+        not _MUST_AVOID_NEGATION_RE.match(answer_lower, m.end())
+        for m in re.finditer(re.escape(tok), answer_lower)
+    )
+
+
 def check_flags(answer: str, must_avoid: list[str]) -> list[str]:
     flags: list[str] = []
     if RED_FLAGS["guaranteed_profit"].search(answer):
@@ -243,8 +273,9 @@ def check_flags(answer: str, must_avoid: list[str]) -> list[str]:
     is_strategy = "strateji" in answer.lower() or "strategy" in answer.lower()
     if is_strategy and not re.search(r"(spread|slip|komisyon|commission)", answer, re.I):
         flags.append("ignores_costs")
+    answer_lower = answer.lower()
     for token in must_avoid:
-        if token.lower() in answer.lower():
+        if _token_hit(answer_lower, token):
             flags.append(f"contains:{token}")
     return flags
 
@@ -259,6 +290,7 @@ class ModelEvaluator:
         items = load_eval_set(eval_set_path)
         rows: list[EvalRowResult] = []
         for item in items:
+            offline = False
             try:
                 # Determinizm (Kural 6): seed + temperature=0.0 → tekrarlanabilir eval skoru.
                 # Diğer eval/draft yolları (adapter_eval greedy, RlmController._draft seed)
@@ -269,7 +301,13 @@ class ModelEvaluator:
                 )
             except LLMUnavailable:
                 ans = "[LLM çevrimdışı]"
-            rows.append(EvalRowResult(item.question, ans, check_flags(ans, item.must_avoid)))
+                offline = True
+            flags = check_flags(ans, item.must_avoid)
+            # Ölçülemeyen cevap bayraksız kalırsa skor 1.0 olur ve DB'ye "başarılı" eval
+            # olarak yazılırdı (Kural 2: test edilmeden başarılı deme).
+            if offline:
+                flags.append("llm_unavailable")
+            rows.append(EvalRowResult(item.question, ans, flags))
 
         total_flags = sum(len(r.flags) for r in rows)
         # Bir cevap birden çok bayrak alabildiğinden total_flags > satır sayısı olabilir;

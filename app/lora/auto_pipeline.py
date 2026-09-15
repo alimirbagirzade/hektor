@@ -103,7 +103,7 @@ class AutoLoRAPipeline:
         check_interval_min: int = 60,
         eval_pass_threshold: float = 0.5,
         auto_enabled: bool = False,
-        eval_sample_n: int = 8,
+        eval_sample_n: int = 0,
     ) -> None:
         self.min_eligible_cards = min_eligible_cards
         self.check_interval_min = check_interval_min
@@ -345,7 +345,10 @@ class AutoLoRAPipeline:
                         evaluate_adapter, adapter_dir, es, n=self.eval_sample_n
                     )
                     scores[es.stem] = res.to_dict()
-                    regression_any = regression_any or res.regression
+                    # 'reject' yalnız skor düşüşünden değil dejenere/boş cevap vetosundan da
+                    # gelir; yalnız res.regression toplanırsa bir setteki çöküş başka setin
+                    # 'accept'i altında kaybolup EVAL_PASSED üretiyordu (Kademe-2 av bulgusu).
+                    regression_any = regression_any or res.regression or res.verdict == "reject"
                     improved_any = improved_any or (res.verdict == "accept")
             except ImportError as exc:
                 # torch/transformers/peft kurulu değil → adapter GERÇEKTEN ölçülemez.
@@ -438,7 +441,9 @@ class AutoLoRAPipeline:
                             adapter_rate * 100,
                         )
             except Exception as _ladder_exc:
-                log.debug("Auto-LoRA: anlama-merdiveni kıyası atlandı — %s", _ladder_exc)
+                # Sessiz atlama kapıyı görünmez biçimde devre dışı bırakıyordu → görünür kıl.
+                log.warning("Auto-LoRA: anlama-merdiveni kıyası ATLANDI — %s", _ladder_exc)
+                scores["_ladder"] = {"status": "skipped", "reason": str(_ladder_exc)[:200]}
 
             async with self._lock:
                 self._state.eval_scores = scores
@@ -447,8 +452,10 @@ class AutoLoRAPipeline:
                     log.info("Auto-LoRA: Adapter base'den İYİ → EVAL_PASSED (terfi onayı bekliyor)")
                 elif regression_any:
                     self._state.stage = PipelineStage.EVAL_FAILED
-                    self._state.last_error = "Adapter base'e göre GERİLEDİ (regresyon) — terfi YOK"
-                    log.warning("Auto-LoRA: Adapter regresyon → EVAL_FAILED")
+                    self._state.last_error = (
+                        "Adapter base'e göre GERİLEDİ veya dejenere/boş cevap üretti — terfi YOK"
+                    )
+                    log.warning("Auto-LoRA: Adapter regresyon/dejenerasyon → EVAL_FAILED")
                 else:
                     # eşit/inconclusive → terfi etme ama adapter'ı SMOKE_PASSED olarak kaydet.
                     self._state.stage = PipelineStage.EVAL_SKIPPED
@@ -470,21 +477,25 @@ class AutoLoRAPipeline:
         try:
             from app.config.settings import get_settings
             from app.lora.adapter_registry import AdapterRecord, AdapterRegistry, AdapterStatus
+            from app.training.adapter_eval import _resolve_base_model
 
             settings = get_settings()
             registry = AdapterRegistry()
             # evaluate_adapter to_dict() 'adapter_score' üretir (eski 'pass_rate' DEĞİL) ve
-            # anahtar eval-set adına bağlı (sabit 'discipline_core' değil) → ilk geçerli skoru al.
-            adapter_score = next(
-                (
-                    s["adapter_score"]
-                    for s in self._state.eval_scores.values()
-                    if isinstance(s, dict) and s.get("adapter_score") is not None
-                ),
-                None,
-            )
+            # anahtar eval-set adına bağlı → setlerin EN KÖTÜ skorunu yaz: ilk/en iyi set
+            # başka setteki zayıflığı registry'de gizlemesin.
+            set_scores = [
+                float(s["adapter_score"])
+                for s in self._state.eval_scores.values()
+                if isinstance(s, dict) and s.get("adapter_score") is not None
+            ]
+            adapter_score = min(set_scores) if set_scores else None
             record = AdapterRecord(
-                base_model=settings.peft_base_model,
+                # Adapter'ın GERÇEK base'i (küçük-model adapter'ı 4B diye kaydedilmesin).
+                base_model=(
+                    _resolve_base_model(settings.adapters_dir / adapter_name)
+                    or settings.peft_base_model
+                ),
                 adapter_name=adapter_name,
                 eval_score=adapter_score,
             )
@@ -600,7 +611,7 @@ def get_auto_pipeline() -> AutoLoRAPipeline:
             min_eligible_cards=getattr(s, "auto_lora_min_cards", 20),
             check_interval_min=getattr(s, "auto_lora_check_interval_min", 60),
             eval_pass_threshold=getattr(s, "auto_lora_eval_threshold", 0.5),
-            eval_sample_n=getattr(s, "auto_lora_eval_sample_n", 8),
+            eval_sample_n=getattr(s, "auto_lora_eval_sample_n", 0),
             auto_enabled=s.unattended_training_enabled,
         )
     return _pipeline

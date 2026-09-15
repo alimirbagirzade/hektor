@@ -111,11 +111,8 @@ $env:HEKTOR_TRAIN_DTYPE = $Dtype
 # Resume yalniz ACIKCA istendiginde; aksi halde ortamda kalmis eski degeri TEMIZLE
 # (kalici HEKTOR_TRAIN_RESUME=1 devami yeniden ortuk hale getirirdi).
 if ($Resume) { $env:HEKTOR_TRAIN_RESUME = "1" } else { $env:HEKTOR_TRAIN_RESUME = "0" }
-# Bu script yalnız merkezi unattended eğitim servisi tarafından kullanılır. STOP_ALL
-# yine CLI içinde zorunludur; tekrar başlatmalarda tek kullanımlık insan onayı aranmaz.
-$env:HEKTOR_TRAIN_SUPERVISED = "1"
-# Temel model secimi alt surece ORTAM uzerinden gecer (Start-Process ortami miras alir).
-if ($BaseModel -and $BaseModel.Trim() -ne "") { $env:HEKTOR_PEFT_BASE_MODEL = $BaseModel }
+# HEKTOR_TRAIN_SUPERVISED + HEKTOR_PEFT_BASE_MODEL burada DEGIL, yalniz Start-Process
+# aninda ayarlanip hemen geri alinir (asagida) -- kalici birakilirsa kabuk kirlenir.
 # ---------------------------------------------------------------------------
 # KALITE KAPISI -- lora-split'ten ONCE. pretrain-gate kaynak dosyayi
 # (data/lora_sft/lora_sft.jsonl) denetler; split o dosyadan turer, dolayisiyla
@@ -127,7 +124,8 @@ if ($SkipGate) {
 } else {
     Write-Host "  Kalite kapisi calisiyor (pretrain-gate + lora-audit)..." -ForegroundColor DarkGray
 
-    # 1) On egitim kalite kapisi: garanti-vaadi regex, acilis-ezberi, minimum boyut.
+    # 1) On egitim kalite kapisi (NO-GO): garanti-vaadi, acilis/kapanis ezberi, bos veya
+    #    okunamayan satir, sir/kisisel veri. Az ornek yalniz UYARI verir.
     $pg = $null
     try { $pg = & $uv run --project "$ProjectDir" hektor pretrain-gate --json | ConvertFrom-Json } catch { $pg = $null }
     if (-not $pg -or -not $pg.verdict) {
@@ -212,12 +210,27 @@ if ($Profile -and $Profile.Trim() -ne "") { $trainArgs += @("--profile", $Profil
 # Ornek tavani: verilmezse profildeki max_examples gecerli olur. Bayrak GECMEZSEK
 # -MaxExamples sessizce YOK SAYILIR (2026-09-08 v8: 600 ornek istendi, 300 egitildi).
 if ($MaxExamples -gt 0) { $trainArgs += @("--max-examples", "$MaxExamples") }
-Start-Process -FilePath $uv `
-    -ArgumentList $trainArgs `
-    -WorkingDirectory $ProjectDir `
-    -RedirectStandardOutput $LogOut `
-    -RedirectStandardError $LogErr `
-    -WindowStyle Hidden
+# Alt surece ORTAMLA gecenler yalniz Start-Process ANINDA ayarlanir, hemen geri alinir.
+# $env: surec-geneldir: kalici kalirsa ayni kabukta sonradan elle calistirilan
+# `hektor train --run` taze onay kapisini ATLAR ve eski -BaseModel ile egitir (Kademe-2 av).
+# SUPERVISED: bu betik merkezi egitim servisidir; STOP_ALL CLI icinde yine zorunludur.
+$prevSupervised = $env:HEKTOR_TRAIN_SUPERVISED
+$prevBaseModel  = $env:HEKTOR_PEFT_BASE_MODEL
+$proc = $null
+try {
+    $env:HEKTOR_TRAIN_SUPERVISED = "1"
+    if ($BaseModel -and $BaseModel.Trim() -ne "") { $env:HEKTOR_PEFT_BASE_MODEL = $BaseModel }
+    $proc = Start-Process -FilePath $uv `
+        -ArgumentList $trainArgs `
+        -WorkingDirectory $ProjectDir `
+        -RedirectStandardOutput $LogOut `
+        -RedirectStandardError $LogErr `
+        -WindowStyle Hidden `
+        -PassThru
+} finally {
+    $env:HEKTOR_TRAIN_SUPERVISED = $prevSupervised
+    $env:HEKTOR_PEFT_BASE_MODEL  = $prevBaseModel
+}
 # Rozet/durum icin: adapter adini storage'a yaz (web /api/training/live okur)
 $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
 # Recetenin TAMAMI yazilir: nobetci (training-watchdog.ps1) coken egitimi YALNIZ bu
@@ -230,6 +243,9 @@ $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
     base_model   = $BaseModel
     profile      = $Profile
     max_examples = $MaxExamples
+    # pid: web "durdur" (request_stop_detached_training) sureci agaciyla oldurebilsin;
+    # pid yoksa yalniz STOP_TRAINING dosyasi birakiyor ve egitim suruyordu.
+    pid          = $(if ($proc) { [int]$proc.Id } else { 0 })
 } | ConvertTo-Json -Compress) |
     Out-File -FilePath $StatusFile -Encoding ascii -Force
 $profLabel = if ($Profile -and $Profile.Trim() -ne "") { $Profile } else { "(vanilya)" }

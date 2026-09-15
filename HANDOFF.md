@@ -103,7 +103,62 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
-## Son seans — 2026-09-13: CI 6 gündür kırmızıydı · düzeltme makineye ulaşmamıştı · asıl tetikleyici örtük senkron
+## Son seans — 2026-09-15: trading kaynakları + Kademe 2 derin av (eğitim öncesi)
+
+Dal: `claude/trading-dosya-makaleler-462f10` (henüz push YOK). Eğitim BAŞLATILMADI.
+
+### 1. Trading korpusu
+- `Desktop\RAG Kaynak\tader kitapları\` → 39 açık-erişim PDF (arXiv / yazar sayfası / NBER;
+  `%PDF` + başlık doğrulamalı) + kullanıcının koyduğu 25 kitap. İndeks: klasördeki `00_OKU_ONCE.md`.
+- RAG: 38 makale ingest (1 tekrar atlandı) → 199 makale / 17 350 chunk; 38 kart + skor (%100 okunmuş).
+  Kitaplar `data/papers/raw_pdf/trading-kitaplar-2026-09-14/` → ingest SÜRÜYORDU (12/25).
+- **Makine uykuya geçince ingest 6,5 saat durdu** (22:56–05:24, Kernel-Power 506/507) — Ollama
+  kilitlenmesi DEĞİL. Uzun işlerde uyku kapatılmalı.
+- İlk kitap ingest'i `WinError 10013` (Ollama bağlantı reddi, geçici) ile düştü; yeniden koşu
+  idempotent devam etti.
+
+### 2. Kademe 2 — 4 finder + adversarial doğrulama (0 çürütülen iddia)
+Düzeltildi (bu dal):
+- **Eval:** çok-setli eval'de dejenerasyon `reject`'i kayboluyordu (auto_pipeline → EVAL_PASSED);
+  `_is_degenerate` araya cümle giren 3× tekrarı ve `!`/satır tekrarını kaçırıyordu (v8 #5);
+  `accept` için ≥2 bayrak farkı; `must_avoid` olumsuzlamaya duyarlı ("garanti kâr yoktur");
+  otomatik hat tüm eval sorularını koşar (ilk-8 kırpması v8'in #11 çöküşünü hiç görmüyordu);
+  LLM çevrimdışı cevap `llm_unavailable` bayrağı; registry REJECTED/CANDIDATE'i terfi ettirmez;
+  gözetimsiz politika terfiyi ASLA yetkilendirmez; merdiven kıyası sessiz atlanmaz.
+- **Veri (v8 tekrar patolojisinin veri kökü):** disiplin cevaplarının 208/528'i iki SABİT kuyrukla
+  bitiyordu ("Ölçülmesi gereken bir hipotez var…" v8'de 3× tekrarlanan cümle) → 16 kuyruk
+  varyantı. pretrain-gate yeni NO-GO'lar: kapanış ezberi (>%4), boş/okunamayan satır,
+  prompt/completion biçimi, **sır/PII** (eğitilen dosyanın kendisi). Yazar e-postaları
+  (1701 satırın 92'sinde 191 adres) `sft_assembly` birleştirmesinde maskelenir.
+- **Kapı yolları:** `launch()` (web/auto) artık pretrain-gate'ten geçer; boş kanonik kaynakta
+  bayat split sayılmaz; `start-train.ps1` SUPERVISED/BASE_MODEL env'ini sızdırmaz, status'a pid yazar.
+- **Kart/QA:** eşik altı pending kart reddedilip yeniden denenir; kart üretimi seed'li;
+  `synth-qa-bulk` hedef aşılmışken sahte başarı basmaz + `--since` filtresi.
+- **Eval seti değişti:** `evals/discipline_core.jsonl`'daki 4 soru eğitim şablonlarının neredeyse
+  birebiriydi (kirlenme) → yeniden yazıldı. **v8 skorlarıyla doğrudan kıyas artık geçersiz.**
+
+**Mevcut `data/lora_sft/lora_sft.jsonl` yeni kapıda NO-GO** (kapanış %5.9 + 191 PII) — beklenen;
+veri yeniden kurulmalı (aşağı).
+
+Açık kalanlar (düşük): synth-qa `--resume` kısmen işlenen makaleyi atlıyor; synth-qa yazma
+kilitsiz; `auto-chain.sh`/`mac-loop.sh` zayıf kart onayı; `lora-dataset` `lora_sft.jsonl`'ı ezer;
+`lora-split` satır-düzeyi karıştırır (train --run kaynak-gruplu yeniden böler); maskelemede atlanan
+örnek max_steps'i düşürmez. **Backtest bulguları** (Sharpe yıllıklandırma etikete bağlı → sahte
+pass, NaN `!=` al-tut, risk komutu sentetik veri, MACD period yok sayılır…) ayrı göreve bırakıldı.
+
+### 3. Sıradaki (insan onayı bekliyor — Kural 8)
+```bash
+uv run hektor read-all --cards 25 --scores 25          # kitap kartları (ingest bitince)
+uv run hektor synth-qa-bulk --since 2026-09-13 --target 5000   # yalnız yeni trading kaynakları
+uv run python scripts/assemble_sft.py                  # e-posta maskeli birleşik set
+uv run hektor pretrain-gate && uv run hektor lora-audit
+.\scripts\start-train.ps1 -Adapter hektor_lora_v9_4b   # onay isteği → approval-approve <id>
+```
+Not: sentetik QA bugün 211 makalenin yalnız 40'ını kapsıyor; tüm korpus CPU'da onlarca saat.
+
+---
+
+## Önceki seans — 2026-09-13: CI 6 gündür kırmızıydı · düzeltme makineye ulaşmamıştı · asıl tetikleyici örtük senkron
 
 ### 1. 2026-09-11 düzeltmesi makineye hiç ulaşmadı → ortam yine bozuldu
 

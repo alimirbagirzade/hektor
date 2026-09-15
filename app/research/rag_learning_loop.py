@@ -326,6 +326,20 @@ class RagLearningLoop:
             return bool(store.approve_card(newest["card_id"]))
         return False
 
+    @staticmethod
+    def _reject_if_weak_pending(store: Any, paper_id: str) -> bool:
+        """Makalenin en yeni pending kartı anlamlı-içerik eşiğini geçemiyorsa reddet.
+
+        Pending kart yoksa (ör. başka yol onayladı) False döner — hiçbir şeye dokunulmaz.
+        """
+        pend = [c for c in store.list_pending_cards() if str(c.get("paper_id", "")) == paper_id]
+        if not pend:
+            return False
+        newest = max(pend, key=lambda c: str(c.get("created_at", "")))
+        if is_substantive_card(newest.get("card_json") or {}):
+            return False
+        return bool(store.reject_card(newest["card_id"]))
+
     def _build_missing_cards(self, limit: int) -> int:
         """Kartı olmayan makalelere bilgi kartı üret + içerikliyse onayla.
 
@@ -375,7 +389,19 @@ class RagLearningLoop:
                         p.paper_id,
                     )
                     continue
-                self._approve_if_content(store, p.paper_id)
+                if not self._approve_if_content(store, p.paper_id) and self._reject_if_weak_pending(
+                    store, p.paper_id
+                ):
+                    # Eşik altı kart pending'de kalsaydı has_knowledge_card onu "kartlı" sayar,
+                    # makale bir daha denenmez ve kartı eğitime hiç girmezdi (Kademe-2 av).
+                    # Reddedilen kart sayılmaz → deneme defteri tavana kadar yeniden dener.
+                    log.warning(
+                        "RAG loop: kart eşik altı (başlık≥8 / iddia≥40), reddedildi (%d/%d): %s",
+                        attempts[p.paper_id],
+                        _MAX_CARD_ATTEMPTS,
+                        p.paper_id,
+                    )
+                    continue
                 attempts.pop(p.paper_id, None)  # başarılı → defteri şişirme
                 built += 1
             except Exception as exc:

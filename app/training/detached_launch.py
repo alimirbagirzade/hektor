@@ -164,11 +164,34 @@ def split_lines_by_source(lines: list[str], seed: int = _SPLIT_SEED) -> tuple[li
     return train, valid
 
 
+def _pretrain_gate_blockers(settings) -> list[str]:
+    """Kanonik eğitim verisini pretrain-gate'ten geçir; NO-GO gerekçelerini döndür.
+
+    Kapı ÇALIŞTIRILAMAZSA da boş olmayan liste döner → eğitim başlamaz (Kural 2).
+    """
+    try:
+        from app.training.dataset_quality import audit_dataset
+        from app.training.discipline_dataset import discipline_jsonl_lines
+
+        src = _combined_source(settings)
+        lines = (
+            [ln for ln in src.read_text(encoding="utf-8").splitlines() if ln.strip()]
+            if src.exists()
+            else []
+        )
+        report = audit_dataset(lines, discipline_lines=discipline_jsonl_lines())
+    except Exception as exc:
+        return [f"kalite kapısı çalıştırılamadı: {exc}"]
+    return list(report.blockers)
+
+
 def ensure_train_split(settings=None) -> tuple[int, int]:
     """`lora_sft.jsonl` → `jsonl_dir/{train,valid}.jsonl` (determinist, KAYNAK-GRUPLU).
 
     Birleşik kaynak doluysa HER ZAMAN yeniden böler (clobber onarımı). Kaynak
-    boş/yoksa mevcut train.jsonl'e dokunmaz. (n_train, n_valid) döndürür.
+    boş/yoksa mevcut train.jsonl'e dokunmaz ama (0, 0) döndürür: eldeki bayat split'i
+    saymak, kanonik kaynak kaybolduğunda eğitimin denetlenmemiş eski veriyle sessizce
+    sürmesine yol açıyordu (Kademe-2 av bulgusu). (n_train, n_valid) döndürür.
     """
     s = settings or get_settings()
     src = _combined_source(s)
@@ -178,8 +201,8 @@ def ensure_train_split(settings=None) -> tuple[int, int]:
         else []
     )
     if not lines:
-        # Kaynak yok → eldeki train/valid neyse onu say (bozma).
-        return _count_lines(s.jsonl_dir / "train.jsonl"), _count_lines(s.jsonl_dir / "valid.jsonl")
+        # Kaynak yok → dosyalara dokunma, ama eğitilebilir veri YOK say.
+        return 0, 0
 
     train, valid = split_lines_by_source(lines)
 
@@ -564,6 +587,17 @@ def launch(
                     "Eğitim verisi yok (lora_sft.jsonl boş). "
                     "Önce sentetik veri üret (synth-qa / lora-cloud-prep)."
                 ),
+                "adapter": "",
+            }
+
+        # Kalite kapısı TÜM başlatma yollarında — eskiden yalnız scripts/start-train.ps1
+        # içindeydi; web butonu ve auto_pipeline denetlenmemiş veriyi eğitebiliyordu.
+        gate_blockers = _pretrain_gate_blockers(s)
+        if gate_blockers:
+            return {
+                "ok": False,
+                "message": "Kalite kapısı NO-GO — eğitim başlatılmadı: "
+                + " | ".join(gate_blockers[:3]),
                 "adapter": "",
             }
 

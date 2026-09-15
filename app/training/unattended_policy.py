@@ -26,7 +26,9 @@ def authorize_training_action(
 
     if supervisor.is_stop_all_active():
         return TrainingAuthorization(False, "stop_all", "STOP_ALL active")
-    if get_settings().unattended_training_enabled and gates_passed:
+    # Production terfisi gözetimsiz politikayla ASLA yetkilendirilmez: registry'ye
+    # approved_by_user=True yazılır ve bu bir insan kararıdır (Kural 8).
+    if get_settings().unattended_training_enabled and gates_passed and "promote" not in action:
         return TrainingAuthorization(True, "unattended_policy", "quality gates passed")
 
     risk = "high" if "promote" in action else "critical"
