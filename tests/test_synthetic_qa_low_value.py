@@ -13,12 +13,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.brain.synthetic_qa_builder import (
-    SyntheticQABuilder,
-    _is_content_chunk,
-    _select_chunks,
-    is_low_value_answer,
-)
+from app.brain.chunk_selection import is_content_chunk as _is_content_chunk
+from app.brain.chunk_selection import select_content_chunks as _select_chunks
+from app.brain.synthetic_qa_builder import SyntheticQABuilder, is_low_value_answer
 from app.training.dataset_quality import audit_dataset
 
 _CONTENT = (

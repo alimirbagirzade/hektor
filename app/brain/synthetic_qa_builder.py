@@ -24,6 +24,7 @@ import logging
 import re
 from dataclasses import dataclass
 
+from app.brain.chunk_selection import select_content_chunks
 from app.brain.local_llm import LLMUnavailable, LocalLLM
 from app.lora.dataset_builder import SYSTEM_PROMPT, LoRAExample
 from app.lora.quality_filter import QualityFilter
@@ -103,43 +104,6 @@ _NEGATED_DISCLOSURE_RE = re.compile(
 def is_low_value_answer(answer: str) -> bool:
     """Cevap "pasaj"a atıf yapıyor ya da pasajın bir şeyi içermediğini söylüyor mu?"""
     return bool(_PASSAGE_MENTION_RE.search(answer) or _NEGATED_DISCLOSURE_RE.search(answer))
-
-
-# --- İçerik chunk seçimi -----------------------------------------------------------------
-# Kitabın ilk chunk'ları kapak, telif, içindekiler ve şekil listesidir (ölçüldü: López de
-# Prado #1-#7 "Table 1.1 11 Equation 26 23…"). Eskiden `chunks[:max_chunks]` tam bunları
-# alıyordu. Ön sayfalar elenir, kalan içerik chunk'ları belgenin tamamına eşit yayılır.
-_FRONT_MATTER_RE = re.compile(
-    r"\b(?:table of contents|contents|copyright|all rights reserved|isbn|"
-    r"library of congress|printed in|published by|acknowledg\w*|praise for|oceanofpdf)\b",
-    re.I,
-)
-_MIN_CONTENT_CHARS = 400
-_MAX_NUMERIC_WORD_SHARE = 0.3
-
-
-def _is_content_chunk(text: str) -> bool:
-    """Chunk gerçek içerik mi (ön sayfa / içindekiler / şekil listesi değil)?"""
-    flat = " ".join((text or "").split())
-    if len(flat) < _MIN_CONTENT_CHARS or _FRONT_MATTER_RE.search(flat[:300]):
-        return False
-    words = flat.split()
-    numeric = sum(1 for w in words if any(ch.isdigit() for ch in w))
-    return numeric / len(words) < _MAX_NUMERIC_WORD_SHARE
-
-
-def _select_chunks(chunks: list, max_chunks: int) -> list:
-    """İçerik chunk'larından en çok `max_chunks` tanesini belgeye EŞİT aralıkla seç (determinist).
-
-    Hiç içerik chunk'ı yoksa (kısa belge / test) boş olmayan chunk'lara aynı yayılım uygulanır.
-    """
-    pool = [c for c in chunks if _is_content_chunk(getattr(c, "text", ""))] or [
-        c for c in chunks if len((getattr(c, "text", "") or "").strip()) >= 40
-    ]
-    if max_chunks <= 0 or len(pool) <= max_chunks:
-        return pool
-    step = len(pool) / max_chunks
-    return [pool[int(i * step + step / 2)] for i in range(max_chunks)]
 
 
 def _anchor_tokens(text: str) -> set[str]:
@@ -409,7 +373,9 @@ class SyntheticQABuilder:
         """
         chunks = store.list_chunks(paper_id)  # type: ignore[attr-defined]
         examples: list[LoRAExample] = []
-        for i, ch in enumerate(_select_chunks(list(chunks), max_chunks)):
+        # Ön sayfalar elenir, içerik chunk'ları belgeye eşit yayılır (eskiden
+        # `chunks[:max_chunks]` kitabın kapak/içindekiler chunk'larını alıyordu).
+        for i, ch in enumerate(select_content_chunks(list(chunks), max_chunks)):
             examples.extend(
                 self.build_for_chunk(
                     getattr(ch, "text", ""),

@@ -1566,6 +1566,10 @@ class SqliteStore:
             s.add(paper)
             return paper
 
+    def get_paper(self, paper_id: str) -> Paper | None:
+        with self.session() as s:
+            return s.get(Paper, paper_id)
+
     def get_paper_by_hash(self, file_hash: str) -> Paper | None:
         with self.session() as s:
             return s.scalar(select(Paper).where(Paper.file_hash == file_hash))

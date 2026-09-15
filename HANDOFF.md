@@ -266,6 +266,20 @@ Not: sentetik QA bugün 211 makalenin yalnız 40'ını kapsıyor; tüm korpus CP
   Üretim yeniden başlatıldı (`--since 2026-09-13 --max-chunks 8 --resume`, ~12 saat).
 - Kitapların bir kısmı `OceanofPDF.com` filigranı taşıyor (kullanıcının koyduğu dosyalar).
 
+### 5. Bilgi kartında aynı ön sayfa sorunu → düzeltildi (2026-09-15, `claude/kart-on-sayfa-baslik`)
+- López de Prado (paper_4179e6720bae) için 2 kart (06:08 rejected, 14:30 pending) `title` BOŞ
+  → `is_substantive_card` (title≥8, main_claim≥40) geçmiyor. Kök neden: `build()`
+  `full_text[:6000]` = kapak + #1–#10 şekil/denklem listesi.
+- Düzeltme: ön sayfa ölçütü `app/brain/chunk_selection.py`'ye taşındı (synth-qa + kart ortak).
+  Baştaki içerik-dışı blok >1500 krk ise kart alıntısı = ilk içerik chunk'ları (yarı bütçe) +
+  eşit yayılmış 3 kesit; temiz makalede eski `full_text[:max_chars]` aynen. LLM başlığı
+  boş/kısaysa (yalnız main_claim doluyken) `papers.title` → dosya adından doldurulur.
+- Gerçek veri (salt-okuma): 256 chunk'ın 117'si içerik, ilk içerik #11; 5.996 krk ön sayfa atlandı.
+- ⚠ `papers.title` bu kitapta KESİK: `"ADVANCES IN FINANCIAL"` → kart bu başlığı alır (eşik
+  geçer ama eksik). Kökü ingest başlık çıkarımı; açık iş.
+- **Karar bekliyor:** pending kart dokunulmadı. Birleşmeden sonra yeniden üretim
+  (`uv run hektor card paper_4179e6720bae`) ve eski pending kartın reddi kullanıcıya bırakıldı.
+
 > **Birleştirme notu:** `main`'deki 2026-09-14 kaydının v8-3 açık işi (şablon
 > çeşitlendirme / frekans tavanı / pretrain-gate kuralı) bu dalla karşılandı; dedektör
 > iki çözümün birleşimidir (`_SENTENCE_REPEAT_MIN` + genişletilmiş cümle ayırıcı).
