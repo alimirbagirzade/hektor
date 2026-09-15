@@ -17,11 +17,13 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
+from app.brain.chunk_selection import is_content_chunk, select_content_chunks
 from app.brain.local_llm import LocalLLM
 from app.brain.prompt_loader import load_prompt
 from app.config import get_settings
@@ -36,6 +38,69 @@ _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 # harcarlar (yerel CPU'da ~5 dk/çağrı × retry). Gerçek bir araştırma makalesinin
 # çıkarılmış metni her zaman bundan çok daha uzundur (en küçükleri ~11KB ölçüldü).
 _MIN_SOURCE_CHARS = 1500
+
+# --- Ön sayfa (2026-09-15 ölçümü) ------------------------------------------------------
+# López de Prado kitabında (256 chunk) `full_text[:6000]` kapak + içindekiler + şekil/denklem
+# listesiydi → kart başlıksız çıktı, `is_substantive_card` eşiğini geçemedi. Temiz bir
+# makalede baştaki içerik-dışı blok yalnız başlık/yazar satırıdır (bir-iki kısa chunk); bundan
+# uzun baştaki içerik-dışı kısım kitap ön sayfası sayılır.
+_MAX_TITLE_BLOCK_CHARS = 1500
+# Ön sayfa atlanınca: bütçenin yarısı ilk içerik chunk'ları (önsöz/giriş), kalanı belgeye eşit
+# yayılmış bu kadar kesit.
+_SPREAD_PIECES = 3
+_GAP = "\n\n[...]\n\n"
+# Meta veriden gelen başlığın kabulü için asgari harf sayısı ("2101.12345" gibi dosya adı olmaz).
+_MIN_TITLE_LETTERS = 8
+
+
+def _chunk_text(chunk: Any) -> str:
+    return str(getattr(chunk, "text", "") or "")
+
+
+def _card_source(chunks: Sequence[Any], full_text: str, max_chars: int) -> tuple[str, str]:
+    """Kart prompt'u için ``(ilk deneme alıntısı, retry/kesit kaynağı)`` seç.
+
+    Belge başında uzun bir içerik-dışı blok (kitap ön sayfası) YOKSA eski davranış aynen
+    korunur: ``full_text[:max_chars]`` — kısa arXiv makalesinde özet + giriş. Varsa ön sayfa ve
+    diğer içerik-dışı chunk'lar atılır; alıntı = ilk içerik chunk'ları (bütçenin yarısı) +
+    kalan içerik chunk'larından belgeye eşit yayılmış kesitler. Determinist.
+    """
+    texts = [_chunk_text(c) for c in chunks]
+    first = next((i for i, t in enumerate(texts) if is_content_chunk(t)), None)
+    if first is None or sum(len(t) for t in texts[:first]) <= _MAX_TITLE_BLOCK_CHARS:
+        return full_text[:max_chars], full_text
+    content = [c for c in chunks if is_content_chunk(_chunk_text(c))]
+    source = "\n\n".join(_chunk_text(c) for c in content)
+    if len(source) <= max_chars:
+        return source, source
+    half = max_chars // 2
+    head_parts: list[str] = []
+    used = 0
+    for c in content:
+        if used >= half:
+            break
+        head_parts.append(_chunk_text(c))
+        used += len(head_parts[-1]) + 2
+    head = "\n\n".join(head_parts)[:half]
+    pieces = select_content_chunks(content[len(head_parts) :], _SPREAD_PIECES)
+    cap = (max_chars - len(head)) // max(1, len(pieces)) - len(_GAP)
+    tail = [_chunk_text(c)[:cap] for c in pieces] if cap >= 200 else []
+    return _GAP.join([head, *tail]), source
+
+
+def _meta_title(paper: Any) -> str:
+    """Kart başlığı için meta veri: ``papers.title``, yoksa kaynak dosya adı (uydurma değil)."""
+    if paper is None:
+        return ""
+    candidates = (
+        str(getattr(paper, "title", "") or ""),
+        re.sub(r"[_\-.]+", " ", Path(str(getattr(paper, "source_path", "") or "")).stem),
+    )
+    for raw in candidates:
+        title = " ".join(raw.split())
+        if sum(ch.isalpha() for ch in title) >= _MIN_TITLE_LETTERS:
+            return title
+    return ""
 
 
 class KnowledgeCard(BaseModel):
@@ -221,11 +286,32 @@ class KnowledgeCardBuilder:
 
         return "draft", difficulty, stage
 
-    def _load_text(self, paper_id: str) -> str:
+    def _load_text(self, paper_id: str, chunks: Sequence[Any]) -> str:
         path = self.settings.extracted_text_dir / f"{paper_id}.txt"
         if path.exists():
             return path.read_text(encoding="utf-8")
-        return "\n\n".join(c.text for c in self.store.list_chunks(paper_id))
+        return "\n\n".join(_chunk_text(c) for c in chunks)
+
+    def _fill_title_from_meta(self, paper_id: str, data: dict[str, Any]) -> None:
+        """LLM başlığı boş/anlamsız kısaysa (<8 alfanümerik) meta veriden doldur.
+
+        Yalnız ``main_claim`` doluyken: boş karta başlık yazmak onu "içerikli" gösterip
+        boş-kart kapısını delerdi (``card_has_content`` title VEYA main_claim bakar).
+        """
+        if not any(ch.isalnum() for ch in str(data.get("main_claim") or "")):
+            return
+        if sum(ch.isalnum() for ch in str(data.get("title") or "")) >= 8:
+            return
+        getter = getattr(self.store, "get_paper", None)
+        try:
+            paper = getter(paper_id) if callable(getter) else None
+        except Exception:  # meta veri okunamazsa kart yine kaydedilir, başlık boş kalır
+            log.warning("Makale meta verisi okunamadı, başlık boş kaldı: %s", paper_id)
+            return
+        title = _meta_title(paper)
+        if title:
+            log.info("Kart başlığı boştu — meta veriden dolduruldu (%s): %s", paper_id, title)
+            data["title"] = title
 
     _SKELETON = (
         '{"title":"","year":"","domain":"","main_claim":"","methods":[],'
@@ -289,7 +375,8 @@ class KnowledgeCardBuilder:
                 "SADECE geçerli JSON döndür (markdown/açıklama yok). Kaynak uydurma."
             )
 
-        full_text = self._load_text(paper_id)
+        chunks = list(self.store.list_chunks(paper_id))
+        full_text = self._load_text(paper_id, chunks)
         data: dict[str, Any]
         if len(full_text.strip()) < _MIN_SOURCE_CHARS:
             # Kaynak metni yetersiz (ör. PDF çıkarımı bozuk) → LLM'e HİÇ gitme: yalnız boş
@@ -306,20 +393,25 @@ class KnowledgeCardBuilder:
             # num_predict tavanı düşük: dolu bir kart ~300-500 token; yerel CPU'da üretim
             # ~4 tok/s olduğundan gereksiz yüksek tavan (eski 900) çağrı başına ~1 dk boşa
             # harcıyordu. fmt=json zaten JSON kapanışında durur; tavan yalnız gevezeliği keser.
-            data = self._card_json(full_text[:max_chars], system, max_tokens=700)
+            # Kitap ön sayfası (kapak/içindekiler/şekil listesi) prompt'a girmez; temiz
+            # makalede excerpt == full_text[:max_chars], source == full_text (eski davranış).
+            excerpt, source = _card_source(chunks, full_text, max_chars)
+            if source is not full_text:
+                log.info(
+                    "Ön sayfa atlandı — kart metni içerik chunk'larından seçildi: %s", paper_id
+                )
+            data = self._card_json(excerpt, system, max_tokens=700)
             if not str(data.get("main_claim") or "").strip():
                 # daha kısa alıntıyla tek retry (8GB'da hız + JSON sağlamlığı)
-                data = self._card_json(full_text[:3000], system, max_tokens=500) or data
-            if not str(data.get("main_claim") or "").strip() and len(full_text) > max_chars * 2:
-                # Büyük belgelerde (kitaplar) ilk 6000 krk kapak/içindekiler/ön-madde olabilir →
-                # gerçek içerik için belge BOYUNCA orantılı birkaç kesit dene. (Sabit 8000 krk
-                # ofset, devasa kitaplarda HÂLÂ ön-madde kalıyordu — boş kart darboğazı fix.)
+                data = self._card_json(source[:3000], system, max_tokens=500) or data
+            if not str(data.get("main_claim") or "").strip() and len(source) > max_chars * 2:
+                # Büyük belgelerde (kitaplar) baş kısım hâlâ içeriksiz olabilir → gerçek içerik
+                # için belge BOYUNCA orantılı birkaç kesit dene. (Sabit 8000 krk ofset, devasa
+                # kitaplarda HÂLÂ ön-madde kalıyordu — boş kart darboğazı fix.)
                 for frac in (0.25, 0.55):
-                    offset = min(int(len(full_text) * frac), len(full_text) - max_chars)
+                    offset = min(int(len(source) * frac), len(source) - max_chars)
                     data = (
-                        self._card_json(
-                            full_text[offset : offset + max_chars], system, max_tokens=700
-                        )
+                        self._card_json(source[offset : offset + max_chars], system, max_tokens=700)
                         or data
                     )
                     if str(data.get("main_claim") or "").strip():
@@ -330,6 +422,7 @@ class KnowledgeCardBuilder:
         # build() çöker — çağıran (web /api/card, `hektor read-all`, RAG döngüsü) hata alır,
         # yerel CPU'da dakikalar süren LLM emeği boşa gider.
         data = _normalize_card_data(data)
+        self._fill_title_from_meta(paper_id, data)
         data["paper_id"] = paper_id
         try:
             card = KnowledgeCard.model_validate(data)
