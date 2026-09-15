@@ -11,10 +11,15 @@ Yakalanan v5 başarısızlık modları:
   model onu koşulsuz ezberler → NO-GO.
 - **Sabit kapanış ezberi** (v8 dersi) → tek bir SON cümle cevapların anlamlı payını
   bitiriyorsa model onu koşulsuz tekrarlar → NO-GO.
+- **Şablon tekrarı** (v8 dersi, 2026-09-14) → aynı 8-kelimelik ifade cevapların %2'sinden
+  fazlasında geçiyorsa model iskeleti ezberleyip yeni sorularda döngüye sokar → NO-GO.
+  v8'in eğitim setinde 31-37 ifade bu eşiği aşıyordu (eval'de ~%19 tekrar); sağlıklı sentetik
+  veride 0. Açılış kuralı cevabın BAŞINI, kapanış kuralı SONUNU görür; bu kural herhangi bir
+  yerini — son cümlesi çeşitlendirilmiş ama gövdesi 16 kopya olan şablonu da yakalar.
 - **Boş / okunamayan veri** ve **sır / kişisel veri** → NO-GO (eğitilen dosyanın kendisi
   taranır; lora-audit yalnız kartları görür).
 Uyarı (bloklamaz ama raporlanır): sızıntı öneki payı, maliyet-token eksiği, disiplin kapsamı,
-toplam < 1000 (overfit riski).
+şablon tekrarı %1-%2 bandı, toplam < 1000 (overfit riski).
 
 Hiçbir eğitim başlatmaz (kural 8). Çıktı determinist (kural 6).
 """
@@ -44,6 +49,13 @@ _LEAKAGE_SHARE_WARN = 0.02
 _MIN_EXAMPLES = 1000
 # Disiplin kapsamı hedefin bu oranının altındaysa uyar.
 _DISCIPLINE_COVERAGE_WARN = 0.9
+# Şablon tekrarı: aynı N-kelimelik ifade cevapların bu payından fazlasında geçerse NO-GO / uyarı.
+_TEMPLATE_NGRAM = 8
+_TEMPLATE_SHARE_BLOCK = 0.02
+_TEMPLATE_SHARE_WARN = 0.01
+# Küçük setlerde yüzde anlamsızlaşır (50 cevapta 2 tekrar = %4): tekrar sayısı bu mutlak alt
+# sınırı da aşmalı.
+_TEMPLATE_MIN_COUNT = 10
 
 _COST_RE = re.compile(r"komisyon|slippage|spread|commission|slip", re.I)
 _STRAT_RE = re.compile(r"strateji|strategy", re.I)
@@ -77,6 +89,9 @@ class DatasetQualityReport:
     ignores_costs_hits: int = 0
     discipline_present: int = 0
     discipline_target: int = 0
+    top_template_ngram: str = ""
+    top_template_ngram_share: float = 0.0
+    template_ngrams_over_block: int = 0
     recommended_epochs: int = 2
 
     def to_dict(self) -> dict[str, Any]:
@@ -115,6 +130,16 @@ def _opening_bigram(answer: str) -> str:
     """Cevabın ilk iki kelimesi (küçük harf) — açılış-ezberi tespiti için."""
     words = _WORD_RE.findall(answer.lower())
     return " ".join(words[:2])
+
+
+def _ngram_doc_frequency(answers: list[str], n: int) -> dict[str, int]:
+    """Her N-kelimelik ifadenin kaç FARKLI cevapta geçtiği (cevap içi tekrar bir kez sayılır)."""
+    df: dict[str, int] = {}
+    for a in answers:
+        words = _WORD_RE.findall(a.lower())
+        for gram in {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}:
+            df[gram] = df.get(gram, 0) + 1
+    return df
 
 
 def recommend_epochs(n: int) -> int:
@@ -229,13 +254,34 @@ def audit_dataset(
         if disc_present < _DISCIPLINE_COVERAGE_WARN * disc_target:
             warnings.append(f"disiplin kapsamı düşük: {disc_present}/{disc_target} örnek karışımda")
 
-    # 6) Boyut (WARN — overfit riski).
+    # 6) Şablon tekrarı — aynı uzun ifade çok cevapta (HARD NO-GO; v8 mekanizması).
+    df = _ngram_doc_frequency(answers, _TEMPLATE_NGRAM)
+    n_answers = len(answers)
+    top_gram, top_df = min(df.items(), key=lambda kv: (-kv[1], kv[0])) if df else ("", 0)
+    template_share = (top_df / n_answers) if n_answers else 0.0
+    block_limit = max(_TEMPLATE_SHARE_BLOCK * n_answers, _TEMPLATE_MIN_COUNT)
+    warn_limit = max(_TEMPLATE_SHARE_WARN * n_answers, _TEMPLATE_MIN_COUNT)
+    over_block = sum(1 for count in df.values() if count > block_limit)
+    if over_block:
+        blockers.append(
+            f"şablon tekrarı: {over_block} farklı {_TEMPLATE_NGRAM}-kelimelik ifade cevapların "
+            f"%{_TEMPLATE_SHARE_BLOCK * 100:.0f}'sinden fazlasında geçiyor; en sık '{top_gram}' "
+            f"(%{template_share * 100:.1f}) — model iskeleti ezberleyip döngüye sokar (v8 dersi)"
+        )
+    elif top_df > warn_limit:
+        warnings.append(
+            f"şablon tekrarı sınırda: '{top_gram}' cevapların %{template_share * 100:.1f}'inde "
+            f"(uyarı eşiği %{_TEMPLATE_SHARE_WARN * 100:.0f}, "
+            f"engel %{_TEMPLATE_SHARE_BLOCK * 100:.0f})"
+        )
+
+    # 7) Boyut (WARN — overfit riski).
     if total < _MIN_EXAMPLES:
         warnings.append(
             f"toplam {total} < {_MIN_EXAMPLES}: az veride overfit eder (synth-qa ile büyüt)"
         )
 
-    # 7) Sır / kişisel veri — eğitilen DOSYANIN kendisi taranır. lora-audit Gate 7 yalnız
+    # 8) Sır / kişisel veri — eğitilen DOSYANIN kendisi taranır. lora-audit Gate 7 yalnız
     # kartları görür; sentetik QA + disiplin satırları başka hiçbir kapıdan geçmiyordu.
     from app.registry.promotion_gates import scan_secret_pii
 
@@ -270,5 +316,8 @@ def audit_dataset(
         ignores_costs_hits=cost_hits,
         discipline_present=disc_present,
         discipline_target=disc_target,
+        top_template_ngram=top_gram,
+        top_template_ngram_share=round(template_share, 4),
+        template_ngrams_over_block=over_block,
         recommended_epochs=recommend_epochs(total),
     )

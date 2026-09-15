@@ -3315,8 +3315,10 @@ def pretrain_gate_cmd(
     """LLM'siz GO / NO-GO ön eğitim kalite kapısı (kural 7 doğrulama, v5 fix'i).
 
     Veriyi birleştirmeden, eğitim başlatmadan çalışır; salt denetim aracıdır.
-    Hard-block: garanti-vaadi regex, açılış-ezberi (>%40 tek bigram), minimum boyut.
-    Uyarılar: sızıntı ön-eki, maliyet-token eksikliği, disiplin kapsam açığı.
+    Hard-block: garanti-vaadi regex, açılış-ezberi (>%40 tek bigram), şablon tekrarı (aynı
+    8-kelimelik ifade cevapların >%2'sinde).
+    Uyarılar: sızıntı ön-eki, maliyet-token eksikliği, disiplin kapsam açığı, şablon tekrarı
+    %1-%2 bandı, minimum boyut.
     """
     from app.training.dataset_quality import audit_dataset
     from app.training.discipline_dataset import discipline_jsonl_lines
@@ -3341,12 +3343,19 @@ def pretrain_gate_cmd(
         if report.top_opening
         else ""
     )
+    template = (
+        f"En sık şablon ifadesi: '{report.top_template_ngram}' "
+        f"(%{report.top_template_ngram_share * 100:.1f} cevapta)\n"
+        if report.top_template_ngram
+        else ""
+    )
     console.print(
         Panel(
             f"[bold {color}]{report.verdict}[/bold {color}]\n"
             f"Toplam örnek: {report.total}\n"
             f"Öneri: {report.recommended_epochs} epoch\n"
             + opening
+            + template
             + (
                 "[red]ENGEL:[/red]\n  " + "\n  ".join(report.blockers) + "\n"
                 if report.blockers
