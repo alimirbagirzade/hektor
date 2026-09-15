@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-14 (gece doğrulaması geçti · needs-approval kapısı fail-closed ve canlı sınamada ısırdı · 2026-09-13 akşam: LoRA sohbeti teşhisi + hibrit kaynaklı cevap)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-15 (tekrar patolojisinin kökü: şablon iskeleti ezberi → disiplin verisi çeşitlendirildi + pretrain-gate şablon kuralı · 2026-09-14: gece doğrulaması + onay kapısı fail-closed)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -103,6 +103,102 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-15: tekrar patolojisinin kökü → şablon iskeleti ezberi
+
+v8'in eval'de ~%19 (16'da 3) tekrar döngüsünün kök nedeni araştırıldı. **Eğitim
+başlatılmadı** (Kural 8); düzeltmeler veri üreticisi + eğitim-öncesi kapıdadır.
+
+### 1. Ölçülenler
+
+| Hipotez / ölçüm | Sonuç |
+|---|---|
+| Kesilen örnek (`max_seq_length=1024`, `<|im_end|>` kaybı → "durmayı öğrenmeme") | **ELENDİ** — v7 (300) ve v8 (600) alt kümelerinin tamamı sığıyor, bitiş token'ı hep yerinde (cevap medyanı 68 token; trainer'ın kendi `sample_rows`/`build_masked_labels`'ı + gerçek tokenizer ile) |
+| Eval soruları eğitimde birebir var mı (ezber) | **Hayır** — `discipline_core` 16 sorunun 0'ı; bozulma genellemede |
+| Disiplin verisi yapısı | 528 örnek = **33 cevap iskeleti**, her biri strateji adı dışında birebir **16 kopya**; iki ortak "test noktası" kuyruğu cevapların ~%70'inde |
+| v8'in gerçek 600'lük alt kümesi | 141 cevap (%24) bu 33 iskeletten; tek iskelet 7× |
+| v7 → v8 kuyruk maruziyeti ↔ tekrar oranı | 18/13 → 32/26 kez ↔ 1/16 → **3/16** (örnek sayısı da 2× → *karışık*, kanıt değil) |
+| Cevaplar arası 8-gram doküman frekansı (>%2 cevapta geçen ifade) | `synthetic_qa` **0** · v8 `train.jsonl` **31-37** · eski disiplin havuzu 486 |
+| "kural kuralı…" döngüsü | Kuyruktan değil, `look_ahead`/`backtest_yok` cevaplarındaki "(kural 4)", "bu bir kuraldır" kalıplarından |
+
+**Güçlü hipotez:** model yüksek frekanslı cevap iskeletlerini ezberliyor, yeni sorularda
+iskeletleri karıştırıp döngüye giriyor. Kesin kanıt yalnız düzeltilmiş veriyle yeniden eğitim
++ `lora-eval` (aynı reçete) ile gelir.
+
+### 2. Yapılanlar (kullanıcı kararları: LLM'siz şablon çoğaltma · kapı NO-GO %2 / uyarı %1)
+
+- **`app/training/discipline_dataset.py`:** ortak kuyruklar (`_TEST_TAIL/_ALT`) kaldırıldı;
+  test adımı her cevapta kendi cümlesiyle. Tuzak başına **6 cevap** (3'tü) → **66 iskelet**,
+  iskelet başına ≤**9** kopya (16'ydı); örnek sayısı aynı (528, rotasyon `answers[(v+si)%6]`).
+  "kural N" atıfları çıkarıldı. Kural 1-4 içeriği (shift(1), maliyet, OOS, aday/hipotez,
+  çekimserlik) mevcut testlerle korunuyor.
+- **`app/training/dataset_quality.py` (`pretrain-gate`):** yeni **şablon tekrarı** kuralı —
+  aynı 8-kelimelik ifade cevapların **>%2**'sinde → **NO-GO**; %1-%2 → uyarı; küçük setlerde
+  mutlak alt sınır 10 tekrar. Rapor alanları: `top_template_ngram(_share)`,
+  `template_ngrams_over_block`; CLI panelinde "En sık şablon ifadesi". `start-train.ps1`,
+  orkestratör ve delege aynı `audit_dataset`'i çağırdığı için kural her eğitim yolunda geçerli.
+- **Testler:** `test_discipline_dataset.py` (6 cevap/tuzak, 66 iskelet, ≤9 kopya, hiçbir 8-gram
+  iki iskelette birden yok, "kural N" yok) · `test_dataset_quality.py` (blok, uyarı bandı,
+  küçük-set koruması, benzersiz cevapta sinyal yok).
+
+### 3. Gerçek veriyle kalibrasyon (yeni kod, salt-okuma)
+
+| Veri | Karar | >%2 8-gram | En sık 8-gram |
+|---|---|---|---|
+| v8 `train.jsonl` (1616) | **NO-GO** | 37 | %5,7 |
+| eski `lora_sft.jsonl` (1701) | **NO-GO** | 37 | %5,9 |
+| `synthetic_qa.jsonl` (1117) | GO | 0 | %0,4 |
+| eski disiplin havuzu (528) | NO-GO | 486 | %24,2 |
+| **yeni** disiplin havuzu (528) | **GO** | 0 | %1,7 (9 tekrar < alt sınır) |
+| `synthetic_qa` + yeni disiplin %25 (1489) | **GO** | 0 | %0,5 |
+
+`hektor pretrain-gate --jsonl data/training/jsonl/train.jsonl` (gerçek CLI) → NO-GO paneli +
+"En sık şablon ifadesi" satırı. CLI NO-GO'da da çıkış 0 verir; kapıyı tüketen üç yol
+(`start-train.ps1` `--json`→`verdict`, orkestrasyon delegesi, yerel eğitim orkestratörü)
+kararı `verdict`'ten okuduğu için eğitim gerçekten başlamaz (doğrulandı).
+
+**Kapı:** ruff format --check (424) + ruff check + mypy (218) + pytest **2143 passed,
+3 skipped, 4 deselected** (`-m "not ollama"`, PR #10 dalı PR #9 ile birleştirildikten sonra,
+`6054975`). PR #10 CI (Linux) "lint · types · tests (offline)" yeşil. Birleşme öncesi
+(`1bd51cc` tabanı): 2097 passed.
+
+### 4. PR #9 ile birleşme (aynı gün, paralel seans)
+
+Başka bir seans aynı kökü paralel ele alıp PR #9'u main'e aldı (aşağıdaki kayıt): 2 sabit kuyruk
+→ **16 kuyruk varyantı** + `pretrain-gate`'e **kapanış ezberi** (>%4), boş/okunamayan satır ve
+sır/PII kuralları. PR #10 main'le birleştirilirken iki çözüm çapraz ölçüldü:
+
+| Disiplin havuzu | İskelet / en çok kopya | 8-gram kuralı (PR #10) | Kapanış + PII kuralı (PR #9) |
+|---|---|---|---|
+| PR #9 (16 kuyruk, tuzak başına 3 cevap) | 134 / **16** | **NO-GO** — 611 ifade >%2, en sık %6,1 | GO (kapanış %3,0) |
+| PR #10 (kuyruk yok, tuzak başına 6 cevap) | 66 / **9** | **GO** — 0 | **GO** (kapanış %1,7) |
+| v8 `train.jsonl` | — | NO-GO (37) | NO-GO (kapanış %5,7) |
+
+16 kuyruk yalnız cümle SONUNU çeşitlendiriyor; cevap gövdeleri hâlâ 16 kopya — kapanış kuralı
+bunu görmüyor, 8-gram kuralı görüyor. **Karar:** disiplin verisi PR #10'un (66 iskelet;
+`_TEST_TAILS`/`_tail_for` kaldırıldı — başka kullanıcısı yoktu), kapıda **iki kural birlikte**
+(kapanış + 8-gram), PR #9'un okunamayan satır / sır-PII / e-posta maskeleme / eval
+düzeltmeleri aynen korundu. `test_dataset_quality` sızıntı testinin fixture'ı iki kuralı da
+bozmayacak biçimde benzersizleştirildi.
+
+### 5. Sıradaki (eğitimden ÖNCE, sırayla)
+
+1. **Veriyi yeniden üret** — kanonik sıra aşağıdaki PR #9 kaydının "Sıradaki" bölümüdür
+   (`read-all` → `synth-qa-bulk --since` → `assemble_sft.py` → `pretrain-gate` + `lora-audit`).
+   `assemble_sft.py` ve `lora-cloud-prep` disiplin satırlarını KODDAN alır → yeni şablonlar
+   otomatik girer. **Dikkat:** `assemble_sft.py` `lora_sft.jsonl`'ı, `lora-split`
+   `train/valid.jsonl`'ı YEDEKSİZ ezer — önce kopyala.
+2. `uv run hektor pretrain-gate` → yeni veride **GO** beklenir; eski veri artık NO-GO verir
+   (bu kasıtlı: v9 aynı kalıplarla başlatılamaz).
+3. **Kademe 2:** PR #9'da koşuldu, ama disiplin verisi o avdan SONRA değişti (PR #10) — eğitim
+   öncesi yeniden değerlendirilmeli (en azından disiplin + kapı değişikliklerinin hedefli avı).
+4. Aynı reçeteyle (v8: `discipline_safe_local`, 600 örnek, 1 epoch) yeniden eğitim —
+   **insan onayı** (Kural 8). Değişen tek şey veri olsun ki sonuç yoruma açık olmasın.
+5. `lora-eval` → tekrar oranı düşüyor mu? **Not:** PR #9 `discipline_core`'un 4 sorusunu
+   yeniden yazdı (kirlenme) → v8'in 3/16'sıyla doğrudan kıyas geçersiz; v8'i yeni setle yeniden
+   ölçmek gerekir. Tekrar sürerse sıradaki aday reçete tarafı (NEFTune kapalı; açık iş v8-3c).
+
+---
+
 ## Son seans — 2026-09-15: trading kaynakları + Kademe 2 derin av (eğitim öncesi)
 
 Dal: `claude/trading-dosya-makaleler-462f10` (henüz push YOK). Eğitim BAŞLATILMADI.
@@ -174,6 +270,9 @@ Not: sentetik QA bugün 211 makalenin yalnız 40'ını kapsıyor; tüm korpus CP
 > çeşitlendirme / frekans tavanı / pretrain-gate kuralı) bu dalla karşılandı; dedektör
 > iki çözümün birleşimidir (`_SENTENCE_REPEAT_MIN` + genişletilmiş cümle ayırıcı).
 > NEFTune-kapalı kontrol koşusu hâlâ açık.
+> **Güncelleme (PR #10 birleşmesi):** bu kaydın 16 kuyruk varyantı, üstteki kayıttaki 66 iskeletli
+> disiplin verisiyle değiştirildi (gövde tekrarı 8-gram kuralında NO-GO veriyordu); kapanış
+> kuralı ve buradaki diğer tüm kapılar korunuyor.
 
 ---
 
@@ -807,6 +906,11 @@ eski builder kalıntısı **31 içeriksiz `*_card.json`** de silindi (önce zip 
      kontrol koşusu. Doğrulama ancak yeniden eğitim + `lora-eval` ile (Kural 8, insan onayı).
      Kullanıcıya dönük geçici koruma PR #4'te: web sohbeti dejenere çıktıyı aynı dedektörle
      bayraklar, tekrarları gösterimde keser, ham çıktıyı korur — üretim ayarıyla gizlemez.
+     **2026-09-15 ilerleme:** (a) **YAPILDI** — ortak kuyruklar kaldırıldı, 33 → 66 iskelet,
+     iskelet başına 16 → ≤9 kopya. (b) **YAPILDI** — birebir cümle yerine daha sağlam
+     **8-gram doküman frekansı** kuralı (NO-GO >%2, uyarı >%1); v8 verisi NO-GO, yeni karışım
+     GO. Kesilen-örnek hipotezi ölçülerek elendi. (c) **AÇIK** — önce yalnız veri değişmiş
+     yeniden eğitim; tekrar sürerse NEFTune kapalı kontrol. Ayrıntı: 2026-09-15 kaydı.
   4. **Yönetici `-Repair`** — `HektorWeb` + `HektorUpdate` görevleri hâlâ eski yolda.
 - **2026-09-13 sonrası:**
   1. ~~**Uçtan uca doğrulama**~~ — **kapandı (2026-09-14).** 03:00 gece koşusu `SONUC: OK`,
