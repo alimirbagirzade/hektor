@@ -156,8 +156,10 @@ iskeletleri karıştırıp döngüye giriyor. Kesin kanıt yalnız düzeltilmiş
 (`start-train.ps1` `--json`→`verdict`, orkestrasyon delegesi, yerel eğitim orkestratörü)
 kararı `verdict`'ten okuduğu için eğitim gerçekten başlamaz (doğrulandı).
 
-**Kapı:** ruff format --check (421) + ruff check + mypy (218) + pytest **2097 passed,
-4 skipped, 2 deselected** (`-m "not ollama"`, dal `claude/tekrar-kok-neden`, `1bd51cc` tabanı).
+**Kapı:** ruff format --check (424) + ruff check + mypy (218) + pytest **2143 passed,
+3 skipped, 4 deselected** (`-m "not ollama"`, PR #10 dalı PR #9 ile birleştirildikten sonra,
+`6054975`). PR #10 CI (Linux) "lint · types · tests (offline)" yeşil. Birleşme öncesi
+(`1bd51cc` tabanı): 2097 passed.
 
 ### 4. PR #9 ile birleşme (aynı gün, paralel seans)
 
