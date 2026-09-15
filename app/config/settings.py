@@ -245,7 +245,9 @@ class Settings(BaseSettings):
     auto_lora_min_cards: int = 20  # eğitim başlamadan gereken minimum kart
     auto_lora_check_interval_min: int = 60  # kaç dakikada bir kontrol
     auto_lora_eval_threshold: float = 0.5  # eval pass_rate eşiği
-    auto_lora_eval_sample_n: int = 8  # eval'de kaç soru (min_n altı 'accept' bloklanır; v5 dersi)
+    # eval'de kaç soru; 0 = setin TAMAMI. İlk-N kırpma v8'in asıl çöküşünü (#11) hiç
+    # koşmuyordu (Kademe-2 av bulgusu). min_n altı 'accept' yine bloklanır (v5 dersi).
+    auto_lora_eval_sample_n: int = 0
 
     # --- Web (FastAPI) ---
     # Güvenlik: varsayılan olarak SADECE localhost'a bağlanır (dışarı açılmaz).

@@ -122,14 +122,19 @@ class AdapterRegistry:
     def promote(self, adapter_id: str, user_approved: bool) -> bool:
         """Adapter'ı PRODUCTION'a yükselt — kullanıcı onayı zorunlu.
 
-        `user_approved=False` ise yükseltme yapılmaz. Mevcut production
+        `user_approved=False` ise yükseltme yapılmaz. Yalnız eval'i geçmiş (EVAL_PASSED)
+        veya önceden onaylanmış (APPROVED) kayıt terfi eder — REJECTED/CANDIDATE bir kayıt,
+        çağıranın durum dosyası bayat olsa bile production'a çıkamaz. Mevcut production
         adapter'ı APPROVED'a (arşiv) düşürülür; tek production garantilenir.
         """
         if not user_approved:
             return False
         records = self.list_adapters()
         target = next((r for r in records if r.adapter_id == adapter_id), None)
-        if target is None:
+        if target is None or target.status not in (
+            AdapterStatus.EVAL_PASSED,
+            AdapterStatus.APPROVED,
+        ):
             return False
 
         for record in records:

@@ -68,7 +68,8 @@ _CONTEXTS: dict[str, str] = {
 class _Trap:
     """Tek bir adversarial tuzak: kötü-soru şablonları + disiplinli cevap şablonları.
 
-    `asks`/`answers` `{s}` (strateji) yer tutucusu alır. `context_key` set ise kullanıcı
+    `asks`/`answers` `{s}` (strateji) yer tutucusu alır; `answers` ayrıca `{t}` (test
+    noktası kuyruğu, `_tail_for`) alabilir. `context_key` set ise kullanıcı
     mesajına `_CONTEXTS[context_key]` BAĞLAM olarak gömülür (grounded/uyumsuz tuzaklar).
     Her cevap şablonu FARKLI bir açılışla başlar (v5 sabitleme dersi).
     """
@@ -80,16 +81,51 @@ class _Trap:
 
 
 # Ortak "test noktası" kuyrukları — maliyet + shift(1) + OOS + belirsizlik (kural 2/3/4).
-# (Cevaplarda farklı kuyruklar dönüşümlü kullanılır; tek-tip ezberi azaltır.)
-_TEST_TAIL = (
+# v8 dersi: iki SABİT kuyruk 528 cevabın 208'ini bitiriyordu; adapter o cümleleri koşulsuz
+# ezberleyip tek cevapta üç kez birebir tekrarladı (dejenerasyon → REJECT). Kuyruk artık
+# `_tail_for` ile 16 farklı ifadeden döner; hepsi aynı test noktasını farklı sözle kurar ve
+# naif eval denetçisinin yasak token'larından kaçınır.
+_TEST_TAILS: tuple[str, ...] = (
     "Doğru test noktası: pozisyonu shift(1) ile gecikmeli uygula, komisyon ve slippage "
-    "DAHİL backtest et, sonra out-of-sample doğrula. 'pass' çıksa bile bu bir ADAY'dır."
-)
-_TEST_TAIL_ALT = (
+    "DAHİL backtest et, sonra out-of-sample doğrula. 'pass' çıksa bile bu bir ADAY'dır.",
     "Ölçülmesi gereken bir hipotez var: shift(1) gecikmeli pozisyon, komisyon + slippage "
     "dahil in-sample backtest, ardından out-of-sample doğrulama. Sonuç 'pass' değilse "
-    "aday değildir."
+    "aday değildir.",
+    "Sınamak için sinyali bir bar geciktir (shift(1)), backtest'e komisyonu ve slippage'ı "
+    "kat, ardından dokunulmamış bir dönemde yeniden ölç; iyi bir sonuç yalnız adaylık verir.",
+    "İlk adım kuralları netleştirmek; ikincisi komisyon ve slippage içeren, shift(1) "
+    "gecikmeli bir backtest; üçüncüsü out-of-sample kontrol. Bu üçü olmadan hüküm vermem.",
+    "Kanıt için işlem maliyetleri (komisyon, slippage) düşülmüş getiriyi look-ahead'i önleyen "
+    "shift(1) ile hesapla ve örneklem dışı dönemde teyit et. Geçse bile karar değil, adaydır.",
+    "Bunu veriyle ölçelim: gecikmeli pozisyon (shift(1)), gerçekçi komisyon + slippage, sonra "
+    "ayrı bir test dönemi. Out-of-sample'da tutmayan sonuç elenir.",
+    "Değerlendirme sırası: in-sample'da komisyon ve slippage dahil backtest, pozisyon shift(1) "
+    "ile bir bar sonra; ardından modelin hiç görmediği veride doğrulama.",
+    "Önce test, sonra yorum: maliyetleri (komisyon/slippage) içeren ve shift(1) kullanan bir "
+    "backtest kur, sonucu out-of-sample dönemde sına; çıkan her şey hâlâ bir adaydır.",
+    "Karar için veri gerekir: komisyon ve slippage düşülmüş, sinyali shift(1) ile kaydırılmış "
+    "bir backtest ve ardından ayrı tutulmuş bir out-of-sample dönem.",
+    "Yapılacak iş belli: shift(1) ile look-ahead'i engelle, komisyon + slippage maliyetini "
+    "ekle, sonucu out-of-sample veride tekrarla; tutmazsa hipotez düşer.",
+    "Bir sonraki adım ölçmek: pozisyonu bir bar gecikmeli (shift(1)) al, işlem başına komisyon "
+    "ve slippage uygula, sonra örneklem dışında karşılaştır.",
+    "Test planı: in-sample / out-of-sample ayrımı, shift(1) gecikmesi, komisyon ile slippage "
+    "dahil net getiri. Bu olmadan elimdeki şey yalnız bir fikirdir.",
+    "Önerim kuralı koda dökmek, shift(1) gecikmeli ve komisyon + slippage içeren bir "
+    "backtest'ten geçirmek, ardından görülmemiş dönemde doğrulamak.",
+    "Sayıya ancak testle ulaşılır: maliyetler (komisyon, slippage) dahil, shift(1) uygulanmış "
+    "backtest ve bağımsız bir out-of-sample kontrol.",
+    "Sıralama değişmez: önce shift(1) ve komisyon + slippage ile backtest, sonra "
+    "out-of-sample; iki aşamayı geçemeyen fikir aday listesine girmez.",
+    "Doğrulama olmadan ilerlemem: sinyal shift(1) ile gecikmeli, maliyet kalemleri "
+    "(komisyon/slippage) eklenmiş backtest, sonrasında out-of-sample tekrar.",
 )
+
+
+def _tail_for(trap_idx: int, strat_idx: int, variant: int) -> str:
+    """Deterministik kuyruk seçimi (kural 6) — (tuzak, strateji, varyant) üçlüsüne göre döner."""
+    return _TEST_TAILS[(trap_idx * 5 + strat_idx * 3 + variant) % len(_TEST_TAILS)]
+
 
 TRAPS: tuple[_Trap, ...] = (
     # 1) Kesinlik/garanti vaadi → reddet + hipoteze çevir.
@@ -102,11 +138,11 @@ TRAPS: tuple[_Trap, ...] = (
         ),
         answers=(
             "Hayır — hiçbir kurulum kârı önceden kesinleştiremez; böyle bir vaat yanıltıcı "
-            "olur. {s} stratejisini bir HİPOTEZ olarak ele alabilirim. " + _TEST_TAIL,
+            "olur. {s} stratejisini bir HİPOTEZ olarak ele alabilirim. {t}",
             "Böyle bir kesinlik vaadi veremem; piyasada önceden kanıtlanmış kâr yoktur. {s} "
-            "stratejisini test edilebilir bir hipoteze çeviriyorum. " + _TEST_TAIL_ALT,
+            "stratejisini test edilebilir bir hipoteze çeviriyorum. {t}",
             "Bunu sunmam — kesinlik iddiası kuralı ihlal eder ve yanıltır. {s} stratejisi "
-            "ancak bir test noktasıdır. " + _TEST_TAIL,
+            "ancak bir test noktasıdır. {t}",
         ),
     ),
     # 2) Backtest'siz canlı kullanım → reddet + doğru sıra.
@@ -119,11 +155,11 @@ TRAPS: tuple[_Trap, ...] = (
         ),
         answers=(
             "Önermem. Test olmadan {s} stratejisinin geçmiş davranışını, komisyon + slippage "
-            "etkisini ve look-ahead riskini göremeyiz. " + _TEST_TAIL,
+            "etkisini ve look-ahead riskini göremeyiz. {t}",
             "Bu sırayı tersine çevirmek riskli. Önce shift(1) gecikmeli, komisyon + slippage "
             "dahil backtest, sonra out-of-sample; {s} stratejisi ancak ondan sonra ADAY olur.",
             "Hayır demem gerekir — bu bir kuraldır. {s} stratejisi test edilmeden 'kullanılabilir' "
-            "diyemem. " + _TEST_TAIL_ALT,
+            "diyemem. {t}",
         ),
     ),
     # 3) Maliyetsiz getiri rakamı → reddet + maliyet dahil ölç.
@@ -259,13 +295,13 @@ TRAPS: tuple[_Trap, ...] = (
             "Verilen bağlama göre: HMM, getiri dizisinden gizli rejimleri OLASILIKSAL ve gecikmeli "
             "çıkarır. Bunu bir HİPOTEZE çevirebiliriz: yalnız P(yükseliş rejimi) yüksekken {s} "
             "sinyalini al. Belirsizlik (bağlamın da dediği gibi): rejim tahmini gecikmeli, "
-            "geçişler kesin değil — yanlış atama zarar yazar. " + _TEST_TAIL,
+            "geçişler kesin değil — yanlış atama zarar yazar. {t}",
             "Bağlam, rejimlerin olasılıksal ve gecikmeli olduğunu söylüyor; bunu {s} için bir "
             "filtre HİPOTEZİ yapalım: tahmini rejim olasılığı eşiği üstündeyken sinyali geçir. "
-            "Geçişler deterministik olmadığı için yanlış rejim riski var. " + _TEST_TAIL_ALT,
+            "Geçişler deterministik olmadığı için yanlış rejim riski var. {t}",
             "Bağlama dayanarak: rejim olasılığı bir kapı olabilir — {s} sinyali yalnız uygun rejim "
             "olasılığı yüksekken işlesin. Ama bağlam performans iddiası içermiyor, yalnız kavramı "
-            "veriyor; gecikme ve olasılıksal belirsizlik gerçek. " + _TEST_TAIL,
+            "veriyor; gecikme ve olasılıksal belirsizlik gerçek. {t}",
         ),
     ),
     # 10) Gelecek yön/fiyat tahmini → bilinemez, kalibre "bilmiyorum" (R-Tuning 2311.09677).
@@ -279,13 +315,11 @@ TRAPS: tuple[_Trap, ...] = (
         answers=(
             "Geleceğin yönünü veya fiyat seviyesini kesin bilemem — bu öngörülemez; böyle bir "
             "tahmin uydurmak olur. {s} ancak geçmiş veriyle test edilebilir bir HİPOTEZ'dir, "
-            "gelecekteki sonucu önceden belli etmez. " + _TEST_TAIL,
+            "gelecekteki sonucu önceden belli etmez. {t}",
             "Bunu bilmiyorum ve bilemem: tek bir mumun kapanışı ya da yön kesinliği "
-            "öngörülemez. {s} için yapabileceğim, geçmişte nasıl davrandığını ölçmek. "
-            + _TEST_TAIL_ALT,
+            "öngörülemez. {s} için yapabileceğim, geçmişte nasıl davrandığını ölçmek. {t}",
             "Gelecek fiyatı söylemem — kestirilemez bir büyüklük, rakam vermek yanıltır. {s} "
-            "sinyalinin tarihsel davranışını ölçebilirim ama geleceği önceden bilemem. "
-            + _TEST_TAIL,
+            "sinyalinin tarihsel davranışını ölçebilirim ama geleceği önceden bilemem. {t}",
         ),
     ),
     # 11) Canlı/güncel veri gerektiren soru → erişim yok, "bilemem" (R-Tuning IDK; kural 7).
@@ -299,12 +333,11 @@ TRAPS: tuple[_Trap, ...] = (
         answers=(
             "Canlı fiyata veya güncel habere erişimim yok — bu anki {s} sinyalini bilemem ve "
             "uydurmam. Geçmiş veriyle test edebileceğin bir kural verirsen onu backtest ederim. "
-            + _TEST_TAIL,
+            "{t}",
             "Şu anki gerçek-zaman veriyi göremiyorum; güncel {s} göstergesini söyleyemem, sayı "
             "icat etmem (kural 7). Veri sağlanırsa ölçülmüş değerlerle dönerim.",
             "Bunu bilemem: anlık fiyat/haber akışına bağlı değilim. {s} için canlı bir karar "
-            "veremem; yapabileceğim, sağlanan geçmiş veride hipotezini test etmek. "
-            + _TEST_TAIL_ALT,
+            "veremem; yapabileceğim, sağlanan geçmiş veride hipotezini test etmek. {t}",
         ),
     ),
 )
@@ -340,14 +373,14 @@ def build_discipline_examples(
     """
     examples: list[LoRAExample] = []
     idx = 0
-    for trap in TRAPS:
+    for ti, trap in enumerate(TRAPS):
         n_ask = len(trap.asks)
         n_ans = len(trap.answers)
         for si, strat in enumerate(STRATEGIES):
             for v in range(variants_per_combo):
                 ask = trap.asks[v % n_ask].format(s=strat)
                 # Cevap açılışını ask'tan farklı offset'le döndür → (ask, answer) çifti çeşitli.
-                ans = trap.answers[(v + si) % n_ans].format(s=strat)
+                ans = trap.answers[(v + si) % n_ans].format(s=strat, t=_tail_for(ti, si, v))
                 user = _user_content(trap, ask)
 
                 messages: list[dict] = []

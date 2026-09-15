@@ -248,6 +248,8 @@ class KnowledgeCardBuilder:
                 temperature=0.1,
                 fmt="json",
                 max_tokens=max_tokens,
+                # Kural 6: seed'siz çağrı aynı makalede her üretimde farklı kart veriyordu.
+                seed=int(getattr(self.settings, "rlm_seed", 42)),
                 # Paylaşımlı Ollama'da (tek slot) istek önce kuyrukta bekler; tavan ayardan
                 # (HEKTOR_CARD_LLM_TIMEOUT_S). Bkz. settings.card_llm_timeout_s.
                 timeout=max(30, int(getattr(self.settings, "card_llm_timeout_s", 180) or 180)),

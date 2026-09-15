@@ -12,6 +12,8 @@ Verdict: adapter base'den iyi → accept, kötü → reject (terfi etme), eşit 
 from __future__ import annotations
 
 import json
+import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -22,8 +24,6 @@ from app.training.evaluate_model import check_flags, load_eval_set
 
 def _max_ngram_repeat(answer: str, n: int = 3) -> int:
     """En çok tekrar eden kelime n-gram'ının görülme sayısı (token-düzeyi döngü sezgisi)."""
-    from collections import Counter
-
     toks = answer.split()
     if len(toks) < n * 2:
         return 1
@@ -31,6 +31,8 @@ def _max_ngram_repeat(answer: str, n: int = 3) -> int:
     return max(grams.values()) if grams else 1
 
 
+# Cümle sınırları: nokta yanında ! ? 。 ve satır sonu (v8: "!" ile biten tekrar kaçıyordu).
+_SENT_SPLIT_RE = re.compile(r"[.!?。\n]+")
 _SENTENCE_REPEAT_MIN = 3  # aynı cümle bu kadar kez BİREBİR geçerse dejenere
 
 
@@ -45,13 +47,16 @@ def _is_degenerate(answer: str) -> bool:
     var." cümlesini üç kez yazdı ama çeşitlilik eşiği (1) başka cümleler de olduğu için
     tetiklenmedi; eşik tekrar SAYISINI değil çeşitliliği ölçüyordu. Kalibrasyon: v7+v8
     eval'lerindeki 64 gerçek cevapta yalnız bu vakayı ekledi, 32 base cevabından hiçbirini
-    bayraklamadı. Eşikler muhafazakâr — sağlam cevabı yanlış-flag'lemez.
+    bayraklamadı. 2026-09-15 (Kademe-2 av): cümleler ! ? 。 ve satır sonuyla da bölünür ve
+    büyük/küçük harf + boşluk normalize edilir ("!" ile biten 3× tekrar kaçıyordu).
+    Eşikler muhafazakâr — sağlam cevabı yanlış-flag'lemez.
     """
-    from collections import Counter
-
-    sents = [s.strip() for s in answer.split(".") if len(s.strip()) > 15]
-    sent_dup = len(sents) >= 3 and len(set(sents)) <= max(1, len(sents) // 2)
-    sent_repeat = bool(sents) and max(Counter(sents).values()) >= _SENTENCE_REPEAT_MIN
+    sents = [
+        " ".join(s.lower().split()) for s in _SENT_SPLIT_RE.split(answer) if len(s.strip()) > 15
+    ]
+    sent_counts = Counter(sents)
+    sent_dup = len(sents) >= 3 and len(sent_counts) <= max(1, len(sents) // 2)
+    sent_repeat = bool(sents) and max(sent_counts.values()) >= _SENTENCE_REPEAT_MIN
     ngram_loop = _max_ngram_repeat(answer, 3) >= 4
     lines = [ln.strip() for ln in answer.splitlines() if len(ln.strip()) > 15]
     line_dup = len(lines) >= 4 and len(set(lines)) <= max(1, len(lines) // 2)
@@ -165,6 +170,9 @@ def _generate(
 
 
 _MIN_EVAL_N = 5  # bu sayının altında 'accept' YASAK (v5 dersi: n=1 ile sahte accept)
+# 'accept' için adapter base'den en az bu kadar AZ bayrak almalı. Tek bayrak farkı
+# (ör. n=5'te 0.8 → 1.0) eval gürültüsünden ayırt edilemez (Kademe-2 av bulgusu).
+_MIN_FLAG_MARGIN = 2
 
 
 def _decide_verdict(
@@ -174,6 +182,7 @@ def _decide_verdict(
     n: int,
     min_n: int = _MIN_EVAL_N,
     adapter_degenerate: bool = False,
+    min_flag_margin: int = _MIN_FLAG_MARGIN,
 ) -> str:
     """Eval verdict'i — küçük-n'de 'accept'i bloklar (v5 disiplin-regresyon dersi).
 
@@ -184,8 +193,8 @@ def _decide_verdict(
         'accept' kaçabiliyordu. Degenerasyon skordan BAĞIMSIZ veto).
       * adapter < base  → 'reject' (regresyon, HER n'de — güvenli yön).
       * n < min_n        → 'inconclusive' (az örnek; accept'e güvenme).
-      * adapter > base  → 'accept'.
-      * eşitlik          → 'inconclusive'.
+      * adapter base'den ≥ min_flag_margin bayrak iyi → 'accept'.
+      * daha küçük fark / eşitlik → 'inconclusive'.
     """
     if adapter_degenerate:
         return "reject"
@@ -193,7 +202,8 @@ def _decide_verdict(
         return "reject"
     if n < min_n:
         return "inconclusive"
-    if adapter_score > base_score:
+    # skor = 1 − bayrak/n → skor farkı × n = bayrak farkı (4 haneli yuvarlamayı round emer).
+    if round((adapter_score - base_score) * n) >= min_flag_margin:
         return "accept"
     return "inconclusive"
 

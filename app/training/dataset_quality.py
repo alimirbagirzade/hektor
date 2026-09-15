@@ -9,6 +9,10 @@ Yakalanan v5 başarısızlık modları:
   tetikliyorsa ZEHİR → NO-GO.
 - **Sabit açılış ezberi** → tek bir açılış (v5'te "pasaja göre") cevapların çoğunu açıyorsa
   model onu koşulsuz ezberler → NO-GO.
+- **Sabit kapanış ezberi** (v8 dersi) → tek bir SON cümle cevapların anlamlı payını
+  bitiriyorsa model onu koşulsuz tekrarlar → NO-GO.
+- **Boş / okunamayan veri** ve **sır / kişisel veri** → NO-GO (eğitilen dosyanın kendisi
+  taranır; lora-audit yalnız kartları görür).
 Uyarı (bloklamaz ama raporlanır): sızıntı öneki payı, maliyet-token eksiği, disiplin kapsamı,
 toplam < 1000 (overfit riski).
 
@@ -27,6 +31,13 @@ from app.training.evaluate_model import RED_FLAGS
 # --- Eşikler (v5 dersleri) ---------------------------------------------------
 # Tek bir açılış-bigramı bu payı geçerse → ezber riski (NO-GO).
 _OPENING_SHARE_BLOCK = 0.40
+# Tek bir SON cümle cevapların bu payından fazlasını bitiriyorsa → kapanış ezberi (NO-GO).
+# v8 verisinde en sık kapanış %5.9, ikincisi %3.8 idi (iki sabit disiplin kuyruğu); açılış
+# kuralı bunu görmedi. Şablon havuzu tek başına ~%3 taban taşır (şablon × 16 strateji).
+_CLOSING_SHARE_BLOCK = 0.04
+# Kapanış payı küçük sette anlamsız (1 satır = %100) → bu sayının altında uygulanmaz.
+_CLOSING_MIN_ANSWERS = 100
+_SENT_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 # Sızıntı öneki ("pasaja göre") bu payı geçerse → uyarı (Fix A sonrası azalmalı).
 _LEAKAGE_SHARE_WARN = 0.02
 # Sağlıklı LoRA için pratik alt sınır.
@@ -56,6 +67,11 @@ class DatasetQualityReport:
     guaranteed_profit_hits: int = 0
     top_opening: str = ""
     top_opening_share: float = 0.0
+    unreadable_lines: int = 0
+    top_closing: str = ""
+    top_closing_share: float = 0.0
+    secret_hits: int = 0
+    pii_hits: int = 0
     leakage_prefix_hits: int = 0
     leakage_prefix_share: float = 0.0
     ignores_costs_hits: int = 0
@@ -68,15 +84,31 @@ class DatasetQualityReport:
 
 
 def _assistant_answer(line: str) -> str | None:
-    """JSONL satırından son assistant cevabını çıkar (parse edilemezse None)."""
+    """JSONL satırından son assistant cevabını çıkar (parse edilemezse None).
+
+    `messages` (chat) biçiminin yanında `prompt`/`completion` biçimi de okunur — aksi halde
+    o biçimdeki satırlar sessizce atlanıp garanti vaadi dahil hiçbir denetime girmiyordu.
+    """
     try:
-        msgs = json.loads(line).get("messages", [])
-    except (json.JSONDecodeError, AttributeError, TypeError):
+        obj = json.loads(line)
+    except (json.JSONDecodeError, TypeError):
         return None
-    for m in reversed(msgs):
-        if m.get("role") == "assistant":
-            return str(m.get("content", ""))
-    return None
+    if not isinstance(obj, dict):
+        return None
+    msgs = obj.get("messages")
+    if isinstance(msgs, list):
+        for m in reversed(msgs):
+            if isinstance(m, dict) and m.get("role") == "assistant":
+                return str(m.get("content", ""))
+        return None
+    completion = obj.get("completion")
+    return str(completion) if completion is not None else None
+
+
+def _closing_sentence(answer: str) -> str:
+    """Cevabın son anlamlı cümlesi (küçük harf, boşluk normalize) — kapanış-ezberi için."""
+    sents = [s for s in _SENT_BOUNDARY_RE.split(answer.strip()) if len(s.strip()) > 20]
+    return " ".join(sents[-1].lower().split()) if sents else ""
 
 
 def _opening_bigram(answer: str) -> str:
@@ -115,6 +147,16 @@ def audit_dataset(
     blockers: list[str] = []
     warnings: list[str] = []
 
+    # 0) Boş / okunamayan veri — sessiz boş ya da denetimsiz eğitim yok (HARD NO-GO).
+    unreadable = total - len(answers)
+    if total == 0:
+        blockers.append("veri boş: denetlenecek satır yok (boş veriyle eğitim başlatılmaz)")
+    elif unreadable:
+        blockers.append(
+            f"{unreadable} satırda assistant cevabı okunamadı (bozuk/bilinmeyen biçim) — "
+            "denetlenemeyen satır eğitime giremez"
+        )
+
     # 1) Garanti/kesinlik vaadi — Kural 1 zehiri (HARD NO-GO).
     gp_re = RED_FLAGS["guaranteed_profit"]
     gp_hits = sum(1 for a in answers if gp_re.search(a))
@@ -135,6 +177,22 @@ def audit_dataset(
         blockers.append(
             f"açılış ezberi riski: '{top_opening}' cevapların %{top_share * 100:.0f}'ini açıyor "
             f"(eşik %{_OPENING_SHARE_BLOCK * 100:.0f})"
+        )
+
+    # 2b) Kapanış-ezberi — tek bir son cümle cevapların anlamlı payını bitiriyorsa (HARD NO-GO).
+    closings: dict[str, int] = {}
+    for a in answers:
+        cl = _closing_sentence(a)
+        if cl:
+            closings[cl] = closings.get(cl, 0) + 1
+    top_closing, top_closing_count = ("", 0)
+    if closings:
+        top_closing, top_closing_count = max(closings.items(), key=lambda kv: kv[1])
+    closing_share = (top_closing_count / len(answers)) if answers else 0.0
+    if len(answers) >= _CLOSING_MIN_ANSWERS and closing_share > _CLOSING_SHARE_BLOCK:
+        blockers.append(
+            f"kapanış ezberi riski: '{top_closing[:60]}' cevapların %{closing_share * 100:.1f}'ini "
+            f"bitiriyor (eşik %{_CLOSING_SHARE_BLOCK * 100:.0f}) — model bu cümleyi tekrarlar"
         )
 
     # 3) Sızıntı öneki ("pasaja göre") — Fix A sonrası azalmalı (WARN).
@@ -177,6 +235,22 @@ def audit_dataset(
             f"toplam {total} < {_MIN_EXAMPLES}: az veride overfit eder (synth-qa ile büyüt)"
         )
 
+    # 7) Sır / kişisel veri — eğitilen DOSYANIN kendisi taranır. lora-audit Gate 7 yalnız
+    # kartları görür; sentetik QA + disiplin satırları başka hiçbir kapıdan geçmiyordu.
+    from app.registry.promotion_gates import scan_secret_pii
+
+    scan = scan_secret_pii(lines)
+    if scan.secret_findings:
+        blockers.append(
+            f"{len(scan.secret_findings)} sır bulgusu (anahtar/parola deseni) — "
+            "veri eğitime giremez"
+        )
+    if scan.pii_findings:
+        blockers.append(
+            f"{len(scan.pii_findings)} kişisel veri bulgusu (e-posta/telefon vb.) — "
+            "veri eğitime giremez"
+        )
+
     verdict = "NO-GO" if blockers else "GO"
     return DatasetQualityReport(
         total=total,
@@ -186,6 +260,11 @@ def audit_dataset(
         guaranteed_profit_hits=gp_hits,
         top_opening=top_opening,
         top_opening_share=round(top_share, 4),
+        unreadable_lines=unreadable,
+        top_closing=top_closing,
+        top_closing_share=round(closing_share, 4),
+        secret_hits=len(scan.secret_findings),
+        pii_hits=len(scan.pii_findings),
         leakage_prefix_hits=leak_hits,
         leakage_prefix_share=round(leak_share, 4),
         ignores_costs_hits=cost_hits,
