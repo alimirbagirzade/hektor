@@ -11,6 +11,8 @@ Kritik garantiler (v5 regresyon dersleri):
 from __future__ import annotations
 
 import json
+import re
+from collections import Counter
 
 from app.training.discipline_dataset import (
     STRATEGIES,
@@ -147,6 +149,54 @@ def test_mix_discipline_deterministic() -> None:
     m1, _ = mix_discipline(base, disc, ratio=0.25, seed=3)
     m2, _ = mix_discipline(base, disc, ratio=0.25, seed=3)
     assert m1 == m2
+
+
+# --- Şablon çeşitliliği (v8 dersi, 2026-09-14) ----------------------------------------------
+# Eskiden 528 örnek = 33 cevap iskeleti × 16 kopya + iki ortak kuyruk; v8 bunları ezberleyip
+# yeni sorularda döngüye soktu (eval'de ~%19 tekrar).
+
+_WORD_RE = re.compile(r"[A-Za-zÇĞİÖŞÜçğıöşü]+")
+
+
+def _skeleton(answer: str) -> str:
+    """Strateji adını yer tutucuya çevir → cevabın 'iskeleti'."""
+    for s in sorted(STRATEGIES, key=len, reverse=True):
+        answer = answer.replace(s, "{s}")
+    return answer
+
+
+def _ngrams(text: str, n: int = 8) -> set[str]:
+    words = _WORD_RE.findall(text.lower())
+    return {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}
+
+
+def test_every_trap_has_six_distinct_answers() -> None:
+    for t in TRAPS:
+        assert len(t.answers) == 6, t.key
+        assert len(set(t.answers)) == 6, t.key
+
+
+def test_skeleton_count_and_copy_ceiling() -> None:
+    counts = Counter(_skeleton(e.messages[-1]["content"]) for e in build_discipline_examples())
+    assert len(counts) == sum(len(t.answers) for t in TRAPS) >= 66
+    assert max(counts.values()) <= 9, max(counts.values())  # eskiden 16
+
+
+def test_no_8gram_shared_across_skeletons() -> None:
+    """Hiçbir 8-kelimelik ifade iki farklı cevap iskeletinde birden geçmez (ortak kuyruk yok)."""
+    owners: dict[str, set[str]] = {}
+    for sk in {_skeleton(e.messages[-1]["content"]) for e in build_discipline_examples()}:
+        for gram in _ngrams(sk):
+            owners.setdefault(gram, set()).add(sk)
+    shared = {g: len(o) for g, o in owners.items() if len(o) > 1}
+    assert not shared, sorted(shared.items(), key=lambda kv: -kv[1])[:5]
+
+
+def test_no_rule_number_references() -> None:
+    """'kural 4' / 'bu bir kuraldır' gibi atıflar v8'in 'kural kuralı' döngüsünü besliyordu."""
+    for t in TRAPS:
+        for ans in t.answers:
+            assert "kural " not in ans.lower() and "kuraldır" not in ans.lower(), ans[:80]
 
 
 def test_mix_pool_shortfall_reports_actual() -> None:

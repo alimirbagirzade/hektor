@@ -91,3 +91,57 @@ def test_small_dataset_warns() -> None:
     rep = audit_dataset([_line("Kısa ama temiz bir cevap; hipotez + test noktası.")])
     assert any("overfit" in w for w in rep.warnings)
     assert rep.recommended_epochs == 1
+
+
+# --- Şablon tekrarı (v8 dersi, 2026-09-14) -------------------------------------------------
+
+
+def _unique_words(i: int, k: int = 12) -> str:
+    """Her cevaba ÖZGÜ, yalnız harflerden oluşan kelimeler (paylaşılan 8-gram üretmez)."""
+
+    def word(n: int) -> str:
+        return "".join(chr(97 + (n // 26**j) % 26) for j in range(4))
+
+    return " ".join(word(i * 97 + j) for j in range(k))
+
+
+# v8'in eğitim setindeki ortak kuyruğun birebir hâli (discipline_dataset'teki eski _TEST_TAIL).
+_OLD_TAIL = (
+    "Doğru test noktası: pozisyonu shift(1) ile gecikmeli uygula, komisyon ve slippage "
+    "DAHİL backtest et, sonra out-of-sample doğrula. 'pass' çıksa bile bu bir ADAY'dır."
+)
+
+
+def test_template_repetition_blocks() -> None:
+    # 200 cevabın 30'u (%15) aynı kuyrukla bitiyor → v8 mekanizması → NO-GO.
+    lines = [
+        _line(_unique_words(i) + (". " + _OLD_TAIL if i % 200 < 30 else ".")) for i in range(200)
+    ]
+    rep = audit_dataset(lines)
+    assert rep.verdict == "NO-GO"
+    assert rep.template_ngrams_over_block > 0
+    assert rep.top_template_ngram_share == 0.15
+    assert any("şablon tekrarı" in b for b in rep.blockers)
+
+
+def test_template_repetition_warns_in_band() -> None:
+    # 1000 cevabın 15'i (%1,5): uyarı bandı (%1 < pay ≤ %2), bloklamaz.
+    lines = [_line(_unique_words(i) + (". " + _OLD_TAIL if i < 15 else ".")) for i in range(1000)]
+    rep = audit_dataset(lines)
+    assert rep.verdict == "GO", rep.blockers
+    assert rep.template_ngrams_over_block == 0
+    assert any("şablon tekrarı sınırda" in w for w in rep.warnings)
+
+
+def test_template_rule_needs_absolute_count_on_small_sets() -> None:
+    # 20 cevabın 5'i (%25) aynı kuyruk — ama 5 tekrar mutlak alt sınırın (10) altında: blok yok.
+    lines = [_line(_unique_words(i) + (". " + _OLD_TAIL if i < 5 else ".")) for i in range(20)]
+    rep = audit_dataset(lines)
+    assert rep.template_ngrams_over_block == 0
+    assert not any("şablon" in b for b in rep.blockers)
+
+
+def test_unique_answers_have_no_template_signal() -> None:
+    rep = audit_dataset([_line(_unique_words(i)) for i in range(300)])
+    assert rep.template_ngrams_over_block == 0
+    assert rep.top_template_ngram_share < 0.01
