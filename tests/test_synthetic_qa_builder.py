@@ -75,10 +75,12 @@ _CHUNK = (
 
 # 3 QA: (1) grounded+yeterli, (2) çok kısa, (3) uzun ama uydurma (anchor yok).
 # Satır uzunluğu için bitişik string birleştirme (implicit concatenation).
+# (1) "Pasaja gore" önekiyle BAŞLAMAZ: o önek artık düşük-değerli/sızıntı cevabı olarak
+# elenir (v5 dersi; 2026-09-15 kitap verisinde %40 "Pasaj…" açılışı ölçüldü).
 _GOOD_PAYLOAD = (
     "[\n"
     '  {"question": "ATR nasil hesaplanir?", "answer": '
-    '"Pasaja gore ATR 14 periyot ile hesaplanan ortalama gercek '
+    '"ATR 14 periyot ile hesaplanan ortalama gercek '
     'araliktir ve momentum filtresi olarak kullanilir."},\n'
     '  {"question": "Kisa?", "answer": "Evet."},\n'
     '  {"question": "Alakasiz?", "answer": '

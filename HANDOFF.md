@@ -252,6 +252,20 @@ uv run hektor pretrain-gate && uv run hektor lora-audit
 ```
 Not: sentetik QA bugün 211 makalenin yalnız 40'ını kapsıyor; tüm korpus CPU'da onlarca saat.
 
+### 4. Kitap soru-cevaplarında kalite çöküşü → üretim durduruldu, düzeltildi (2026-09-15)
+- İlk 326 kitap örneğinde **%33 çekimser** ("pasajda açıklanmamıştır") ve **%40 "Pasaj…"
+  açılışı** ölçüldü (v8'e giren eski veride %3). Kök neden: `build_for_paper`
+  `chunks[:max_chunks]` alıyordu → kitabın kapak/telif/içindekiler/şekil listesi chunk'ları.
+  Prompt'taki "trading kuralına çevrilemiyorsa belirt" talimatı çekimserliği besliyordu.
+- Düzeltme: `_select_chunks` ön sayfaları eler ve içerik chunk'larını belgeye eşit yayar;
+  `is_low_value_answer` "pasaj" atıflı / "içermiyor" cevaplarını üreticide ve
+  `sft_assembly`'de atar; pretrain-gate "Pasaj…" açılışı >%10 → NO-GO (eski önek listesi
+  yalnız "pasaja göre"yi tanıyordu).
+- 326 bozuk örnek çıkarıldı (yedek: `data/lora_sft/synthetic_qa.before_booksfix_2026-09-15.jsonl.bak`).
+  Pilot (López de Prado, 2 chunk): içerik chunk #79/#186, 0 düşük-değerli, ~86 sn/çağrı.
+  Üretim yeniden başlatıldı (`--since 2026-09-13 --max-chunks 8 --resume`, ~12 saat).
+- Kitapların bir kısmı `OceanofPDF.com` filigranı taşıyor (kullanıcının koyduğu dosyalar).
+
 > **Birleştirme notu:** `main`'deki 2026-09-14 kaydının v8-3 açık işi (şablon
 > çeşitlendirme / frekans tavanı / pretrain-gate kuralı) bu dalla karşılandı; dedektör
 > iki çözümün birleşimidir (`_SENTENCE_REPEAT_MIN` + genişletilmiş cümle ayırıcı).

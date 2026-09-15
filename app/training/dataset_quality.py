@@ -65,7 +65,11 @@ _HYPOTHESIS_STRAT_RE = re.compile(
     r"olası strateji hipotez|strategy hypothesis|strateji hipotez|hypothes", re.I
 )
 _WORD_RE = re.compile(r"[A-Za-zÇĞİÖŞÜçğıöşü]+")
-_LEAKAGE_PREFIXES = ("pasaja göre", "pasaja gore", "pasaj a göre")
+# Sızıntı açılışı: "Pasaja göre", "Pasajda", "Pasaj'da", "Bu pasaj…" — eski önek listesi yalnız
+# "pasaja göre"yi tanıyordu; 2026-09-15 kitap verisinde %40 "Pasajda…" açılışı hiç görülmedi.
+_LEAKAGE_OPENING_RE = re.compile(r"^\W*(?:bu\s+)?pasaj", re.I)
+# Bu payı geçen sızıntı açılışı → NO-GO (v5 mekanizması; eski eğitim verisinde %3.2 idi).
+_LEAKAGE_SHARE_BLOCK = 0.10
 
 
 @dataclass
@@ -221,11 +225,14 @@ def audit_dataset(
         )
 
     # 3) Sızıntı öneki ("pasaja göre") — Fix A sonrası azalmalı (WARN).
-    leak_hits = sum(
-        1 for a in answers if any(a.lower().lstrip().startswith(p) for p in _LEAKAGE_PREFIXES)
-    )
+    leak_hits = sum(1 for a in answers if _LEAKAGE_OPENING_RE.match(a))
     leak_share = (leak_hits / len(answers)) if answers else 0.0
-    if leak_share > _LEAKAGE_SHARE_WARN:
+    if leak_share > _LEAKAGE_SHARE_BLOCK:
+        blockers.append(
+            f"sızıntı açılışı: {leak_hits} cevap 'Pasaj…' ile başlıyor (%{leak_share * 100:.1f}, "
+            f"eşik %{_LEAKAGE_SHARE_BLOCK * 100:.0f}) — model bağlamsız soruda da ezberler"
+        )
+    elif leak_share > _LEAKAGE_SHARE_WARN:
         warnings.append(
             f"sızıntı öneki: {leak_hits} cevap 'pasaja göre' ile başlıyor "
             f"(%{leak_share * 100:.1f}) — synth-qa'yı yeniden üret (Fix A)"
