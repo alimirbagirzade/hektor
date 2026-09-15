@@ -45,6 +45,7 @@ class AssemblyResult:
     card_n: int
     deduped: int  # synth + kart, dedup sonrası
     discipline: dict[str, Any] | None = field(default=None)
+    low_value_dropped: int = 0  # atılan çekimser / "pasaj" atıflı sentetik örnek
 
     @property
     def total(self) -> int:
@@ -71,12 +72,17 @@ def assemble_sft_lines(
 
     lines: list[str] = []
     synth_n = 0
+    low_value_dropped = 0
     if synth_path.exists():
         synth_lines = [
             ln for ln in synth_path.read_text(encoding="utf-8").splitlines() if ln.strip()
         ]
         synth_n = len(synth_lines)
-        lines += synth_lines
+        # Üretici filtresinden ÖNCE yazılmış çekimser / "pasaj" atıflı örnekler de eğitime
+        # girmesin (eski veride %3-5; kitaplardan üretilen ilk partide %33-50).
+        kept_synth = [ln for ln in synth_lines if not _is_low_value_line(ln)]
+        low_value_dropped = synth_n - len(kept_synth)
+        lines += kept_synth
 
     card_n = 0
     try:
@@ -104,4 +110,22 @@ def assemble_sft_lines(
         card_n=card_n,
         deduped=deduped,
         discipline=disc_stats,
+        low_value_dropped=low_value_dropped,
     )
+
+
+def _is_low_value_line(line: str) -> bool:
+    """Sentetik JSONL satırının assistant cevabı düşük değerli mi? Okunamayan satır tutulur
+    (pretrain-gate onu ayrıca 'okunamayan' diye engeller — sessiz atma yok)."""
+    import json
+
+    from app.brain.synthetic_qa_builder import is_low_value_answer
+
+    try:
+        msgs = json.loads(line).get("messages") or []
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return False
+    answer = next(
+        (str(m.get("content", "")) for m in reversed(msgs) if m.get("role") == "assistant"), ""
+    )
+    return bool(answer) and is_low_value_answer(answer)
