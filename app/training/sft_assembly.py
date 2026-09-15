@@ -10,6 +10,8 @@ filtresine toplu takılmasın). EĞİTİM BAŞLATMAZ (kural 8).
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,6 +20,26 @@ from app.lora.dataset_builder import build_dataset
 from app.training.discipline_dataset import discipline_jsonl_lines, mix_discipline
 
 _PII_MASK = "[kişisel-veri]"
+# json.dumps(ensure_ascii=False) bunları ham bırakır ama str.splitlines() onları satır sonu
+# sayar (LoRAExample.to_jsonl_line ile aynı koruma).
+_LINE_SEPARATOR_ESCAPES = (
+    (chr(0x2028), "\\u2028"),
+    (chr(0x2029), "\\u2029"),
+    (chr(0x85), "\\u0085"),
+)
+
+
+def _mask_strings(value: Any, patterns: list[re.Pattern[str]]) -> Any:
+    """JSON değerindeki TÜM string'lerde PII desenlerini maskele (anahtarlara dokunmaz)."""
+    if isinstance(value, str):
+        for pat in patterns:
+            value = pat.sub(_PII_MASK, value)
+        return value
+    if isinstance(value, list):
+        return [_mask_strings(v, patterns) for v in value]
+    if isinstance(value, dict):
+        return {k: _mask_strings(v, patterns) for k, v in value.items()}
+    return value
 
 
 def redact_pii_line(line: str) -> str:
@@ -28,12 +50,27 @@ def redact_pii_line(line: str) -> str:
     kişisel veri girmez → birleştirmede maskelenir. Desenler pretrain-gate'in taradığı
     `_PII_PATTERNS` ile AYNI kaynaktan gelir (kapı ile maskeleme sapmasın); kapı yine son
     savunma olarak taramaya devam eder.
+
+    Maskeleme ÇÖZÜMLENMİŞ string değerlerinde yapılır, ham JSON metninde DEĞİL (2026-09-15
+    hatası): ham metinde satır sonu `\\n` olarak yazılır ve e-posta deseni kaçışın `n`
+    harfini adresin parçası sanıyordu (`\\ndasashreeya@…` → `\\[kişisel-veri]`); geriye kalan
+    `\\[` geçersiz JSON kaçışıdır → 1117 sentetik satırın 47'si bozuldu, pretrain-gate
+    "okunamayan satır" ile NO-GO verdi. Eşleşme yoksa satır BAYT-ÖZDEŞ döner (dedup ve diff
+    kararlı kalsın); JSON olmayan satır olduğu gibi bırakılır (kapı onu okunamayan diye bloklar).
     """
     from app.registry.promotion_gates import _PII_PATTERNS
 
-    for pat in _PII_PATTERNS.values():
-        line = pat.sub(_PII_MASK, line)
-    return line
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return line
+    masked = _mask_strings(obj, list(_PII_PATTERNS.values()))
+    if masked == obj:
+        return line
+    out = json.dumps(masked, ensure_ascii=False)
+    for ch, esc in _LINE_SEPARATOR_ESCAPES:
+        out = out.replace(ch, esc)
+    return out
 
 
 @dataclass
