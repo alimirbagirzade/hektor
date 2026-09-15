@@ -19,13 +19,13 @@ models:
     notes: "Çok hafif laptoplar için. Bant-genişliği sınırlı."
 
   - id: qwen3_4b_q4
-    display_name: "Qwen3 4B Q4"
+    display_name: "Qwen3 4B Instruct-2507 Q4"
     family: qwen
     size_tier: tiny
     task_tags: [general, light_coding, multilingual, reasoning]
     backends:
       ollama:
-        name: "qwen3:4b"
+        name: "qwen3:4b-instruct-2507-q4_K_M"
     min_ram_gb: 6
     recommended_ram_gb: 8
     min_vram_gb: 0
@@ -34,7 +34,7 @@ models:
     context_max_safe_cpu: 8192
     quality_score: 6
     speed_score: 8
-    notes: "8 GB RAM altı makineler için iyi seçenek."
+    notes: "8 GB RAM altı makineler için iyi seçenek. Düşünmesiz; çıplak qwen3:4b = Thinking-2507 (yavaş)."
 
   # ── SMALL (7B) ────────────────────────────────────────────────────────────
   - id: qwen2_5_coder_7b_q4
