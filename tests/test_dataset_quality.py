@@ -64,7 +64,11 @@ def test_leakage_prefix_warns_without_blocking() -> None:
         "Bunu yapma look-ahead olur.",
     ]
     lines = [_line("pasaja göre dayanak budur ve sonuç budur.") for _ in range(3)]
-    lines += [_line(_varied[i % len(_varied)] + f" ek {i}") for i in range(97)]
+    # Kapanışlar ve gövde de çeşitli olmalı: aynı son cümle kapanış-ezberi, cevaplar arası
+    # ortak 8-kelimelik ifade şablon-tekrarı blokunu tetikler. Rakamlar kelime sayılmadığı için
+    # "not {i}" gibi ekler çeşitlilik sağlamaz → her cevaba özgü harf-kelimeler (6 kelime:
+    # kapanış cümlesi 20 karakteri aşsın).
+    lines += [_line(_varied[i % len(_varied)] + " " + _unique_words(i, 6) + ".") for i in range(97)]
     rep = audit_dataset(lines)
     assert rep.verdict == "GO", rep.blockers
     assert rep.leakage_prefix_hits == 3

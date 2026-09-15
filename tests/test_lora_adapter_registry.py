@@ -42,8 +42,8 @@ def test_promote_requires_user_approval(registry: AdapterRegistry) -> None:
 
 
 def test_promote_with_approval_sets_production(registry: AdapterRegistry) -> None:
-    """user_approved=True ile PRODUCTION atanmalı."""
-    registry.register(AdapterRecord(adapter_id="a1"))
+    """user_approved=True ile EVAL_PASSED kayıt PRODUCTION atanmalı."""
+    registry.register(AdapterRecord(adapter_id="a1", status=AdapterStatus.EVAL_PASSED))
     assert registry.promote("a1", user_approved=True) is True
     production = registry.get_production()
     assert production is not None
@@ -51,10 +51,20 @@ def test_promote_with_approval_sets_production(registry: AdapterRegistry) -> Non
     assert production.approved_by_user is True
 
 
+def test_promote_refuses_unevaluated_or_rejected(registry: AdapterRegistry) -> None:
+    """Onay olsa bile CANDIDATE / SMOKE_PASSED / REJECTED kayıt production'a çıkamaz."""
+    for i, status in enumerate(
+        (AdapterStatus.CANDIDATE, AdapterStatus.SMOKE_PASSED, AdapterStatus.REJECTED)
+    ):
+        registry.register(AdapterRecord(adapter_id=f"x{i}", status=status))
+        assert registry.promote(f"x{i}", user_approved=True) is False
+    assert registry.get_production() is None
+
+
 def test_only_one_production_at_a_time(registry: AdapterRegistry) -> None:
     """Yeni production atanınca eski production APPROVED'a düşmeli."""
-    registry.register(AdapterRecord(adapter_id="a1"))
-    registry.register(AdapterRecord(adapter_id="a2"))
+    registry.register(AdapterRecord(adapter_id="a1", status=AdapterStatus.EVAL_PASSED))
+    registry.register(AdapterRecord(adapter_id="a2", status=AdapterStatus.EVAL_PASSED))
     registry.promote("a1", user_approved=True)
     registry.promote("a2", user_approved=True)
 

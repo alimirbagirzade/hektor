@@ -17,6 +17,24 @@ from app.brain.synthetic_qa_builder import dedup_jsonl_lines
 from app.lora.dataset_builder import build_dataset
 from app.training.discipline_dataset import discipline_jsonl_lines, mix_discipline
 
+_PII_MASK = "[kişisel-veri]"
+
+
+def redact_pii_line(line: str) -> str:
+    """JSONL satırındaki e-posta / uluslararası telefon desenlerini maskele.
+
+    Makale başlık bloklarındaki yazar e-postaları ("Corresponding author: …@…") sentetik QA
+    bağlamına sızıyordu (2026-09-14 ölçümü: 1701 satırın 92'sinde 191 adres). Eğitim verisine
+    kişisel veri girmez → birleştirmede maskelenir. Desenler pretrain-gate'in taradığı
+    `_PII_PATTERNS` ile AYNI kaynaktan gelir (kapı ile maskeleme sapmasın); kapı yine son
+    savunma olarak taramaya devam eder.
+    """
+    from app.registry.promotion_gates import _PII_PATTERNS
+
+    for pat in _PII_PATTERNS.values():
+        line = pat.sub(_PII_MASK, line)
+    return line
+
 
 @dataclass
 class AssemblyResult:
@@ -72,7 +90,7 @@ def assemble_sft_lines(
     except Exception:
         pass
 
-    merged = dedup_jsonl_lines(lines)
+    merged = dedup_jsonl_lines([redact_pii_line(ln) for ln in lines])
     deduped = len(merged)
 
     disc_stats: dict[str, Any] | None = None

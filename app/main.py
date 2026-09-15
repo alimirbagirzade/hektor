@@ -2357,6 +2357,11 @@ def synth_qa_bulk(
     resume: bool = typer.Option(
         False, "--resume/--no-resume", help="Zaten işlenmiş makaleleri atla (kaldığı yerden devam)"
     ),
+    since: str = typer.Option(
+        "",
+        "--since",
+        help="Yalnız bu tarihten (ISO, örn. 2026-09-13) SONRA korpusa eklenen makaleler",
+    ),
 ) -> None:
     """TÜM korpustan checkpoint'li bulk sentetik QA üret (Stage 2 eşiğine hızlı ulaşım).
 
@@ -2378,9 +2383,18 @@ def synth_qa_bulk(
         raise typer.Exit(code=1)
 
     store = SqliteStore()
-    all_ids = [p.paper_id for p in store.list_papers()]
+    # --since: yalnız yeni eklenen makaleler (created_at ISO-UTC dizge → sözlük sırası = zaman
+    # sırası). Tüm korpusu CPU'da yeniden işlemek onlarca saat sürer; yeni kaynak eklendiğinde
+    # yalnız onların QA'sı üretilir.
+    all_ids = [
+        p.paper_id for p in store.list_papers() if not since or str(p.created_at or "") >= since
+    ]
     if not all_ids:
-        console.print("[yellow]Makale yok — önce ingest et.[/yellow]")
+        console.print(
+            "[yellow]Makale yok — önce ingest et"
+            + (f" (--since {since} sonrası eklenen makale bulunamadı)" if since else "")
+            + ".[/yellow]"
+        )
         return
 
     settings = get_settings()
@@ -2421,6 +2435,15 @@ def synth_qa_bulk(
         f"hedef={target}, seed={seed}, backend={llm.active_backend()})…"
     )
     total = len(dedup_jsonl_lines(_read_existing()))
+    if total >= target and all_ids:
+        # Eskiden döngü ilk batch'ten önce kırılıp "bitti / Stage 2 karşılandı" basıyordu:
+        # --resume ile yeni makaleler HİÇ işlenmeden başarı bildiriliyordu (Kademe-2 av).
+        console.print(
+            f"[yellow]Hedef {target} zaten aşılmış ({total} örnek) — {len(all_ids)} makale "
+            f"İŞLENMEDİ.[/yellow] Yeni makaleler için daha yüksek hedef ver: "
+            f"[bold]--target {total + 1000}[/bold]"
+        )
+        return
     for bi, i in enumerate(range(0, len(all_ids), batch), 1):
         if total >= target:
             console.print(f"[green]Hedef {target} aşıldı ({total}) — bulk üretim durdu.[/green]")
