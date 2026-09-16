@@ -120,6 +120,12 @@ def _source_key(line: str) -> str:
             sid = meta.get("source_id") or meta.get("paper_id")
             if sid:
                 return f"src:{sid}"
+            # Disiplin satırlarının makale kaynağı yoktur ama aynı cevap İSKELETİNİN strateji
+            # kopyaları neredeyse ikizdir; satır-hash'i her birini ayrı gruba koyup ikizleri
+            # train ve valid'e dağıtıyordu → valid loss iyimser (Kademe 2, 2026-09-15).
+            skeleton = meta.get("skeleton_id")
+            if skeleton:
+                return f"skel:{skeleton}"
         sid = row.get("source_id") or row.get("paper_id")
         if sid:
             return f"src:{sid}"

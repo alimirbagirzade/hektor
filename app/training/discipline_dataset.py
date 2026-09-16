@@ -378,16 +378,18 @@ TRAPS: tuple[_Trap, ...] = (
             "dönemde ölçmek.",
             "Bunu bilmiyorum ve bilemem: tek bir mumun kapanışı ya da yön kesinliği "
             "öngörülemez. {s} için yapabileceğim geçmiş davranışı ölçmek — sinyal sonrası "
-            "getiri dağılımını gecikmeli girişle çıkarıp örneklem dışı dönemde kontrol etmek.",
+            "getiri dağılımını gecikmeli girişle çıkarıp, komisyon düşülmüş hâliyle örneklem "
+            "dışı dönemde kontrol etmek.",
             "Gelecek fiyatı söylemem — kestirilemez bir büyüklük, rakam vermek yanıltır. {s} "
             "sinyalinin tarihsel davranışını ölçebilirim; istersen bir sonraki barın yönüyle "
             "sinyal arasındaki geçmiş ilişkiyi komisyon ve spread sonrası inceleyelim.",
             "Önümüzdeki haftayı taahhüt edecek bir bilgiye sahip değilim; yön konusunda söz "
-            "veremem. {s} geçmiş haftalarda hangi sıklıkla doğru yönü göstermiş, bunu "
-            "hesaplayabiliriz — ama o oran bile gelecek için yalnız bir olasılık tahminidir.",
+            "veremem. {s} geçmiş haftalarda hangi sıklıkla doğru yönü göstermiş, bunu işlem "
+            "maliyeti düşülerek hesaplayabilir ve hiç dokunmadığımız bir bölümde "
+            "tekrarlayabiliriz — ama o oran bile gelecek için yalnız bir olasılık tahminidir.",
             "Tam rakamla kapanış tahmini veremem; böyle bir sayı sahte bir hassasiyet taşır. "
             "{s} ile ancak olası senaryoları ve geçmişteki hata payını tartışabiliriz, o da "
-            "test verisinden ölçülerek.",
+            "spread dahil ölçülerek ve eğitimde kullanılmamış bir dönemde sınanarak.",
             "Yarın ne olacağını bilmiyorum; kimse önceden bilemez. {s} sinyali bir eğilim "
             "hipotezidir: geçmişte benzer sinyallerden sonra ortalama hareket neydi, kayma "
             "düşülünce anlamlı kalıyor mu, bu soruları veriyle cevaplayabiliriz.",
@@ -406,16 +408,19 @@ TRAPS: tuple[_Trap, ...] = (
             "uydurmam. Geçmiş veriyle sınanabilecek bir giriş koşulu verirsen onu komisyon ve "
             "slippage dahil geriye dönük olarak test ederim.",
             "Şu anki gerçek-zaman veriyi göremiyorum; güncel {s} göstergesini söyleyemem, sayı "
-            "icat etmem. Veri sağlanırsa ölçülmüş değerlerle dönerim.",
+            "icat etmem. Veri sağlanırsa ölçülmüş değerlerle dönerim: komisyon düşülmüş sonuç "
+            "ve ayrı bir doğrulama döneminde tekrar.",
             "Bunu bilemem: anlık fiyat/haber akışına bağlı değilim. {s} için canlı bir karar "
             "veremem; yapabileceğim, sağlanan geçmiş veride hipotezini maliyetleri ve bir "
             "sonraki bara kaydırılmış girişi hesaba katarak sınamak.",
             "Bugünkü haberleri takip edemiyorum, bu yüzden şimdi ne yapman gerektiğini "
             "söyleyemem. {s} için karar sürecini önceden tanımlarsan — hangi koşulda giriş, "
-            "hangi koşulda çıkış — bunu geçmiş veride deneyebiliriz.",
+            "hangi koşulda çıkış — bunu geçmiş veride, işlem maliyeti düşülerek ve sonradan "
+            "görülmemiş bir bölümde yeniden deneyebiliriz.",
             "Gösterge değerleri canlı veri akışı gerektirir ve bende böyle bir bağlantı yok; "
             "güncel bir sayı uydurmam. Son fiyat serisini paylaşırsan {s} hesabını o veri "
-            "üzerinde, hangi zaman damgasına ait olduğunu belirterek yaparım.",
+            "üzerinde, hangi zaman damgasına ait olduğunu belirterek yaparım; çıkan sonucu "
+            "spread dahil ve daha önce bakmadığımız bir aralıkta da sınarız.",
             "Anlık alım/satım yönü veremem; erişimim olmayan bir piyasa durumunu tahmin etmek "
             "yanıltıcı olur. {s} sinyali için geçmiş bir dönem seçelim, sinyali gecikmeli "
             "uygulayalım ve spread ile komisyon sonrası sonuca birlikte bakalım.",
@@ -460,8 +465,13 @@ def build_discipline_examples(
         for si, strat in enumerate(STRATEGIES):
             for v in range(variants_per_combo):
                 ask = trap.asks[v % n_ask].format(s=strat)
-                # Cevap açılışını ask'tan farklı offset'le döndür → (ask, answer) çifti çeşitli.
-                ans = trap.answers[(v + si) % n_ans].format(s=strat)
+                # Cevap i, soru i % n_ask için yazıldı (her soruya n_ans // n_ask cevap). Rotasyon
+                # YALNIZ o sorunun cevapları içinde döner. Eski `(v + si) % n_ans` soruyu
+                # dinlemeyen eşleşme üretiyordu (Kademe 2, 2026-09-15: 528 çiftin ~%30'u, ör.
+                # "50x kaldıraç" sorusuna "martingale" cevabı).
+                per_ask = n_ans // n_ask
+                ans_idx = (v % n_ask) + n_ask * (si % per_ask)
+                ans = trap.answers[ans_idx].format(s=strat)
                 user = _user_content(trap, ask)
 
                 messages: list[dict] = []
@@ -482,6 +492,10 @@ def build_discipline_examples(
                             "trap": trap.key,
                             "strategy": strat,
                             "has_system": not drop_system,
+                            # Cevap İSKELETİ (tuzak + cevap sırası): aynı iskeletin strateji
+                            # kopyaları train/valid bölmesinde TEK tarafta kalsın diye kaynak
+                            # grubu anahtarıdır (Kademe 2 B3: near-duplicate sızıntısı).
+                            "skeleton_id": f"{trap.key}:{ans_idx}",
                             # Çıplak soru (bağlam gömülü user mesajından ayrı) — dedup/kalite için.
                             "question": ask,
                         },

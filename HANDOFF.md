@@ -34,9 +34,9 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | **CI (Linux):** ✅ main'de yeşil — `1ceb867`, `e99a3bb`, `5841f7c` ve `4f32768` push koşuları success. 2026-09-07 ile 2026-09-13 arası kırmızıydı (`test_sentinel_autostart_probe` ×2; bkz. 2026-09-13 kaydı). **Yerel (Windows):** ✅ ruff format --check (421 dosya, app+tests) + ruff check + mypy (218 dosya) + pytest **2089 passed, 4 skipped, 2 deselected** (2026-09-14, `-m "not ollama"`, `4f32768` kodu + bu HANDOFF). **Yerel ✅ tek başına kapı sayılmaz.** |
+| Kapı (`make ci`) | **CI (Linux):** ✅ main'de yeşil — `1ceb867`, `e99a3bb`, `5841f7c` ve `4f32768` push koşuları success. 2026-09-07 ile 2026-09-13 arası kırmızıydı (`test_sentinel_autostart_probe` ×2; bkz. 2026-09-13 kaydı). **Yerel (Windows):** ✅ ruff format --check (429 dosya, app+tests) + ruff check + mypy (219 dosya) + pytest **2179 passed, 5 skipped, 4 deselected** (2026-09-16, `-m "not ollama"`, `4db170d` + Kademe 2 düzeltmeleri). **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
-| Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı) |
+| Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı). `hektor_lora_v9_4b` 2026-09-15'te başlatıldı ama 21/600 adımda askıya alınıp sonlandırıldı (checkpoint YOK) — veri düzeltildikten sonra baştan koşacak (2026-09-16 kaydı) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b-instruct-2507-q4_K_M` varsayılan, 2026-09-13'ten beri; önceki `qwen3:4b` = Thinking-2507). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
@@ -100,6 +100,81 @@ production terfisi ayrı insan onayı ister.
 
 > **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
 > rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-16: v9 öncesi Kademe 2 + iki Kural 8 boşluğu
+
+Dal: `claude/burda-rag-qlora-training-ce0521`. Tam rapor bu makinede **yerel**:
+`reports/bug-scan/kademe2-2026-09-16.md` (bu klasör `.gitignore`'da — tarama raporları commit
+edilmez, özet buraya yazılır). Aşağısı o raporun özetidir.
+
+### 1. Yarım kalan v9 koşusu sonlandırıldı
+2026-09-15 14:06'da başlatılan `hektor_lora_v9_4b` (600 adım) 17:54'te RAG üretimine CPU
+açmak için **askıya alınmış** (`NtSuspendProcess`), 21/600 adımda donmuştu; checkpoint yok
+(adapter klasörü boş). Kullanıcı kararıyla sonlandırıldı → v9 temiz veriyle baştan koşacak.
+Kaynak verisi (`lora_sft.jsonl`, 1743 satır) güncel kapıda GO alıyordu; asıl sorun aşağıdaki
+veri bulgularıydı.
+
+### 2. Kademe 2 (2 finder + her bulguya 2 bağımsız doğrulayıcı)
+İki oyla onaylanıp **düzeltilenler**: disiplin rotasyonu soruyla cevabı yanlış eşliyordu
+(gerçek veride 147-175 satır; **uyumsuz çift 175 → 0**) · çekimser tuzaklarda maliyet/OOS
+dayanağı kaybolmuştu · grup e-postaları (`{a,b}@uni.edu`) maskelenmiyordu (**28 adres**) ·
+disiplin ikizleri train/valid'e dağılıyordu (`skeleton_id` ile gruplandı) · boş/null cevap
+kapıdan GO alıyordu · `lora-cloud-prep` kanonik birleştirmeyi atlıyordu · `pretrain-gate`
+NO-GO'da çıkış kodu 0 veriyordu. Düşük etkili 6 bulgu raporda açık bırakıldı.
+
+### 3. İki Kural 8 boşluğu (biri düzeltildi, biri AÇIK)
+- **Bayat onay (düzeltildi):** 2026-09-08'de `hektor_lora_v8_4b` için verilip hiç tüketilmemiş
+  onay, 2026-09-15 20:36 UTC'de **başka** bir eğitim (`hektor_lora`, 500 adım) için tüketildi.
+  Artık `APPROVAL_TTL_HOURS = 12`; bayat onay bulunamaz, tüketilemez, damgalanmaz. Karar zamanı
+  okunamıyorsa taze SAYILMAZ. (Düzeltmenin kendi regresyonunu test yakaladı: toplu UPDATE
+  sonrası ORM nesnesi tazelenmeyince çağıran, tükettiği onayı "tüketilmemiş" sanıyordu.)
+- **`start-train.ps1` onay TÜKETMİYOR (AÇIK):** betik `HEKTOR_TRAIN_SUPERVISED=1` geçerek CLI'nın
+  Kural 8 kapısını atlatıyor ve log'a "üst katman onayı kullanıldı" yazıyor; oysa betik hiçbir
+  onay isteği açmıyor. Web endpoint'i sözleşmeyi tutuyor, betik tutmuyor — v7/v8 koşuları da
+  böyle başlamıştı. Önerilen düzeltme raporda (`-Supervised` anahtarı + nöbetçi muafiyeti);
+  nöbetçinin kurtarma yolunu değiştirdiği için gözetimli seansa bırakıldı.
+
+### 4. Nöbetçi, onaysız bir eğitimi diriltti (canlı gözlem)
+2026-09-15 23:36'da web arayüzünden `hektor_lora` (500 adım) başlatıldı ve 0. adımda öldü.
+`training-watchdog.ps1` durum dosyasını görüp 23:49'da **aynı koşuyu yeniden başlattı**; 5,5 saat
+eski veriyle, onaysız ve fark edilmeden eğitti (8,2 GB RAM, kart üretimini yavaşlattı).
+`start-train.ps1 -Stop` ile durduruldu ve durum dosyası temizlendi. Ders: ölü bir koşunun durum
+dosyası = nöbetçi için kalıcı yetki; §3'teki boşlukla birleşince onay kapısı fiilen devre dışı.
+
+### 5. RAG
+`kaynak-tamamla`: düşük anlama skorlu 5 makale için arXiv'den 9 PDF indirildi (alaka kapısı
+elemeleri raporda; 1 aday 404), ingest edildi → korpus **233 makale**. 9 yeni makalenin kartı
+`read-all` ile üretiliyor. Eval kirlenmesi ölçüldü: `discipline_core`'un 16 sorusunun disiplin
+verisiyle birebir eşleşmesi **0** (en yüksek benzerlik 0,32).
+
+### 6. Veri yeniden kuruldu, kapılar GEÇİLDİ — v9 **insan onayı bekliyor**
+
+Veri, düzeltilmiş kodla (bu dal) yeniden kuruldu; veri ağacı ana checkout'ta kaldı
+(`HEKTOR_ROOT_PATH` ile worktree kodu + ana `data/`+`storage/`). PR #14 **merge edilmedi**;
+eğitim de bu dalın kodundan koşacak ki düzeltmeler fiilen eğitilen veriye girsin.
+
+| Adım | Sonuç |
+|---|---|
+| `assemble_sft.py` | **1937 örnek** (synth 1283 + kart 233 → dedup 1453 + disiplin 484) |
+| `pretrain-gate` | **GO** — PII 0, sır 0, şablon 8-gram bloğu 0, okunamayan 0, boş cevap 0. Tek uyarı: 91 "strateji" cevabında maliyet token'ı yok (sentetik QA kaynaklı) |
+| `lora-audit` | **passed** — 236/236 kart onaylı, 0 red (42 "gözden geçir") |
+| Veri doğrulaması | grup e-postası **0** (öncesi 28) · disiplin 484/484 `skeleton_id` · uyumsuz soru-cevap **0** (öncesi ~147) |
+| Onay | `apr_2410dd477207` **pending** — `train --run` (SUPERVISED'sız) kapısı ısırdı |
+
+**Eğitimi başlatmak için (insan):**
+```bash
+uv run hektor approval-approve apr_2410dd477207
+```
+Sonra bu dalın kodundan ayrık başlat (worktree `.venv`'inde train-cpu kurulu):
+`HEKTOR_ROOT_PATH=<ana checkout>` + `train --run --backend peft --adapter-name hektor_lora_v9_4b
+--iterations 600 --profile discipline_safe_local --max-examples 600` (SUPERVISED **verme** —
+onayı CLI tüketsin). `scripts/start-train.ps1` kullanılmadı: §3'teki açık boşluk yüzünden
+onay tüketmiyor.
+
+**Not:** ana `storage/train_status.json` bilinçli olarak YAZILMADI — nöbetçi o dosyayı görünce
+çöken koşuyu eski kodla ve onaysız diriltiyor (§4). Yani bu koşuda otomatik kurtarma yok.
 
 ---
 

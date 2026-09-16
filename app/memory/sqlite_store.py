@@ -54,6 +54,12 @@ def _utcnow() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
 
 
+# Taze insan onayının ÖMRÜ (saat). Onay verildikten sonra bu süre geçerse onay bayatlar ve
+# tüketilemez → bekleyen bir onay, günler sonra başka bir eğitimi yetkilendiremez (Kural 8;
+# 2026-09-15 Kademe 2 bulgusu). Yeniden onay istemek ucuzdur, bayat onayla eğitim değildir.
+APPROVAL_TTL_HOURS = 12
+
+
 _TITLE_NORM_RE = re.compile(r"[\W_]+", re.UNICODE)
 _ALNUM_RE = re.compile(r"[0-9A-Za-zÇĞİÖŞÜçğıöşü]")
 
@@ -1275,10 +1281,31 @@ class SqliteStore:
                     setattr(row, k, v)
             return self._approval_to_dict(row)
 
+    def _is_approval_fresh(self, row: ApprovalRequestRow) -> bool:
+        """Onay HÂLÂ taze mi — karar anından bu yana ``APPROVAL_TTL_HOURS`` geçmemiş mi?
+
+        2026-09-15 (Kademe 2): 2026-09-08'de ``hektor_lora_v8_4b`` için verilip hiç
+        tüketilmemiş onay, BİR HAFTA sonra başka bir adapter (``hektor_lora``, 500 adım)
+        için tüketildi — "taze insan onayı" (Kural 8) fiilen kalıcı yetkiye dönüşmüştü.
+        Karar zamanı okunamıyorsa onay taze SAYILMAZ (fail-closed).
+        """
+        decided = getattr(row, "decided_at", None)
+        if not decided:
+            return False
+        try:
+            when = dt.datetime.fromisoformat(str(decided))
+        except ValueError:
+            return False
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=dt.UTC)
+        age = dt.datetime.now(dt.UTC) - when
+        return age <= dt.timedelta(hours=APPROVAL_TTL_HOURS)
+
     def find_fresh_approval(self, agent_id: str, action: str) -> dict[str, Any] | None:
-        """En son ONAYLANMIŞ + TÜKETİLMEMİŞ onay (taze onay). Yoksa None.
+        """En son ONAYLANMIŞ + TÜKETİLMEMİŞ + BAYATLAMAMIŞ onay. Yoksa None.
 
         Tek kullanımlık: tüketim ``consumed_at`` ile damgalanır → standing yetki yok.
+        Ayrıca ``APPROVAL_TTL_HOURS``'tan eski onay taze sayılmaz (bkz. ``_is_approval_fresh``).
         """
         with self.session() as s:
             stmt = (
@@ -1293,7 +1320,9 @@ class SqliteStore:
                 .limit(1)
             )
             row = s.scalar(stmt)
-            return self._approval_to_dict(row) if row else None
+            if row is None or not self._is_approval_fresh(row):
+                return None
+            return self._approval_to_dict(row)
 
     def consume_fresh_approval(self, agent_id: str, action: str) -> dict[str, Any] | None:
         """Atomik: en yeni taze (approved+unconsumed) onayı BUL ve TÜKET — TEK transaction.
@@ -1305,8 +1334,8 @@ class SqliteStore:
         değiştir (CAS): araya giren eşzamanlı çağrılardan yalnız BİRİ tüketir, diğeri None alır.
         """
         with self.session() as s:
-            aid = s.scalar(
-                select(ApprovalRequestRow.approval_id)
+            candidate = s.scalar(
+                select(ApprovalRequestRow)
                 .where(
                     ApprovalRequestRow.agent_id == agent_id,
                     ApprovalRequestRow.action == action,
@@ -1316,8 +1345,12 @@ class SqliteStore:
                 .order_by(ApprovalRequestRow.requested_at.desc())
                 .limit(1)
             )
-            if aid is None:
+            if candidate is None:
                 return None
+            # BAYAT onay tüketilmez ve "tüketildi" diye damgalanmaz — çağıran yeni onay ister.
+            if not self._is_approval_fresh(candidate):
+                return None
+            aid = candidate.approval_id
             res = s.execute(
                 update(ApprovalRequestRow)
                 .where(
@@ -1330,8 +1363,12 @@ class SqliteStore:
             # DML sonucu CursorResult'tır (rowcount taşır); Session.execute imzası Result[Any].
             if cast("Any", res).rowcount != 1:
                 return None  # araya giren eşzamanlı çağrı bu onayı tüketti → taze onay yok
-            row = s.get(ApprovalRequestRow, aid)
-            return self._approval_to_dict(row) if row else None
+            # Toplu UPDATE (`synchronize_session=False`) oturumdaki nesneyi TAZELEMEZ: yaş
+            # kontrolü için yüklenen `candidate` kimlik haritasında durduğundan `s.get()`
+            # bayat kopyayı (consumed_at=None) döndürürdü → çağıran, tükettiği onayı
+            # "tüketilmemiş" sanardı (Kural 8 izinde sessiz yalan).
+            s.refresh(candidate)
+            return self._approval_to_dict(candidate)
 
     def _approval_to_dict(self, r: ApprovalRequestRow) -> dict[str, Any]:
         return {
