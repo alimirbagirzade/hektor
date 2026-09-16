@@ -44,6 +44,43 @@ def test_count_matches_combinatorics() -> None:
     assert len(ex) >= 200  # "yüzlerce" eşiği
 
 
+def test_answer_belongs_to_its_question() -> None:
+    """Cevap, SORULAN sorunun cevap kümesinden gelir (Kademe 2, 2026-09-15).
+
+    Eski rotasyon `answers[(v + si) % 6]` soruyu dinlemeyen eşleşme üretiyordu: 528 çiftin
+    ~%30'u uyumsuzdu (ör. "martingale zararı kapatır mı?" sorusuna "tüm sermaye + maksimum
+    kaldıraç" cevabı) → model soruyu dinlemeden hazır cevap vermeyi öğrenir.
+    """
+    for ex in build_discipline_examples(seed=0):
+        meta = ex.metadata
+        trap = next(t for t in TRAPS if t.key == meta["trap"])
+        ans_idx = int(str(meta["skeleton_id"]).rsplit(":", 1)[1])
+        expected_ask = trap.asks[ans_idx % len(trap.asks)].format(s=meta["strategy"])
+        user_msg = next(m["content"] for m in ex.messages if m["role"] == "user")
+        assert expected_ask in user_msg, f"{trap.key}: cevap {ans_idx} bu soruya yazılmamıştı"
+
+
+def test_every_question_variant_is_asked() -> None:
+    """Rotasyon soruların hiçbirini düşürmez (tuzak başına 3 soru da sorulur)."""
+    asked: dict[str, set[int]] = {}
+    for ex in build_discipline_examples(seed=0):
+        trap = next(t for t in TRAPS if t.key == ex.metadata["trap"])
+        ans_idx = int(str(ex.metadata["skeleton_id"]).rsplit(":", 1)[1])
+        asked.setdefault(trap.key, set()).add(ans_idx % len(trap.asks))
+    for trap in TRAPS:
+        assert asked[trap.key] == set(range(len(trap.asks))), trap.key
+
+
+def test_skeleton_id_groups_strategy_twins() -> None:
+    """Aynı iskeletin strateji kopyaları TEK grup kimliği taşır (train/valid sızıntısı, B3)."""
+    from app.training.detached_launch import _source_key
+
+    keys = {_source_key(ln) for ln in discipline_jsonl_lines(seed=0)}
+    # 11 tuzak × 6 cevap = 66 iskelet; satır-hash'i kullanılsaydı grup sayısı 528 olurdu.
+    assert len(keys) == sum(len(t.answers) for t in TRAPS)
+    assert all(k.startswith("skel:") for k in keys)
+
+
 def test_rtuning_abstain_traps_present() -> None:
     # R-Tuning (2311.09677): bilinemeyene kalibre "bilmiyorum". Gelecek-tahmin + canlı-veri
     # abstention'ı eklendi; mevcut kaynak-yok/bağlam-uyumsuz tuzaklarını tamamlar.
@@ -54,6 +91,48 @@ def test_rtuning_abstain_traps_present() -> None:
         if t.key in {"gelecek_tahmin", "canli_veri_yok"}:
             for ans in t.answers:
                 assert any(p in ans.lower() for p in abstain), f"abstention eksik: {t.key}"
+
+
+_COST_TOKENS = ("komisyon", "slippage", "spread", "maliyet", "kayma", "işlem maliyeti")
+_OOS_TOKENS = (
+    "out-of-sample",
+    "örneklem dışı",
+    "oos",
+    "ayrı bir dönem",
+    "ayrı bir doğrulama",
+    "görülmemiş",
+    "hold-out",
+    "hiç dokunmadığ",
+    "bakmadığımız",
+)
+
+
+def test_abstain_traps_keep_a_measurable_next_step() -> None:
+    """Çekimser tuzaklarda cevap "bilemem"le bitmez: maliyet VEYA OOS dayanağı taşır.
+
+    Kademe 2 (2026-09-15): ortak test kuyruğu kaldırılırken `gelecek_tahmin` ve
+    `canli_veri_yok` cevaplarının bir kısmı ölçüm dayanağını tümden kaybetmişti
+    (canli_veri_yok'ta OOS oranı %0'a inmişti) → model "bilmiyorum" der ama test
+    noktası önermez.
+    """
+    for trap in TRAPS:
+        if trap.key not in {"gelecek_tahmin", "canli_veri_yok"}:
+            continue
+        for i, ans in enumerate(trap.answers):
+            low = ans.lower()
+            assert any(t in low for t in _COST_TOKENS) or any(t in low for t in _OOS_TOKENS), (
+                f"{trap.key}[{i}]: ölçüm dayanağı (maliyet/OOS) yok"
+            )
+
+
+def test_cost_traps_always_name_cost() -> None:
+    """Maliyet/backtest tuzaklarının HER cevabı maliyet terimini adıyla anar (Kural 3)."""
+    for trap in TRAPS:
+        if trap.key not in {"maliyet_yok", "backtest_yok"}:
+            continue
+        for i, ans in enumerate(trap.answers):
+            low = ans.lower()
+            assert any(t in low for t in _COST_TOKENS), f"{trap.key}[{i}]: maliyet terimi yok"
 
 
 def test_determinism_same_seed() -> None:

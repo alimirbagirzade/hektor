@@ -2605,38 +2605,29 @@ def lora_cloud_prep(
     Birleşik sete ~%25 adversarial disiplin örneği karıştırılır (v5 regresyon fix'i #4 Fix B;
     `--no-discipline` ile kapatılır). Detay: docs/PROTOKOL_BULUT_EGITIM.md.
     """
-    from app.brain.synthetic_qa_builder import dedup_jsonl_lines
-    from app.lora.dataset_builder import build_dataset
-    from app.memory.sqlite_store import SqliteStore
     from app.training.cloud_notebook import build_stage2_notebook, write_modelfile
-    from app.training.discipline_dataset import discipline_jsonl_lines, mix_discipline
+    from app.training.sft_assembly import assemble_sft_lines
 
     settings = get_settings()
     lora_dir = settings.root / "data" / "lora_sft"
-    synth_path = lora_dir / "synthetic_qa.jsonl"
 
-    # 1) Birleşik dataset: sentetik + kart örnekleri, hash + near-duplicate dedup (A7).
-    lines: list[str] = []
-    if synth_path.exists():
-        lines += [ln for ln in synth_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    try:
-        store = SqliteStore()
-        lines += [ex.to_jsonl_line() for ex in build_dataset(store.list_approved_cards())]
-    except Exception:
-        pass
-    merged = dedup_jsonl_lines(lines)
-
-    # 1b) Adversarial disiplin örneklerini karıştır (DEDUP'TAN SONRA — şablon örnekleri
-    # near-dup filtresine takılıp toplu elenmesin; v5 REJECT'in asıl fix'i, #4 Fix B).
-    disc_stats: dict | None = None
-    if discipline and discipline_ratio > 0:
-        disc_lines = discipline_jsonl_lines(seed=seed)
-        merged, disc_stats = mix_discipline(merged, disc_lines, ratio=discipline_ratio, seed=seed)
+    # 1) Birleşik dataset — KANONİK yol (`scripts/assemble_sft.py` ve `pretrain-gate` ile
+    # AYNI `assemble_sft_lines`): sentetik + onaylı kart → PII maskeleme + düşük-değer
+    # filtresi + dedup → disiplin karışımı (#4 Fix B). Burada eskiden bu mantığın ayrı bir
+    # KOPYASI vardı: maskesiz ve filtresiz birleştirip aynı `lora_sft.jsonl`'ı eziyordu
+    # (Kademe 2, 2026-09-15: gerçek veride 92 satırda 191 e-posta + 63 düşük-değerli örnek).
+    res = assemble_sft_lines(
+        settings,
+        discipline=discipline,
+        discipline_ratio=discipline_ratio,
+        seed=seed,
+    )
+    disc_stats: dict | None = res.discipline
 
     combined = lora_dir / "lora_sft.jsonl"
     combined.parent.mkdir(parents=True, exist_ok=True)
-    combined.write_text("\n".join(merged) + ("\n" if merged else ""), encoding="utf-8")
-    n = len(merged)
+    combined.write_text("\n".join(res.lines) + ("\n" if res.lines else ""), encoding="utf-8")
+    n = res.total
 
     # 2) Reçete: profil verilirse hiperparametreleri ondan al (discipline_safe = v5 reçetesi:
     #    lr 1e-4 + epoch 1 + dropout 0.1 + NEFTune 5 → catastrophic-forgetting'e karşı).
@@ -3335,6 +3326,10 @@ def pretrain_gate_cmd(
 
     if as_json:
         console.print_json(json.dumps(report.to_dict(), ensure_ascii=False))
+        # NO-GO'da çıkış kodu 1 — `hektor pretrain-gate && <eğitim>` zinciri engeli aşmasın
+        # (Kademe 2, 2026-09-15). JSON'daki `verdict`'i okuyan çağıranlar etkilenmez.
+        if report.verdict != "GO":
+            raise typer.Exit(1)
         return
 
     color = "green" if report.verdict == "GO" else "red"

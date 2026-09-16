@@ -36,9 +36,22 @@ _SECRET_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 _PII_PATTERNS: dict[str, re.Pattern[str]] = {
     "email": re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"),
+    # Makale başlıklarında sık: ortak alan adını paylaşan yazar listesi
+    # ("{ali,veli}@uni.edu"). Düz e-posta deseni süslü parantezli listeyi kaçırıyordu
+    # (Kademe 2, 2026-09-15: gerçek eğitim verisinde 28 adres maskesiz kalmıştı).
+    "email_group": re.compile(
+        r"\{[A-Za-z0-9._%+\-]+(?:\s*,\s*[A-Za-z0-9._%+\-]+)*\}@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"
+    ),
+    # Bot koruması için gizlenmiş yazım: "ali (at) uni.edu" / "ali [at] uni.edu".
+    "email_obfuscated": re.compile(
+        r"(?i)\b[A-Za-z0-9._%+\-]+\s*[\(\[]\s*at\s*[\)\]]\s*[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"
+    ),
     # Telefon: yalnız ULUSLARARASI biçim (+ önekli) — çıplak 11-haneli sayıların
     # (finansal veride sık) yanlış eşleşmesini önler.
     "phone_intl": re.compile(r"\+\d{1,3}[\s\-]?\d{2,4}[\s\-]?\d{3}[\s\-]?\d{2,4}\b"),
+    # Alan kodu parantezli uluslararası biçim ("+90 (212) 555 12 34"). `+` öneki ZORUNLU:
+    # parantezsiz/öneksiz varyant makale metnindeki "(2019) 123 456" gibi atıflara takılırdı.
+    "phone_intl_paren": re.compile(r"\+\d{1,3}[\s\-]?\(\d{2,4}\)[\s\-]?\d{3}[\s\-]?\d{2,4}\b"),
 }
 
 

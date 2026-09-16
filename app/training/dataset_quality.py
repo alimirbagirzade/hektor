@@ -118,7 +118,9 @@ def _assistant_answer(line: str) -> str | None:
     if isinstance(msgs, list):
         for m in reversed(msgs):
             if isinstance(m, dict) and m.get("role") == "assistant":
-                return str(m.get("content", ""))
+                content = m.get("content")
+                # null içerik "None" METNİNE dönmesin — boş cevap olarak sayılır (Kademe 2 A3).
+                return content if isinstance(content, str) else ""
         return None
     completion = obj.get("completion")
     return str(completion) if completion is not None else None
@@ -184,6 +186,15 @@ def audit_dataset(
         blockers.append(
             f"{unreadable} satırda assistant cevabı okunamadı (bozuk/bilinmeyen biçim) — "
             "denetlenemeyen satır eğitime giremez"
+        )
+
+    # 0b) BOŞ cevap — "okunabilir ama içi yok" satırlar sessizce eğitime giriyordu
+    # (Kademe 2, 2026-09-15: boş string / yalnız boşluk / null içerik GO alıyordu).
+    empty_answers = sum(1 for a in answers if not a.strip())
+    if empty_answers:
+        blockers.append(
+            f"{empty_answers} satırda assistant cevabı BOŞ (boş metin veya null) — "
+            "boş cevap modele 'sessiz kal' öğretir, eğitime giremez"
         )
 
     # 1) Garanti/kesinlik vaadi — Kural 1 zehiri (HARD NO-GO).

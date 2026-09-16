@@ -34,6 +34,35 @@ def test_clean_set_is_go() -> None:
     assert not rep.blockers
 
 
+def test_empty_answer_blocks() -> None:
+    """Boş / yalnız boşluk / null cevap NO-GO (Kademe 2, 2026-09-15: hepsi GO alıyordu).
+
+    null içerik eskiden `str(None)` ile "None" METNİNE dönüyordu → hem "okunabilir" hem de
+    dolu sayılıyordu; boş cevap modele "sessiz kal" öğretir.
+    """
+    lines = [
+        _line("Önermem; bu bir hipotezdir, shift(1) ile gecikmeli kur."),
+        _line("Maliyet dahil ölçmeden rakam vermem; komisyon + slippage düşülür."),
+        _line("Kaynak yok, uydurmam; önce backtest kaydı gerekir."),
+        _line("Out-of-sample doğrulama olmadan hazır diyemem."),
+        _line(""),
+        _line("   "),
+        json.dumps(
+            {
+                "messages": [
+                    {"role": "user", "content": "soru"},
+                    {"role": "assistant", "content": None},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+    ]
+    rep = audit_dataset(lines)
+    assert rep.verdict == "NO-GO"
+    assert any("BOŞ" in b for b in rep.blockers), rep.blockers
+    assert rep.unreadable_lines == 0  # okunuyor ama içi yok — ayrı engel
+
+
 def test_guaranteed_profit_blocks() -> None:
     lines = [_line("Bu kurulum garanti kâr getirir, kesin kazanırsın.")]
     rep = audit_dataset(lines)
