@@ -202,6 +202,38 @@ görünmüyordu — kullanıcı bunu canlı yaşadı.
 onayı tüketen katman (`train --run`) onay kimliğini durum dosyasına yazmıyor. Kimliği de yazmak
 daha sağlam olur — açık iş.
 
+### 8. Eğitimi yavaşlatan gizli yük: web sunucusunun formül çıkarımı (ölçüldü, giderildi)
+
+v9 adımları beklenen ~3,2 dk yerine 4-6,5 dk sürüyordu. İlk şüphe benim test koşularımdı; asıl
+sebep başkaydı:
+
+| Kanıt | Bulgu |
+|---|---|
+| 55 sn kesintisiz bağlantı örneklemesi (port 11434) | Ollama'nın **tek** istemcisi `hektor-web` (pid 20576, 15.09 12:41'den beri) |
+| Ollama `server.log` | Gece boyunca saatte 130-290 `/api/generate`, her biri 25-60 sn, bazıları 60 sn'de 500 |
+| Web günlüğü | Saat 11'de 980 `httpx` satırı; `formula_extractor` makale bitince tek satır yazıyor |
+| `formulas` tablosu | 233 makalenin 26'sı işlenmiş → kalan iş günler sürerdi |
+| CPU / bellek | `llama-server` %394-533 CPU; model KV önbelleğiyle **9,7 GB** RAM, boş RAM 0,4 GB'a düştü |
+
+Kök: dün geceki bir web ingest çağrısı zenginleştirmeli (`enrich=True`) yolu tetikledi ve sunucu
+korpusu chunk chunk formül çıkarımına soktu. Arka plan döngüleri `.env`'de **kapalıydı**; iş
+döngüden değil istekten doğmuştu. Kodda **iptal kancası yok**, görev kuyruğu boş.
+
+Tanıda elenenler (tekrar aranmasın): panonun `/api/status` yoklaması yalnız `/api/tags` çağırır ·
+sentinel `probe_llm` da öyle, periyodik iş parçacığı yok · `enrich_corpus()` formül çıkarmaz ·
+orkestrasyon koşuları `blocked` durumda durmuştu.
+
+**Giderildi (kullanıcı onayıyla):** web sunucusu ağacı yükseltilmiş çalıştığı için UAC istemli
+`taskkill /T` ile kapatıldı (sunucu `RunLevel=Highest` görevlerle başlıyor; `update.ps1` eğitim
+koşarken kasıtlı olarak hiçbir şey yapmıyor) → `ollama stop` ile model boşaltıldı → boş RAM
+0,4 → 10,0 GB. Eğitim hiç kesilmedi. Sonraki adımlar **3:33** ve **3:01** sürdü.
+
+**Ders:** uzun CPU eğitimi sırasında web panosu kapalı olmalı ya da en azından ingest/formül
+çıkarımı tetiklenmemeli. `train-doctor` bu yükü görmedi — yalnız koşunun kendi sağlığına
+bakıyor; "makinedeki başka bir LLM işi eğitimi yavaşlatıyor" kontrolü açık iş. Pano, eğitim
+bitince `HektorWeb` göreviyle açılır; formül çıkarımı kendiliğinden geri gelmez
+(`uv run hektor extract-formulas` ile bilinçli başlatılır).
+
 ---
 
 ## Son seans — 2026-09-15: tekrar patolojisinin kökü → şablon iskeleti ezberi
