@@ -28,7 +28,11 @@ try {
     $bm = if ($prop -contains "base_model") { [string]$status.base_model } else { "" }
     $prof = if ($prop -contains "profile" -and "$($status.profile)".Trim() -ne "") { [string]$status.profile } else { "discipline_safe_local" }
     $mx = if ($prop -contains "max_examples") { [int]$status.max_examples } else { 0 }
-    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -Resume
+    # -Supervised: KURTARMA muafiyeti. Diriltilen kosu zaten insan onayiyla basladi ve o onay
+    # TUKETILDI (tek kullanimlik); ikinci kez onay istenirse coken egitim sessizce beklemede
+    # kalirdi. Yeni bir egitim baslatmak icin bu yol KULLANILMAZ -- yalniz durum dosyasi
+    # birakmis, onaylanmis ve cokmus bir kosu dirilir.
+    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -Resume -Supervised
 } finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()

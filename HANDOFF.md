@@ -161,7 +161,8 @@ eğitim de bu dalın kodundan koşacak ki düzeltmeler fiilen eğitilen veriye g
 | `pretrain-gate` | **GO** — PII 0, sır 0, şablon 8-gram bloğu 0, okunamayan 0, boş cevap 0. Tek uyarı: 91 "strateji" cevabında maliyet token'ı yok (sentetik QA kaynaklı) |
 | `lora-audit` | **passed** — 236/236 kart onaylı, 0 red (42 "gözden geçir") |
 | Veri doğrulaması | grup e-postası **0** (öncesi 28) · disiplin 484/484 `skeleton_id` · uyumsuz soru-cevap **0** (öncesi ~147) |
-| Onay | `apr_2410dd477207` **pending** — `train --run` (SUPERVISED'sız) kapısı ısırdı |
+| Onay | `apr_2410dd477207` — istek `train --run` (SUPERVISED'sız) kapısıyla açıldı, **insan onayladı** (2026-09-16 07:30 UTC), eğitim başlarken **tüketildi** (07:40:54 UTC) |
+| Eğitim | **KOŞUYOR** — `hektor_lora_v9_4b`, 600 örnek × 1 epoch, `discipline_safe_local`, bf16/CPU; 2026-09-16 10:40 (yerel) başladı, train=1820 valid=117. Log: `logs/train-v9.log` + `logs/train-v9-err.log` |
 
 **Eğitimi başlatmak için (insan):**
 ```bash

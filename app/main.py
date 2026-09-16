@@ -4298,7 +4298,16 @@ def approval_approve(approval_id: str, note: str = typer.Option("", "--note")) -
 
     a = approvals.approve(approval_id, note=note or None)
     if a is None:
-        console.print(f"[red]Onay bulunamadı:[/red] {approval_id}")
+        # En sık sebep: komut BAŞKA bir veri kökünden koşuldu (worktree'nin kendi boş
+        # data/storage ağacı vardır) → onay ana checkout'un veritabanındadır, burada yok.
+        # Kökü yazmadan "bulunamadı" demek kullanıcıyı kimliği aramaya itiyordu.
+        console.print(
+            f"[red]Onay bulunamadı:[/red] {approval_id}\n"
+            f"[dim]Bakılan veri kökü:[/dim] {get_settings().root}\n"
+            "[yellow]Yanlış klasörden mi çalıştırdın?[/yellow] Onaylar hangi kökte "
+            "oluşturulduysa orada durur; ana depodan çalıştır ya da "
+            "[cyan]HEKTOR_ROOT_PATH=<kök>[/cyan] ver."
+        )
         raise typer.Exit(1)
     console.print(f"[green]Durum:[/green] {a.status.value} ({a.action})")
 
@@ -4310,7 +4319,16 @@ def approval_reject(approval_id: str, note: str = typer.Option("", "--note")) ->
 
     a = approvals.reject(approval_id, note=note or None)
     if a is None:
-        console.print(f"[red]Onay bulunamadı:[/red] {approval_id}")
+        # En sık sebep: komut BAŞKA bir veri kökünden koşuldu (worktree'nin kendi boş
+        # data/storage ağacı vardır) → onay ana checkout'un veritabanındadır, burada yok.
+        # Kökü yazmadan "bulunamadı" demek kullanıcıyı kimliği aramaya itiyordu.
+        console.print(
+            f"[red]Onay bulunamadı:[/red] {approval_id}\n"
+            f"[dim]Bakılan veri kökü:[/dim] {get_settings().root}\n"
+            "[yellow]Yanlış klasörden mi çalıştırdın?[/yellow] Onaylar hangi kökte "
+            "oluşturulduysa orada durur; ana depodan çalıştır ya da "
+            "[cyan]HEKTOR_ROOT_PATH=<kök>[/cyan] ver."
+        )
         raise typer.Exit(1)
     console.print(f"[yellow]Durum:[/yellow] {a.status.value} ({a.action})")
 

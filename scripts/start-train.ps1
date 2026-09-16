@@ -42,6 +42,13 @@ param(
     # "basarili" doneyordu (Kademe-2 av bulgusu; Kural 2). Watchdog olen egitimi
     # surdururken bu switch'i gecer; sifir-adim durumu artik trainer'da hata verir.
     [switch]$Resume,
+    # KURAL 8 MUAFIYETI -- yalniz COKME-KURTARMA icin. Bu anahtar HEKTOR_TRAIN_SUPERVISED=1
+    # gecirir, yani alt surecteki taze-onay kapisi ATLANIR. Varsayilan KAPALI: betik eskiden
+    # bu degiskeni KOSULSUZ veriyordu ama kendisi hicbir onay istegi acmiyor/tuketmiyordu ->
+    # "ust katman onayi kullanildi" yaziyor, ustte onay YOK (Kademe-2 av bulgusu K8-b; v7/v8
+    # kosulari boyle basladi). Nobetci (training-watchdog.ps1) bunu gecer: dirilttigi kosu
+    # zaten onaylanmisti ve onay TUKETILMISTIR, ikinci kez istenemez.
+    [switch]$Supervised,
     # Kaliteyi kapiyi ATLA -- ACIK INSAN KARARI. Varsayilan KAPALI: egitim, veri
     # `pretrain-gate` (GO/NO-GO) ve `lora-audit` (Gate 0-7) kapilarindan gecmeden
     # baslamaz. Bu kapi, 31 ajanlik denetim mimarisi ile FIILEN egitilen veri
@@ -218,7 +225,11 @@ $prevSupervised = $env:HEKTOR_TRAIN_SUPERVISED
 $prevBaseModel  = $env:HEKTOR_PEFT_BASE_MODEL
 $proc = $null
 try {
-    $env:HEKTOR_TRAIN_SUPERVISED = "1"
+    # Varsayilan: SUPERVISED GECILMEZ -> alt surecteki `train --run` taze onayi KENDISI
+    # tuketir (yoksa pending istek acip 3 ile cikar, egitim baslamaz). Yalniz -Supervised
+    # ile atlanir (nobetci kurtarmasi).
+    if ($Supervised) { $env:HEKTOR_TRAIN_SUPERVISED = "1" }
+    else { Remove-Item Env:HEKTOR_TRAIN_SUPERVISED -ErrorAction SilentlyContinue }
     if ($BaseModel -and $BaseModel.Trim() -ne "") { $env:HEKTOR_PEFT_BASE_MODEL = $BaseModel }
     $proc = Start-Process -FilePath $uv `
         -ArgumentList $trainArgs `
@@ -248,6 +259,27 @@ $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
     pid          = $(if ($proc) { [int]$proc.Id } else { 0 })
 } | ConvertTo-Json -Compress) |
     Out-File -FilePath $StatusFile -Encoding ascii -Force
+# KURAL 8 KAPISI (fail-closed): -Supervised YOKSA onayi alt surec tuketir. Onay yoksa
+# `train --run` pending istek acip 3 ile cikar -- ama Start-Process ile baslatildigi icin
+# betik bunu GORMEZSE "egitim basladi" der ve durum dosyasi kalir (nobetci de olu kosuyu
+# diriltmeye calisir). Bu yuzden kisa sure bekleyip erken cikisi yakala.
+if (-not $Supervised -and $proc) {
+    if ($proc.WaitForExit(60000)) {
+        $code = $proc.ExitCode
+        Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
+        $aprId = (Select-String -Path $LogOut, $LogErr -Pattern 'apr_[0-9a-f]{8,}' -ErrorAction SilentlyContinue |
+                  Select-Object -Last 1).Matches.Value
+        Write-Host "  [ENGEL] Egitim BASLAMADI (cikis kodu $code)." -ForegroundColor Red
+        if ($code -eq 3 -and $aprId) {
+            Write-Host "          Taze insan onayi gerekiyor (Kural 8). Onay istegi: $aprId" -ForegroundColor Yellow
+            Write-Host "          Onayla:  uv run --no-sync hektor approval-approve $aprId" -ForegroundColor Cyan
+            Write-Host "          Sonra bu betigi TEKRAR calistir (onay tek kullanimliktir)." -ForegroundColor Cyan
+        } else {
+            Write-Host "          Ayrinti: $LogErr" -ForegroundColor Gray
+        }
+        exit 3
+    }
+}
 $profLabel = if ($Profile -and $Profile.Trim() -ne "") { $Profile } else { "(vanilya)" }
 $resumeLabel = if ($Resume) { "devam(checkpoint)" } else { "sifirdan" }
 $modelLabel = if ($BaseModel) { $BaseModel } else { "ayardaki varsayilan" }
