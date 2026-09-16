@@ -4519,10 +4519,27 @@
         h: AM_MAIN_H,
         cx: W / 2,
         cy: mainTop + AM_MAIN_H / 2,
+        // Kenar yönlendirmesi için TAM kutu geometrisi (left/right/top/bottom):
+        // `amOrthPath` bunları ister; yoksa ana ajana değen kenarlar çizilemez.
+        left: AM_PAD,
+        right: W - AM_PAD,
+        top: mainTop,
+        bottom: mainTop + AM_MAIN_H,
         node: mainNode,
       };
       H = mainTop + AM_MAIN_H + AM_PAD;
     }
+
+    // Kenar yönlendirme tablosu = kartlar + ANA AJAN (alt buton).
+    // `pos` yalnız KART çizimi içindir ve ana ajanı bilinçli olarak dışarıda bırakır
+    // (ana ajan kart değil, alt buton). Kenarlar `pos`u kullanırsa ana ajana DEĞEN
+    // gerçek kenarlar (manifest'teki control bağları) sessizce düşer — bu yüzden
+    // kenarlar `posAll` üzerinden yönlendirilir.
+    var posAll = {};
+    Object.keys(pos).forEach(function (k) {
+      posAll[k] = pos[k];
+    });
+    if (mainBar) posAll[mainNode.id] = mainBar;
 
     // Zincir kökleri (gelen chain-kenarı olmayan; ana ajanın "devreye soktukları").
     var hasIncoming = {};
@@ -4536,7 +4553,15 @@
       });
     });
 
-    return { pos: pos, lanes: laneMeta, mainBar: mainBar, roots: roots, W: W, H: H };
+    return {
+      pos: pos,
+      posAll: posAll,
+      lanes: laneMeta,
+      mainBar: mainBar,
+      roots: roots,
+      W: W,
+      H: H,
+    };
   }
 
   // Yuvarlatılmış dikdörtgen YOLU (path) — "gezen LED" halkası bunun üstünde döner.
@@ -4613,10 +4638,11 @@
         );
       });
     }
-    // 3) Normal kenarlar (kartların ALTINDA) — dik açılı
+    // 3) Normal kenarlar (kartların ALTINDA) — dik açılı.
+    // `posAll`: ana ajan da yönlendirilebilsin (alt buton bir kutu gibi ele alınır).
     (data.edges || []).forEach(function (e) {
-      var a = L.pos[e.from],
-        b = L.pos[e.to];
+      var a = L.posAll[e.from],
+        b = L.posAll[e.to];
       if (!a || !b) return;
       var kind = e.kind === "data" ? "data" : e.kind === "control" ? "control" : "chain";
       var arrow = kind === "data" ? "" : ' marker-end="url(#am-arrow)"';

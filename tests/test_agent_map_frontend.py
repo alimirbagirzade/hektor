@@ -407,6 +407,38 @@ def test_gate_box_present() -> None:
     assert gate[: gate.index(">")].find("hidden") != -1, "amGate varsayılan hidden olmalı"
 
 
+# ── REGRESYON: ana ajana DEĞEN kenarlar sessizce düşmesin ────────────────────
+# Kart konum tablosu (`pos`) ana ajanı bilinçli olarak İÇERMEZ (ana ajan kart değil, alt
+# tam-genişlik buton). Kenar çizimi bu tabloyu kullanırsa ana ajana değen GERÇEK kenarlar
+# `if (!a || !b) return;` satırında sessizce düşer — backend'in AÇIKÇA eklediği
+# `orchestration-autodrive → rag-learning-loop` (bkz. test_agent_graph.py'deki
+# test_motor_controls_rag_memory_pipeline) ve `unattended-supervisor → orchestration-autodrive`
+# haritada hiç görünmüyordu: motorun RAG hattını tetiklediği ve gözetmenin ana ajanı sürdüğü
+# ilişki kayboluyordu. Kenarlar ana ajanı da içeren `posAll` üzerinden yönlendirilmeli.
+def test_main_agent_edges_are_routed_not_dropped() -> None:
+    js = _appjs()
+    seg = js[js.index("function amLayout") : js.index("function amRoundRectPath")]
+    # ana ajan alt butonu, kenar yönlendirmesi için TAM kutu geometrisine sahip olmalı
+    bar = seg[seg.index("mainBar = {") :]
+    for k in ("left:", "right:", "top:", "bottom:"):
+        assert k in bar, f"mainBar kutu geometrisi eksik: {k} (amOrthPath bunu ister)"
+    assert "posAll" in seg, "kenar yönlendirme tablosu (kartlar + ana ajan) yok"
+
+    # kenar çizimi `posAll` üzerinden olmalı; `pos` kullanılırsa ana ajan kenarları düşer
+    edges = js[js.index("// 3) Normal kenarlar") : js.index("// 4) Kartlar")]
+    assert "L.posAll[e.from]" in edges and "L.posAll[e.to]" in edges
+    assert "L.pos[e.from]" not in edges, (
+        "kenarlar KART tablosundan yönlendirilemez — ana ajana değen kenarlar düşer"
+    )
+
+
+def test_legend_explains_control_edges() -> None:
+    """Kontrol bağı ÇİZİLİYORSA efsanede karşılığı olmalı — yoksa okunamaz bir çizgi kalır."""
+    section = _panel_section()
+    assert "lg-control" in section, "efsanede 'kontrol bağı' yok ama kenar çiziliyor"
+    assert ".am-lg-line.lg-control" in _appcss()
+
+
 def test_gate_only_opens_when_blocked_at_approval() -> None:
     """Kutu YALNIZ koşu approval/train aşamasında BLOCKED iken açılır (yanlışlıkla açılmasın)."""
     js = _appjs()

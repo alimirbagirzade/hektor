@@ -2591,6 +2591,12 @@ code {
 .am-lg-line.lg-activate {
   border-top: 2px dashed var(--pos);
 }
+/* kontrol bağı: çalışma-zamanı tetikleme (ör. ana ajan → RAG hafıza hattı) */
+.am-lg-line.lg-control {
+  border-top: 2px dashed var(--pos);
+  border-top-width: 2px;
+  opacity: 0.9;
+}
 .am-lg-swatch {
   width: 22px;
   height: 12px;
