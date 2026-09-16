@@ -149,9 +149,32 @@ elemeleri raporda; 1 aday 404), ingest edildi → korpus **233 makale**. 9 yeni 
 `read-all` ile üretiliyor. Eval kirlenmesi ölçüldü: `discipline_core`'un 16 sorusunun disiplin
 verisiyle birebir eşleşmesi **0** (en yüksek benzerlik 0,32).
 
-### 6. Sıradaki
-`assemble_sft.py` → `pretrain-gate` + `lora-audit` → **taze onay kaydı** → v9 (600 örnek,
-`discipline_safe_local`, aynı reçete; değişen tek şey veri).
+### 6. Veri yeniden kuruldu, kapılar GEÇİLDİ — v9 **insan onayı bekliyor**
+
+Veri, düzeltilmiş kodla (bu dal) yeniden kuruldu; veri ağacı ana checkout'ta kaldı
+(`HEKTOR_ROOT_PATH` ile worktree kodu + ana `data/`+`storage/`). PR #14 **merge edilmedi**;
+eğitim de bu dalın kodundan koşacak ki düzeltmeler fiilen eğitilen veriye girsin.
+
+| Adım | Sonuç |
+|---|---|
+| `assemble_sft.py` | **1937 örnek** (synth 1283 + kart 233 → dedup 1453 + disiplin 484) |
+| `pretrain-gate` | **GO** — PII 0, sır 0, şablon 8-gram bloğu 0, okunamayan 0, boş cevap 0. Tek uyarı: 91 "strateji" cevabında maliyet token'ı yok (sentetik QA kaynaklı) |
+| `lora-audit` | **passed** — 236/236 kart onaylı, 0 red (42 "gözden geçir") |
+| Veri doğrulaması | grup e-postası **0** (öncesi 28) · disiplin 484/484 `skeleton_id` · uyumsuz soru-cevap **0** (öncesi ~147) |
+| Onay | `apr_2410dd477207` **pending** — `train --run` (SUPERVISED'sız) kapısı ısırdı |
+
+**Eğitimi başlatmak için (insan):**
+```bash
+uv run hektor approval-approve apr_2410dd477207
+```
+Sonra bu dalın kodundan ayrık başlat (worktree `.venv`'inde train-cpu kurulu):
+`HEKTOR_ROOT_PATH=<ana checkout>` + `train --run --backend peft --adapter-name hektor_lora_v9_4b
+--iterations 600 --profile discipline_safe_local --max-examples 600` (SUPERVISED **verme** —
+onayı CLI tüketsin). `scripts/start-train.ps1` kullanılmadı: §3'teki açık boşluk yüzünden
+onay tüketmiyor.
+
+**Not:** ana `storage/train_status.json` bilinçli olarak YAZILMADI — nöbetçi o dosyayı görünce
+çöken koşuyu eski kodla ve onaysız diriltiyor (§4). Yani bu koşuda otomatik kurtarma yok.
 
 ---
 
