@@ -4263,6 +4263,101 @@ def tasks_run(
     )
 
 
+@app.command("train-doctor")
+def train_doctor(
+    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir rapor"),
+) -> None:
+    """Koşan eğitimin SAĞLIĞINI ve YETKİSİNİ denetle (SALT-OKUMA; eğitim başlatmaz).
+
+    Yakaladıkları (2026-09-16 gecesinin olayları): süreç canlı ama log ilerlemiyor /
+    CPU ~0 (askıya alınmış koşu) · koşan eğitime bağlı TÜKETİLMİŞ insan onayı yok ·
+    eğitim verisi koşudan sonra değişti · süreç yok ama durum dosyası duruyor
+    (nöbetçinin dirilteceği ölü koşu kaydı).
+
+    Çıkış kodu: 0 sağlıklı/boşta · 1 DİKKAT.
+    """
+    from app.memory.sqlite_store import SqliteStore
+    from app.training.train_guard import collect_diagnosis
+
+    settings = get_settings()
+    try:
+        approvals = SqliteStore().list_approval_requests(limit=50)
+    except Exception:
+        approvals = None  # DB okunamadı → onay kontrolü "bilinmiyor" (uydurma yok)
+
+    diag = collect_diagnosis(settings.root, approvals)
+    if as_json:
+        console.print_json(json.dumps(diag.to_dict(), ensure_ascii=False))
+        if diag.verdict == "DIKKAT":
+            raise typer.Exit(1)
+        return
+
+    color = {"OK": "green", "BOSTA": "dim", "DIKKAT": "red"}.get(diag.verdict, "yellow")
+    body = f"[bold {color}]{diag.verdict}[/bold {color}]\n"
+    for key, label in (
+        ("adapter", "Adapter"),
+        ("trainer_pids", "Süreçler"),
+        ("started_at", "Başlangıç"),
+        ("log_stall_minutes", "Log sessizliği (dk)"),
+        ("cpu_percent", "CPU %"),
+    ):
+        if diag.info.get(key) not in (None, "", []):
+            body += f"{label}: {diag.info[key]}\n"
+    body += (
+        "[red]SORUN:[/red]\n  " + "\n  ".join(diag.problems)
+        if diag.problems
+        else "[dim]Sorun yok[/dim]"
+    )
+    console.print(Panel(body, title="Eğitim Nöbeti"))
+    if diag.verdict == "DIKKAT":
+        raise typer.Exit(1)
+
+
+@app.command("train-recovery-check")
+def train_recovery_check(
+    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir karar"),
+) -> None:
+    """Nöbetçi çöken eğitimi diriltmeye YETKİLİ mi? (SALT-OKUMA, fail-closed).
+
+    `training-watchdog.ps1` bunu diriltmeden ÖNCE çağırır. Kurtarma Kural 8'den muaftır
+    ("onay zaten tüketilmişti") — ama bu cümle burada DOĞRULANIR: koşunun başlangıcına
+    denk gelen tüketilmiş bir onay yoksa, durum dosyası bayatsa ya da veri koşudan sonra
+    değiştiyse dirilme YOK. 2026-09-16'da onaysız bir koşu tam bu yolla 5,5 saat koştu.
+
+    Çıkış kodu: 0 yetkili · 3 yetkisiz (nöbetçi diriltmez).
+    """
+    import datetime as _dt
+
+    from app.memory.sqlite_store import SqliteStore
+    from app.training.detached_launch import read_detached_training_status
+    from app.training.train_guard import recovery_allowed
+
+    settings = get_settings()
+    status = read_detached_training_status(settings.root)
+    try:
+        approvals = SqliteStore().list_approval_requests(limit=50)
+    except Exception:
+        approvals = []  # DB okunamadı → onay doğrulanamaz → fail-closed (dirilme yok)
+
+    train_jsonl = settings.root / "data" / "training" / "jsonl" / "train.jsonl"
+    data_mtime = None
+    if train_jsonl.exists():
+        data_mtime = _dt.datetime.fromtimestamp(train_jsonl.stat().st_mtime, tz=_dt.UTC)
+
+    verdict = recovery_allowed(
+        status, approvals, now=_dt.datetime.now(_dt.UTC), data_mtime=data_mtime
+    )
+    if as_json:
+        console.print_json(json.dumps(verdict.to_dict(), ensure_ascii=False))
+    else:
+        color = "green" if verdict.allowed else "red"
+        console.print(
+            f"[{color}]{'YETKILI' if verdict.allowed else 'YETKISIZ'}[/{color}] — {verdict.reason}"
+        )
+    if not verdict.allowed:
+        raise typer.Exit(3)
+
+
 @app.command("approvals-list")
 def approvals_list(
     status: str = typer.Option(None, "--status", help="status ile filtrele"),

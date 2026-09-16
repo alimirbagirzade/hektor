@@ -176,6 +176,31 @@ onay tüketmiyor.
 
 **Not:** ana `storage/train_status.json` bilinçli olarak YAZILMADI — nöbetçi o dosyayı görünce
 çöken koşuyu eski kodla ve onaysız diriltiyor (§4). Yani bu koşuda otomatik kurtarma yok.
+`train-doctor` bu yüzden koşan v9 için **DİKKAT** verir ("durum kaydı yok → onaya bağlanamıyor");
+bu doğru davranıştır. PR #14 main'e girdikten sonra (nöbetçi kurtarma kapısı orada olunca)
+durum dosyası güvenle yazılabilir.
+
+### 7. Tekrarı önleyen sistem: eğitim nöbeti (`train_guard`)
+
+Gecenin iki olayının ortak kökü — *koşan eğitimin sağlığını ve yetkisini kimse sorgulamıyordu* —
+koda bağlandı. Yeni modül `app/training/train_guard.py` (saf fonksiyonlar: zaman/süreç/dosya
+bilgisi dışarıdan verilir → test gerçek süreç istemez).
+
+| Ne | Nasıl |
+|---|---|
+| `uv run hektor train-doctor [--json]` | Koşan eğitimin sağlığı: log ilerlemiyor (>45 dk) · CPU ~0 (askıda) · koşuya bağlı **tüketilmiş onay yok** (Kural 8) · veri koşudan sonra değişti · süreç yok ama durum dosyası duruyor (ölü koşu kaydı) · **durum kaydı olmayan koşu**. Çıkış 1 = DİKKAT |
+| `uv run hektor train-recovery-check [--json]` | Nöbetçi diriltmeye yetkili mi? Koşu başlangıcına denk gelen tüketilmiş onay + durum dosyası tazeliği (≤72 s) + veri değişmemiş. Çıkış 3 = yetkisiz |
+| `scripts/training-watchdog.ps1` | Diriltmeden ÖNCE bu kontrolü çağırır; kontrol koşturulamazsa da **dirilme yok** (fail-closed, Kural 2) |
+| `.claude/agents/egitim-nobetcisi.md` | Komutu kullanan ince ajan (salt-okuma; eğitim başlatmaz/durdurmaz, onay vermez) |
+| `tests/test_train_guard.py` | Gecenin iki senaryosu test: onaysız ölü koşunun dirilmesi ve askıdaki koşunun fark edilmemesi artık kırmızı |
+
+Ayrıca `approval-approve` "bulunamadı" mesajı artık **bakılan veri kökünü** yazıyor: komut
+worktree'den koşulduğunda (kendi boş `data/storage` ağacı) onay bulunamıyordu ve sebep
+görünmüyordu — kullanıcı bunu canlı yaşadı.
+
+**Sınır:** kurtarma yetkisi, onayı koşu başlangıcına ZAMAN penceresiyle (±20 dk) bağlar; çünkü
+onayı tüketen katman (`train --run`) onay kimliğini durum dosyasına yazmıyor. Kimliği de yazmak
+daha sağlam olur — açık iş.
 
 ---
 
