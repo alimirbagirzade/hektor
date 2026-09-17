@@ -35,9 +35,21 @@ try {
     # ve verinin degismedigini dogrular. Kontrol calistirilamazsa da dirilme YOK (Kural 2).
     $hektorExe = Join-Path $projectDir ".venv\Scripts\hektor.exe"
     $recoveryOk = $false
+    $recoveryApprovalId = ""
     if (Test-Path $hektorExe) {
-        & $hektorExe train-recovery-check --json | Out-Null
+        $recoveryJson = & $hektorExe train-recovery-check --json
         $recoveryOk = ($LASTEXITCODE -eq 0)
+        # K8-b (zaman penceresi YERINE): train-recovery-check onayi ZATEN dogruladi (ilk
+        # kurtarmada zaman penceresiyle bulmus olabilir) -- kimligini durum dosyasina TASI
+        # ki bir sonraki teshis/kurtarma dogrudan kimlikle eslesin, tekrar tahmin etmesin.
+        if ($recoveryJson) {
+            try {
+                $rv = $recoveryJson | ConvertFrom-Json
+                if ($rv.details -and $rv.details.approval_id) {
+                    $recoveryApprovalId = [string]$rv.details.approval_id
+                }
+            } catch { $recoveryApprovalId = "" }
+        }
     }
     if (-not $recoveryOk) { exit 0 }
 
@@ -45,7 +57,7 @@ try {
     # TUKETILDI (tek kullanimlik); ikinci kez onay istenirse coken egitim sessizce beklemede
     # kalirdi. Yeni bir egitim baslatmak icin bu yol KULLANILMAZ -- yalniz durum dosyasi
     # birakmis, onaylanmis ve cokmus bir kosu dirilir.
-    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -Resume -Supervised
+    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -ApprovalId $recoveryApprovalId -Resume -Supervised
 } finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()

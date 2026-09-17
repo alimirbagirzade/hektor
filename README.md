@@ -1013,8 +1013,9 @@ uv run hektor lora-cloud-prep         # veri paketle (+%25 disiplin) + notebook 
 uv run hektor dataset                 # bilgi kartlarından eğitim JSONL üret
 uv run hektor lora-dataset            # LoRA SFT JSONL + train/valid split üret
 uv run hektor rag-mastery             # RAG "ne kadar öğrendi" ustalık panosu (LLM-free)
+uv run hektor train-load-doctor       # eğitim-ÖNCESİ rakip LLM/GPU yükü taraması: GO/WARN/NO-GO (salt-okuma; train-doctor'la KARIŞTIRILMASIN)
 uv run hektor train                   # LoRA — SADECE ÖNIZLEME (çalıştırmaz)
-uv run hektor train --run             # LoRA — yerel (smoke; ağır 4B için bulut tercih et)
+uv run hektor train --run             # LoRA — yerel (smoke; ağır 4B için bulut tercih et; train-load-doctor otomatik çalışır)
 uv run hektor evaluate <eval.jsonl>   # modeli failure-mode eval setiyle test et
 uv run hektor local-training-audit    # eğitim-HAZIRLIK denetimi — SALT RAPOR (eğitim başlatmaz, 5A)
 uv run hektor local-training-request  # onay-kapılı eğitim İSTEĞİ — onay oluşturabilir, eğitim/onay-tüketimi YOK (5B)
@@ -1079,6 +1080,9 @@ uv run hektor task-cancel <task_id>    # görevi iptal et
 uv run hektor approvals-list           # onay isteklerini listele
 uv run hektor approval-approve <id>    # taze onay ver (tek kullanımlık — standing yetki yok)
 uv run hektor approval-reject <id>     # onayı reddet
+uv run hektor approval-status <id>     # bir onayın durumunu READ-ONLY göster (tüketmez)
+uv run hektor train-doctor             # koşan eğitimin sağlığı + yetkisi (salt-okuma; DİKKAT/OK/BOŞTA)
+uv run hektor train-recovery-check     # nöbetçi çöken koşuyu diriltmeye YETKİLİ mi (salt-okuma, fail-closed)
 uv run hektor stop-all                 # KÜRESEL acil-durdurma (tüm tehlikeli aksiyonları blokla)
 uv run hektor clear-stop-all           # acil-durdurmayı kaldır
 ```
