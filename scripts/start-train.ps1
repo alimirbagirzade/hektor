@@ -42,6 +42,13 @@ param(
     # "basarili" doneyordu (Kademe-2 av bulgusu; Kural 2). Watchdog olen egitimi
     # surdururken bu switch'i gecer; sifir-adim durumu artik trainer'da hata verir.
     [switch]$Resume,
+    # Kurtarma (-Resume) icin: onceki kosuyu yetkilendiren TUKETILMIS onayin kimligi.
+    # Verilmezse durum dosyasindan (StatusFile) OKUNUR. Bos/GECERSIZ ise diriltme
+    # REDDEDILIR -- dosyanin varligi ya da bir ZAMAN PENCERESI (ör. "son N saatte
+    # baslamis") yetki SAYILMAZ (Kural 8; bkz. HANDOFF SS3/SS4: nobetci onaysiz bir
+    # kosuyu tam bu yuzden diriltmisti). Taze (-Resume OLMAYAN) baslatmada bu betik
+    # onayi KENDISI tuketir (hektor train-authorize) -- verilirse o adim atlanir.
+    [string]$ApprovalId = "",
     # Kaliteyi kapiyi ATLA -- ACIK INSAN KARARI. Varsayilan KAPALI: egitim, veri
     # `pretrain-gate` (GO/NO-GO) ve `lora-audit` (Gate 0-7) kapilarindan gecmeden
     # baslamaz. Bu kapi, 31 ajanlik denetim mimarisi ile FIILEN egitilen veri
@@ -203,6 +210,58 @@ if ($plan) {
     exit 1
 }
 
+# ---------------------------------------------------------------------------
+# ONAY KAPISI (Kural 8) -- SUPERVISED bayragi artik KOSULSUZ verilmiyor. Alt surece
+# guvenle "ust katman onayladi" diyebilmek icin bu betigin GERCEKTEN taze bir onay
+# tuketmis/dogrulamis olmasi GEREKIR -- once bu acikti (start-train.ps1 hicbir onay
+# istegi acmadan SUPERVISED=1 veriyordu; v7/v8 kosulari boyle baslamisti).
+# ---------------------------------------------------------------------------
+$approvalId = $ApprovalId
+if ($Resume) {
+    # Kurtarma: YENI bir insan karari istemek yerine, onceki kosuyu yetkilendiren
+    # onayin GERCEKTEN onaylanmis + tuketilmis oldugunu DOGRULA. Bir zaman penceresi
+    # ("son N saatte yazilmis dosya" gibi) DEGIL -- gercek onay kaydi tek kaynak.
+    if (-not $approvalId -and (Test-Path $StatusFile)) {
+        try {
+            $prevStatus = Get-Content $StatusFile -Raw | ConvertFrom-Json
+            if ($prevStatus.PSObject.Properties.Name -contains "approval_id") {
+                $approvalId = [string]$prevStatus.approval_id
+            }
+        } catch { $approvalId = "" }
+    }
+    if (-not $approvalId) {
+        Write-Host "  [ENGEL] Kurtarma (-Resume) icin durum dosyasinda approval_id yok -- diriltme REDDEDILDI." -ForegroundColor Red
+        Write-Host "          Dosyanin varligi tek basina yetki SAYILMAZ (Kural 8)." -ForegroundColor Red
+        exit 1
+    }
+    $chk = $null
+    try {
+        $chk = & $uv run --project "$ProjectDir" hektor approval-status $approvalId --json | ConvertFrom-Json
+    } catch { $chk = $null }
+    if (-not $chk -or -not $chk.found -or $chk.status -ne "approved" -or -not $chk.consumed_at) {
+        Write-Host "  [ENGEL] approval_id ($approvalId) GECERSIZ (bulunamadi/onaylanmamis/tuketilmemis) -- diriltme REDDEDILDI." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  [OK] Kurtarma onayi dogrulandi: $approvalId (onceki kosunun taze onayi)." -ForegroundColor Green
+} elseif (-not $approvalId) {
+    # Taze baslatma: onayi burada TUKET (web endpoint / auto_pipeline ile ayni desen)
+    # ki spawn edilen alt surece SUPERVISED guvenle verilebilsin (cift onay olmasin).
+    $auth = $null
+    try {
+        $auth = & $uv run --project "$ProjectDir" hektor train-authorize --adapter-name $Adapter --iterations $Iterations --json | ConvertFrom-Json
+    } catch { $auth = $null }
+    if (-not $auth -or -not $auth.authorized) {
+        Write-Host "  [ENGEL] Gercek egitim TAZE manuel onay gerektirir -- baslatilmadi." -ForegroundColor Red
+        if ($auth -and $auth.approval_id) {
+            Write-Host "          Onay istegi: $($auth.approval_id)" -ForegroundColor Yellow
+            Write-Host "          Onayla: uv run hektor approval-approve $($auth.approval_id)" -ForegroundColor Gray
+        }
+        exit 1
+    }
+    $approvalId = [string]$auth.approval_id
+    Write-Host "  [OK] Taze onay tuketildi: $approvalId" -ForegroundColor Green
+}
+
 # Temel argumanlar + (profil verildiyse) --profile. Profil bos ise EKLENMEZ (vanilya).
 $trainArgs = @("run", "--project", "`"$ProjectDir`"", "hektor", "train", "--run",
                "--backend", "peft", "--adapter-name", $Adapter, "--iterations", "$Iterations")
@@ -213,7 +272,14 @@ if ($MaxExamples -gt 0) { $trainArgs += @("--max-examples", "$MaxExamples") }
 # Alt surece ORTAMLA gecenler yalniz Start-Process ANINDA ayarlanir, hemen geri alinir.
 # $env: surec-geneldir: kalici kalirsa ayni kabukta sonradan elle calistirilan
 # `hektor train --run` taze onay kapisini ATLAR ve eski -BaseModel ile egitir (Kademe-2 av).
-# SUPERVISED: bu betik merkezi egitim servisidir; STOP_ALL CLI icinde yine zorunludur.
+# SUPERVISED: yukaridaki ONAY KAPISI $approvalId'yi zaten DOGRULADI/TUKETTI -- bu
+# yuzden alt surece guvenle "ust katman onayladi" denebilir (cift onay istenmesin).
+# $approvalId burada bos OLAMAZ (yukarida bosken exit 1 ile durulur) ama savunma
+# amacli yine kontrol edilir.
+if (-not $approvalId) {
+    Write-Host "  [HATA] approval_id yok -- egitim baslatilmadi (beklenmeyen durum)." -ForegroundColor Red
+    exit 1
+}
 $prevSupervised = $env:HEKTOR_TRAIN_SUPERVISED
 $prevBaseModel  = $env:HEKTOR_PEFT_BASE_MODEL
 $proc = $null
@@ -246,6 +312,9 @@ $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
     # pid: web "durdur" (request_stop_detached_training) sureci agaciyla oldurebilsin;
     # pid yoksa yalniz STOP_TRAINING dosyasi birakiyor ve egitim suruyordu.
     pid          = $(if ($proc) { [int]$proc.Id } else { 0 })
+    # bu kosuyu yetkilendiren TUKETILMIS onayin kimligi -- kurtarma/nobetci yolu
+    # bunu dogrulamadan diriltmemeli (zaman penceresi DEGIL; bkz. yukaridaki ONAY KAPISI).
+    approval_id  = $approvalId
 } | ConvertTo-Json -Compress) |
     Out-File -FilePath $StatusFile -Encoding ascii -Force
 $profLabel = if ($Profile -and $Profile.Trim() -ne "") { $Profile } else { "(vanilya)" }

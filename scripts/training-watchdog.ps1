@@ -28,7 +28,13 @@ try {
     $bm = if ($prop -contains "base_model") { [string]$status.base_model } else { "" }
     $prof = if ($prop -contains "profile" -and "$($status.profile)".Trim() -ne "") { [string]$status.profile } else { "discipline_safe_local" }
     $mx = if ($prop -contains "max_examples") { [int]$status.max_examples } else { 0 }
-    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -Resume
+    # Onceki kosuyu yetkilendiren onayin kimligi: durum dosyasinin VARLIGI ya da
+    # tazeligi (zaman penceresi) DEGIL, bu kimlik + start-train.ps1'in onu dogrulamasi
+    # diriltmeye izin verir (Kural 8; bkz. HANDOFF SS4). Yoksa start-train.ps1 kendisi
+    # de reddeder -- burada erken cikmak yalniz gereksiz surec baslatmayi onler.
+    $apr = if ($prop -contains "approval_id") { [string]$status.approval_id } else { "" }
+    if (-not $apr) { exit 0 }
+    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -ApprovalId $apr -Resume
 } finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()

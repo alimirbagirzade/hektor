@@ -1079,6 +1079,8 @@ uv run hektor task-cancel <task_id>    # görevi iptal et
 uv run hektor approvals-list           # onay isteklerini listele
 uv run hektor approval-approve <id>    # taze onay ver (tek kullanımlık — standing yetki yok)
 uv run hektor approval-reject <id>     # onayı reddet
+uv run hektor approval-status <id>     # bir onayın durumunu READ-ONLY göster (tüketmez)
+uv run hektor train-authorize          # train --run ile AYNI taze-onay kapısını TÜKET (başlatmaz; betikler için)
 uv run hektor stop-all                 # KÜRESEL acil-durdurma (tüm tehlikeli aksiyonları blokla)
 uv run hektor clear-stop-all           # acil-durdurmayı kaldır
 ```

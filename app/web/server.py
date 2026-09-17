@@ -1441,6 +1441,7 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
         adapter_name=req.adapter_name or "hektor_lora",
         iterations=req.iterations,
         base_model=req.base_model or None,
+        approval_id=decision.approval_id,
     )
     return TrainingStartResponse(
         ok=res["ok"],

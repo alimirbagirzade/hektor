@@ -584,6 +584,109 @@ def train(
                 )
 
 
+@app.command("train-authorize")
+def train_authorize(
+    adapter_name: str = typer.Option("hektor_lora", help="Onay özetinde gösterilecek adapter adı"),
+    iterations: int = typer.Option(0, help="Onay özetinde gösterilecek adım sayısı"),
+    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir JSON çıktı."),
+) -> None:
+    """`train --run` ile AYNI taze-onay kapısını TÜKET — eğitimi BAŞLATMAZ, spawn ETMEZ.
+
+    Detached başlatıcı betikler (`start-train.ps1`) eğitimi spawn etmeden ÖNCE bu
+    komutla onayı ÜST katmanda tüketir, sonra spawn edilen alt sürece
+    `HEKTOR_TRAIN_SUPERVISED=1` vererek çift onay istemesini engeller — web
+    `/api/training/run` ve `auto_pipeline.start_training()` ile AYNI desen (Kural 8:
+    standing yetki yok, her gerçek eğitim ayrı taze onay ister). Dönen
+    `approval_id`, çağıran betiğin `storage/train_status.json`'a yazması gereken
+    kimliktir — nöbetçi (`training-watchdog.ps1`) çöken koşuyu bu kimliği
+    doğrulamadan diriltmemeli (bkz. HANDOFF §3/§4).
+    """
+    from app.agents.runtime import supervisor
+    from app.training.unattended_policy import authorize_training_action
+
+    if supervisor.is_stop_all_active():
+        if as_json:
+            console.print_json(
+                json.dumps(
+                    {
+                        "authorized": False,
+                        "mode": "stop_all",
+                        "approval_id": "",
+                        "reason": "STOP_ALL active",
+                    }
+                )
+            )
+        else:
+            console.print("[bold red]STOP_ALL aktif[/bold red] — gerçek eğitim bloklandı.")
+        raise typer.Exit(2)
+
+    decision = authorize_training_action(
+        "train_run",
+        f"Gerçek LoRA eğitimi (detached betik): {adapter_name} ({iterations} adım)",
+        agent_id="lora-trainer",
+    )
+    if as_json:
+        console.print_json(
+            json.dumps(
+                {
+                    "authorized": decision.authorized,
+                    "approval_id": decision.approval_id,
+                    "mode": decision.mode,
+                    "reason": decision.reason,
+                }
+            )
+        )
+    elif decision.authorized:
+        console.print(f"[green]Taze onay tüketildi:[/green] {decision.approval_id}")
+    else:
+        console.print(
+            f"[yellow]Taze onay yok — istek oluşturuldu:[/yellow] {decision.approval_id}\n"
+            f"Onayla: uv run hektor approval-approve {decision.approval_id}"
+        )
+    if not decision.authorized:
+        raise typer.Exit(3)
+
+
+@app.command("approval-status")
+def approval_status(
+    approval_id: str,
+    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir JSON çıktı."),
+) -> None:
+    """Bir onay isteğinin durumunu READ-ONLY göster — TÜKETMEZ, ONAYLAMAZ.
+
+    Nöbetçi (`training-watchdog.ps1` → `start-train.ps1 -Resume`) çöken bir koşuyu
+    diriltmeden önce, o koşuyu başlatan `approval_id`'nin GERÇEKTEN `approved` +
+    tüketilmiş (``consumed_at`` dolu) olduğunu bu komutla doğrular — dosyanın
+    varlığı ya da bir zaman penceresi (ör. "son N saatte") DEĞİL, gerçek onay kaydı
+    tek kaynak.
+    """
+    from app.agents.runtime import approvals
+
+    a = approvals.get_approval(approval_id)
+    if a is None:
+        if as_json:
+            console.print_json(json.dumps({"found": False, "approval_id": approval_id}))
+        else:
+            console.print(f"[red]Onay bulunamadı:[/red] {approval_id}")
+        raise typer.Exit(1)
+    out = {
+        "found": True,
+        "approval_id": a.approval_id,
+        "agent_id": a.agent_id,
+        "action": a.action,
+        "status": a.status.value,
+        "consumed_at": a.consumed_at,
+        "decided_at": a.decided_at,
+    }
+    if as_json:
+        console.print_json(json.dumps(out))
+    else:
+        console.print(
+            f"[cyan]{a.approval_id}[/cyan] · {a.agent_id}/{a.action} · "
+            f"durum={a.status.value} · tüketildi={'evet' if a.consumed_at else 'hayır'}"
+        )
+
+
 @app.command()
 def evaluate(eval_set: Path, adapter_version: str = typer.Option(None)) -> None:
     """Bir eval seti çalıştır ve hata modlarını işaretle."""

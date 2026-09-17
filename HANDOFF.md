@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-15 (tekrar patolojisinin kökü: şablon iskeleti ezberi → disiplin verisi çeşitlendirildi + pretrain-gate şablon kuralı · 2026-09-14: gece doğrulaması + onay kapısı fail-closed)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-17 (start-train.ps1/watchdog onay kapısı boşlukları kapatıldı — approval_id artık train_status.json'da, zaman penceresi değil · 2026-09-15: tekrar patolojisinin kökü + gece doğrulaması)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -100,6 +100,47 @@ production terfisi ayrı insan onayı ister.
 
 > **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
 > rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-17: iki Kural 8 boşluğu (§3/§4, 2026-09-16 kaydı) kapatıldı
+
+Dal: `claude/k8b-approval-id-write-0dbedb`. **Eğitim başlatılmadı** — yalnız onay
+kapısındaki iki açık boşluk (bkz. altta "Son seans — 2026-09-16" §3 ve §4) düzeltildi.
+Eğitim başlatılmadığı için testler çevrimdışı; hiçbir kapı canlı sınamayla doğrulanmadı.
+
+**Kök neden:** `start-train.ps1` hiçbir onay isteği açmadan/tüketmeden
+`HEKTOR_TRAIN_SUPERVISED=1` veriyordu (§3) → spawn edilen alt süreç kendi onay kapısını
+atlıyordu. `training-watchdog.ps1` de çöken bir koşuyu YALNIZ `train_status.json`'ın
+**varlığına** bakarak diriltiyordu (§4) — dosya "kalıcı yetki" gibi davranıyordu.
+İkisi birleşince onay kapısı fiilen devre dışıydı (2026-09-15 gece: onaysız bir koşu
+5,5 saat sürdü).
+
+**Düzeltme — "dosya var/taze" yerine GERÇEK onay kaydı:**
+- Yeni CLI: `hektor train-authorize` (taze onayı `train --run` ile AYNI anahtarla
+  TÜKETİR, eğitimi BAŞLATMAZ) ve `hektor approval-status <id>` (READ-ONLY; tüketmez).
+- `detached_launch.launch()` / `_status_payload()` artık `approval_id` alır ve
+  `storage/train_status.json`'a yazar (web `/api/training/run` ve `auto_pipeline`
+  zaten tükettikleri `decision.approval_id`'yi geçiriyor).
+- `start-train.ps1`: taze başlatmada onayı **kendisi** `train-authorize` ile tüketir
+  (yoksa `exit 1`, spawn YOK); `-Resume`'da önceki `approval_id`'yi durum dosyasından
+  okuyup `approval-status` ile **gerçekten `approved` + tüketilmiş mi** diye doğrular
+  (yoksa/geçersizse `exit 1`, diriltme YOK). SUPERVISED artık yalnız bu doğrulamadan
+  SONRA verilir.
+- `training-watchdog.ps1`: durum dosyasında `approval_id` yoksa sessizce çıkar
+  (`exit 0`) — `start-train.ps1`'i gereksiz çağırmaz.
+
+**Bilinçli tasarım kararı:** kurtarma bir ZAMAN PENCERESİ ("son N saatte başlamış"
+gibi) ile değil, o koşuyu başlatan onayın gerçekten `approved` + `consumed_at` dolu
+olduğunun doğrulanmasıyla yetkilendirilir — bir zaman penceresi sahte/eski bir dosyayı
+da "yeterince taze" sayabilirdi; onay kaydı tek doğruluk kaynağıdır.
+
+**Kapı:** `uv sync --extra dev` + ruff format --check (438 dosya) + ruff check +
+mypy (repo geneli, 0 hata) + pytest tam paket çevrimdışı (`-m "not ollama"`) yeşil.
+
+**Sıradaki:** v9 eğitimi hâlâ insan onayı bekliyor (bkz. altta "2026-09-16" kaydı §6).
+Bu düzeltme sonrası akış AYNI: `approval-approve <id>` → `start-train.ps1` (artık aynı
+onayı `train-authorize` ile kendi tüketir — ekstra adım YOK).
 
 ---
 

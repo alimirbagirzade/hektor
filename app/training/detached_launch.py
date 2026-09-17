@@ -459,6 +459,7 @@ def _status_payload(
     profile: str | None,
     max_examples: int,
     pid: int,
+    approval_id: str = "",
 ) -> dict:
     """``storage/train_status.json`` içeriği — reçetenin TAMAMI (saf, test edilebilir).
 
@@ -469,6 +470,12 @@ def _status_payload(
     çok-epoch koşulur, profilin ``epochs: 1`` vaadi ihlal edilir (bkz. plan_iterations;
     v5 disiplin-regresyonunun sınıfı). 2026-09-08'de v8 koşusu tam bu boşluk yüzünden
     600 örnek yerine 300 örnek × 2 epoch eğitti.
+
+    ``approval_id``: bu koşuyu yetkilendiren TAZE onayın kimliği (``require_fresh_approval``
+    tarafından TÜKETİLMİŞ). Kurtarma/nöbetçi yolu bu alanı bir ZAMAN PENCERESİ ("son N
+    saatte başladı" gibi) yerine gerçek onay kaydını doğrulamak için kullanır — dosyanın
+    varlığı ya da tazeliği tek başına kalıcı yetki SAYILMAZ (bkz. HANDOFF §4: nöbetçi
+    2026-09-15'te onaysız bir koşuyu tam bu yüzden diriltti).
     """
     return {
         "adapter": adapter_name,
@@ -478,6 +485,7 @@ def _status_payload(
         "profile": profile or "",
         "max_examples": max(0, int(max_examples)),
         "pid": pid,
+        "approval_id": approval_id or "",
         "started_at": _utcnow_iso(),
     }
 
@@ -543,6 +551,7 @@ def launch(
     base_model: str | None = None,
     profile: str | None = "discipline_safe_local",
     max_examples: int = 0,
+    approval_id: str = "",
 ) -> dict:
     """Eğitimi DETACHED başlat (web/terminal kapansa da sürer).
 
@@ -558,6 +567,9 @@ def launch(
       olarak yerel maskeli profil seçilir; farklı reçete isteyen çağıran açıkça geçebilir,
       profili tümüyle atlamak isteyen `profile=""`/`None` verebilir.
     - max_examples>0: yalnız N örnekle eğit (CPU'da makul süre). profile içinde de olabilir.
+    - approval_id: çağıranın (web endpoint / auto_pipeline) bu koşu için TÜKETTİĞİ taze
+      onayın kimliği. `train_status.json`'a yazılır ki kurtarma/nöbetçi yolu bir ZAMAN
+      PENCERESİ yerine gerçek onay kaydını doğrulayabilsin (bkz. `_status_payload`).
     - {ok, message, adapter} döndürür. Eğitimi GERÇEKTEN başlatır (Kural 8: bu
       çağrı yalnızca açık kullanıcı eylemiyle — buton/onay — tetiklenir).
     """
@@ -661,7 +673,14 @@ def launch(
         (root / "storage" / "train_status.json").write_text(
             json.dumps(
                 _status_payload(
-                    adapter_name, dtype, iters, base_model, profile, max_examples, proc.pid
+                    adapter_name,
+                    dtype,
+                    iters,
+                    base_model,
+                    profile,
+                    max_examples,
+                    proc.pid,
+                    approval_id,
                 )
             ),
             encoding="utf-8",
