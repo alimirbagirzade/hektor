@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-15 (tekrar patolojisinin kökü: şablon iskeleti ezberi → disiplin verisi çeşitlendirildi + pretrain-gate şablon kuralı · 2026-09-14: gece doğrulaması + onay kapısı fail-closed)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-17 (v9 eğitimi TAMAMLANDI + eval ACCEPT + production · 2026-09-15: tekrar patolojisinin kökü + pretrain-gate şablon kuralı)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -36,7 +36,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 |---|---|
 | Kapı (`make ci`) | **CI (Linux):** ✅ main'de yeşil — `1ceb867`, `e99a3bb`, `5841f7c` ve `4f32768` push koşuları success. 2026-09-07 ile 2026-09-13 arası kırmızıydı (`test_sentinel_autostart_probe` ×2; bkz. 2026-09-13 kaydı). **Yerel (Windows):** ✅ ruff format --check (429 dosya, app+tests) + ruff check + mypy (219 dosya) + pytest **2179 passed, 5 skipped, 4 deselected** (2026-09-16, `-m "not ollama"`, `4db170d` + Kademe 2 düzeltmeleri). **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
-| Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı). `hektor_lora_v9_4b` 2026-09-15'te başlatıldı ama 21/600 adımda askıya alınıp sonlandırıldı (checkpoint YOK) — veri düzeltildikten sonra baştan koşacak (2026-09-16 kaydı) |
+| Son adapter | `hektor_lora_v9_4b` (600 adım, 23s 34dk, 2026-09-17 10:16) → **ACCEPT** (skor 0.625, 6/16 flag), registry'de **production**. Önceki: `hektor_lora_v8_4b` → REJECT (dejenere cevap). |
 | LLM | Yalnız yerel Ollama (`qwen3:4b-instruct-2507-q4_K_M` varsayılan, 2026-09-13'ten beri; önceki `qwen3:4b` = Thinking-2507). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
@@ -103,7 +103,33 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
-## Son seans — 2026-09-16: v9 öncesi Kademe 2 + iki Kural 8 boşluğu
+## Son seans — 2026-09-17: v9 tamamlandı, eval ACCEPT, production
+
+### v9 eğitimi
+- 2026-09-16 10:40'ta başladı, 2026-09-17 10:16'da tamamlandı (23s 34dk, 600/600 adım)
+- Ortalama loss: 1.093, NaN/inf yok, gradyan normu stabil
+- Adapter: `models/adapters/hektor_lora_v9_4b` (132 MB safetensors)
+- Eval: base 0.0 (16 flag) → adapter 0.625 (6 flag) → **ACCEPT**
+- Registry: **production** statüsünde
+
+### RAG
+- 233 benzersiz makale, 34,212 chunk (tamamı embedded), 237 bilgi kartı
+- Diskte 324 PDF var ama 91'i içerik kopyası — yeni ingest edilecek bir şey yok
+
+### Yapılan aksiyonlar
+- Web paneli (`HektorWeb`) yeniden başlatıldı (http://127.0.0.1:8765)
+- Ollama yeniden başlatıldı
+- Formül çıkarımı (`extract-formulas`) arka planda çalışıyor
+- PR #14 zaten merge edilmiş
+
+### Açık işler
+- K8-b: `approval_id`'yi doğrudan `train_status.json`'a yazmak (zaman penceresi yerine)
+- `train-doctor` rakip LLM yükünü tespit edemiyor
+- 6/16 eval flag'inin detayları incelenmedi (hangi sorular, neden)
+
+---
+
+## Önceki seans — 2026-09-16: v9 öncesi Kademe 2 + iki Kural 8 boşluğu
 
 Dal: `claude/burda-rag-qlora-training-ce0521`. Tam rapor bu makinede **yerel**:
 `reports/bug-scan/kademe2-2026-09-16.md` (bu klasör `.gitignore`'da — tarama raporları commit
