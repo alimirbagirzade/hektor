@@ -413,6 +413,57 @@ def dataset(
     )
 
 
+def _count_jsonl_examples(path: Path) -> int:
+    """Bir JSONL dosyasındaki boş-olmayan satır sayısı (yoksa 0)."""
+    if not path.exists():
+        return 0
+    try:
+        return sum(1 for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip())
+    except OSError:
+        return 0
+
+
+def _register_manual_adapter(
+    *,
+    adapter_name: str,
+    base_model: str,
+    train_jsonl: Path,
+    valid_jsonl: Path,
+    lora_r: int = 8,
+    lora_alpha: int = 16,
+    lora_dropout: float = 0.05,
+    learning_rate: float = 2e-4,
+    target_modules: list[str] | None = None,
+    notes: str,
+) -> str:
+    """Manuel `train --run` sonrası adapter'ı CANDIDATE olarak kayıt defterine ekle.
+
+    PRODUCTION'a terfi yalnız insan onayıyla mümkündür (CLAUDE.md Kural 8) —
+    burada yalnız CANDIDATE kaydı açılır, terfi/eval durumu değiştirilmez.
+    """
+    from app.lora.adapter_registry import AdapterRecord, AdapterRegistry, AdapterStatus
+
+    record = AdapterRecord(
+        adapter_name=adapter_name,
+        base_model=base_model,
+        lora_r=lora_r,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
+        target_modules=target_modules or [],
+        learning_rate=learning_rate,
+        train_examples=_count_jsonl_examples(train_jsonl),
+        valid_examples=_count_jsonl_examples(valid_jsonl),
+        status=AdapterStatus.CANDIDATE,
+        notes=notes,
+    )
+    adapter_id = AdapterRegistry().register(record)
+    console.print(
+        f"[dim]Adapter kayıt defterine eklendi: {adapter_id} (durum: candidate). "
+        f"Terfi için: uv run hektor lora-eval {adapter_name}[/dim]"
+    )
+    return adapter_id
+
+
 @app.command("train-load-doctor")
 def train_load_doctor_cmd(
     min_free_vram_gb: float = typer.Option(
@@ -493,6 +544,12 @@ def train(
     settings = get_settings()
 
     resolved = detect_lora_backend() if backend == "auto" else backend
+    # Denetimli (web buton/auto_pipeline) koşular `launch()` üzerinden BU AYNI komutu
+    # subprocess olarak çağırır ve eğitim bitince auto_pipeline KENDİ kayıt defteri
+    # girişini (gerçek eval sonrası SMOKE_PASSED/EVAL_PASSED) açar — burada da CANDIDATE
+    # eklenirse aynı koşu için çift kayıt oluşur. Yalnız SAF manuel çağrı (env yok)
+    # kendi CANDIDATE kaydını açar.
+    supervised = False
 
     if run:
         # Phase 2: STOP_ALL + TAZE manuel onay kapısı (CLAUDE.md Kural 8).
@@ -500,6 +557,8 @@ def train(
 
         from app.agents.runtime import supervisor
         from app.training.unattended_policy import authorize_training_action
+
+        supervised = bool(_os.environ.get("HEKTOR_TRAIN_SUPERVISED"))
 
         if supervisor.is_stop_all_active():
             console.print(
@@ -539,7 +598,7 @@ def train(
 
         # auto_pipeline/launch zaten kendi onayını aldıysa (supervised) iç kapı atlanır
         # — çift onay olmasın; ama STOP_ALL her zaman geçerli.
-        if not _os.environ.get("HEKTOR_TRAIN_SUPERVISED"):
+        if not supervised:
             decision = authorize_training_action(
                 "train_run",
                 (f"Gerçek LoRA eğitimi: {adapter_name} ({iterations} adım, backend={backend})"),
@@ -601,6 +660,15 @@ def train(
         )
         if run:
             train_run(cfg)
+            if not supervised:
+                _register_manual_adapter(
+                    adapter_name=adapter_name,
+                    base_model=cfg.base_model,
+                    train_jsonl=cfg.train_jsonl,
+                    valid_jsonl=cfg.valid_jsonl,
+                    learning_rate=cfg.learning_rate,
+                    notes=f"manuel train --run --backend mlx (iterations={iterations})",
+                )
         else:
             train_main(
                 [
@@ -617,7 +685,12 @@ def train(
                 ]
             )
     else:
-        from app.training.peft_lora_train import PeftTrainConfig, dry_run, load_lora_profile
+        from app.training.peft_lora_train import (
+            TARGET_MODULES,
+            PeftTrainConfig,
+            dry_run,
+            load_lora_profile,
+        )
         from app.training.peft_lora_train import train as peft_train
 
         prof: dict = {}
@@ -653,6 +726,22 @@ def train(
                         "[yellow]Kur: uv pip install torch transformers "
                         "peft datasets accelerate[/yellow]"
                     )
+            elif not supervised:
+                _register_manual_adapter(
+                    adapter_name=adapter_name,
+                    base_model=cfg.base_model,
+                    train_jsonl=cfg.train_jsonl,
+                    valid_jsonl=cfg.valid_jsonl,
+                    lora_r=cfg.lora_r,  # type: ignore[attr-defined]
+                    lora_alpha=cfg.lora_alpha,  # type: ignore[attr-defined]
+                    lora_dropout=cfg.lora_dropout,  # type: ignore[attr-defined]
+                    learning_rate=cfg.learning_rate,
+                    target_modules=list(TARGET_MODULES),
+                    notes=(
+                        f"manuel train --run --backend peft "
+                        f"(iterations={iterations}, profile={profile or '-'})"
+                    ),
+                )
         else:
             result = dry_run(cfg)  # type: ignore[arg-type]
             import json as _json
