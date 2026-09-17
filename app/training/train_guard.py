@@ -27,6 +27,10 @@ MAX_STATUS_AGE_HOURS = 72
 # Tüketilen onayın koşu başlangıcına yakınlığı: onay tüketimi ile sürecin doğması arasında
 # model yükleme + bölme kadar fark olur (dakikalar). Bu pencere dışındaki bir onay BAŞKA
 # bir koşuya aittir (2026-09-08'de verilen onayın 2026-09-15'te tüketilmesi gibi).
+# K8-b (2026-09-17): `train_status.json` artık `approval_id`'yi DOĞRUDAN taşıyor
+# (bkz. `detached_launch._status_payload`, `start-train.ps1`) — bu pencere ARTIK YALNIZ
+# o alan YOKSA (eski/harici durum dosyaları) yedek olarak kullanılır; kimlik varsa TAHMİN
+# değil doğrudan eşleşme geçerlidir.
 APPROVAL_WINDOW_MINUTES = 20
 # Eğitim canlıyken log bu kadar süre ilerlemiyorsa: askıya alınmış / donmuş olabilir.
 # CPU'da tek adım dakikalar sürer; eşik cömert tutuldu ki yavaş adım alarm üretmesin.
@@ -52,13 +56,30 @@ def find_run_approval(
     *,
     action: str = "train_run",
     window_minutes: int = APPROVAL_WINDOW_MINUTES,
+    approval_id: str = "",
 ) -> dict[str, Any] | None:
     """Bu koşuya ait TÜKETİLMİŞ insan onayını bul (yoksa None).
 
-    Eşleşme ölçütü: aksiyon ``train_run``, durum ``approved`` ve ``consumed_at`` koşunun
-    başlangıcına ``window_minutes`` içinde. Onay kimliğini durum dosyasına yazan bir
-    çağıran YOK (onayı üst katman tüketiyor), bu yüzden bağ ZAMAN üzerinden kurulur.
+    K8-b: ``approval_id`` verilmişse (artık ``train_status.json``'da yazılı — bkz.
+    ``detached_launch._status_payload``, ``start-train.ps1``) ÖNCE tam KİMLİK eşleşmesi
+    denenir; bulunamaz/onaylı-tüketilmiş değilse ZAMAN PENCERESİNE DÜŞÜLMEZ (bir kimlik
+    verilip de uyuşmuyorsa bu şüphelidir — daha zayıf bir sezgiye geri dönmek yanlış
+    güven verir). Zaman penceresi yalnız bu alan hiç YOKSA (eski/harici durum dosyaları,
+    ör. `mac-loop.sh`'nin yazdığı sade dosya) devreye girer — eşleşme ölçütü: aksiyon
+    ``train_run``, durum ``approved`` ve ``consumed_at`` koşunun başlangıcına
+    ``window_minutes`` içinde.
     """
+    if approval_id:
+        for row in approvals:
+            if row.get("approval_id") != approval_id:
+                continue
+            if row.get("action") != action or row.get("status") != "approved":
+                return None
+            if _parse_iso(row.get("consumed_at")) is None:
+                return None
+            return row
+        return None
+
     window = dt.timedelta(minutes=window_minutes)
     for row in approvals:
         if row.get("action") != action or row.get("status") != "approved":
@@ -113,7 +134,9 @@ def recovery_allowed(
             {"age_hours": round(age_h, 1)},
         )
 
-    approval = find_run_approval(approvals, started_at)
+    approval = find_run_approval(
+        approvals, started_at, approval_id=str(status.get("approval_id") or "")
+    )
     if approval is None:
         return RecoveryVerdict(
             False,
@@ -198,7 +221,10 @@ def diagnose(
         if (
             approvals is not None
             and started_at is not None
-            and find_run_approval(approvals, started_at) is None
+            and find_run_approval(
+                approvals, started_at, approval_id=str(status.get("approval_id") or "")
+            )
+            is None
         ):
             problems.append(
                 "koşan eğitime bağlı TÜKETİLMİŞ insan onayı yok (Kural 8) — "

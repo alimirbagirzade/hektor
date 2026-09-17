@@ -49,6 +49,14 @@ param(
     # kosulari boyle basladi). Nobetci (training-watchdog.ps1) bunu gecer: dirilttigi kosu
     # zaten onaylanmisti ve onay TUKETILMISTIR, ikinci kez istenemez.
     [switch]$Supervised,
+    # K8-b (zaman penceresi YERINE): bu kosuyu yetkilendiren TUKETILMIS onayin kimligi.
+    # -Supervised (nobetci kurtarmasi) ile birlikte gecilir -- train-recovery-check'in
+    # zaten dogruladigi onayi durum dosyasina TASIR ki bir sonraki teshis/kurtarma bunu
+    # bir ZAMAN PENCERESI ("son N dakikada tuketilmis onay" tahmini) yerine DOGRUDAN kimlik
+    # eslesmesiyle bulsun (bkz. app/training/train_guard.py: find_run_approval). Taze
+    # (-Supervised OLMAYAN) baslatmada BOS birakilir -- alt surec kendi onayini tuketir ve
+    # asagida basari sonrasi log'dan okunup durum dosyasina ISLENIR.
+    [string]$ApprovalId = "",
     # Kaliteyi kapiyi ATLA -- ACIK INSAN KARARI. Varsayilan KAPALI: egitim, veri
     # `pretrain-gate` (GO/NO-GO) ve `lora-audit` (Gate 0-7) kapilarindan gecmeden
     # baslamaz. Bu kapi, 31 ajanlik denetim mimarisi ile FIILEN egitilen veri
@@ -220,7 +228,6 @@ if ($MaxExamples -gt 0) { $trainArgs += @("--max-examples", "$MaxExamples") }
 # Alt surece ORTAMLA gecenler yalniz Start-Process ANINDA ayarlanir, hemen geri alinir.
 # $env: surec-geneldir: kalici kalirsa ayni kabukta sonradan elle calistirilan
 # `hektor train --run` taze onay kapisini ATLAR ve eski -BaseModel ile egitir (Kademe-2 av).
-# SUPERVISED: bu betik merkezi egitim servisidir; STOP_ALL CLI icinde yine zorunludur.
 $prevSupervised = $env:HEKTOR_TRAIN_SUPERVISED
 $prevBaseModel  = $env:HEKTOR_PEFT_BASE_MODEL
 $proc = $null
@@ -257,6 +264,12 @@ $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
     # pid: web "durdur" (request_stop_detached_training) sureci agaciyla oldurebilsin;
     # pid yoksa yalniz STOP_TRAINING dosyasi birakiyor ve egitim suruyordu.
     pid          = $(if ($proc) { [int]$proc.Id } else { 0 })
+    # K8-b: bu kosuyu yetkilendiren TUKETILMIS onayin kimligi -- kurtarmada (-Supervised)
+    # cagiran (nobetci) bunu ONCEDEN train-recovery-check ile dogrulayip gecirir; taze
+    # baslatmada burada henuz BILINMEZ (alt surec kendi onayini asagida tuketir) --
+    # basari sonrasi log'dan okunup asagida bu alana ISLENIR (zaman penceresi DEGIL,
+    # gercek kimlik; bkz. app/training/train_guard.py: find_run_approval).
+    approval_id  = $ApprovalId
 } | ConvertTo-Json -Compress) |
     Out-File -FilePath $StatusFile -Encoding ascii -Force
 # KURAL 8 KAPISI (fail-closed): -Supervised YOKSA onayi alt surec tuketir. Onay yoksa
@@ -278,6 +291,21 @@ if (-not $Supervised -and $proc) {
             Write-Host "          Ayrinti: $LogErr" -ForegroundColor Gray
         }
         exit 3
+    }
+    # 60 sn icinde cikmadi -> egitim GERCEKTEN basladi; alt surecteki `train --run` kendi
+    # taze onayini TUKETTI. K8-b: o kimligi log'dan al ve durum dosyasina ISLE -- bir
+    # sonraki teshis/kurtarma (train-recovery-check) bunu ZAMAN PENCERESI ile TAHMIN
+    # ETMEK yerine dogrudan kullanabilsin.
+    $consumedId = (Select-String -Path $LogOut, $LogErr -Pattern 'apr_[0-9a-f]{8,}' -ErrorAction SilentlyContinue |
+                   Select-Object -Last 1).Matches.Value
+    if ($consumedId -and (Test-Path $StatusFile)) {
+        try {
+            $cur = Get-Content $StatusFile -Raw | ConvertFrom-Json
+            $cur | Add-Member -NotePropertyName approval_id -NotePropertyValue $consumedId -Force
+            ($cur | ConvertTo-Json -Compress) | Out-File -FilePath $StatusFile -Encoding ascii -Force
+        } catch {
+            Write-Host "  [UYARI] approval_id durum dosyasina islenemedi (kurtarma zaman penceresine duser)." -ForegroundColor Yellow
+        }
     }
 }
 $profLabel = if ($Profile -and $Profile.Trim() -ne "") { $Profile } else { "(vanilya)" }

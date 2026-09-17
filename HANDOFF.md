@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-15 (tekrar patolojisinin kökü: şablon iskeleti ezberi → disiplin verisi çeşitlendirildi + pretrain-gate şablon kuralı · 2026-09-14: gece doğrulaması + onay kapısı fail-closed)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-17 (kurtarma yetkisi artık approval_id ile — zaman penceresi yalnız yedek · aynı gün: start-train.ps1/watchdog Kural 8 boşlukları kapandı · 2026-09-15: tekrar patolojisinin kökü)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -103,6 +103,62 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-17: K8-b'nin geri kalanı — kurtarma artık ZAMAN PENCERESİ değil kimlik
+
+Dal: `claude/k8b-approval-id-write-0dbedb`. **Eğitim başlatılmadı.**
+
+Bu seans başladığında `main` zaten **paralel bir seansın** iki commit'ini içeriyordu
+(aynı gece, `claude/burda-rag-qlora-training-ce0521` → PR #16): `51c634b` ("K8-b:
+start-train.ps1 artık taze onay tüketiyor") `-Supervised` anahtarını ekleyip betiğin
+koşulsuz `HEKTOR_TRAIN_SUPERVISED=1` vermesini kapatmıştı (§3 kapandı); `5b367c0`
+("Eğitim nöbeti") `app/training/train_guard.py`'yi ekleyip nöbetçinin diriltmeden önce
+`train-recovery-check` ile yetki doğrulamasını zorunlu kılmıştı (§4 kapandı). **Ama**
+o modülün kendi sınırı belgeliydi (yukarıdaki "2026-09-16" kaydı §7): *"kurtarma
+yetkisi, onayı koşu başlangıcına ZAMAN penceresiyle (±20 dk) bağlar; çünkü onayı
+tüketen katman onay kimliğini durum dosyasına yazmıyor. Kimliği de yazmak daha sağlam
+olur — açık iş."* Bu seansın tek işi **tam olarak bu açık iş**.
+
+**Neden zaman penceresi zayıf:** `find_run_approval` tüketilen bir onayı yalnızca
+`consumed_at`'in koşunun `started_at`'ine ≤20 dk yakın olmasına bakarak eşliyordu —
+doğru onay biraz geç tüketilirse (yavaş model yükleme) reddedilir, ya da nadir bir
+yarış durumunda pencere içindeki BAŞKA bir onay yanlışlıkla eşleşebilirdi. Kimlik
+doğrudan yazılırsa tahmin gerekmez.
+
+**Değişiklik (önceki iki commit'in üzerine, onları TEKRARLAMADAN):**
+- `detached_launch.launch()` / `_status_payload()` artık `approval_id` parametresi
+  alır ve `storage/train_status.json`'a yazar; web `/api/training/run` ve
+  `auto_pipeline.start_training()` zaten tükettikleri `decision.approval_id`'yi geçirir.
+- `start-train.ps1`: taze (`-Supervised` olmayan) başlatmada alt süreç onayı kendi
+  tüketir (değişmedi — §3'ün çözümü); başarı sonrası log'dan tüketilen `apr_...`
+  kimliği okunup durum dosyasına **işlenir** (`Add-Member approval_id`). Kurtarmada
+  (`-Supervised -Resume`) nöbetçinin `train-recovery-check`'ten aldığı kimlik
+  `-ApprovalId` ile geçirilip aynen durum dosyasına yazılır.
+- `training-watchdog.ps1`: `train-recovery-check --json` çıktısının `details.approval_id`
+  alanını okuyup `-ApprovalId` ile `start-train.ps1`'e iletir (önceden atılıyordu).
+- `app/training/train_guard.py`: `find_run_approval` artık `approval_id` verilmişse
+  ÖNCE tam kimlik eşleşmesi dener; bulunamaz/onaylı-tüketilmiş değilse zaman
+  penceresine **düşmez** (sahte pozitif riski — geçersiz bir kimlik şüphelidir).
+  Yalnız bu alan hiç YOKSA (eski/harici durum dosyaları, `mac-loop.sh` gibi) zaman
+  penceresi yedek olarak kalır — geriye dönük uyum.
+- Yeni CLI `approval-status <id>` (READ-ONLY tekil onay sorgusu); `train-authorize`
+  adlı ayrı bir "üst katman tüketir" komutu YAZILMADI — zaten var olan `-Supervised`
+  deseni (alt süreç kendi onayını tüketir) korunarak üstüne minimum yama yapıldı.
+
+**Kapı:** ruff format --check + ruff check + mypy (repo geneli, 0 hata) + hedefli
+pytest (`test_train_guard.py`, `test_start_train_approval_gate.py`,
+`test_train_recipe_persistence.py`, `test_agent_phase2_cli.py`) yeşil; tam paket
+`-m "not ollama"` ayrıca koşuldu.
+
+**Ders (süreç):** aynı "K8-b" adı iki ayrı seansta bağımsız kullanıldı ve biri diğerini
+main'e girdikten SONRA fark etti — `git fetch` + `merge-base` kontrolü olmadan PR
+açmak sessiz çakışmaya yol açabiliyor. PR açmadan/merge etmeden önce `origin/main`'i
+taze çekmek ve aynı alanda (burada: eğitim onay kapısı) yakın zamanda commit var mı
+diye bakmak ucuz bir kontrol.
+
+**Sıradaki:** v9 eğitimi hâlâ insan onayı bekliyor (bkz. altta "2026-09-16" kaydı §6).
+
+---
+
 ## Son seans — 2026-09-16: v9 öncesi Kademe 2 + iki Kural 8 boşluğu
 
 Dal: `claude/burda-rag-qlora-training-ce0521`. Tam rapor bu makinede **yerel**:
@@ -198,9 +254,10 @@ Ayrıca `approval-approve` "bulunamadı" mesajı artık **bakılan veri kökün�
 worktree'den koşulduğunda (kendi boş `data/storage` ağacı) onay bulunamıyordu ve sebep
 görünmüyordu — kullanıcı bunu canlı yaşadı.
 
-**Sınır:** kurtarma yetkisi, onayı koşu başlangıcına ZAMAN penceresiyle (±20 dk) bağlar; çünkü
-onayı tüketen katman (`train --run`) onay kimliğini durum dosyasına yazmıyor. Kimliği de yazmak
-daha sağlam olur — açık iş.
+**Sınır (kapandı — bkz. üstte "2026-09-17" kaydı):** kurtarma yetkisi, onayı koşu başlangıcına
+ZAMAN penceresiyle (±20 dk) bağlıyordu; çünkü onayı tüketen katman onay kimliğini durum
+dosyasına yazmıyordu. Artık yazıyor — `find_run_approval` kimlik varsa ZAMAN PENCERESİNE
+düşmeden doğrudan eşleşir; pencere yalnız kimliksiz (eski/harici) durum dosyaları için yedek.
 
 ### 8. Eğitimi yavaşlatan gizli yük: web sunucusunun formül çıkarımı (ölçüldü, giderildi)
 

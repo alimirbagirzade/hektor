@@ -177,3 +177,58 @@ def test_bosta_durum() -> None:
     d = diagnose(status={}, running=False, now=_NOW)
     assert d.verdict == "BOSTA"
     assert d.problems == []
+
+
+# --- K8-b: approval_id doğrudan durum dosyasında (zaman penceresi YERİNE) ---------
+# `find_run_approval`'ın docstring'i "onay kimliğini durum dosyasına yazan bir çağıran
+# YOK" diyordu — artık `detached_launch._status_payload`/`start-train.ps1` bunu yazıyor.
+# Bu testler kimlik verildiğinde ZAMAN PENCERESİNİN devreye GİRMEDİĞİNİ (ne pencere
+# dışında kalan doğru bir onayı reddeder, ne pencere içindeki YANLIŞ bir onayı kabul
+# eder) kilitler.
+def test_approval_id_varsa_zaman_penceresi_disindaki_onay_da_kabul_edilir() -> None:
+    """Kimlik eşleşmesi zaman sınırından BAĞIMSIZDIR — asıl doğrulama budur."""
+    started = _NOW - dt.timedelta(hours=2)
+    # Onay saatlerce ÖNCE tüketilmiş (zaman penceresinin çok dışında) ama KİMLİĞİ durum
+    # dosyasında doğrudan yazılı → yine de kabul edilmeli.
+    uzak = _approval(started - dt.timedelta(hours=5), aid="apr_exact")
+    v = recovery_allowed(_status(started, approval_id="apr_exact"), [uzak], now=_NOW)
+    assert v.allowed, v.reason
+    assert v.details["approval_id"] == "apr_exact"
+
+
+def test_approval_id_uyusmuyorsa_zaman_penceresine_dusulmez() -> None:
+    """Kimlik verilip BULUNAMAZSA, pencere içindeki BAŞKA bir onaya sessizce düşülmez.
+
+    Sahte pozitif riski: durum dosyasındaki kimlik bozuksa/yanlışsa bu şüphelidir —
+    daha zayıf bir sezgiye (zaman penceresi) geri dönmek yanlış güven verir.
+    """
+    started = _NOW - dt.timedelta(hours=1)
+    # Pencere içinde GERÇEK bir onay var ama durum dosyasındaki kimlik ONU değil
+    # BAŞKA (var olmayan) bir id'yi gösteriyor.
+    pencere_ici = _approval(started - dt.timedelta(minutes=2), aid="apr_gercek")
+    v = recovery_allowed(_status(started, approval_id="apr_baska"), [pencere_ici], now=_NOW)
+    assert not v.allowed
+    assert "onay" in v.reason.lower()
+
+
+def test_approval_id_bulunur_ama_tuketilmemisse_reddedilir() -> None:
+    started = _NOW - dt.timedelta(hours=1)
+    beklemede = _approval(None, status="approved", aid="apr_pending")
+    v = recovery_allowed(_status(started, approval_id="apr_pending"), [beklemede], now=_NOW)
+    assert not v.allowed
+
+
+def test_approval_id_yoksa_zaman_penceresine_geri_dusulur() -> None:
+    """Eski/harici durum dosyaları (approval_id alanı yok) — geriye dönük uyum."""
+    started = _NOW - dt.timedelta(hours=1)
+    sinir = _approval(started - dt.timedelta(minutes=2), aid="apr_zaman")
+    v = recovery_allowed(_status(started), [sinir], now=_NOW)  # approval_id YOK
+    assert v.allowed
+    assert v.details["approval_id"] == "apr_zaman"
+
+
+def test_find_run_approval_kimlikle_dogrudan_bulur() -> None:
+    started = _NOW - dt.timedelta(minutes=5)
+    row = _approval(started - dt.timedelta(hours=10), aid="apr_x")
+    assert find_run_approval([row], started, approval_id="apr_x") is not None
+    assert find_run_approval([row], started, approval_id="apr_yok") is None

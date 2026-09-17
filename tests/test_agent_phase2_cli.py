@@ -6,6 +6,8 @@ is_stop_all_active testlerde izole edilir (gerçek storage/ dokunulmaz).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from typer.testing import CliRunner
 
@@ -77,3 +79,35 @@ def test_train_dry_run_not_gated(monkeypatch) -> None:
     r = runner.invoke(app, ["train", "--backend", "peft"])
     # dry-run yolu yazılım kurulu olmasa da exit 0 (eksik paket uyarısı basabilir)
     assert r.exit_code == 0
+
+
+# ---- approval-status (K8-b: approval_id → train_status.json, zaman penceresi yerine) ----
+# Bağlam: `train_status.json` artık bu koşuyu yetkilendiren `approval_id`'yi taşıyor
+# (bkz. detached_launch._status_payload, start-train.ps1, train_guard.find_run_approval).
+# Bu komut TEK bir kimliğin gerçekten `approved` + tüketilmiş olup olmadığını READ-ONLY
+# doğrular — ör. `train-doctor`/`train-recovery-check` çıktısındaki bir kimliği incelerken.
+def test_approval_status_unknown(monkeypatch) -> None:
+    monkeypatch.setenv("COLUMNS", "300")
+    r = runner.invoke(app, ["approval-status", "apr_yok", "--json"])
+    assert r.exit_code == 1
+    out = json.loads(r.stdout)
+    assert out["found"] is False
+
+
+def test_approval_status_reports_consumed_state(monkeypatch) -> None:
+    from app.agents.runtime import approvals
+
+    monkeypatch.setenv("COLUMNS", "300")
+    req = approvals.require_fresh_approval("lora-trainer", "train_run", "critical", "s")
+    approvals.approve(req.approval_id)
+    # Henüz tüketilmedi → durum approved ama consumed_at boş.
+    r = runner.invoke(app, ["approval-status", req.approval_id, "--json"])
+    assert r.exit_code == 0
+    out = json.loads(r.stdout)
+    assert out["status"] == "approved"
+    assert out["consumed_at"] is None
+    # Tüket → consumed_at dolar.
+    approvals.require_fresh_approval("lora-trainer", "train_run", "critical", "s")
+    r2 = runner.invoke(app, ["approval-status", req.approval_id, "--json"])
+    assert r2.exit_code == 0
+    assert json.loads(r2.stdout)["consumed_at"] is not None

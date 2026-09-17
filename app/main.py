@@ -584,6 +584,44 @@ def train(
                 )
 
 
+@app.command("approval-status")
+def approval_status(
+    approval_id: str,
+    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir JSON çıktı."),
+) -> None:
+    """Bir onay isteğinin durumunu READ-ONLY göster — TÜKETMEZ, ONAYLAMAZ.
+
+    `approvals-list` toplu görünümdür; bu komut TEK bir `approval_id`'nin gerçekten
+    `approved` + tüketilmiş (``consumed_at`` dolu) olup olmadığını hızlıca doğrular —
+    ör. `train-doctor`/`train-recovery-check` çıktısındaki bir kimliği elle incelerken.
+    """
+    from app.agents.runtime import approvals
+
+    a = approvals.get_approval(approval_id)
+    if a is None:
+        if as_json:
+            console.print_json(json.dumps({"found": False, "approval_id": approval_id}))
+        else:
+            console.print(f"[red]Onay bulunamadı:[/red] {approval_id}")
+        raise typer.Exit(1)
+    out = {
+        "found": True,
+        "approval_id": a.approval_id,
+        "agent_id": a.agent_id,
+        "action": a.action,
+        "status": a.status.value,
+        "consumed_at": a.consumed_at,
+        "decided_at": a.decided_at,
+    }
+    if as_json:
+        console.print_json(json.dumps(out))
+    else:
+        console.print(
+            f"[cyan]{a.approval_id}[/cyan] · {a.agent_id}/{a.action} · "
+            f"durum={a.status.value} · tüketildi={'evet' if a.consumed_at else 'hayır'}"
+        )
+
+
 @app.command()
 def evaluate(eval_set: Path, adapter_version: str = typer.Option(None)) -> None:
     """Bir eval seti çalıştır ve hata modlarını işaretle."""

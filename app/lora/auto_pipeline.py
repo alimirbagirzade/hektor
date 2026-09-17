@@ -250,7 +250,7 @@ class AutoLoRAPipeline:
 
         from app.training.detached_launch import launch
 
-        res = await asyncio.to_thread(launch, adapter_name, iters)
+        res = await asyncio.to_thread(launch, adapter_name, iters, approval_id=decision.approval_id)
         if not res.get("ok"):
             return {"ok": False, "reason": res.get("message", "Eğitim başlatılamadı")}
 
