@@ -91,36 +91,48 @@ def test_watchdog_receteyi_durum_dosyasindan_geri_okur() -> None:
 
 
 # ---- K8-b: approval_id → train_status.json (zaman penceresi YERİNE) ----
-# HANDOFF §3/§4: start-train.ps1 hiçbir onay tüketmeden SUPERVISED=1 veriyordu;
-# nöbetçi de bu yüzden çöken bir koşuyu onaysız diriltti (dosyanın VARLIĞI kalıcı
-# yetki sayıldı). Aşağıdaki testler onay kapısının betiklerde GERÇEKTEN var
-# olduğunu — ve dosya varlığı/tazeliği (zaman penceresi) yerine gerçek bir
-# approval_id doğrulamasına dayandığını — statik olarak kilitler.
+# Önceki Kademe-2 seansı (K8-b, 51c634b) start-train.ps1'in KOŞULSUZ SUPERVISED=1
+# vermesini kapattı; hemen ardından (5b367c0) train_guard.py'nin kurtarma doğrulaması
+# eklendi — ama o modül onayı bir ZAMAN PENCERESİ (tüketimin koşu başlangıcına
+# APPROVAL_WINDOW_MINUTES içinde olması) ile TAHMİN ediyordu, çünkü "onay kimliğini
+# durum dosyasına yazan bir çağıran YOK"tu (train_guard.py'nin kendi docstring'i).
+# Bu testler o boşluğu kilitler: approval_id artık GERÇEKTEN yazılıyor ve kullanılıyor.
 def test_start_train_durum_dosyasina_approval_id_yazar() -> None:
     src = _START_TRAIN.read_text(encoding="utf-8")
-    assert re.search(r"^\s*approval_id\s*=\s*\$approvalId", src, re.MULTILINE), (
+    assert re.search(r"^\s*approval_id\s*=\s*\$ApprovalId", src, re.MULTILINE), (
         "durum dosyasında approval_id yazılmıyor"
     )
 
 
-def test_start_train_supervised_kosulsuz_verilmiyor() -> None:
-    """SUPERVISED artık yalnız $approvalId doğrulandıktan/tüketildikten SONRA verilir."""
+def test_start_train_taze_baslatmada_tuketilen_onayi_durum_dosyasina_isler() -> None:
+    """Alt süreç kendi onayını tükettikten SONRA, kimliği log'dan alıp dosyaya İŞLENMELİ."""
     src = _START_TRAIN.read_text(encoding="utf-8")
-    assert "hektor train-authorize" in src, "taze başlatma onayı kendisi tüketmiyor"
-    assert "hektor approval-status" in src, "kurtarma önceki onayı doğrulamıyor"
-    assert "approvalId" in src
+    assert "consumedId" in src, "tüketilen approval_id log'dan okunmuyor"
+    assert "approval_id" in src and "Add-Member" in src, (
+        "okunan approval_id durum dosyasına yazılmıyor"
+    )
 
 
-def test_start_train_resume_onaysiz_reddeder() -> None:
-    """approval_id yoksa/geçersizse -Resume betiği SPAWN ETMEDEN durdurmalı."""
+def test_start_train_ApprovalId_parametresi_var() -> None:
+    """Nöbetçi kurtarmasının (train-recovery-check ile doğrulanmış) kimliği geçirebilmesi için."""
     src = _START_TRAIN.read_text(encoding="utf-8")
-    assert "exit 1" in src
-    # approval_id boşken erken çıkış — zaman penceresi değil, kimlik kontrolü.
-    assert "if (-not $approvalId)" in src
+    assert re.search(r"\[string\]\$ApprovalId\s*=\s*\"\"", src)
 
 
-def test_watchdog_approval_id_olmadan_diriltmez() -> None:
-    """Nöbetçi artık approval_id'siz durum dosyasını sessizce diriltmemeli."""
+def test_watchdog_train_recovery_check_ile_gecer() -> None:
+    """Nöbetçi dosya varlığına değil train-recovery-check'e (Kural 8 fail-closed) güvenmeli."""
     src = _WATCHDOG.read_text(encoding="utf-8")
-    assert "approval_id" in src
-    assert "-ApprovalId $apr" in src
+    assert "train-recovery-check" in src, "kurtarma yetki kapısı yok"
+    assert "recoveryOk" in src and "if (-not $recoveryOk) { exit 0 }" in src, (
+        "kontrol çalışmazsa/reddederse nöbetçi yine de diriltebilir"
+    )
+
+
+def test_watchdog_dogrulanan_approval_id_yi_tasir() -> None:
+    """K8-b: train-recovery-check'in bulduğu approval_id, ZAMAN PENCERESİ yerine
+
+    bir sonraki teşhis/kurtarma için durum dosyasına doğrudan kimlik olarak taşınmalı.
+    """
+    src = _WATCHDOG.read_text(encoding="utf-8")
+    assert "recoveryApprovalId" in src
+    assert "-ApprovalId $recoveryApprovalId" in src

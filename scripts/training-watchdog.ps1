@@ -28,13 +28,36 @@ try {
     $bm = if ($prop -contains "base_model") { [string]$status.base_model } else { "" }
     $prof = if ($prop -contains "profile" -and "$($status.profile)".Trim() -ne "") { [string]$status.profile } else { "discipline_safe_local" }
     $mx = if ($prop -contains "max_examples") { [int]$status.max_examples } else { 0 }
-    # Onceki kosuyu yetkilendiren onayin kimligi: durum dosyasinin VARLIGI ya da
-    # tazeligi (zaman penceresi) DEGIL, bu kimlik + start-train.ps1'in onu dogrulamasi
-    # diriltmeye izin verir (Kural 8; bkz. HANDOFF SS4). Yoksa start-train.ps1 kendisi
-    # de reddeder -- burada erken cikmak yalniz gereksiz surec baslatmayi onler.
-    $apr = if ($prop -contains "approval_id") { [string]$status.approval_id } else { "" }
-    if (-not $apr) { exit 0 }
-    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -ApprovalId $apr -Resume
+    # KURTARMA YETKI KAPISI (fail-closed) -- 2026-09-16: web'den baslayip 0. adimda olen,
+    # kimsenin onaylamadigi bir kosunun durum dosyasi diskte kaldi; nobetci onu diriltti ve
+    # 5,5 saat onaysiz egitim kostu. Durum dosyasi KALICI YETKI DEGILDIR: asagidaki kontrol
+    # kosunun baslangicina denk gelen TUKETILMIS insan onayini, durum dosyasinin tazeligini
+    # ve verinin degismedigini dogrular. Kontrol calistirilamazsa da dirilme YOK (Kural 2).
+    $hektorExe = Join-Path $projectDir ".venv\Scripts\hektor.exe"
+    $recoveryOk = $false
+    $recoveryApprovalId = ""
+    if (Test-Path $hektorExe) {
+        $recoveryJson = & $hektorExe train-recovery-check --json
+        $recoveryOk = ($LASTEXITCODE -eq 0)
+        # K8-b (zaman penceresi YERINE): train-recovery-check onayi ZATEN dogruladi (ilk
+        # kurtarmada zaman penceresiyle bulmus olabilir) -- kimligini durum dosyasina TASI
+        # ki bir sonraki teshis/kurtarma dogrudan kimlikle eslesin, tekrar tahmin etmesin.
+        if ($recoveryJson) {
+            try {
+                $rv = $recoveryJson | ConvertFrom-Json
+                if ($rv.details -and $rv.details.approval_id) {
+                    $recoveryApprovalId = [string]$rv.details.approval_id
+                }
+            } catch { $recoveryApprovalId = "" }
+        }
+    }
+    if (-not $recoveryOk) { exit 0 }
+
+    # -Supervised: KURTARMA muafiyeti. Diriltilen kosu zaten insan onayiyla basladi ve o onay
+    # TUKETILDI (tek kullanimlik); ikinci kez onay istenirse coken egitim sessizce beklemede
+    # kalirdi. Yeni bir egitim baslatmak icin bu yol KULLANILMAZ -- yalniz durum dosyasi
+    # birakmis, onaylanmis ve cokmus bir kosu dirilir.
+    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -ApprovalId $recoveryApprovalId -Resume -Supervised
 } finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()

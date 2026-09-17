@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-17 (start-train.ps1/watchdog onay kapısı boşlukları kapatıldı — approval_id artık train_status.json'da, zaman penceresi değil · 2026-09-15: tekrar patolojisinin kökü + gece doğrulaması)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-17 (kurtarma yetkisi artık approval_id ile — zaman penceresi yalnız yedek · aynı gün: start-train.ps1/watchdog Kural 8 boşlukları kapandı · 2026-09-15: tekrar patolojisinin kökü)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -103,44 +103,59 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
-## Son seans — 2026-09-17: iki Kural 8 boşluğu (§3/§4, 2026-09-16 kaydı) kapatıldı
+## Son seans — 2026-09-17: K8-b'nin geri kalanı — kurtarma artık ZAMAN PENCERESİ değil kimlik
 
-Dal: `claude/k8b-approval-id-write-0dbedb`. **Eğitim başlatılmadı** — yalnız onay
-kapısındaki iki açık boşluk (bkz. altta "Son seans — 2026-09-16" §3 ve §4) düzeltildi.
-Eğitim başlatılmadığı için testler çevrimdışı; hiçbir kapı canlı sınamayla doğrulanmadı.
+Dal: `claude/k8b-approval-id-write-0dbedb`. **Eğitim başlatılmadı.**
 
-**Kök neden:** `start-train.ps1` hiçbir onay isteği açmadan/tüketmeden
-`HEKTOR_TRAIN_SUPERVISED=1` veriyordu (§3) → spawn edilen alt süreç kendi onay kapısını
-atlıyordu. `training-watchdog.ps1` de çöken bir koşuyu YALNIZ `train_status.json`'ın
-**varlığına** bakarak diriltiyordu (§4) — dosya "kalıcı yetki" gibi davranıyordu.
-İkisi birleşince onay kapısı fiilen devre dışıydı (2026-09-15 gece: onaysız bir koşu
-5,5 saat sürdü).
+Bu seans başladığında `main` zaten **paralel bir seansın** iki commit'ini içeriyordu
+(aynı gece, `claude/burda-rag-qlora-training-ce0521` → PR #16): `51c634b` ("K8-b:
+start-train.ps1 artık taze onay tüketiyor") `-Supervised` anahtarını ekleyip betiğin
+koşulsuz `HEKTOR_TRAIN_SUPERVISED=1` vermesini kapatmıştı (§3 kapandı); `5b367c0`
+("Eğitim nöbeti") `app/training/train_guard.py`'yi ekleyip nöbetçinin diriltmeden önce
+`train-recovery-check` ile yetki doğrulamasını zorunlu kılmıştı (§4 kapandı). **Ama**
+o modülün kendi sınırı belgeliydi (yukarıdaki "2026-09-16" kaydı §7): *"kurtarma
+yetkisi, onayı koşu başlangıcına ZAMAN penceresiyle (±20 dk) bağlar; çünkü onayı
+tüketen katman onay kimliğini durum dosyasına yazmıyor. Kimliği de yazmak daha sağlam
+olur — açık iş."* Bu seansın tek işi **tam olarak bu açık iş**.
 
-**Düzeltme — "dosya var/taze" yerine GERÇEK onay kaydı:**
-- Yeni CLI: `hektor train-authorize` (taze onayı `train --run` ile AYNI anahtarla
-  TÜKETİR, eğitimi BAŞLATMAZ) ve `hektor approval-status <id>` (READ-ONLY; tüketmez).
-- `detached_launch.launch()` / `_status_payload()` artık `approval_id` alır ve
-  `storage/train_status.json`'a yazar (web `/api/training/run` ve `auto_pipeline`
-  zaten tükettikleri `decision.approval_id`'yi geçiriyor).
-- `start-train.ps1`: taze başlatmada onayı **kendisi** `train-authorize` ile tüketir
-  (yoksa `exit 1`, spawn YOK); `-Resume`'da önceki `approval_id`'yi durum dosyasından
-  okuyup `approval-status` ile **gerçekten `approved` + tüketilmiş mi** diye doğrular
-  (yoksa/geçersizse `exit 1`, diriltme YOK). SUPERVISED artık yalnız bu doğrulamadan
-  SONRA verilir.
-- `training-watchdog.ps1`: durum dosyasında `approval_id` yoksa sessizce çıkar
-  (`exit 0`) — `start-train.ps1`'i gereksiz çağırmaz.
+**Neden zaman penceresi zayıf:** `find_run_approval` tüketilen bir onayı yalnızca
+`consumed_at`'in koşunun `started_at`'ine ≤20 dk yakın olmasına bakarak eşliyordu —
+doğru onay biraz geç tüketilirse (yavaş model yükleme) reddedilir, ya da nadir bir
+yarış durumunda pencere içindeki BAŞKA bir onay yanlışlıkla eşleşebilirdi. Kimlik
+doğrudan yazılırsa tahmin gerekmez.
 
-**Bilinçli tasarım kararı:** kurtarma bir ZAMAN PENCERESİ ("son N saatte başlamış"
-gibi) ile değil, o koşuyu başlatan onayın gerçekten `approved` + `consumed_at` dolu
-olduğunun doğrulanmasıyla yetkilendirilir — bir zaman penceresi sahte/eski bir dosyayı
-da "yeterince taze" sayabilirdi; onay kaydı tek doğruluk kaynağıdır.
+**Değişiklik (önceki iki commit'in üzerine, onları TEKRARLAMADAN):**
+- `detached_launch.launch()` / `_status_payload()` artık `approval_id` parametresi
+  alır ve `storage/train_status.json`'a yazar; web `/api/training/run` ve
+  `auto_pipeline.start_training()` zaten tükettikleri `decision.approval_id`'yi geçirir.
+- `start-train.ps1`: taze (`-Supervised` olmayan) başlatmada alt süreç onayı kendi
+  tüketir (değişmedi — §3'ün çözümü); başarı sonrası log'dan tüketilen `apr_...`
+  kimliği okunup durum dosyasına **işlenir** (`Add-Member approval_id`). Kurtarmada
+  (`-Supervised -Resume`) nöbetçinin `train-recovery-check`'ten aldığı kimlik
+  `-ApprovalId` ile geçirilip aynen durum dosyasına yazılır.
+- `training-watchdog.ps1`: `train-recovery-check --json` çıktısının `details.approval_id`
+  alanını okuyup `-ApprovalId` ile `start-train.ps1`'e iletir (önceden atılıyordu).
+- `app/training/train_guard.py`: `find_run_approval` artık `approval_id` verilmişse
+  ÖNCE tam kimlik eşleşmesi dener; bulunamaz/onaylı-tüketilmiş değilse zaman
+  penceresine **düşmez** (sahte pozitif riski — geçersiz bir kimlik şüphelidir).
+  Yalnız bu alan hiç YOKSA (eski/harici durum dosyaları, `mac-loop.sh` gibi) zaman
+  penceresi yedek olarak kalır — geriye dönük uyum.
+- Yeni CLI `approval-status <id>` (READ-ONLY tekil onay sorgusu); `train-authorize`
+  adlı ayrı bir "üst katman tüketir" komutu YAZILMADI — zaten var olan `-Supervised`
+  deseni (alt süreç kendi onayını tüketir) korunarak üstüne minimum yama yapıldı.
 
-**Kapı:** `uv sync --extra dev` + ruff format --check (438 dosya) + ruff check +
-mypy (repo geneli, 0 hata) + pytest tam paket çevrimdışı (`-m "not ollama"`) yeşil.
+**Kapı:** ruff format --check + ruff check + mypy (repo geneli, 0 hata) + hedefli
+pytest (`test_train_guard.py`, `test_start_train_approval_gate.py`,
+`test_train_recipe_persistence.py`, `test_agent_phase2_cli.py`) yeşil; tam paket
+`-m "not ollama"` ayrıca koşuldu.
+
+**Ders (süreç):** aynı "K8-b" adı iki ayrı seansta bağımsız kullanıldı ve biri diğerini
+main'e girdikten SONRA fark etti — `git fetch` + `merge-base` kontrolü olmadan PR
+açmak sessiz çakışmaya yol açabiliyor. PR açmadan/merge etmeden önce `origin/main`'i
+taze çekmek ve aynı alanda (burada: eğitim onay kapısı) yakın zamanda commit var mı
+diye bakmak ucuz bir kontrol.
 
 **Sıradaki:** v9 eğitimi hâlâ insan onayı bekliyor (bkz. altta "2026-09-16" kaydı §6).
-Bu düzeltme sonrası akış AYNI: `approval-approve <id>` → `start-train.ps1` (artık aynı
-onayı `train-authorize` ile kendi tüketir — ekstra adım YOK).
 
 ---
 
@@ -202,7 +217,8 @@ eğitim de bu dalın kodundan koşacak ki düzeltmeler fiilen eğitilen veriye g
 | `pretrain-gate` | **GO** — PII 0, sır 0, şablon 8-gram bloğu 0, okunamayan 0, boş cevap 0. Tek uyarı: 91 "strateji" cevabında maliyet token'ı yok (sentetik QA kaynaklı) |
 | `lora-audit` | **passed** — 236/236 kart onaylı, 0 red (42 "gözden geçir") |
 | Veri doğrulaması | grup e-postası **0** (öncesi 28) · disiplin 484/484 `skeleton_id` · uyumsuz soru-cevap **0** (öncesi ~147) |
-| Onay | `apr_2410dd477207` **pending** — `train --run` (SUPERVISED'sız) kapısı ısırdı |
+| Onay | `apr_2410dd477207` — istek `train --run` (SUPERVISED'sız) kapısıyla açıldı, **insan onayladı** (2026-09-16 07:30 UTC), eğitim başlarken **tüketildi** (07:40:54 UTC) |
+| Eğitim | **KOŞUYOR** — `hektor_lora_v9_4b`, 600 örnek × 1 epoch, `discipline_safe_local`, bf16/CPU; 2026-09-16 10:40 (yerel) başladı, train=1820 valid=117. Log: `logs/train-v9.log` + `logs/train-v9-err.log` |
 
 **Eğitimi başlatmak için (insan):**
 ```bash
@@ -216,6 +232,64 @@ onay tüketmiyor.
 
 **Not:** ana `storage/train_status.json` bilinçli olarak YAZILMADI — nöbetçi o dosyayı görünce
 çöken koşuyu eski kodla ve onaysız diriltiyor (§4). Yani bu koşuda otomatik kurtarma yok.
+`train-doctor` bu yüzden koşan v9 için **DİKKAT** verir ("durum kaydı yok → onaya bağlanamıyor");
+bu doğru davranıştır. PR #14 main'e girdikten sonra (nöbetçi kurtarma kapısı orada olunca)
+durum dosyası güvenle yazılabilir.
+
+### 7. Tekrarı önleyen sistem: eğitim nöbeti (`train_guard`)
+
+Gecenin iki olayının ortak kökü — *koşan eğitimin sağlığını ve yetkisini kimse sorgulamıyordu* —
+koda bağlandı. Yeni modül `app/training/train_guard.py` (saf fonksiyonlar: zaman/süreç/dosya
+bilgisi dışarıdan verilir → test gerçek süreç istemez).
+
+| Ne | Nasıl |
+|---|---|
+| `uv run hektor train-doctor [--json]` | Koşan eğitimin sağlığı: log ilerlemiyor (>45 dk) · CPU ~0 (askıda) · koşuya bağlı **tüketilmiş onay yok** (Kural 8) · veri koşudan sonra değişti · süreç yok ama durum dosyası duruyor (ölü koşu kaydı) · **durum kaydı olmayan koşu**. Çıkış 1 = DİKKAT |
+| `uv run hektor train-recovery-check [--json]` | Nöbetçi diriltmeye yetkili mi? Koşu başlangıcına denk gelen tüketilmiş onay + durum dosyası tazeliği (≤72 s) + veri değişmemiş. Çıkış 3 = yetkisiz |
+| `scripts/training-watchdog.ps1` | Diriltmeden ÖNCE bu kontrolü çağırır; kontrol koşturulamazsa da **dirilme yok** (fail-closed, Kural 2) |
+| `.claude/agents/egitim-nobetcisi.md` | Komutu kullanan ince ajan (salt-okuma; eğitim başlatmaz/durdurmaz, onay vermez) |
+| `tests/test_train_guard.py` | Gecenin iki senaryosu test: onaysız ölü koşunun dirilmesi ve askıdaki koşunun fark edilmemesi artık kırmızı |
+
+Ayrıca `approval-approve` "bulunamadı" mesajı artık **bakılan veri kökünü** yazıyor: komut
+worktree'den koşulduğunda (kendi boş `data/storage` ağacı) onay bulunamıyordu ve sebep
+görünmüyordu — kullanıcı bunu canlı yaşadı.
+
+**Sınır (kapandı — bkz. üstte "2026-09-17" kaydı):** kurtarma yetkisi, onayı koşu başlangıcına
+ZAMAN penceresiyle (±20 dk) bağlıyordu; çünkü onayı tüketen katman onay kimliğini durum
+dosyasına yazmıyordu. Artık yazıyor — `find_run_approval` kimlik varsa ZAMAN PENCERESİNE
+düşmeden doğrudan eşleşir; pencere yalnız kimliksiz (eski/harici) durum dosyaları için yedek.
+
+### 8. Eğitimi yavaşlatan gizli yük: web sunucusunun formül çıkarımı (ölçüldü, giderildi)
+
+v9 adımları beklenen ~3,2 dk yerine 4-6,5 dk sürüyordu. İlk şüphe benim test koşularımdı; asıl
+sebep başkaydı:
+
+| Kanıt | Bulgu |
+|---|---|
+| 55 sn kesintisiz bağlantı örneklemesi (port 11434) | Ollama'nın **tek** istemcisi `hektor-web` (pid 20576, 15.09 12:41'den beri) |
+| Ollama `server.log` | Gece boyunca saatte 130-290 `/api/generate`, her biri 25-60 sn, bazıları 60 sn'de 500 |
+| Web günlüğü | Saat 11'de 980 `httpx` satırı; `formula_extractor` makale bitince tek satır yazıyor |
+| `formulas` tablosu | 233 makalenin 26'sı işlenmiş → kalan iş günler sürerdi |
+| CPU / bellek | `llama-server` %394-533 CPU; model KV önbelleğiyle **9,7 GB** RAM, boş RAM 0,4 GB'a düştü |
+
+Kök: dün geceki bir web ingest çağrısı zenginleştirmeli (`enrich=True`) yolu tetikledi ve sunucu
+korpusu chunk chunk formül çıkarımına soktu. Arka plan döngüleri `.env`'de **kapalıydı**; iş
+döngüden değil istekten doğmuştu. Kodda **iptal kancası yok**, görev kuyruğu boş.
+
+Tanıda elenenler (tekrar aranmasın): panonun `/api/status` yoklaması yalnız `/api/tags` çağırır ·
+sentinel `probe_llm` da öyle, periyodik iş parçacığı yok · `enrich_corpus()` formül çıkarmaz ·
+orkestrasyon koşuları `blocked` durumda durmuştu.
+
+**Giderildi (kullanıcı onayıyla):** web sunucusu ağacı yükseltilmiş çalıştığı için UAC istemli
+`taskkill /T` ile kapatıldı (sunucu `RunLevel=Highest` görevlerle başlıyor; `update.ps1` eğitim
+koşarken kasıtlı olarak hiçbir şey yapmıyor) → `ollama stop` ile model boşaltıldı → boş RAM
+0,4 → 10,0 GB. Eğitim hiç kesilmedi. Sonraki adımlar **3:33** ve **3:01** sürdü.
+
+**Ders:** uzun CPU eğitimi sırasında web panosu kapalı olmalı ya da en azından ingest/formül
+çıkarımı tetiklenmemeli. `train-doctor` bu yükü görmedi — yalnız koşunun kendi sağlığına
+bakıyor; "makinedeki başka bir LLM işi eğitimi yavaşlatıyor" kontrolü açık iş. Pano, eğitim
+bitince `HektorWeb` göreviyle açılır; formül çıkarımı kendiliğinden geri gelmez
+(`uv run hektor extract-formulas` ile bilinçli başlatılır).
 
 ---
 

@@ -81,44 +81,11 @@ def test_train_dry_run_not_gated(monkeypatch) -> None:
     assert r.exit_code == 0
 
 
-# ---- train-authorize / approval-status (K8-b: approval_id → train_status.json) ----
-# Bağlam: `start-train.ps1` eskiden approval_id'yi doğrudan train_status.json'a
-# YAZMIYORDU ve hiçbir onay tüketmeden HEKTOR_TRAIN_SUPERVISED=1 veriyordu (kapıyı
-# atlıyordu). Bu iki komut, betiğin spawn ETMEDEN önce (train-authorize) taze onayı
-# TÜKETMESİNİ, kurtarma/nöbetçi yolunun ise (approval-status) önceki onayı bir ZAMAN
-# PENCERESİ yerine gerçek onay kaydıyla DOĞRULAMASINI sağlar (Kural 8; HANDOFF §3/§4).
-def test_train_authorize_blocked_without_approval(monkeypatch) -> None:
-    monkeypatch.setenv("COLUMNS", "300")
-    monkeypatch.setattr("app.agents.runtime.supervisor.is_stop_all_active", lambda root=None: False)
-    r = runner.invoke(app, ["train-authorize", "--json"])
-    assert r.exit_code == 3
-    out = json.loads(r.stdout)
-    assert out["authorized"] is False
-    assert out["approval_id"].startswith("apr_")
-
-
-def test_train_authorize_consumes_fresh_approval(monkeypatch) -> None:
-    from app.agents.runtime import approvals
-
-    monkeypatch.setenv("COLUMNS", "300")
-    monkeypatch.setattr("app.agents.runtime.supervisor.is_stop_all_active", lambda root=None: False)
-    req = approvals.require_fresh_approval("lora-trainer", "train_run", "critical", "s")
-    approvals.approve(req.approval_id)
-    r = runner.invoke(app, ["train-authorize", "--json"])
-    assert r.exit_code == 0
-    out = json.loads(r.stdout)
-    assert out["authorized"] is True
-    assert out["approval_id"] == req.approval_id
-    assert approvals.has_fresh_approval("lora-trainer", "train_run") is False
-
-
-def test_train_authorize_blocked_by_stop_all(monkeypatch) -> None:
-    monkeypatch.setenv("COLUMNS", "300")
-    monkeypatch.setattr("app.agents.runtime.supervisor.is_stop_all_active", lambda root=None: True)
-    r = runner.invoke(app, ["train-authorize", "--json"])
-    assert r.exit_code == 2
-
-
+# ---- approval-status (K8-b: approval_id → train_status.json, zaman penceresi yerine) ----
+# Bağlam: `train_status.json` artık bu koşuyu yetkilendiren `approval_id`'yi taşıyor
+# (bkz. detached_launch._status_payload, start-train.ps1, train_guard.find_run_approval).
+# Bu komut TEK bir kimliğin gerçekten `approved` + tüketilmiş olup olmadığını READ-ONLY
+# doğrular — ör. `train-doctor`/`train-recovery-check` çıktısındaki bir kimliği incelerken.
 def test_approval_status_unknown(monkeypatch) -> None:
     monkeypatch.setenv("COLUMNS", "300")
     r = runner.invoke(app, ["approval-status", "apr_yok", "--json"])

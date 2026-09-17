@@ -584,69 +584,6 @@ def train(
                 )
 
 
-@app.command("train-authorize")
-def train_authorize(
-    adapter_name: str = typer.Option("hektor_lora", help="Onay özetinde gösterilecek adapter adı"),
-    iterations: int = typer.Option(0, help="Onay özetinde gösterilecek adım sayısı"),
-    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir JSON çıktı."),
-) -> None:
-    """`train --run` ile AYNI taze-onay kapısını TÜKET — eğitimi BAŞLATMAZ, spawn ETMEZ.
-
-    Detached başlatıcı betikler (`start-train.ps1`) eğitimi spawn etmeden ÖNCE bu
-    komutla onayı ÜST katmanda tüketir, sonra spawn edilen alt sürece
-    `HEKTOR_TRAIN_SUPERVISED=1` vererek çift onay istemesini engeller — web
-    `/api/training/run` ve `auto_pipeline.start_training()` ile AYNI desen (Kural 8:
-    standing yetki yok, her gerçek eğitim ayrı taze onay ister). Dönen
-    `approval_id`, çağıran betiğin `storage/train_status.json`'a yazması gereken
-    kimliktir — nöbetçi (`training-watchdog.ps1`) çöken koşuyu bu kimliği
-    doğrulamadan diriltmemeli (bkz. HANDOFF §3/§4).
-    """
-    from app.agents.runtime import supervisor
-    from app.training.unattended_policy import authorize_training_action
-
-    if supervisor.is_stop_all_active():
-        if as_json:
-            console.print_json(
-                json.dumps(
-                    {
-                        "authorized": False,
-                        "mode": "stop_all",
-                        "approval_id": "",
-                        "reason": "STOP_ALL active",
-                    }
-                )
-            )
-        else:
-            console.print("[bold red]STOP_ALL aktif[/bold red] — gerçek eğitim bloklandı.")
-        raise typer.Exit(2)
-
-    decision = authorize_training_action(
-        "train_run",
-        f"Gerçek LoRA eğitimi (detached betik): {adapter_name} ({iterations} adım)",
-        agent_id="lora-trainer",
-    )
-    if as_json:
-        console.print_json(
-            json.dumps(
-                {
-                    "authorized": decision.authorized,
-                    "approval_id": decision.approval_id,
-                    "mode": decision.mode,
-                    "reason": decision.reason,
-                }
-            )
-        )
-    elif decision.authorized:
-        console.print(f"[green]Taze onay tüketildi:[/green] {decision.approval_id}")
-    else:
-        console.print(
-            f"[yellow]Taze onay yok — istek oluşturuldu:[/yellow] {decision.approval_id}\n"
-            f"Onayla: uv run hektor approval-approve {decision.approval_id}"
-        )
-    if not decision.authorized:
-        raise typer.Exit(3)
-
-
 @app.command("approval-status")
 def approval_status(
     approval_id: str,
@@ -654,11 +591,9 @@ def approval_status(
 ) -> None:
     """Bir onay isteğinin durumunu READ-ONLY göster — TÜKETMEZ, ONAYLAMAZ.
 
-    Nöbetçi (`training-watchdog.ps1` → `start-train.ps1 -Resume`) çöken bir koşuyu
-    diriltmeden önce, o koşuyu başlatan `approval_id`'nin GERÇEKTEN `approved` +
-    tüketilmiş (``consumed_at`` dolu) olduğunu bu komutla doğrular — dosyanın
-    varlığı ya da bir zaman penceresi (ör. "son N saatte") DEĞİL, gerçek onay kaydı
-    tek kaynak.
+    `approvals-list` toplu görünümdür; bu komut TEK bir `approval_id`'nin gerçekten
+    `approved` + tüketilmiş (``consumed_at`` dolu) olup olmadığını hızlıca doğrular —
+    ör. `train-doctor`/`train-recovery-check` çıktısındaki bir kimliği elle incelerken.
     """
     from app.agents.runtime import approvals
 
@@ -4366,6 +4301,101 @@ def tasks_run(
     )
 
 
+@app.command("train-doctor")
+def train_doctor(
+    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir rapor"),
+) -> None:
+    """Koşan eğitimin SAĞLIĞINI ve YETKİSİNİ denetle (SALT-OKUMA; eğitim başlatmaz).
+
+    Yakaladıkları (2026-09-16 gecesinin olayları): süreç canlı ama log ilerlemiyor /
+    CPU ~0 (askıya alınmış koşu) · koşan eğitime bağlı TÜKETİLMİŞ insan onayı yok ·
+    eğitim verisi koşudan sonra değişti · süreç yok ama durum dosyası duruyor
+    (nöbetçinin dirilteceği ölü koşu kaydı).
+
+    Çıkış kodu: 0 sağlıklı/boşta · 1 DİKKAT.
+    """
+    from app.memory.sqlite_store import SqliteStore
+    from app.training.train_guard import collect_diagnosis
+
+    settings = get_settings()
+    try:
+        approvals = SqliteStore().list_approval_requests(limit=50)
+    except Exception:
+        approvals = None  # DB okunamadı → onay kontrolü "bilinmiyor" (uydurma yok)
+
+    diag = collect_diagnosis(settings.root, approvals)
+    if as_json:
+        console.print_json(json.dumps(diag.to_dict(), ensure_ascii=False))
+        if diag.verdict == "DIKKAT":
+            raise typer.Exit(1)
+        return
+
+    color = {"OK": "green", "BOSTA": "dim", "DIKKAT": "red"}.get(diag.verdict, "yellow")
+    body = f"[bold {color}]{diag.verdict}[/bold {color}]\n"
+    for key, label in (
+        ("adapter", "Adapter"),
+        ("trainer_pids", "Süreçler"),
+        ("started_at", "Başlangıç"),
+        ("log_stall_minutes", "Log sessizliği (dk)"),
+        ("cpu_percent", "CPU %"),
+    ):
+        if diag.info.get(key) not in (None, "", []):
+            body += f"{label}: {diag.info[key]}\n"
+    body += (
+        "[red]SORUN:[/red]\n  " + "\n  ".join(diag.problems)
+        if diag.problems
+        else "[dim]Sorun yok[/dim]"
+    )
+    console.print(Panel(body, title="Eğitim Nöbeti"))
+    if diag.verdict == "DIKKAT":
+        raise typer.Exit(1)
+
+
+@app.command("train-recovery-check")
+def train_recovery_check(
+    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir karar"),
+) -> None:
+    """Nöbetçi çöken eğitimi diriltmeye YETKİLİ mi? (SALT-OKUMA, fail-closed).
+
+    `training-watchdog.ps1` bunu diriltmeden ÖNCE çağırır. Kurtarma Kural 8'den muaftır
+    ("onay zaten tüketilmişti") — ama bu cümle burada DOĞRULANIR: koşunun başlangıcına
+    denk gelen tüketilmiş bir onay yoksa, durum dosyası bayatsa ya da veri koşudan sonra
+    değiştiyse dirilme YOK. 2026-09-16'da onaysız bir koşu tam bu yolla 5,5 saat koştu.
+
+    Çıkış kodu: 0 yetkili · 3 yetkisiz (nöbetçi diriltmez).
+    """
+    import datetime as _dt
+
+    from app.memory.sqlite_store import SqliteStore
+    from app.training.detached_launch import read_detached_training_status
+    from app.training.train_guard import recovery_allowed
+
+    settings = get_settings()
+    status = read_detached_training_status(settings.root)
+    try:
+        approvals = SqliteStore().list_approval_requests(limit=50)
+    except Exception:
+        approvals = []  # DB okunamadı → onay doğrulanamaz → fail-closed (dirilme yok)
+
+    train_jsonl = settings.root / "data" / "training" / "jsonl" / "train.jsonl"
+    data_mtime = None
+    if train_jsonl.exists():
+        data_mtime = _dt.datetime.fromtimestamp(train_jsonl.stat().st_mtime, tz=_dt.UTC)
+
+    verdict = recovery_allowed(
+        status, approvals, now=_dt.datetime.now(_dt.UTC), data_mtime=data_mtime
+    )
+    if as_json:
+        console.print_json(json.dumps(verdict.to_dict(), ensure_ascii=False))
+    else:
+        color = "green" if verdict.allowed else "red"
+        console.print(
+            f"[{color}]{'YETKILI' if verdict.allowed else 'YETKISIZ'}[/{color}] — {verdict.reason}"
+        )
+    if not verdict.allowed:
+        raise typer.Exit(3)
+
+
 @app.command("approvals-list")
 def approvals_list(
     status: str = typer.Option(None, "--status", help="status ile filtrele"),
@@ -4401,7 +4431,16 @@ def approval_approve(approval_id: str, note: str = typer.Option("", "--note")) -
 
     a = approvals.approve(approval_id, note=note or None)
     if a is None:
-        console.print(f"[red]Onay bulunamadı:[/red] {approval_id}")
+        # En sık sebep: komut BAŞKA bir veri kökünden koşuldu (worktree'nin kendi boş
+        # data/storage ağacı vardır) → onay ana checkout'un veritabanındadır, burada yok.
+        # Kökü yazmadan "bulunamadı" demek kullanıcıyı kimliği aramaya itiyordu.
+        console.print(
+            f"[red]Onay bulunamadı:[/red] {approval_id}\n"
+            f"[dim]Bakılan veri kökü:[/dim] {get_settings().root}\n"
+            "[yellow]Yanlış klasörden mi çalıştırdın?[/yellow] Onaylar hangi kökte "
+            "oluşturulduysa orada durur; ana depodan çalıştır ya da "
+            "[cyan]HEKTOR_ROOT_PATH=<kök>[/cyan] ver."
+        )
         raise typer.Exit(1)
     console.print(f"[green]Durum:[/green] {a.status.value} ({a.action})")
 
@@ -4413,7 +4452,16 @@ def approval_reject(approval_id: str, note: str = typer.Option("", "--note")) ->
 
     a = approvals.reject(approval_id, note=note or None)
     if a is None:
-        console.print(f"[red]Onay bulunamadı:[/red] {approval_id}")
+        # En sık sebep: komut BAŞKA bir veri kökünden koşuldu (worktree'nin kendi boş
+        # data/storage ağacı vardır) → onay ana checkout'un veritabanındadır, burada yok.
+        # Kökü yazmadan "bulunamadı" demek kullanıcıyı kimliği aramaya itiyordu.
+        console.print(
+            f"[red]Onay bulunamadı:[/red] {approval_id}\n"
+            f"[dim]Bakılan veri kökü:[/dim] {get_settings().root}\n"
+            "[yellow]Yanlış klasörden mi çalıştırdın?[/yellow] Onaylar hangi kökte "
+            "oluşturulduysa orada durur; ana depodan çalıştır ya da "
+            "[cyan]HEKTOR_ROOT_PATH=<kök>[/cyan] ver."
+        )
         raise typer.Exit(1)
     console.print(f"[yellow]Durum:[/yellow] {a.status.value} ({a.action})")
 
