@@ -287,9 +287,17 @@ koşarken kasıtlı olarak hiçbir şey yapmıyor) → `ollama stop` ile model b
 
 **Ders:** uzun CPU eğitimi sırasında web panosu kapalı olmalı ya da en azından ingest/formül
 çıkarımı tetiklenmemeli. `train-doctor` bu yükü görmedi — yalnız koşunun kendi sağlığına
-bakıyor; "makinedeki başka bir LLM işi eğitimi yavaşlatıyor" kontrolü açık iş. Pano, eğitim
-bitince `HektorWeb` göreviyle açılır; formül çıkarımı kendiliğinden geri gelmez
-(`uv run hektor extract-formulas` ile bilinçli başlatılır).
+bakıyor; "makinedeki başka bir LLM işi eğitimi yavaşlatıyor" kontrolü açık iş ~~(2026-09-17'de
+`train-load-doctor` ile kapatıldı — bkz. altta)~~. Pano, eğitim bitince `HektorWeb` göreviyle
+açılır; formül çıkarımı kendiliğinden geri gelmez (`uv run hektor extract-formulas` ile
+bilinçli başlatılır).
+
+**2026-09-17 güncellemesi:** yukarıdaki açık iş `uv run hektor train-load-doctor` ile kapatıldı
+— Ollama `/api/ps` (yüklü model + VRAM/RAM) + (varsa) `nvidia-smi` (TÜM GPU süreçleri) okuyup
+GO/WARN/NO-GO üretir; `train --run` NO-GO'da taze onay tüketilmeden ÖNCE bloklar
+(`--skip-load-check` ile atlanabilir). `train-doctor` adı zaten alınmıştı (§7, koşunun kendi
+sağlığı/yetkisi) — isim çakışmasını CI'de yakaladık (bu PR'ın dalı `main`'in gerisindeydi,
+`train-load-doctor` olarak yeniden adlandırıldı).
 
 ---
 

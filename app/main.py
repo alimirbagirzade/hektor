@@ -413,6 +413,56 @@ def dataset(
     )
 
 
+@app.command("train-load-doctor")
+def train_load_doctor_cmd(
+    min_free_vram_gb: float = typer.Option(
+        None,
+        "--min-free-vram-gb",
+        help="Eşik (varsayılan: settings.train_load_doctor_min_free_vram_gb)",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="JSON formatında çıktı ver"),
+) -> None:
+    """Gerçek eğitimden ÖNCE rakip LLM/GPU yükünü tara (SALT-OKUMA).
+
+    `train-doctor` (koşan eğitimin sağlığı/yetkisi) ile KARIŞTIRILMASIN — bu komut
+    eğitim BAŞLAMADAN ÖNCE Ollama'da halen belleğe yüklü model var mı + (varsa
+    nvidia-smi ile) gerçek boş VRAM ölçer. Hiçbir süreci durdurmaz.
+    Çıkış kodu: 0 GO · 2 WARN · 3 NO-GO.
+    """
+    from app.training.train_load_doctor import run_train_doctor
+
+    report = run_train_doctor(min_free_vram_gb=min_free_vram_gb)
+
+    if as_json:
+        console.print_json(report.model_dump_json(indent=2))
+    else:
+        t = Table(title="train-load-doctor — rakip LLM/GPU yükü (salt-okuma)")
+        t.add_column("Kontrol")
+        t.add_column("Değer")
+        t.add_row("Ollama erişilebilir", "✅" if report.ollama_reachable else "❌")
+        if report.loaded_models:
+            names = ", ".join(f"{m.name} ({m.vram_gb:.1f}GB)" for m in report.loaded_models)
+            t.add_row("Yüklü model(ler)", names)
+        else:
+            t.add_row("Yüklü model(ler)", "yok")
+        t.add_row("GPU ölçüm kaynağı", report.gpu_source)
+        if report.gpu_total_vram_gb is not None:
+            t.add_row(
+                "GPU kullanım",
+                f"{report.gpu_used_vram_gb:.1f} / {report.gpu_total_vram_gb:.1f} GB",
+            )
+        if report.free_vram_gb is not None:
+            t.add_row("Boş VRAM (tahmini)", f"{report.free_vram_gb:.1f} GB")
+        t.add_row("Eşik", f"{report.min_free_vram_gb:.1f} GB")
+        verdict_style = {"GO": "green", "WARN": "yellow", "NO-GO": "red"}[report.verdict]
+        t.add_row("Karar", f"[{verdict_style}]{report.verdict}[/{verdict_style}]")
+        console.print(t)
+        for reason in report.reasons:
+            console.print(f"[dim]- {reason}[/dim]")
+
+    raise typer.Exit({"GO": 0, "WARN": 2, "NO-GO": 3}[report.verdict])
+
+
 @app.command()
 def train(
     base_model: str = typer.Option(None),
@@ -432,6 +482,9 @@ def train(
         0,
         "--max-examples",
         help="Yalnız N örnekle eğit (0=profil/varsayılan). CPU süresini sınırlar (yalnız PEFT).",
+    ),
+    skip_load_check: bool = typer.Option(
+        False, "--skip-load-check", help="train-load-doctor rakip yük taramasını atla (önerilmez)"
     ),
 ) -> None:
     """LoRA eğitim komutunu hazırla — platform otomatik tespit edilir."""
@@ -454,6 +507,35 @@ def train(
                 "Kaldır: [cyan]uv run hektor clear-stop-all[/cyan]"
             )
             raise typer.Exit(2)
+
+        # train-load-doctor: rakip LLM/GPU yükü (ör. Ollama'da hâlâ yüklü model) taze
+        # onay tüketilmeden ÖNCE taranır — kaynak yoksa onayı boşa harcamayalım.
+        # (`train-doctor` adı zaten ALINMIŞ — koşan eğitimin sağlığını denetler, bkz.
+        # app/training/train_guard.py. Bu ayrı, tamamlayıcı bir kaygı.)
+        if not skip_load_check:
+            from app.training.train_load_doctor import run_train_doctor
+
+            doctor_report = run_train_doctor()
+            for reason in doctor_report.reasons:
+                console.print(f"[dim]train-load-doctor: {reason}[/dim]")
+            if doctor_report.verdict == "NO-GO":
+                console.print(
+                    Panel.fit(
+                        "\n".join(doctor_report.reasons)
+                        or "Rakip GPU/LLM yükü tespit edildi, boş VRAM eşiğin altında.",
+                        title="⛔ train-load-doctor: NO-GO",
+                        border_style="red",
+                    )
+                )
+                console.print(
+                    "[yellow]Atlamak için (önerilmez): [cyan]--skip-load-check[/cyan][/yellow]"
+                )
+                raise typer.Exit(4)
+            if doctor_report.verdict == "WARN":
+                console.print(
+                    "[yellow]train-load-doctor: WARN — rakip yük var ama eşik altında değil, "
+                    "devam ediliyor.[/yellow]"
+                )
 
         # auto_pipeline/launch zaten kendi onayını aldıysa (supervised) iç kapı atlanır
         # — çift onay olmasın; ama STOP_ALL her zaman geçerli.
