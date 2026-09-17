@@ -94,10 +94,10 @@ class Settings(BaseSettings):
     # "0" → hemen boşalt (eğitimle ~7GB çakışmayı önler). Varsayılan "30s"; büyük
     # makinede ".env: HEKTOR_OLLAMA_KEEP_ALIVE=5m" hızlı ardışık sorgu için.
     ollama_keep_alive: str = "30s"
-    # train-doctor eşiği: gerçek eğitim öncesi rakip yük (Ollama'da yüklü model / başka
-    # GPU süreci) taranır. Ölçülen boş VRAM bu değerin altındaysa NO-GO. LoRA (Qwen3-4B,
-    # 4-bit) tek başına ~4-5GB tutar; 3GB tampon makul varsayılan.
-    train_doctor_min_free_vram_gb: float = 3.0
+    # train-load-doctor eşiği: gerçek eğitim öncesi rakip yük (Ollama'da yüklü model /
+    # başka GPU süreci) taranır. Ölçülen boş VRAM bu değerin altındaysa NO-GO. LoRA
+    # (Qwen3-4B, 4-bit) tek başına ~4-5GB tutar; 3GB tampon makul varsayılan.
+    train_load_doctor_min_free_vram_gb: float = 3.0
     # LocalLLM num_predict bütçesi: çağıran max_tokens vermezse varsayılan; verse de tavanı
     # aşamaz. Sınırsız üretimde qwen3:4b "2+2" sorusunu 240 sn'de bitiremedi (2026-09-13).
     llm_default_max_tokens: int = 1024

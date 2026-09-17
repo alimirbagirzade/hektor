@@ -1,4 +1,8 @@
-"""train-doctor — rakip LLM/GPU yükü tespiti (offline testler).
+"""train-load-doctor — rakip LLM/GPU yükü tespiti (offline testler).
+
+Not: `hektor train-doctor` adı zaten ALINMIŞ (koşan eğitimin sağlığını/yetkisini
+denetler, bkz. app/training/train_guard.py, "Eğitim Nöbeti") — bu yüzden bu
+özellik `train-load-doctor` olarak ayrıştırıldı.
 
 Tümü çevrimdışı: Ollama `/api/ps` httpx.MockTransport ile sahte, nvidia-smi
 parametre olarak enjekte edilir (gerçek subprocess yok). Kök neden: Ollama
@@ -14,9 +18,9 @@ import httpx
 from typer.testing import CliRunner
 
 import app.main as m
-import app.training.train_doctor as td
+import app.training.train_load_doctor as td
 from app.main import app
-from app.training.train_doctor import run_train_doctor
+from app.training.train_load_doctor import run_train_doctor
 
 runner = CliRunner()
 _ENV = {"COLUMNS": "200"}
@@ -107,30 +111,30 @@ def test_min_free_vram_gb_override_wins_over_settings() -> None:
     assert report.verdict == "NO-GO"
 
 
-# --- CLI: `hektor train-doctor` -----------------------------------------------------
+# --- CLI: `hektor train-load-doctor` ------------------------------------------------
 
 
-def test_cli_train_doctor_go_exit_zero(monkeypatch) -> None:
+def test_cli_train_load_doctor_go_exit_zero(monkeypatch) -> None:
     monkeypatch.setattr(td, "run_train_doctor", lambda **kw: td.TrainDoctorReport(verdict="GO"))
-    result = runner.invoke(app, ["train-doctor"], env=_ENV)
+    result = runner.invoke(app, ["train-load-doctor"], env=_ENV)
     assert result.exit_code == 0
     assert "GO" in result.stdout
 
 
-def test_cli_train_doctor_no_go_exit_three(monkeypatch) -> None:
+def test_cli_train_load_doctor_no_go_exit_three(monkeypatch) -> None:
     monkeypatch.setattr(
         td,
         "run_train_doctor",
         lambda **kw: td.TrainDoctorReport(verdict="NO-GO", reasons=["boş VRAM yetersiz"]),
     )
-    result = runner.invoke(app, ["train-doctor"], env=_ENV)
+    result = runner.invoke(app, ["train-load-doctor"], env=_ENV)
     assert result.exit_code == 3
     assert "NO-GO" in result.stdout
 
 
-def test_cli_train_doctor_json_output(monkeypatch) -> None:
+def test_cli_train_load_doctor_json_output(monkeypatch) -> None:
     monkeypatch.setattr(td, "run_train_doctor", lambda **kw: td.TrainDoctorReport(verdict="WARN"))
-    result = runner.invoke(app, ["train-doctor", "--json"], env=_ENV)
+    result = runner.invoke(app, ["train-load-doctor", "--json"], env=_ENV)
     assert result.exit_code == 2
     payload = json.loads(result.stdout)
     assert payload["verdict"] == "WARN"
@@ -140,7 +144,7 @@ def test_cli_train_doctor_json_output(monkeypatch) -> None:
 
 
 def test_train_run_blocks_on_no_go(monkeypatch) -> None:
-    """train-doctor NO-GO derse `train --run` STOP_ALL/onay adımlarına hiç gelmeden çıkmalı."""
+    """train-load-doctor NO-GO derse `train --run` STOP_ALL/onay adımlarına hiç gelmeden çıkmalı."""
     monkeypatch.setattr(m, "get_settings", m.get_settings)
     from app.agents.runtime import supervisor
 
@@ -167,7 +171,7 @@ def test_train_run_blocks_on_no_go(monkeypatch) -> None:
 
 
 def test_train_run_skip_load_check_bypasses_doctor(monkeypatch) -> None:
-    """`--skip-load-check` verilirse train-doctor hiç çağrılmamalı."""
+    """`--skip-load-check` verilirse train-load-doctor hiç çağrılmamalı."""
     from app.agents.runtime import supervisor
 
     monkeypatch.setattr(supervisor, "is_stop_all_active", lambda: False)

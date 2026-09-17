@@ -413,26 +413,30 @@ def dataset(
     )
 
 
-@app.command("train-doctor")
-def train_doctor_cmd(
+@app.command("train-load-doctor")
+def train_load_doctor_cmd(
     min_free_vram_gb: float = typer.Option(
-        None, "--min-free-vram-gb", help="Eşik (varsayılan: settings.train_doctor_min_free_vram_gb)"
+        None,
+        "--min-free-vram-gb",
+        help="Eşik (varsayılan: settings.train_load_doctor_min_free_vram_gb)",
     ),
     as_json: bool = typer.Option(False, "--json", help="JSON formatında çıktı ver"),
 ) -> None:
     """Gerçek eğitimden ÖNCE rakip LLM/GPU yükünü tara (SALT-OKUMA).
 
-    Ollama'da halen belleğe yüklü model var mı + (varsa nvidia-smi ile) gerçek
-    boş VRAM ölçer. Hiçbir süreci durdurmaz. Çıkış kodu: 0 GO · 2 WARN · 3 NO-GO.
+    `train-doctor` (koşan eğitimin sağlığı/yetkisi) ile KARIŞTIRILMASIN — bu komut
+    eğitim BAŞLAMADAN ÖNCE Ollama'da halen belleğe yüklü model var mı + (varsa
+    nvidia-smi ile) gerçek boş VRAM ölçer. Hiçbir süreci durdurmaz.
+    Çıkış kodu: 0 GO · 2 WARN · 3 NO-GO.
     """
-    from app.training.train_doctor import run_train_doctor
+    from app.training.train_load_doctor import run_train_doctor
 
     report = run_train_doctor(min_free_vram_gb=min_free_vram_gb)
 
     if as_json:
         console.print_json(report.model_dump_json(indent=2))
     else:
-        t = Table(title="train-doctor — rakip LLM/GPU yükü (salt-okuma)")
+        t = Table(title="train-load-doctor — rakip LLM/GPU yükü (salt-okuma)")
         t.add_column("Kontrol")
         t.add_column("Değer")
         t.add_row("Ollama erişilebilir", "✅" if report.ollama_reachable else "❌")
@@ -480,7 +484,7 @@ def train(
         help="Yalnız N örnekle eğit (0=profil/varsayılan). CPU süresini sınırlar (yalnız PEFT).",
     ),
     skip_load_check: bool = typer.Option(
-        False, "--skip-load-check", help="train-doctor rakip yük taramasını atla (önerilmez)"
+        False, "--skip-load-check", help="train-load-doctor rakip yük taramasını atla (önerilmez)"
     ),
 ) -> None:
     """LoRA eğitim komutunu hazırla — platform otomatik tespit edilir."""
@@ -504,20 +508,22 @@ def train(
             )
             raise typer.Exit(2)
 
-        # train-doctor: rakip LLM/GPU yükü (ör. Ollama'da hâlâ yüklü model) taze onay
-        # tüketilmeden ÖNCE taranır — kaynak yoksa onayı boşa harcamayalım.
+        # train-load-doctor: rakip LLM/GPU yükü (ör. Ollama'da hâlâ yüklü model) taze
+        # onay tüketilmeden ÖNCE taranır — kaynak yoksa onayı boşa harcamayalım.
+        # (`train-doctor` adı zaten ALINMIŞ — koşan eğitimin sağlığını denetler, bkz.
+        # app/training/train_guard.py. Bu ayrı, tamamlayıcı bir kaygı.)
         if not skip_load_check:
-            from app.training.train_doctor import run_train_doctor
+            from app.training.train_load_doctor import run_train_doctor
 
             doctor_report = run_train_doctor()
             for reason in doctor_report.reasons:
-                console.print(f"[dim]train-doctor: {reason}[/dim]")
+                console.print(f"[dim]train-load-doctor: {reason}[/dim]")
             if doctor_report.verdict == "NO-GO":
                 console.print(
                     Panel.fit(
                         "\n".join(doctor_report.reasons)
                         or "Rakip GPU/LLM yükü tespit edildi, boş VRAM eşiğin altında.",
-                        title="⛔ train-doctor: NO-GO",
+                        title="⛔ train-load-doctor: NO-GO",
                         border_style="red",
                     )
                 )
@@ -527,7 +533,7 @@ def train(
                 raise typer.Exit(4)
             if doctor_report.verdict == "WARN":
                 console.print(
-                    "[yellow]train-doctor: WARN — rakip yük var ama eşik altında değil, "
+                    "[yellow]train-load-doctor: WARN — rakip yük var ama eşik altında değil, "
                     "devam ediliyor.[/yellow]"
                 )
 

@@ -1,4 +1,9 @@
-"""train-doctor — gerçek eğitimden ÖNCE rakip LLM/GPU yükünü tespit et (SALT-OKUMA).
+"""train-load-doctor — gerçek eğitimden ÖNCE rakip LLM/GPU yükünü tespit et (SALT-OKUMA).
+
+Not: `hektor train-doctor` adı zaten ALINMIŞ — koşan eğitimin sağlığını/yetkisini
+denetleyen farklı bir komut (bkz. `app/training/train_guard.py`, "Eğitim Nöbeti").
+Bu modül onunla İLGİSİZ, tamamlayıcı bir kaygıyı çözer: eğitim BAŞLAMADAN ÖNCE
+kaynak çakışması.
 
 Sorun: yerel Ollama bir modeli belleğe/GPU'ya yükledikten sonra ``ollama_keep_alive``
 süresi dolana kadar orada tutar. Aynı anda gerçek LoRA eğitimi (`train --run`)
@@ -109,7 +114,9 @@ def run_train_doctor(
     settings = get_settings()
     ollama_host = (host or settings.ollama_host).rstrip("/")
     min_free = (
-        min_free_vram_gb if min_free_vram_gb is not None else settings.train_doctor_min_free_vram_gb
+        min_free_vram_gb
+        if min_free_vram_gb is not None
+        else settings.train_load_doctor_min_free_vram_gb
     )
 
     report = TrainDoctorReport(min_free_vram_gb=min_free)
