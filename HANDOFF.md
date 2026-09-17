@@ -161,7 +161,8 @@ eğitim de bu dalın kodundan koşacak ki düzeltmeler fiilen eğitilen veriye g
 | `pretrain-gate` | **GO** — PII 0, sır 0, şablon 8-gram bloğu 0, okunamayan 0, boş cevap 0. Tek uyarı: 91 "strateji" cevabında maliyet token'ı yok (sentetik QA kaynaklı) |
 | `lora-audit` | **passed** — 236/236 kart onaylı, 0 red (42 "gözden geçir") |
 | Veri doğrulaması | grup e-postası **0** (öncesi 28) · disiplin 484/484 `skeleton_id` · uyumsuz soru-cevap **0** (öncesi ~147) |
-| Onay | `apr_2410dd477207` **pending** — `train --run` (SUPERVISED'sız) kapısı ısırdı |
+| Onay | `apr_2410dd477207` — istek `train --run` (SUPERVISED'sız) kapısıyla açıldı, **insan onayladı** (2026-09-16 07:30 UTC), eğitim başlarken **tüketildi** (07:40:54 UTC) |
+| Eğitim | **KOŞUYOR** — `hektor_lora_v9_4b`, 600 örnek × 1 epoch, `discipline_safe_local`, bf16/CPU; 2026-09-16 10:40 (yerel) başladı, train=1820 valid=117. Log: `logs/train-v9.log` + `logs/train-v9-err.log` |
 
 **Eğitimi başlatmak için (insan):**
 ```bash
@@ -175,6 +176,63 @@ onay tüketmiyor.
 
 **Not:** ana `storage/train_status.json` bilinçli olarak YAZILMADI — nöbetçi o dosyayı görünce
 çöken koşuyu eski kodla ve onaysız diriltiyor (§4). Yani bu koşuda otomatik kurtarma yok.
+`train-doctor` bu yüzden koşan v9 için **DİKKAT** verir ("durum kaydı yok → onaya bağlanamıyor");
+bu doğru davranıştır. PR #14 main'e girdikten sonra (nöbetçi kurtarma kapısı orada olunca)
+durum dosyası güvenle yazılabilir.
+
+### 7. Tekrarı önleyen sistem: eğitim nöbeti (`train_guard`)
+
+Gecenin iki olayının ortak kökü — *koşan eğitimin sağlığını ve yetkisini kimse sorgulamıyordu* —
+koda bağlandı. Yeni modül `app/training/train_guard.py` (saf fonksiyonlar: zaman/süreç/dosya
+bilgisi dışarıdan verilir → test gerçek süreç istemez).
+
+| Ne | Nasıl |
+|---|---|
+| `uv run hektor train-doctor [--json]` | Koşan eğitimin sağlığı: log ilerlemiyor (>45 dk) · CPU ~0 (askıda) · koşuya bağlı **tüketilmiş onay yok** (Kural 8) · veri koşudan sonra değişti · süreç yok ama durum dosyası duruyor (ölü koşu kaydı) · **durum kaydı olmayan koşu**. Çıkış 1 = DİKKAT |
+| `uv run hektor train-recovery-check [--json]` | Nöbetçi diriltmeye yetkili mi? Koşu başlangıcına denk gelen tüketilmiş onay + durum dosyası tazeliği (≤72 s) + veri değişmemiş. Çıkış 3 = yetkisiz |
+| `scripts/training-watchdog.ps1` | Diriltmeden ÖNCE bu kontrolü çağırır; kontrol koşturulamazsa da **dirilme yok** (fail-closed, Kural 2) |
+| `.claude/agents/egitim-nobetcisi.md` | Komutu kullanan ince ajan (salt-okuma; eğitim başlatmaz/durdurmaz, onay vermez) |
+| `tests/test_train_guard.py` | Gecenin iki senaryosu test: onaysız ölü koşunun dirilmesi ve askıdaki koşunun fark edilmemesi artık kırmızı |
+
+Ayrıca `approval-approve` "bulunamadı" mesajı artık **bakılan veri kökünü** yazıyor: komut
+worktree'den koşulduğunda (kendi boş `data/storage` ağacı) onay bulunamıyordu ve sebep
+görünmüyordu — kullanıcı bunu canlı yaşadı.
+
+**Sınır:** kurtarma yetkisi, onayı koşu başlangıcına ZAMAN penceresiyle (±20 dk) bağlar; çünkü
+onayı tüketen katman (`train --run`) onay kimliğini durum dosyasına yazmıyor. Kimliği de yazmak
+daha sağlam olur — açık iş.
+
+### 8. Eğitimi yavaşlatan gizli yük: web sunucusunun formül çıkarımı (ölçüldü, giderildi)
+
+v9 adımları beklenen ~3,2 dk yerine 4-6,5 dk sürüyordu. İlk şüphe benim test koşularımdı; asıl
+sebep başkaydı:
+
+| Kanıt | Bulgu |
+|---|---|
+| 55 sn kesintisiz bağlantı örneklemesi (port 11434) | Ollama'nın **tek** istemcisi `hektor-web` (pid 20576, 15.09 12:41'den beri) |
+| Ollama `server.log` | Gece boyunca saatte 130-290 `/api/generate`, her biri 25-60 sn, bazıları 60 sn'de 500 |
+| Web günlüğü | Saat 11'de 980 `httpx` satırı; `formula_extractor` makale bitince tek satır yazıyor |
+| `formulas` tablosu | 233 makalenin 26'sı işlenmiş → kalan iş günler sürerdi |
+| CPU / bellek | `llama-server` %394-533 CPU; model KV önbelleğiyle **9,7 GB** RAM, boş RAM 0,4 GB'a düştü |
+
+Kök: dün geceki bir web ingest çağrısı zenginleştirmeli (`enrich=True`) yolu tetikledi ve sunucu
+korpusu chunk chunk formül çıkarımına soktu. Arka plan döngüleri `.env`'de **kapalıydı**; iş
+döngüden değil istekten doğmuştu. Kodda **iptal kancası yok**, görev kuyruğu boş.
+
+Tanıda elenenler (tekrar aranmasın): panonun `/api/status` yoklaması yalnız `/api/tags` çağırır ·
+sentinel `probe_llm` da öyle, periyodik iş parçacığı yok · `enrich_corpus()` formül çıkarmaz ·
+orkestrasyon koşuları `blocked` durumda durmuştu.
+
+**Giderildi (kullanıcı onayıyla):** web sunucusu ağacı yükseltilmiş çalıştığı için UAC istemli
+`taskkill /T` ile kapatıldı (sunucu `RunLevel=Highest` görevlerle başlıyor; `update.ps1` eğitim
+koşarken kasıtlı olarak hiçbir şey yapmıyor) → `ollama stop` ile model boşaltıldı → boş RAM
+0,4 → 10,0 GB. Eğitim hiç kesilmedi. Sonraki adımlar **3:33** ve **3:01** sürdü.
+
+**Ders:** uzun CPU eğitimi sırasında web panosu kapalı olmalı ya da en azından ingest/formül
+çıkarımı tetiklenmemeli. `train-doctor` bu yükü görmedi — yalnız koşunun kendi sağlığına
+bakıyor; "makinedeki başka bir LLM işi eğitimi yavaşlatıyor" kontrolü açık iş. Pano, eğitim
+bitince `HektorWeb` göreviyle açılır; formül çıkarımı kendiliğinden geri gelmez
+(`uv run hektor extract-formulas` ile bilinçli başlatılır).
 
 ---
 

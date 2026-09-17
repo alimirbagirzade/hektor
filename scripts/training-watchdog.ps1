@@ -28,7 +28,24 @@ try {
     $bm = if ($prop -contains "base_model") { [string]$status.base_model } else { "" }
     $prof = if ($prop -contains "profile" -and "$($status.profile)".Trim() -ne "") { [string]$status.profile } else { "discipline_safe_local" }
     $mx = if ($prop -contains "max_examples") { [int]$status.max_examples } else { 0 }
-    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -Resume
+    # KURTARMA YETKI KAPISI (fail-closed) -- 2026-09-16: web'den baslayip 0. adimda olen,
+    # kimsenin onaylamadigi bir kosunun durum dosyasi diskte kaldi; nobetci onu diriltti ve
+    # 5,5 saat onaysiz egitim kostu. Durum dosyasi KALICI YETKI DEGILDIR: asagidaki kontrol
+    # kosunun baslangicina denk gelen TUKETILMIS insan onayini, durum dosyasinin tazeligini
+    # ve verinin degismedigini dogrular. Kontrol calistirilamazsa da dirilme YOK (Kural 2).
+    $hektorExe = Join-Path $projectDir ".venv\Scripts\hektor.exe"
+    $recoveryOk = $false
+    if (Test-Path $hektorExe) {
+        & $hektorExe train-recovery-check --json | Out-Null
+        $recoveryOk = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $recoveryOk) { exit 0 }
+
+    # -Supervised: KURTARMA muafiyeti. Diriltilen kosu zaten insan onayiyla basladi ve o onay
+    # TUKETILDI (tek kullanimlik); ikinci kez onay istenirse coken egitim sessizce beklemede
+    # kalirdi. Yeni bir egitim baslatmak icin bu yol KULLANILMAZ -- yalniz durum dosyasi
+    # birakmis, onaylanmis ve cokmus bir kosu dirilir.
+    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -Resume -Supervised
 } finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()
