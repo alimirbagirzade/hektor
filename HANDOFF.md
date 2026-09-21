@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-17 (kurtarma yetkisi artık approval_id ile — zaman penceresi yalnız yedek · aynı gün: start-train.ps1/watchdog Kural 8 boşlukları kapandı · 2026-09-15: tekrar patolojisinin kökü)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-21 (v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -36,7 +36,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 |---|---|
 | Kapı (`make ci`) | **CI (Linux):** ✅ main'de yeşil — `1ceb867`, `e99a3bb`, `5841f7c` ve `4f32768` push koşuları success. 2026-09-07 ile 2026-09-13 arası kırmızıydı (`test_sentinel_autostart_probe` ×2; bkz. 2026-09-13 kaydı). **Yerel (Windows):** ✅ ruff format --check (429 dosya, app+tests) + ruff check + mypy (219 dosya) + pytest **2179 passed, 5 skipped, 4 deselected** (2026-09-16, `-m "not ollama"`, `4db170d` + Kademe 2 düzeltmeleri). **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
-| Son adapter | `hektor_lora_v8_4b` (600 adım, 39s 32dk, 2026-09-10 23:27) → **REJECT**, terfi ETMEDİ. Gerekçe aşağıda (2026-09-11 seansı). `hektor_lora_v9_4b` 2026-09-15'te başlatıldı ama 21/600 adımda askıya alınıp sonlandırıldı (checkpoint YOK) — veri düzeltildikten sonra baştan koşacak (2026-09-16 kaydı) |
+| Son adapter | **`hektor_lora_v9_4b` — eğitim TAMAMLANDI** (600/600 adım, 2026-09-17 10:16, checkpoint-600). `discipline_core` eval: **verdict=accept**, adapter 0.625 vs base 0.0 (bayrak 6/16 vs 16/16 — base dejenere). İnsan incelemesi: 6 bayraktan 5'i `ignores_costs` regex'inin dar kelime listesinden kaynaklı **yanlış pozitif**; tek gerçek eksik Q4. **Terfi ETMEDİ** — `accept` tek başına terfi gerekçesi değildir (Kural 2) ve `overfit_awareness` + `risk_management` v9 için HİÇ koşulmadı. Önceki `hektor_lora_v8_4b` (2026-09-10) → REJECT (2026-09-11 seansı) |
 | LLM | Yalnız yerel Ollama (`qwen3:4b-instruct-2507-q4_K_M` varsayılan, 2026-09-13'ten beri; önceki `qwen3:4b` = Thinking-2507). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
@@ -155,7 +155,74 @@ açmak sessiz çakışmaya yol açabiliyor. PR açmadan/merge etmeden önce `ori
 taze çekmek ve aynı alanda (burada: eğitim onay kapısı) yakın zamanda commit var mı
 diye bakmak ucuz bir kontrol.
 
-**Sıradaki:** v9 eğitimi hâlâ insan onayı bekliyor (bkz. altta "2026-09-16" kaydı §6).
+**Sıradaki:** v9 eğitimi tamamlandı ve `discipline_core`'dan `accept` aldı; sıradaki iş
+**terfi kararı için kalan eval setlerini koşmak** (`overfit_awareness`, `risk_management` —
+v9 için hiç koşulmadı). Ayrıntı: 2026-09-21 kaydı.
+
+---
+
+## Son seans — 2026-09-21: v9 durumu doğrulandı + eğitim-sonrası eval kapısı
+
+Dal: `claude/llm-egitim-testi-8838f0` · PR
+[#20](https://github.com/alimirbagirzade/hektor/pull/20).
+
+### 1. v9 aslında TAMAMLANMIŞ — HANDOFF bayattı
+
+HANDOFF "v9 21/600 adımda askıya alındı, checkpoint YOK" diyordu. Diskteki gerçek durum
+farklı: `models/adapters/hektor_lora_v9_4b` içinde **checkpoint-550/575/600 + 132 MB tam
+ağırlık**, bitiş **2026-09-17 10:16**. Yani v9 temiz veriyle baştan koşturulmuş ve bitmiş;
+HANDOFF o koşu kaydedilmeden bırakılmış. 2026-09-16 kaydının §1'ine düzeltme notu eklendi.
+
+**Ders:** durum belgesi ile diskin/kayıt defterinin çeliştiği yerde belgeye değil **ölçülen
+duruma** güven; adapter klasörünün zaman damgası + `reports/evals/` ucuz bir kontroldür.
+
+### 2. v9 eval sonucu: `accept`, ama terfi DEĞİL
+
+`reports/evals/adapter_eval_hektor_lora_v9_4b_discipline_core.json` (2026-09-17 11:26):
+
+| Ölçüm | Base | v9 adapter |
+|---|---|---|
+| score | 0.0 | **0.625** |
+| bayrak | 16/16 (dejenere) | 6/16 |
+| regression | — | false |
+| verdict | — | **accept** |
+
+v8 REJECT almıştı; **v9 kapıyı geçen ilk adapter**. Kayıt defterindeki insan incelemesi notu
+(2026-09-17) 16 cevabın tamamının okunduğunu, dejenerasyon/tavsiye dili bulunmadığını ve
+6 bayraktan **5'inin yanlış pozitif** olduğunu söylüyor: `evaluate_model.ignores_costs` regex'i
+yalnız `spread|slip|komisyon|commission` arıyor, cevaplardaki genel "maliyetleri dahil"
+ifadesini görmüyor. Tek gerçek eksik Q4.
+
+**Terfi ETMEDİ ve edilmemeli:** `accept` tek başına gerekçe değildir (Kural 2), üstelik
+`overfit_awareness` ve `risk_management` v9 için **hiç koşulmadı**.
+
+> **Çözülmesi gereken tutarsızlık:** kayıt defterinde v9'un `status` alanı `production`
+> görünüyor ama aynı kaydın notu "EVAL_PASSED'e çekildi · PRODUCTION terfisi hâlâ ayrı, açık
+> insan onayı gerektirir" diyor (`approved_by_user=True`). Alan ile not çelişiyor — terfi
+> kararı verilmeden önce hangisinin doğru olduğu netleştirilmeli.
+
+### 3. Eğitim-sonrası eval kapısı eklendi (PR #20)
+
+Mevcut setler (`discipline_core`/`overfit_awareness`/`risk_management`) yalnız **kötü** cevabı
+`must_avoid` ile yakalıyordu. Ölçülmeyen üç boyut için set + değerlendirici eklendi:
+
+| Set | Kalem | Ölçtüğü |
+|---|---|---|
+| `evals/trader_persona.jsonl` | 16 | belirsizlik / maliyet / risk / kaynak sinyalleri |
+| `evals/format_compliance.jsonl` | 12 | hipotez · test · risk · maliyet · koşul bölümleri |
+| `evals/rag_integration.jsonl` | 12 | 9 bağlamlı + **3 boş bağlamlı** (Kural 7 doğrudan ölçülür) |
+
+`app/evals/llm_training_eval.py` üç ayrı skor üretir ve mevcut `check_flags` disiplin
+bayraklarıyla birleştirir (garanti dedektörü kopyalanmaz). **LLM çağırmaz** — cevap dışarıdan
+verilir, böylece çevrimdışı test edilir. 29 test, tamamı çevrimdışı.
+
+**Uyarı:** bu değerlendirici `check_flags`'i yeniden kullandığı için §2'deki `ignores_costs`
+yanlış-pozitifini de **devralır**. Skorları okurken bu payı düş; regex'i düzeltmek ayrı iş.
+
+Ollama base modeliyle uçtan uca doğrulandı: base cevapları "Elbette." diye başlayıp ders
+kitabı anlatıyor, hipotez/test çerçevesi kurmuyor → eval bunu `persona=0.5`, eksik
+`hipotez`/`test` olarak doğru yakalıyor. Yani kapı ayrım üretiyor. **v9 adapter'ı bu üç yeni
+setten HENÜZ geçirilmedi** (worktree `.venv`'inde `torch` yok; ana checkout'tan koşulmalı).
 
 ---
 
@@ -166,6 +233,11 @@ Dal: `claude/burda-rag-qlora-training-ce0521`. Tam rapor bu makinede **yerel**:
 edilmez, özet buraya yazılır). Aşağısı o raporun özetidir.
 
 ### 1. Yarım kalan v9 koşusu sonlandırıldı
+> **Sonradan düzeltme (2026-09-21):** bu kayıt yalnız 2026-09-15'teki YARIM koşu içindir.
+> v9 temiz veriyle **baştan koşturuldu ve 2026-09-17 10:16'da 600/600 tamamlandı**
+> (checkpoint-600 + tam ağırlık). Aşağıdaki "checkpoint yok" ifadesi o eski koşuya aittir;
+> güncel durum en üstteki "Son adapter" satırında ve 2026-09-17 kaydındadır.
+
 2026-09-15 14:06'da başlatılan `hektor_lora_v9_4b` (600 adım) 17:54'te RAG üretimine CPU
 açmak için **askıya alınmış** (`NtSuspendProcess`), 21/600 adımda donmuştu; checkpoint yok
 (adapter klasörü boş). Kullanıcı kararıyla sonlandırıldı → v9 temiz veriyle baştan koşacak.
@@ -218,7 +290,7 @@ eğitim de bu dalın kodundan koşacak ki düzeltmeler fiilen eğitilen veriye g
 | `lora-audit` | **passed** — 236/236 kart onaylı, 0 red (42 "gözden geçir") |
 | Veri doğrulaması | grup e-postası **0** (öncesi 28) · disiplin 484/484 `skeleton_id` · uyumsuz soru-cevap **0** (öncesi ~147) |
 | Onay | `apr_2410dd477207` — istek `train --run` (SUPERVISED'sız) kapısıyla açıldı, **insan onayladı** (2026-09-16 07:30 UTC), eğitim başlarken **tüketildi** (07:40:54 UTC) |
-| Eğitim | **KOŞUYOR** — `hektor_lora_v9_4b`, 600 örnek × 1 epoch, `discipline_safe_local`, bf16/CPU; 2026-09-16 10:40 (yerel) başladı, train=1820 valid=117. Log: `logs/train-v9.log` + `logs/train-v9-err.log` |
+| Eğitim | **TAMAMLANDI** — `hektor_lora_v9_4b`, 600 örnek × 1 epoch, `discipline_safe_local`, bf16/CPU; train=1820 valid=117; 600/600 adım, **2026-09-17 10:16 bitti** (checkpoint-550/575/600). Log: `logs/train-v9.log` + `logs/train-v9-err.log` |
 
 **Eğitimi başlatmak için (insan):**
 ```bash
