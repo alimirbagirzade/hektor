@@ -67,9 +67,10 @@ def test_persona_eksik_sinyal() -> None:
     assert len(missing) > 0
 
 
-def test_persona_bos_sinyal_listesi() -> None:
+def test_persona_bos_sinyal_listesi_olculmedi_sayilir() -> None:
+    # 1.0 DEĞİL None: hiç kontrol yapmadan "mükemmel" raporlamak vacuous pass olur.
     score, missing = check_persona("herhangi bir cevap", [])
-    assert score == 1.0
+    assert score is None
     assert missing == []
 
 
@@ -117,9 +118,9 @@ def test_format_eksik_bolum() -> None:
     assert "hipotez" in missing or "risk" in missing or "maliyet" in missing
 
 
-def test_format_bos_gereksinim() -> None:
+def test_format_bos_gereksinim_olculmedi_sayilir() -> None:
     score, missing = check_format("herhangi bir cevap", [])
-    assert score == 1.0
+    assert score is None
     assert missing == []
 
 
@@ -180,7 +181,7 @@ def test_context_empty_context_fabrication() -> None:
     assert any("abstention_missing" in f for f in flags)
 
 
-def test_context_none_mode() -> None:
+def test_context_none_mode_olculmedi_sayilir() -> None:
     score, flags = check_context_usage(
         "herhangi bir cevap",
         context_mode=None,
@@ -188,8 +189,28 @@ def test_context_none_mode() -> None:
         must_contain=[],
         must_avoid=[],
     )
-    assert score == 1.0
+    assert score is None
     assert flags == []
+
+
+def test_context_mod_var_ama_kontrol_yoksa_olculmedi_sayilir() -> None:
+    # Mod tanımlı ama hiç kontrol terimi yok → ölçülecek bir şey yok, 1.0 sayılamaz.
+    with_ctx, _ = check_context_usage(
+        "cevap",
+        context_mode="with_context",
+        must_contain_from_context=[],
+        must_contain=[],
+        must_avoid=[],
+    )
+    empty_ctx, _ = check_context_usage(
+        "cevap",
+        context_mode="empty_context",
+        must_contain_from_context=[],
+        must_contain=[],
+        must_avoid=[],
+    )
+    assert with_ctx is None
+    assert empty_ctx is None
 
 
 # ─── Entegre evaluate_answer ─────────────────────────────────────────────
@@ -258,7 +279,60 @@ def test_evaluate_answer_rag_empty_context_fabrication() -> None:
     assert any("fabrication" in f for f in result.flags)
 
 
+def test_evaluate_answer_olculmeyen_boyut_none(tmp_path: Path) -> None:
+    # Yalnız persona ölçen kalem: format/bağlam "mükemmel" değil, ÖLÇÜLMEMİŞ olmalı.
+    item = TrainingEvalItem(question="soru?", persona_signals=["belirsizlik"])
+    result = evaluate_answer(item, "Bu bir hipotez, test edilmeli.")
+    assert result.persona_score == 1.0
+    assert result.format_score is None
+    assert result.context_score is None
+
+
 # ─── Toplu eval koşusu ──────────────────────────────────────────────────
+
+
+def test_ozet_olculmeyen_boyutu_vacuous_1_0_raporlamaz(tmp_path: Path) -> None:
+    """Regresyon: `trader_persona` koşusunda format/bağlam 1.00 görünüyordu.
+
+    Set bu iki boyutu HİÇ ölçmediği hâlde ortalama 1.0 çıkıyordu (her kalem vacuous 1.0
+    döndürdüğü için) → raporu okuyan "format uyumu mükemmel" sanıyordu. `eval_runner`
+    boş seti nasıl vacuous pass saymıyorsa burada da ölçülmeyen boyut None olmalı.
+    """
+    eval_file = tmp_path / "yalniz_persona.jsonl"
+    eval_file.write_text(
+        '{"question": "EMA kârlı mı?", "persona_signals": ["belirsizlik"]}\n'
+        '{"question": "RSI güvenilir mi?", "persona_signals": ["belirsizlik"]}\n',
+        encoding="utf-8",
+    )
+    summary = run_training_eval(
+        eval_file, ["Bu bir hipotez, test edilmeli.", "Hipotez olarak test edilmeli."]
+    )
+
+    assert summary.avg_persona == 1.0
+    assert summary.avg_format is None
+    assert summary.avg_context is None
+    assert summary.measured == {"persona": 2, "format": 0, "context": 0}
+
+    d = summary.to_dict()
+    assert d["avg_format"] is None
+    assert d["measured"]["format"] == 0
+
+
+def test_ozet_ortalamasi_yalniz_olcen_kalemler_uzerinden(tmp_path: Path) -> None:
+    """Karışık sette ortalama, boyutu ölçmeyen kalemlerle SULANDIRILMAMALI."""
+    eval_file = tmp_path / "karisik.jsonl"
+    eval_file.write_text(
+        # 1: persona ölçer ve KALIR (0.0)
+        '{"question": "q1", "persona_signals": ["maliyet"]}\n'
+        # 2: persona ölçMEZ — ortalamaya hiç girmemeli
+        '{"question": "q2"}\n',
+        encoding="utf-8",
+    )
+    summary = run_training_eval(eval_file, ["EMA crossover yukari keser.", "herhangi"])
+
+    # Yalnız 1. kalem ölçüldü ve 0.0 aldı → ortalama 0.0 (2'ye bölünüp 0.5 OLMAMALI).
+    assert summary.avg_persona == 0.0
+    assert summary.measured["persona"] == 1
 
 
 def test_run_training_eval_trader_persona(tmp_path: Path) -> None:
