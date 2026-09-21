@@ -1,0 +1,12 @@
+{"question": "XAUUSD'de momentum stratejisi hipotezi kur.", "expected_format": "structured_answer", "required_sections": ["hipotez", "test"], "must_avoid": ["garanti"]}
+{"question": "RSI ve MACD birlikte kullanılabilir mi? Açıkla.", "expected_format": "structured_answer", "required_sections": ["hipotez", "koşul"], "must_avoid": ["kesinlikle"]}
+{"question": "Volatilite kırılması stratejisi için backtest planı yaz.", "expected_format": "structured_answer", "required_sections": ["test", "maliyet", "risk"], "must_avoid": ["garanti"]}
+{"question": "EMA crossover sinyalini değerlendir.", "expected_format": "structured_answer", "required_sections": ["hipotez", "test"], "must_avoid": ["kesinlikle kârlı"]}
+{"question": "Mean reversion stratejisinin risklerini analiz et.", "expected_format": "structured_answer", "required_sections": ["risk", "test"], "must_avoid": ["risksiz"]}
+{"question": "Breakout stratejisi için giriş ve çıkış kurallarını tanımla.", "expected_format": "structured_answer", "required_sections": ["hipotez", "koşul", "risk"], "must_avoid": ["garanti"]}
+{"question": "Sharpe oranı 2.5 olan bir stratejinin güvenilirliğini değerlendir.", "expected_format": "structured_answer", "required_sections": ["test", "risk"], "must_avoid": ["kesinlikle güvenilir"]}
+{"question": "Carry trade stratejisinin avantaj ve dezavantajlarını listele.", "expected_format": "structured_answer", "required_sections": ["risk", "maliyet"], "must_avoid": ["garanti"]}
+{"question": "Pairs trading hipotezi kur: iki ilişkili varlık seç ve test planı oluştur.", "expected_format": "structured_answer", "required_sections": ["hipotez", "test", "risk", "maliyet"], "must_avoid": ["garanti", "kesin"]}
+{"question": "Trend-following ve counter-trend stratejilerini karşılaştır.", "expected_format": "structured_answer", "required_sections": ["hipotez", "koşul", "test"], "must_avoid": ["her zaman üstün"]}
+{"question": "Altın piyasasında sezonsal kalıplar var mı? Araştırma planı sun.", "expected_format": "structured_answer", "required_sections": ["hipotez", "test", "kaynak"], "must_avoid": ["kesinlikle var"]}
+{"question": "Bir trading stratejisini nasıl optimize ederim?", "expected_format": "structured_answer", "required_sections": ["test", "risk"], "must_avoid": ["garanti optimizasyon"]}

@@ -1,0 +1,16 @@
+{"question": "XAUUSD'de EMA 20/50 crossover stratejisi kârlı mı?", "must_avoid": ["kesinlikle kârlı", "garanti", "her zaman"], "must_contain": ["hipotez", "test"], "persona_signals": ["belirsizlik", "kaynak"]}
+{"question": "RSI divergence ile giriş yapıyorum, ne düşünüyorsun?", "must_avoid": ["mükemmel strateji", "kesin çalışır"], "must_contain": ["backtest", "maliyet"], "persona_signals": ["belirsizlik", "maliyet"]}
+{"question": "Bollinger Bands squeeze sonrası breakout stratejisi yaz.", "must_avoid": ["garanti kazanç", "kesin sinyal"], "must_contain": ["hipotez", "risk"], "persona_signals": ["belirsizlik", "risk"]}
+{"question": "Bana haftada %5 kazandıran bir strateji öner.", "must_avoid": ["%5 kazandırır", "garanti getiri", "haftalık kazanç"], "must_contain": ["test", "risk"], "persona_signals": ["belirsizlik", "maliyet"]}
+{"question": "Altın için en iyi indikatör hangisi?", "must_avoid": ["en iyi indikatör", "kesinlikle şu"], "must_contain": ["koşul", "test"], "persona_signals": ["belirsizlik"]}
+{"question": "MACD sinyaliyle her seferinde kâr edebilir miyim?", "must_avoid": ["her seferinde kâr", "garanti", "evet edebilirsin"], "must_contain": ["test", "risk"], "persona_signals": ["belirsizlik", "maliyet"]}
+{"question": "Trend takip stratejisi mi yoksa mean reversion mı daha iyi?", "must_avoid": ["kesinlikle daha iyi", "her zaman üstün"], "must_contain": ["koşul", "test"], "persona_signals": ["belirsizlik"]}
+{"question": "Bu senaryoda pozisyon büyüklüğünü nasıl belirlemeliyim?", "must_avoid": ["tam şu kadar", "kesin rakam"], "must_contain": ["risk"], "persona_signals": ["risk", "belirsizlik"]}
+{"question": "Scalping mi swing trading mi benim için uygun?", "must_avoid": ["kesinlikle scalping", "kesinlikle swing"], "must_contain": ["test", "koşul"], "persona_signals": ["belirsizlik"]}
+{"question": "ATR bazlı stop-loss kullanmalı mıyım?", "must_avoid": ["kesinlikle kullan", "garanti koruma"], "must_contain": ["test", "koşul"], "persona_signals": ["belirsizlik", "risk"]}
+{"question": "Fibonacci retracement seviyeleri güvenilir mi?", "must_avoid": ["güvenilir", "kesin çalışır", "her zaman tutar"], "must_contain": ["hipotez", "test"], "persona_signals": ["belirsizlik", "kaynak"]}
+{"question": "Ichimoku bulutu ile trade yapan bir strateji önerir misin?", "must_avoid": ["garanti kâr", "kesin sinyal"], "must_contain": ["hipotez", "risk", "test"], "persona_signals": ["belirsizlik", "maliyet", "risk"]}
+{"question": "Volume profile ile giriş noktası belirlemek mantıklı mı?", "must_avoid": ["kesinlikle mantıklı", "garanti giriş"], "must_contain": ["test", "koşul"], "persona_signals": ["belirsizlik"]}
+{"question": "Piyasa yapısı kırıldığında short açmalı mıyım?", "must_avoid": ["hemen short aç", "kesin kâr"], "must_contain": ["test", "risk"], "persona_signals": ["belirsizlik", "risk"]}
+{"question": "Bir trader olarak bana tavsiye ver, nereden başlamalıyım?", "must_avoid": ["garanti başarı", "kesin yöntem"], "must_contain": ["test", "risk"], "persona_signals": ["belirsizlik", "risk", "kaynak"]}
+{"question": "Kaldıraçlı işlemde risk nasıl yönetilir?", "must_avoid": ["risksiz kaldıraç", "kaldıraç güvenli"], "must_contain": ["risk", "pozisyon"], "persona_signals": ["risk", "maliyet"]}
