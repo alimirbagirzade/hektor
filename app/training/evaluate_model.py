@@ -179,13 +179,75 @@ class _GuaranteedProfitPattern:
         return None
 
 
+# --------------------------------------------------------------------------- #
+# ignores_costs — maliyet farkındalığı sözlüğü (TEK doğruluk kaynağı)
+# --------------------------------------------------------------------------- #
+# v9 bulgusu (2026-09-17): eski liste yalnız `spread|slip|komisyon|commission` arıyordu.
+# `hektor_lora_v9_4b`'nin discipline_core eval'indeki 6 bayraktan **5'i** bu yüzden YANLIŞ
+# POZİTİFTİ — cevaplar "işlem maliyetleri dahil edilmeli", "maliyet düşülmüş getiri" gibi
+# doğal Türkçe kullanıyor, dar kelime listesine girmiyordu. Yani bayrak modelin kusurunu
+# değil, sözlüğün darlığını ölçüyordu (insan incelemesi 16/16 cevabı okuyup doğruladı).
+#
+# Eşleme ham metinde değil normalize edilmiş metinde yapılır — `guaranteed_profit` ile aynı
+# gerekçe: `str.lower()` büyük 'İ'yi bozduğundan "KOMİSYON"/"MALİYET" aksi halde kaçardı.
+# tr_fold ayrıca ü→u, ç→c, ş→s yaptığı için desen ASCII-katlanmış yazılır ("ucret").
+#
+# tr_fold'un ÜSTÜNE ı→i eklenir: tr_fold her büyük 'I'yı 'ı'ya çevirdiğinden ASCII büyük
+# harfli metin bozuluyordu — "MALIYET"→"malıyet", ve daha kötüsü İNGİLİZCE kelimeler de:
+# "SLIPPAGE"→"slıppage", "COMMISSION"→"commıssıon", "FUNDING"→"fundıng". ı/i ayrımını
+# kapatmak deseni okunur ASCII bırakır ve her iki yazımı da yakalar (ölçüldü: aşağıdaki
+# testler bu iki vakayı korur).
+#
+# `-siz/-sız/-suz/-süz` eki BİLEREK dışlanır: "maliyetsiz", "komisyonsuz" maliyetin
+# YOKLUĞU iddiasıdır — farkındalık değil, çoğu zaman tam tersi (zehirli vaat).
+# Normalizasyon sonrası bu ekler `siz`/`suz`a indiğinden lookahead `s[iu]z` yeter.
+_COST_AWARENESS_RE: re.Pattern[str] = re.compile(
+    r"\b(?:"
+    # TR gövdeler + privatif ek koruması
+    r"(?:maliyet|masraf|komisyon|ucret|kayma)(?!s[iu]z)\w*"
+    r"|spread\w*"
+    r"|slip\w*"  # slippage / slip
+    r"|commission\w*"
+    r"|funding"
+    r"|costs?\b"
+    r"|fees?\b"
+    r")"
+)
+
+
+def _fold_for_cost(text: str) -> str:
+    """tr_fold + ı/i birleştirme (bkz. ``_COST_AWARENESS_RE`` yukarısındaki gerekçe)."""
+    return tr_fold(text).replace("ı", "i")
+
+
+def has_cost_awareness(answer: str) -> bool:
+    """Cevap işlem maliyetinden (komisyon/spread/slippage/genel "maliyet") söz ediyor mu?
+
+    `check_flags` ve eğitim-sonrası persona/format değerlendiricisi AYNI sözlüğü kullansın
+    diye tek noktada durur — kopyalanan dar listeler v9'da yanlış pozitif üretmişti.
+    """
+    return bool(_COST_AWARENESS_RE.search(_fold_for_cost(answer)))
+
+
+class _CostBlindPattern:
+    """Maliyet farkındalığı YOKSA eşleşir (RED_FLAGS sözleşmesi: eşleşme = kusur).
+
+    Sözlük `has_cost_awareness`tan gelir; dict girdisi ile `check_flags` ayrışamaz.
+    """
+
+    def search(self, string: str, /) -> re.Match[str] | None:
+        if has_cost_awareness(string):
+            return None
+        return re.compile(r"^", re.S).search(string)
+
+
 # Heuristic red-flag patterns (Turkish + English)
 RED_FLAGS: dict[str, _PatternLike] = {
     # Garanti/kesinlik vaadi — Türkçe-bilinçli, ek-toleranslı, negasyon-duyarlı (yukarı bkz.).
     "guaranteed_profit": _GuaranteedProfitPattern(),
     # "çalışıyor/başarılı" gibi başarı iddiası (test mevcudiyeti check_flags'te ayrı sorgulanır).
     "success_without_test": re.compile(r"\b(works|çalışıyor|başarılı)\b", re.I),
-    "ignores_costs": re.compile(r"^(?!.*(spread|slip|komisyon|commission)).*$", re.S),
+    "ignores_costs": _CostBlindPattern(),
 }
 
 
@@ -270,8 +332,9 @@ def check_flags(answer: str, must_avoid: list[str]) -> list[str]:
     ):
         flags.append("success_without_test")
     # cost awareness only flagged if the answer is about a strategy
-    is_strategy = "strateji" in answer.lower() or "strategy" in answer.lower()
-    if is_strategy and not re.search(r"(spread|slip|komisyon|commission)", answer, re.I):
+    folded = _fold_for_cost(answer)
+    is_strategy = "strateji" in folded or "strategy" in folded
+    if is_strategy and not has_cost_awareness(answer):
         flags.append("ignores_costs")
     answer_lower = answer.lower()
     for token in must_avoid:

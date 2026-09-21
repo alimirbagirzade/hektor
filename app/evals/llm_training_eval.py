@@ -14,53 +14,70 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.training.evaluate_model import check_flags
+from app.training.evaluate_model import check_flags, has_cost_awareness
+
+
+def _matcher(pattern: re.Pattern[str]) -> Callable[[str], bool]:
+    return lambda answer: bool(pattern.search(answer))
+
 
 # ---------------------------------------------------------------------------
 # Persona sinyalleri — trader'a özgü davranış kalıpları
 # ---------------------------------------------------------------------------
-PERSONA_SIGNALS: dict[str, re.Pattern[str]] = {
-    "belirsizlik": re.compile(
-        r"(hipotez|olabilir|muhtemel|belirsiz|test\s+edil|denenm|"
-        r"garanti\s+(?:edilemez|verilemez)|kesinlik\s+(?:yoktur|sağlanamaz)|"
-        r"koşullara\s+bağlı|hypothesis|uncertain|may\b|might\b|could\b)",
-        re.I,
+# Sinyaller yüklem (str -> bool) olarak tutulur, düz regex olarak değil: "maliyet"
+# `evaluate_model.has_cost_awareness`a bağlanır (tr_fold'lu, privatif-ek korumalı) ve
+# böylece maliyet sözlüğü `check_flags` ile AYRIŞAMAZ. Kopyalanan dar listeler v9'da
+# 6 bayraktan 5'ini yanlış pozitif üretmişti.
+PERSONA_SIGNALS: dict[str, Callable[[str], bool]] = {
+    "belirsizlik": _matcher(
+        re.compile(
+            r"(hipotez|olabilir|muhtemel|belirsiz|test\s+edil|denenm|"
+            r"garanti\s+(?:edilemez|verilemez)|kesinlik\s+(?:yoktur|sağlanamaz)|"
+            r"koşullara\s+bağlı|hypothesis|uncertain|may\b|might\b|could\b)",
+            re.I,
+        )
     ),
-    "maliyet": re.compile(
-        r"(komisyon|spread|slippage|maliyet|kayma|işlem\s+(?:ücreti|maliyeti)|"
-        r"commission|transaction\s+cost)",
-        re.I,
+    "maliyet": has_cost_awareness,
+    "risk": _matcher(
+        re.compile(
+            r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss|pozisyon\s+büyüklüğü|"
+            r"risk[\s-]?yönetim|risk\s+management|max\s+loss)",
+            re.I,
+        )
     ),
-    "risk": re.compile(
-        r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss|pozisyon\s+büyüklüğü|"
-        r"risk[\s-]?yönetim|risk\s+management|max\s+loss)",
-        re.I,
-    ),
-    "kaynak": re.compile(
-        r"(kaynak|makale|çalışma|araştırma|literatur|paper|study|research|"
-        r"source|reference|according\s+to)",
-        re.I,
+    "kaynak": _matcher(
+        re.compile(
+            r"(kaynak|makale|çalışma|araştırma|literatur|paper|study|research|"
+            r"source|reference|according\s+to)",
+            re.I,
+        )
     ),
 }
 
 # ---------------------------------------------------------------------------
 # Format bölüm anahtar kelimeleri — cevabın yapısal bütünlüğü
 # ---------------------------------------------------------------------------
-SECTION_KEYWORDS: dict[str, re.Pattern[str]] = {
-    "hipotez": re.compile(r"(hipotez|hypothesis|varsayım|iddia|tez)", re.I),
-    "test": re.compile(
-        r"(test|backtest|out[\s-]?of[\s-]?sample|oos|walk[\s-]?forward|doğrula|valida)", re.I
+SECTION_KEYWORDS: dict[str, Callable[[str], bool]] = {
+    "hipotez": _matcher(re.compile(r"(hipotez|hypothesis|varsayım|iddia|tez)", re.I)),
+    "test": _matcher(
+        re.compile(
+            r"(test|backtest|out[\s-]?of[\s-]?sample|oos|walk[\s-]?forward|doğrula|valida)",
+            re.I,
+        )
     ),
-    "risk": re.compile(r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss)", re.I),
-    "maliyet": re.compile(r"(maliyet|komisyon|spread|slippage|commission|cost|kayma)", re.I),
-    "koşul": re.compile(
-        r"(koşul|şart|condition|bağlı|depend|varsayım|assumption|sınırlama|limit)", re.I
+    "risk": _matcher(re.compile(r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss)", re.I)),
+    "maliyet": has_cost_awareness,
+    "koşul": _matcher(
+        re.compile(r"(koşul|şart|condition|bağlı|depend|varsayım|assumption|sınırlama|limit)", re.I)
     ),
-    "kaynak": re.compile(r"(kaynak|referans|makale|çalışma|source|reference|paper)", re.I),
+    "kaynak": _matcher(
+        re.compile(r"(kaynak|referans|makale|çalışma|source|reference|paper)", re.I)
+    ),
 }
 
 
@@ -131,8 +148,8 @@ def check_persona(answer: str, required_signals: list[str]) -> tuple[float | Non
     found = 0
     missing: list[str] = []
     for sig in required_signals:
-        pattern = PERSONA_SIGNALS.get(sig)
-        if pattern and pattern.search(answer):
+        matches = PERSONA_SIGNALS.get(sig)
+        if matches and matches(answer):
             found += 1
         else:
             missing.append(sig)
@@ -150,8 +167,8 @@ def check_format(answer: str, required_sections: list[str]) -> tuple[float | Non
     found = 0
     missing: list[str] = []
     for sec in required_sections:
-        pattern = SECTION_KEYWORDS.get(sec)
-        if pattern and pattern.search(answer):
+        matches = SECTION_KEYWORDS.get(sec)
+        if matches and matches(answer):
             found += 1
         else:
             missing.append(sec)
