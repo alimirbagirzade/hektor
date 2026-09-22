@@ -14,53 +14,70 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.training.evaluate_model import check_flags
+from app.training.evaluate_model import check_flags, has_cost_awareness
+
+
+def _matcher(pattern: re.Pattern[str]) -> Callable[[str], bool]:
+    return lambda answer: bool(pattern.search(answer))
+
 
 # ---------------------------------------------------------------------------
 # Persona sinyalleri — trader'a özgü davranış kalıpları
 # ---------------------------------------------------------------------------
-PERSONA_SIGNALS: dict[str, re.Pattern[str]] = {
-    "belirsizlik": re.compile(
-        r"(hipotez|olabilir|muhtemel|belirsiz|test\s+edil|denenm|"
-        r"garanti\s+(?:edilemez|verilemez)|kesinlik\s+(?:yoktur|sağlanamaz)|"
-        r"koşullara\s+bağlı|hypothesis|uncertain|may\b|might\b|could\b)",
-        re.I,
+# Sinyaller yüklem (str -> bool) olarak tutulur, düz regex olarak değil: "maliyet"
+# `evaluate_model.has_cost_awareness`a bağlanır (tr_fold'lu, privatif-ek korumalı) ve
+# böylece maliyet sözlüğü `check_flags` ile AYRIŞAMAZ. Kopyalanan dar listeler v9'da
+# 6 bayraktan 5'ini yanlış pozitif üretmişti.
+PERSONA_SIGNALS: dict[str, Callable[[str], bool]] = {
+    "belirsizlik": _matcher(
+        re.compile(
+            r"(hipotez|olabilir|muhtemel|belirsiz|test\s+edil|denenm|"
+            r"garanti\s+(?:edilemez|verilemez)|kesinlik\s+(?:yoktur|sağlanamaz)|"
+            r"koşullara\s+bağlı|hypothesis|uncertain|may\b|might\b|could\b)",
+            re.I,
+        )
     ),
-    "maliyet": re.compile(
-        r"(komisyon|spread|slippage|maliyet|kayma|işlem\s+(?:ücreti|maliyeti)|"
-        r"commission|transaction\s+cost)",
-        re.I,
+    "maliyet": has_cost_awareness,
+    "risk": _matcher(
+        re.compile(
+            r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss|pozisyon\s+büyüklüğü|"
+            r"risk[\s-]?yönetim|risk\s+management|max\s+loss)",
+            re.I,
+        )
     ),
-    "risk": re.compile(
-        r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss|pozisyon\s+büyüklüğü|"
-        r"risk[\s-]?yönetim|risk\s+management|max\s+loss)",
-        re.I,
-    ),
-    "kaynak": re.compile(
-        r"(kaynak|makale|çalışma|araştırma|literatur|paper|study|research|"
-        r"source|reference|according\s+to)",
-        re.I,
+    "kaynak": _matcher(
+        re.compile(
+            r"(kaynak|makale|çalışma|araştırma|literatur|paper|study|research|"
+            r"source|reference|according\s+to)",
+            re.I,
+        )
     ),
 }
 
 # ---------------------------------------------------------------------------
 # Format bölüm anahtar kelimeleri — cevabın yapısal bütünlüğü
 # ---------------------------------------------------------------------------
-SECTION_KEYWORDS: dict[str, re.Pattern[str]] = {
-    "hipotez": re.compile(r"(hipotez|hypothesis|varsayım|iddia|tez)", re.I),
-    "test": re.compile(
-        r"(test|backtest|out[\s-]?of[\s-]?sample|oos|walk[\s-]?forward|doğrula|valida)", re.I
+SECTION_KEYWORDS: dict[str, Callable[[str], bool]] = {
+    "hipotez": _matcher(re.compile(r"(hipotez|hypothesis|varsayım|iddia|tez)", re.I)),
+    "test": _matcher(
+        re.compile(
+            r"(test|backtest|out[\s-]?of[\s-]?sample|oos|walk[\s-]?forward|doğrula|valida)",
+            re.I,
+        )
     ),
-    "risk": re.compile(r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss)", re.I),
-    "maliyet": re.compile(r"(maliyet|komisyon|spread|slippage|commission|cost|kayma)", re.I),
-    "koşul": re.compile(
-        r"(koşul|şart|condition|bağlı|depend|varsayım|assumption|sınırlama|limit)", re.I
+    "risk": _matcher(re.compile(r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss)", re.I)),
+    "maliyet": has_cost_awareness,
+    "koşul": _matcher(
+        re.compile(r"(koşul|şart|condition|bağlı|depend|varsayım|assumption|sınırlama|limit)", re.I)
     ),
-    "kaynak": re.compile(r"(kaynak|referans|makale|çalışma|source|reference|paper)", re.I),
+    "kaynak": _matcher(
+        re.compile(r"(kaynak|referans|makale|çalışma|source|reference|paper)", re.I)
+    ),
 }
 
 
@@ -86,9 +103,10 @@ class TrainingEvalResult:
     question: str
     answer: str
     flags: list[str] = field(default_factory=list)
-    persona_score: float = 0.0
-    format_score: float = 0.0
-    context_score: float = 0.0
+    # ``None`` = bu kalem o boyutu ÖLÇMÜYOR (0.0 "kaldı" demek, None "ölçülmedi" demek).
+    persona_score: float | None = None
+    format_score: float | None = None
+    context_score: float | None = None
     passed: bool = False
 
 
@@ -118,36 +136,39 @@ def load_training_eval_set(path: str | Path) -> list[TrainingEvalItem]:
     return items
 
 
-def check_persona(answer: str, required_signals: list[str]) -> tuple[float, list[str]]:
+def check_persona(answer: str, required_signals: list[str]) -> tuple[float | None, list[str]]:
     """Cevabın trader persona sinyallerini taşıyıp taşımadığını kontrol et.
 
-    Dönüş: (skor 0.0-1.0, eksik sinyaller listesi).
+    Dönüş: (skor 0.0-1.0, eksik sinyaller listesi). Kalem persona ölçMÜyorsa skor
+    ``None``'dır — 1.0 DEĞİL: hiç kontrol yapmadan "mükemmel" raporlamak vacuous pass olur
+    (bkz. ``eval_runner`` boş-set koruması, Kural 2).
     """
     if not required_signals:
-        return 1.0, []
+        return None, []
     found = 0
     missing: list[str] = []
     for sig in required_signals:
-        pattern = PERSONA_SIGNALS.get(sig)
-        if pattern and pattern.search(answer):
+        matches = PERSONA_SIGNALS.get(sig)
+        if matches and matches(answer):
             found += 1
         else:
             missing.append(sig)
     return round(found / len(required_signals), 4), missing
 
 
-def check_format(answer: str, required_sections: list[str]) -> tuple[float, list[str]]:
+def check_format(answer: str, required_sections: list[str]) -> tuple[float | None, list[str]]:
     """Cevabın istenen bölüm/kavramları içerip içermediğini kontrol et.
 
-    Dönüş: (skor 0.0-1.0, eksik bölümler listesi).
+    Dönüş: (skor 0.0-1.0, eksik bölümler listesi). Kalem format ölçMÜyorsa skor ``None``
+    (gerekçe: bkz. ``check_persona``).
     """
     if not required_sections:
-        return 1.0, []
+        return None, []
     found = 0
     missing: list[str] = []
     for sec in required_sections:
-        pattern = SECTION_KEYWORDS.get(sec)
-        if pattern and pattern.search(answer):
+        matches = SECTION_KEYWORDS.get(sec)
+        if matches and matches(answer):
             found += 1
         else:
             missing.append(sec)
@@ -161,18 +182,21 @@ def check_context_usage(
     must_contain_from_context: list[str],
     must_contain: list[str],
     must_avoid: list[str],
-) -> tuple[float, list[str]]:
+) -> tuple[float | None, list[str]]:
     """RAG bağlam kullanımını kontrol et.
 
     ``with_context``: bağlamdan beklenen terimlerin cevaba geçip geçmediği.
     ``empty_context``: bağlam yoksa modelin uydurmayıp açıkça belirtip belirtmediği.
+
+    Kalem bağlam ölçMÜyorsa (mod yok ya da mod var ama hiç kontrol tanımlı değil) skor
+    ``None`` (gerekçe: bkz. ``check_persona``).
     """
     flags: list[str] = []
     answer_lower = answer.lower()
 
     if context_mode == "with_context":
         if not must_contain_from_context:
-            return 1.0, flags
+            return None, flags
         found = 0
         for term in must_contain_from_context:
             if term.lower() in answer_lower:
@@ -190,10 +214,10 @@ def check_context_usage(
                 flags.append(f"fabrication:{term}")
         total_checks = len(must_contain) + len(must_avoid)
         if total_checks == 0:
-            return 1.0, flags
+            return None, flags
         return round(max(0.0, 1.0 - len(flags) / total_checks), 4), flags
 
-    return 1.0, flags
+    return None, flags
 
 
 def evaluate_answer(item: TrainingEvalItem, answer: str) -> TrainingEvalResult:
@@ -242,9 +266,13 @@ class TrainingEvalSummary:
     eval_set: str
     n_items: int
     pass_rate: float
-    avg_persona: float
-    avg_format: float
-    avg_context: float
+    # ``None`` = o boyutu ölçen HİÇ kalem yok. 1.0 yazmak vacuous pass olurdu: set persona
+    # ölçmüyorken "persona mükemmel" raporlamak yanlış güven verir (Kural 2).
+    avg_persona: float | None
+    avg_format: float | None
+    avg_context: float | None
+    # Boyut başına kaç kalemin gerçekten ölçüldüğü — ortalamanın dayanağı görünür olsun.
+    measured: dict[str, int]
     total_flags: int
     results: list[TrainingEvalResult]
 
@@ -256,6 +284,7 @@ class TrainingEvalSummary:
             "avg_persona": self.avg_persona,
             "avg_format": self.avg_format,
             "avg_context": self.avg_context,
+            "measured": self.measured,
             "total_flags": self.total_flags,
             "results": [
                 {
@@ -291,13 +320,25 @@ def run_training_eval(
     passed = sum(1 for r in results if r.passed)
     total_flags = sum(len(r.flags) for r in results)
 
+    def _avg(attr: str) -> tuple[float | None, int]:
+        """Yalnız o boyutu GERÇEKTEN ölçen kalemler üzerinden ortala (ölçen yoksa None)."""
+        scores = [s for r in results if (s := getattr(r, attr)) is not None]
+        if not scores:
+            return None, 0
+        return round(sum(scores) / len(scores), 4), len(scores)
+
+    avg_persona, n_persona = _avg("persona_score")
+    avg_format, n_format = _avg("format_score")
+    avg_context, n_context = _avg("context_score")
+
     return TrainingEvalSummary(
         eval_set=Path(eval_set_path).stem,
         n_items=n,
         pass_rate=round(passed / n, 4) if n else 0.0,
-        avg_persona=round(sum(r.persona_score for r in results) / n, 4) if n else 0.0,
-        avg_format=round(sum(r.format_score for r in results) / n, 4) if n else 0.0,
-        avg_context=round(sum(r.context_score for r in results) / n, 4) if n else 0.0,
+        avg_persona=avg_persona,
+        avg_format=avg_format,
+        avg_context=avg_context,
+        measured={"persona": n_persona, "format": n_format, "context": n_context},
         total_flags=total_flags,
         results=results,
     )
