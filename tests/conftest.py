@@ -42,6 +42,72 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+# --- Çevrimdışı koruma: işaretsiz testler CANLI Ollama'ya gidemez ---
+#
+# `LocalLLM` / `EmbeddingService` Ollama ayaktaysa gerçek moda geçer (sahteye düşmez).
+# Mock'lanmamış bir test, makinede Ollama açıkken gerçek `/api/embed` / `/api/generate`
+# çağırıyordu: meşgul bir Ollama'da (mastery kuyruğu, synth-qa) kapı 30+ dakika takıldı,
+# Ollama kapalıyken ise Windows'ta her bağlantı denemesi ~2 sn bekletiyordu (/api/status
+# tek istekte 3 deneme → ~6 sn). Testlerin makine durumundan bağımsız olması için
+# (CLAUDE.md: testler çevrimdışı) Ollama hedefli GERÇEK ağ istekleri anında ConnectError
+# ile düşürülür → kod "Ollama kapalı" yolunu izler. Enjekte edilen httpx.MockTransport
+# gerçek taşıyıcı olmadığından etkilenmez; `@pytest.mark.ollama` testleri muaftır.
+# Teşhis: HEKTOR_TEST_OLLAMA_GUARD_LOG=<dosya> → engellenen her istek "test url" yazılır.
+_OLLAMA_DEFAULT_PORT = 11434
+_LOOPBACK = {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+
+def _is_ollama_target(host: str | None, port: int | None) -> bool:
+    from urllib.parse import urlsplit
+
+    from app.config import get_settings
+
+    host = (host or "").lower()
+    configured = urlsplit(get_settings().ollama_host)
+    if host == (configured.hostname or "").lower() and port == (
+        configured.port or _OLLAMA_DEFAULT_PORT
+    ):
+        return True
+    return host in _LOOPBACK and port == _OLLAMA_DEFAULT_PORT
+
+
+@pytest.fixture(autouse=True)
+def _block_live_ollama(request, monkeypatch):
+    if request.node.get_closest_marker("ollama"):
+        yield
+        return
+    import requests
+
+    log_path = os.environ.get("HEKTOR_TEST_OLLAMA_GUARD_LOG")
+
+    def _blocked(url: str) -> str:
+        if log_path:
+            with open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(f"{request.node.nodeid} {url}\n")
+        return f"test çevrimdışı: canlı Ollama engellendi ({url})"
+
+    real_httpx = httpx.HTTPTransport.handle_request
+    real_requests = requests.adapters.HTTPAdapter.send
+
+    def _httpx_guard(self, req):
+        port = req.url.port or (443 if req.url.scheme == "https" else 80)
+        if _is_ollama_target(req.url.host, port):
+            raise httpx.ConnectError(_blocked(str(req.url)), request=req)
+        return real_httpx(self, req)
+
+    def _requests_guard(self, req, *args, **kwargs):
+        from urllib.parse import urlsplit
+
+        u = urlsplit(req.url)
+        if _is_ollama_target(u.hostname, u.port or (443 if u.scheme == "https" else 80)):
+            raise requests.exceptions.ConnectionError(_blocked(req.url))
+        return real_requests(self, req, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", _httpx_guard)
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", _requests_guard)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_train_load_doctor(request, monkeypatch):
     """`train --run` yolundaki train-load-doctor'ı sahtele (GO).
