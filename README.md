@@ -1015,13 +1015,25 @@ uv run hektor lora-dataset            # LoRA SFT JSONL + train/valid split üret
 uv run hektor rag-mastery             # RAG "ne kadar öğrendi" ustalık panosu (LLM-free)
 uv run hektor train-load-doctor       # eğitim-ÖNCESİ rakip LLM/GPU yükü taraması: GO/WARN/NO-GO (salt-okuma; train-doctor'la KARIŞTIRILMASIN)
 uv run hektor train                   # LoRA — SADECE ÖNIZLEME (çalıştırmaz)
-uv run hektor train --run             # LoRA — yerel (smoke; ağır 4B için bulut tercih et; train-load-doctor otomatik çalışır)
+uv run hektor train --run             # LoRA — yerel (smoke; ağır 4B için bulut tercih et; train-load-doctor otomatik çalışır; karışım ağırlığı sorulur + eval sızıntı kapısı)
 uv run hektor evaluate <eval.jsonl>   # modeli failure-mode eval setiyle test et
 uv run hektor local-training-audit    # eğitim-HAZIRLIK denetimi — SALT RAPOR (eğitim başlatmaz, 5A)
 uv run hektor local-training-request  # onay-kapılı eğitim İSTEĞİ — onay oluşturabilir, eğitim/onay-tüketimi YOK (5B)
 uv run hektor local-training-dry-run  # onaylı isteği READ-ONLY simüle et — eğitim/onay-tüketimi YOK (5C)
 uv run hektor local-training-handoff  # insan-kapılı handoff — gerçek eğitim komutunu YAZDIRIR, çalıştırmaz (5D)
 uv run hektor local-training-postcheck # eğitim-SONRASI READ-ONLY denetim — terfi YOK, human_review_required (5E)
+
+# LoRA karışım profilleri + profil eval (docs/LORA_MIX_EVAL.md) — hiçbiri eğitim BAŞLATMAZ
+uv run hektor mix weights                # sıradaki eğitim için karışım ağırlığı kararı (her eğitimden önce ZORUNLU)
+uv run hektor mix register-adapter ...   # bağımsız eğitilmiş domain adapter'ını kayda al (hash'lerle)
+uv run hektor mix adapters | profiles    # domain adapter / profil kayıt defterleri
+uv run hektor mix build --profile balanced_v1 --merge-method svd   # DRY-RUN plan (--run: PEFT weighted adapter; base değişmez)
+uv run hektor mix route "soru"           # validated profiller arasından router kararı (loglanır)
+uv run hektor mix eval --profile balanced_v1 [--dry-run]  # A/B/C/D eval (validation); golden: --split golden_test --final
+uv run hektor mix compare --profiles balanced_v1 statistics_v1   # CSV + JSON + Markdown → reports/eval/
+uv run hektor mix audit --run-id RUN_ID --sample-size 100        # kör insan denetimi (--score: uyum + false PASS)
+uv run hektor mix leakage                # eğitim verisi ↔ validation/golden sızıntı denetimi
+uv run hektor mix gate <profile_id>      # regression gate (terfi etmez) · promote --to production --approve
 
 # Dayanıklı eğitim orkestrasyonu (checkpoint/resume; insan-kapılı, Kural 8)
 uv run hektor orchestrate-start          # tek-tık hattı başlat → insan kapısında durur

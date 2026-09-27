@@ -143,7 +143,16 @@ def test_train_run_manual_registers_candidate(
 
     result = CliRunner().invoke(
         app,
-        ["train", "--run", "--backend", "peft", "--adapter-name", "manual_smoke"],
+        [
+            "train",
+            "--run",
+            "--backend",
+            "peft",
+            "--adapter-name",
+            "manual_smoke",
+            "--mix-profile",
+            "balanced_v1",
+        ],
     )
     assert result.exit_code == 0, result.output
 
@@ -166,7 +175,16 @@ def test_train_run_supervised_does_not_double_register(
 
     result = CliRunner().invoke(
         app,
-        ["train", "--run", "--backend", "peft", "--adapter-name", "supervised_smoke"],
+        [
+            "train",
+            "--run",
+            "--backend",
+            "peft",
+            "--adapter-name",
+            "supervised_smoke",
+            "--mix-profile",
+            "balanced_v1",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert AdapterRegistry().list_adapters() == []

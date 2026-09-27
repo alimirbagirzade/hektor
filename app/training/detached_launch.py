@@ -587,6 +587,21 @@ def launch(
     if is_running():
         return {"ok": False, "message": "Zaten eğitim çalışıyor.", "adapter": ""}
 
+    # Her eğitimden önce karışım ağırlığı sorulur (kullanıcı kuralı). Alt süreç etkileşimsiz
+    # olduğundan kararın ÖNCEDEN kaydedilmiş olması gerekir; yoksa alt süreç exit 5 ile
+    # log'a gömülü düşerdi — burada açık mesajla erken dön.
+    from app.lora.weight_decision import WeightDecisionStore
+
+    if WeightDecisionStore().pending() is None:
+        return {
+            "ok": False,
+            "message": (
+                "Eğitim öncesi karışım ağırlığı kararı yok. Önce: `uv run hektor mix weights` "
+                "(profil seç ya da math/statistics/reasoning/trading/coding ağırlıklarını gir)."
+            ),
+            "adapter": "",
+        }
+
     # Atomik kilit: iki eş-zamanlı istek (çift-tık/retry) çift süreç başlatmasın.
     if not _acquire_launch_lock(root):
         return {

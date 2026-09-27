@@ -155,3 +155,9 @@ scripts/*-autostart.vbs
 
 # SQLite yedekleri (silme/migrasyon öncesi kopyalar) — veri, commit edilmez
 storage/sqlite/backups/
+
+# LoRA karışım registry'leri (domain adapter / profil / router kararları) — makineye özgü
+registry/lora/*.jsonl
+# Profil eval koşu çıktıları + denetim sayfaları (runtime)
+reports/eval/*
+!reports/eval/.gitkeep

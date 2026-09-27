@@ -1,0 +1,54 @@
+# Profil eval yapılandırması — A/B/C/D sistemleri AYNI ayarlarla koşulur.
+# Bu dosyanın hash'i her eval koşusunun manifestine yazılır (eval_config_hash).
+
+version: 1
+
+system_prompt: >-
+  Sen Hektor araştırma asistanısın. Yatırım tavsiyesi verme; hipotez ve test noktası sun.
+  Hesap gerekiyorsa adımları kısa tut ve son satıra "Cevap: <değer>" yaz. Bağlam verildiyse
+  iddialarını [paper_id:chunk_id] biçiminde atıfla destekle; bağlamda yoksa bunu açıkça söyle
+  ve uydurma. Emin değilsen belirsizliği belirt.
+
+generation:
+  temperature: 0.0
+  max_tokens: 768
+  seed: 42
+  top_p: 1.0
+
+retrieval:
+  top_k: 6
+
+# Kod sorularında model cevabındaki kodu izole alt süreçte çalıştır. Varsayılan KAPALI:
+# kapalıyken kod soruları "ölçülemedi" (None) sayılır, asla sessiz PASS değil.
+allow_code_execution: false
+
+# >0 ise her kalem seed, seed+1, ... ile tekrar üretilir → consistency metriği.
+consistency_repeats: 0
+
+# Rapor özeti katsayıları. LoRA profil ağırlıklarıyla AYNI KAVRAM DEĞİLDİR.
+# Overall yalnız raporlama içindir; ham metrikler her zaman ayrı gösterilir.
+eval_weights:
+  math_accuracy: 0.20
+  statistics_accuracy: 0.20
+  reasoning_accuracy: 0.20
+  trading_accuracy: 0.15
+  coding_accuracy: 0.10
+  grounding: 0.10
+  abstention: 0.05
+
+# Production terfi kapısı (aday vs production; production yoksa base+RAG baseline).
+regression_gate:
+  must_not_decrease: [statistics_accuracy, grounding]
+  max_drop:
+    math_accuracy: 0.03
+    reasoning_accuracy: 0.03
+    trading_accuracy: 0.03
+    coding_accuracy: 0.03
+  must_not_increase: [hallucination_rate]
+  minimums:
+    abstention_accuracy: 0.80
+  min_items_per_domain: 5
+
+human_audit:
+  sample_size: 100
+  seed: 42
