@@ -23,6 +23,11 @@ def _state_file() -> Path:
 
 _BASE_BACKOFF_S = 300
 _MAX_BACKOFF_S = 21600
+# Başarılı (PASS) koşudan sonraki SABİT bekleme. Eskiden PASS `retry_after`'ı boşaltıyordu →
+# bir sonraki reconcile'da (60 sn) motor hemen yeniden doğuyordu. Sür görevi "yapılacak iş
+# yoksa temiz dur → PASS" dediği için codex ~40 sn'de bitip dakikada bir doğacak, her koşu
+# ~20k token yakacaktı (2026-09-27). RAG turu zaten dakikalar sürer; 30 dk yeterli kadans.
+_IDLE_COOLDOWN_S = 1800
 
 
 def _now() -> dt.datetime:
@@ -103,7 +108,13 @@ class UnattendedSupervisor:
         self.state.last_result = result
         if _is_productive(result):
             self.state.failures = 0
-            self.state.retry_after = ""
+            # ⛔ DURDUR ile kesilen koşu insan kararıdır → bekleme yazılmaz (STOP_ALL kalkınca
+            # motor hemen dönebilsin; STOP_ALL sürerken guard zaten doğuşu engeller).
+            self.state.retry_after = (
+                ""
+                if result.get("stopped")
+                else (_now() + dt.timedelta(seconds=_IDLE_COOLDOWN_S)).isoformat()
+            )
         else:
             self.state.failures += 1
             delay = min(_MAX_BACKOFF_S, _BASE_BACKOFF_S * 2 ** (self.state.failures - 1))
@@ -164,9 +175,11 @@ class UnattendedSupervisor:
                 return {"ok": True, "action": "motor_alive", "run_id": self.state.run_id}
 
             if self._in_backoff():
-                self.state.status = "backoff"
+                # failures=0 iken bekleme = başarılı koşu sonrası dinlenme, hata değil.
+                action = "backoff" if self.state.failures else "cooldown"
+                self.state.status = action
                 self._save()
-                return {"ok": True, "action": "backoff", "retry_after": self.state.retry_after}
+                return {"ok": True, "action": action, "retry_after": self.state.retry_after}
 
             run_id = await asyncio.to_thread(self._ensure_run)
             self.state.run_id = run_id

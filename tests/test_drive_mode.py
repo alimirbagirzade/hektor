@@ -60,6 +60,51 @@ def test_drive_prompt_claude_md_okur() -> None:
     assert "CLAUDE.md" in build_drive_prompt(_RUN)
 
 
+def test_drive_prompt_codex_dosyayi_kabukla_okuyabilir() -> None:
+    """Regresyon (2026-09-27): codex'e "Read ile OKU" + "kabuk komutu çalıştırma" deniyordu.
+
+    Codex'te Read aracı yok, dosyayı yalnız kabukla okur → zorunlu ilk adım imkânsızdı ve
+    her supervisor koşusu FAIL veriyordu. Kabuk YALNIZ okumaya açılır; ağ/CLI yasak kalır.
+    """
+    p = build_drive_prompt(_RUN, "codex")
+    assert "CLAUDE.md" in p
+    assert "Read ile" not in p
+    assert "kabuk komutu çalıştırma" not in p
+    assert "salt-okuma kabuk" in p
+    for yasak in ("curl", "Invoke-WebRequest", "`hektor`", "`uv`", "`python`", "`git`"):
+        assert yasak in p, yasak
+
+
+def test_drive_prompt_claude_read_araciyla_okur_kabuk_yasak() -> None:
+    """Claude profili değişmedi: Read/Grep/Glob var, kabuk tamamen yasak."""
+    p = build_drive_prompt(_RUN, "claude")
+    assert "Read ile OKU" in p
+    assert "kabuk komutu çalıştırma" in p
+    assert build_drive_prompt(_RUN) == p  # varsayılan motor claude
+
+
+@pytest.mark.parametrize("engine", ["claude", "codex"])
+def test_drive_prompt_yalniz_mcpde_olan_adimi_ister(engine: str) -> None:
+    """RLM/curate/assemble için MCP aracı yok → kapsam dışı; eksiklikleri FAIL sebebi değil.
+
+    Eskiden "carding → RLM → curate → assemble" isteniyordu; motor MCP'de bulamayıp FAIL
+    veriyordu. Görev artık yalnız `run-once` (carding turun içinde) ister.
+    """
+    p = build_drive_prompt(_RUN, engine)
+    assert "run-once" in p
+    assert "KAPSAM DIŞI" in p
+    assert "FAIL verme" in p
+    assert "EĞİTİM BAŞLATMA" in p  # Kural 8 metni her iki motorda da aynı
+
+
+def test_codex_drive_komutu_codex_promptunu_tasir() -> None:
+    """`build_drive_command` motoru prompt kurucusuna iletir (claude metni codex'e gitmez)."""
+    cmd = build_drive_command(_RUN, "C:/repo/storage/mcp/drive-x.json", "codex")
+    prompt = cmd[-1]
+    assert "salt-okuma kabuk" in prompt
+    assert "Read ile" not in prompt
+
+
 # ── Verdict: desen aynalanır, işaretçiler KARIŞMAZ ──────────────────────────────────────
 
 

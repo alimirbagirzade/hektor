@@ -134,25 +134,61 @@ def build_hunt_prompt(run: dict[str, Any]) -> str:
     )
 
 
-def build_drive_prompt(run: dict[str, Any]) -> str:
-    """Headless motor için "sür" modu promptu (MCP araçlarıyla veri hattını ilerletir).
+def _drive_file_access(engine: str) -> str:
+    """Sür promptunun dosya-okuma + araç paragrafı — motora ÖZGÜDÜR.
 
-    Av modundan farkı: burada ajanın İŞ YAPMASI beklenir — ama yalnız Hektor MCP
-    araçlarıyla, dosyaya doğrudan dokunmadan ve EĞİTİME ASLA başlamadan.
+    `claude` sür profilinde yerleşik `Read/Grep/Glob` vardır (engines.DRIVE_ALLOWED_TOOLS).
+    `codex`'te bu araçlar YOKTUR; dosyayı yalnız kabukla okuyabilir (`--sandbox read-only`
+    yazmayı keser). Eski ortak metin codex'e hem "Read ile OKU" hem "kabuk komutu çalıştırma"
+    diyordu → zorunlu ilk adım imkânsızdı, her koşu FAIL veriyordu (2026-09-27).
+    Codex'e kabuk YALNIZ okuma için açılır; ağ çağrısı ve `hektor`/`uv`/`python`/`git`
+    yasak kalır (sandbox'ın 127.0.0.1 HTTP'sini kestiği doğrulanmadı — bkz. engines.py).
     """
-    adapter = run.get("adapter_name", "hektor_lora")
+    if engine == "codex":
+        return (
+            "İLK İŞ: depo kökündeki CLAUDE.md'yi OKU — bağlayıcı kurallar oradadır. "
+            "Read aracın YOK; dosya OKUMAK için YALNIZ salt-okuma kabuk komutları kullan "
+            "(ör. `Get-Content`, `Select-String`, `cat`, `rg`).\n"
+            "\n"
+            "ARAÇ KULLANIMI: işleri YALNIZCA Hektor MCP araçlarıyla (`mcp__*`) yap. "
+            "Dosyaları DOĞRUDAN DÜZENLEME, git commit/push yapma. Kabuk YALNIZ dosya "
+            "okumak içindir: ağ/HTTP çağrısı (curl, Invoke-WebRequest vb.) ve `hektor`, "
+            "`uv`, `python`, `git` çalıştırmak YASAK.\n"
+        )
     return (
-        "Sen Hektor deposunda VERİ HATTINI ilerleten bir sürücü ajansın. "
         "İLK İŞ: depo kökündeki CLAUDE.md'yi Read ile OKU — bağlayıcı kurallar oradadır.\n"
         "\n"
         "ARAÇ KULLANIMI: işleri YALNIZCA Hektor MCP araçlarıyla (`mcp__*`) yap. "
         "Dosyaları DOĞRUDAN DÜZENLEME (Edit/Write yok), kabuk komutu çalıştırma, "
         "git commit/push yapma. Read/Grep/Glob yalnız DURUM ANLAMAK içindir.\n"
+    )
+
+
+def build_drive_prompt(run: dict[str, Any], engine: str = DEFAULT_ENGINE) -> str:
+    """Headless motor için "sür" modu promptu (MCP araçlarıyla veri hattını ilerletir).
+
+    Av modundan farkı: burada ajanın İŞ YAPMASI beklenir — ama yalnız Hektor MCP
+    araçlarıyla, dosyaya doğrudan dokunmadan ve EĞİTİME ASLA başlamadan.
+
+    Hedef YALNIZ MCP'de gerçekten sunulan adımdır (`rag-loop/run-once`; carding turun
+    içindedir). RLM/curate/assemble için MCP aracı yok (mcp_server/allowlist.py) → kapsam
+    dışı raporlanır; eskiden istendikleri için motor onları yapamayıp FAIL veriyordu.
+    """
+    adapter = run.get("adapter_name", "hektor_lora")
+    return (
+        "Sen Hektor deposunda VERİ HATTINI ilerleten bir sürücü ajansın. "
+        + _drive_file_access(engine)
+        + "\n"
+        "HEDEF: MCP'de sunulan veri hattı adımını ilerlet — RAG öğrenme turu. Tur kendi "
+        "içinde gerekirse yeni makale çeker, kartsız makalelere bilgi kartı üretir "
+        "(carding), kartlı ama skorsuz makaleleri skorlar ve ustalık panosunu günceller. "
+        "Önce RAG durumunu MCP ile oku; tur zaten çalışıyorsa ya da yapılacak iş yoksa "
+        "ATLA, gerekiyorsa yalnız `run-once` ile TEK tur iste. Kalıcı enable/config "
+        "değiştirme. Ardından kart ve ustalık durumunu MCP ile okuyup raporla.\n"
         "\n"
-        "HEDEF: veri hattı adımlarını sırayla ilerlet — RAG durumu → gerekiyorsa tek RAG "
-        "öğrenme turu → carding → RLM → curate → assemble. Önce RAG durumunu oku; döngü "
-        "çalışmıyorsa yalnız `run-once` ile bir tur iste. Kalıcı enable/config değiştirme. "
-        "Her adımdan önce durumu MCP ile oku; adım zaten tamamsa ATLA, baştan çalıştırma.\n"
+        "KAPSAM DIŞI: RLM, curate ve assemble için MCP aracı YOKTUR — bunlar insan/CLI "
+        "tarafındadır. Onları çalıştırmaya ÇALIŞMA ve yalnız eksik oldukları için FAIL "
+        "verme; raporda 'kapsam dışı, bekliyor' diye belirt.\n"
         "\n"
         "⛔ EĞİTİM BAŞLATMA. Gerçek LoRA eğitimini ASLA tetikleme; onay uçlarını "
         "(`/api/approvals/{id}/approve`) ve eğitim uçlarını (`/api/training/run`) ÇAĞIRMA. "
@@ -161,10 +197,11 @@ def build_drive_prompt(run: dict[str, Any]) -> str:
         "adımda DUR ve neyin beklediğini raporla.\n"
         "\n"
         "Çıktının SON SATIRI tam olarak şu biçimde olmalı:\n"
-        "HEKTOR_DRIVE_VERDICT: PASS    (ilerletilebilen adımlar ilerletildi; "
-        "onay kapısında ya da yapılacak iş kalmadığı için temiz durdu)\n"
+        "HEKTOR_DRIVE_VERDICT: PASS    (MCP'deki adımlar ilerletildi ya da yapılacak iş "
+        "yoktu; onay kapısında ya da kapsam dışı adımda temiz durdu)\n"
         "veya\n"
-        "HEKTOR_DRIVE_VERDICT: FAIL    (ilerlenemedi — sebebi raporda açıkla)\n"
+        "HEKTOR_DRIVE_VERDICT: FAIL    (MCP araçlarına erişilemedi ya da tur hata verdi — "
+        "sebebi raporda açıkla)\n"
         f"Bağlam: orkestrasyon koşusu, adapter={adapter}."
     )
 
@@ -236,7 +273,7 @@ def build_drive_command(
     safe-mode'un kapattığı kanallar tek tek kapatılır; gerekçe `engines._CLAUDE_DRIVE_ARGV`
     ve `docs/SCOPE_ISOLATION.md`.
     """
-    return engines.build_drive_command(engine, build_drive_prompt(run), mcp_config_path)
+    return engines.build_drive_command(engine, build_drive_prompt(run, engine), mcp_config_path)
 
 
 def build_hunt_command(run: dict[str, Any], engine: str = DEFAULT_ENGINE) -> list[str]:

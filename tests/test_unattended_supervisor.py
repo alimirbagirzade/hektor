@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 
+from app.orchestration import unattended_supervisor as us
 from app.orchestration.unattended_supervisor import UnattendedSupervisor
 
 
@@ -71,15 +73,39 @@ def test_backoff_triggers_when_drive_verdict_fails(tmp_path) -> None:
 
 
 def test_backoff_clears_after_productive_run(tmp_path) -> None:
-    """Verdict geçen koşu sayacı ve `retry_after`'ı sıfırlar."""
+    """Verdict geçen koşu sayacı sıfırlar; üstel bekleme yerine SABİT dinlenme yazılır."""
     controller = UnattendedSupervisor(tmp_path / "state.json")
     controller._record_driver_result({"ok": True, "drive_passed": False})
+    controller._record_driver_result({"ok": True, "drive_passed": False})
 
+    before = dt.datetime.now(dt.UTC)
     controller._record_driver_result({"ok": True, "drive_passed": True})
 
     assert controller.state.failures == 0
-    assert controller.state.retry_after == ""
-    assert not controller._in_backoff()
+    wait_s = (dt.datetime.fromisoformat(controller.state.retry_after) - before).total_seconds()
+    assert abs(wait_s - us._IDLE_COOLDOWN_S) < 60
+
+
+def test_pass_does_not_respawn_motor_immediately(monkeypatch, tmp_path) -> None:
+    """Regresyon: PASS `retry_after`'ı boşaltıyordu → motor dakikada bir yeniden doğuyordu.
+
+    Sür görevi "yapılacak iş yoksa temiz dur → PASS" der; codex ~40 sn'de bitip her
+    reconcile'da (60 sn) ~20k token yakan yeni bir koşu açacaktı.
+    """
+    controller = UnattendedSupervisor(tmp_path / "state.json")
+    monkeypatch.setattr("app.agents.runtime.supervisor.is_stop_all_active", lambda: False)
+    monkeypatch.setattr("app.orchestration.engine_procs.live_count", lambda: 0)
+    monkeypatch.setattr(
+        controller,
+        "_ensure_run",
+        lambda: (_ for _ in ()).throw(AssertionError("PASS sonrası motor hemen doğdu")),
+    )
+    controller._record_driver_result({"ok": True, "drove": True, "drive_passed": True})
+
+    result = asyncio.run(controller.reconcile_once())
+
+    assert result["action"] == "cooldown"
+    assert controller.state.status == "cooldown"  # hata değil → "backoff" değil
 
 
 def test_stop_all_result_is_not_counted_as_failure(tmp_path) -> None:

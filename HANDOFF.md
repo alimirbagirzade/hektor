@@ -219,9 +219,19 @@ Codex girişli ve MCP'ye bağlı; başarısızlık **görev metninde**. Codex'in
    `POST /api/rag-loop/run-once` (diğer POST `/api/ask` yalnız sorgu).
 
 Supervisor'ın varsayılan motoru `codex` (`unattended_supervisor.py:56`), sür görevi ise
-Claude'a göre yazılmış → **codex motoruyla bu görev yapısal olarak PASS veremez.** Her FAIL
+Claude'a göre yazılmış → **codex motoruyla bu görev yapısal olarak PASS veremezdi.** Her FAIL
 geri çekilmeyi ikiye katlar (5 dk → … → 6 sa tavan) ve her koşu ~20k token harcar
-(ChatGPT kotası). Kalıcı çözüm için karar gerekiyor (sıradaki §5-5).
+(ChatGPT kotası).
+
+**Düzeltme (aynı gün, `fix/supervisor-codex-drive-prompt`):**
+- `build_drive_prompt(run, engine)` motora özgü: codex dosyayı YALNIZ salt-okuma kabuk
+  komutlarıyla okur (ağ/HTTP ve `hektor`/`uv`/`python`/`git` yasak); claude metni aynen.
+- Hedef yalnız MCP'de olan adım: RAG turu (`run-once`; carding turun içinde). RLM/curate/
+  assemble "KAPSAM DIŞI" raporlanır, FAIL sebebi sayılmaz.
+- **İkinci, gizli hata:** PASS `retry_after`'ı boşaltıyordu → reconcile (60 sn) motoru hemen
+  yeniden doğuruyordu. Görev düzelip codex ~40 sn'de PASS verince bu, dakikada bir ~20k
+  token demekti. Artık PASS sonrası sabit **30 dk dinlenme** (`_IDLE_COOLDOWN_S`, durum
+  `cooldown`); DURDUR ile kesilen koşu hariç.
 
 ### 5. Sıradaki
 
@@ -231,11 +241,9 @@ geri çekilmeyi ikiye katlar (5 dk → … → 6 sa tavan) ve her koşu ~20k tok
 3. Mastery kuyruğu bitince raporları DB'den yeniden üret; `failed` / `needs_rechunking`
    makaleleri incele.
 4. v9 terfisi için kalan eval setleri (`overfit_awareness`, `risk_management`) hâlâ açık.
-5. Supervisor sür-modu görevi motor-bağımsız olmalı: ya codex için dosya okumaya izin veren
-   (sandbox zaten `read-only`) motor-özel bir görev metni, ya da yalnız MCP'de gerçekten
-   bulunan adımları isteyen bir metin; eksik adımlar (carding/RLM/curate/assemble) için MCP
-   aracı eklemek ayrı karar (Kural 8 sınırı: eğitim/onay uçları kapalı kalmalı). Karar
-   verilene kadar supervisor boşa FAIL koşar — istenirse `enabled=false` ile durdurulabilir.
+5. Supervisor görev metni düzeltildi (§4). Açık kalan: RLM/curate/assemble için MCP aracı
+   eklemek ayrı karar (Kural 8 sınırı: eğitim/onay uçları motora kapalı kalmalı). İlk
+   düzeltilmiş koşunun gerçekten PASS verdiği canlıda doğrulanmalı.
 
 ---
 
