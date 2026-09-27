@@ -7,7 +7,10 @@ DB sayımlarından üretilir; ağır LLM çağrısı yapmaz (eğitimle RAM çak�
 
 from __future__ import annotations
 
+from collections import Counter
+
 from app.lora.dataset_builder import build_dataset
+from app.memory.mastery_store import MasteryStore
 from app.memory.sqlite_store import SqliteStore
 
 
@@ -42,7 +45,25 @@ def compute_rag_mastery(store: SqliteStore | None = None) -> dict:
     # Bileşik: bilgi kapsamı ×0.4 + anlama ×0.3 + eğitim hazırlığı ×0.3.
     mastery = 0.40 * coverage + 0.30 * comp_component + 0.30 * train_readiness
 
+    queue_store = MasteryStore(store.db_path)
+    try:
+        queue = queue_store.list_queue()
+    finally:
+        queue_store._engine.dispose()
+    counts = Counter(row["status"] for row in queue)
+    queue_summary = {
+        "total": len(queue),
+        "done": counts["done"],
+        "pending": counts["pending"],
+        "running": counts["running"],
+        "failed": counts["failed"],
+        "processed_percent": round(100 * counts["done"] / len(queue)) if queue else 0,
+        "current_papers": [row["paper_id"] for row in queue if row["status"] == "running"],
+        "last_updated": max((row["updated_at"] for row in queue), default=None),
+    }
+
     return {
+        "learning_queue": queue_summary,
         "n_papers": n_papers,
         "n_cards": n_cards,
         "empty_cards": empty_cards,

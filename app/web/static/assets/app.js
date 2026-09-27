@@ -423,7 +423,7 @@
         var el = document.getElementById("ragMastery");
         if (el) {
           var txt =
-            "RAG anladı: %" + m.coverage_percent +
+            "RAG kapsamı: %" + m.coverage_percent +
             " (" + m.papers_with_real + "/" + m.n_papers + ")";
           if (m.comprehension_percent != null) {
             // Kaba öz-değerlendirme — objektif değil; objektif skor için "obj. anlama" rozeti.
@@ -433,8 +433,25 @@
           txt += " · eğitim %" + m.train_readiness_percent;
           el.textContent = txt;
         }
+        var queueEl = document.getElementById("ragQueue");
+        var q = m.learning_queue;
+        if (queueEl) {
+          queueEl.textContent = !q ? "RAG kuyruğu: durum alınamadı" : !q.total
+            ? "RAG öğrenme kuyruğu boş"
+            : "RAG kuyruğu: " + q.done + "/" + q.total + " işlendi (%" + q.processed_percent +
+              ") · işleniyor: " + q.running + " · bekleyen: " + q.pending + " · hata: " + q.failed;
+          queueEl.title = q
+            ? "İşlenen makale sayısı kalite testlerini geçtiği anlamına gelmez. " +
+              "İşleniyor bilgisi kuyruk kaydıdır; süreç sağlık kontrolü değildir.\n" +
+              "Makale: " + (q.current_papers || []).join(", ") +
+              "\nSon kuyruk güncellemesi: " + (q.last_updated || "—")
+            : "Sunucunun güncel sürümünü kontrol edin.";
+        }
       })
-      .catch(function () {});
+      .catch(function () {
+        var queueEl = document.getElementById("ragQueue");
+        if (queueEl) queueEl.textContent = "RAG kuyruğu: durum alınamadı";
+      });
     // Son KALICI objektif anlama skorunu rozette pasif göster (DB okuması, LLM çağırmaz)
     api("/understanding-score/history?limit=1", { method: "GET" })
       .then(function (h) {
