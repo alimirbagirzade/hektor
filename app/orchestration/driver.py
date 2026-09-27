@@ -138,22 +138,23 @@ def _drive_file_access(engine: str) -> str:
     """Sür promptunun dosya-okuma + araç paragrafı — motora ÖZGÜDÜR.
 
     `claude` sür profilinde yerleşik `Read/Grep/Glob` vardır (engines.DRIVE_ALLOWED_TOOLS).
-    `codex`'te bu araçlar YOKTUR; dosyayı yalnız kabukla okuyabilir (`--sandbox read-only`
-    yazmayı keser). Eski ortak metin codex'e hem "Read ile OKU" hem "kabuk komutu çalıştırma"
-    diyordu → zorunlu ilk adım imkânsızdı, her koşu FAIL veriyordu (2026-09-27).
-    Codex'e kabuk YALNIZ okuma için açılır; ağ çağrısı ve `hektor`/`uv`/`python`/`git`
-    yasak kalır (sandbox'ın 127.0.0.1 HTTP'sini kestiği doğrulanmadı — bkz. engines.py).
+    `codex`'te bu araçlar YOKTUR ve kabuğu da KULLANMAZ: `--ignore-user-config` altında
+    Windows'ta her kabuk komutu "blocked by policy" ile reddediliyor (canlı, 2026-09-27) ve
+    kabuğu açmak özerk ajanın yetkisini büyütürdü. Bu yüzden codex CLAUDE.md'yi okumaz;
+    sürücüyü bağlayan kurallar metne GÖMÜLÜR ve iş yalnız MCP ile yapılır (en dar yüzey).
+    Eski ortak metin codex'e "Read ile OKU" diyordu → ilk adım imkânsızdı, her koşu FAIL.
     """
     if engine == "codex":
         return (
-            "İLK İŞ: depo kökündeki CLAUDE.md'yi OKU — bağlayıcı kurallar oradadır. "
-            "Read aracın YOK; dosya OKUMAK için YALNIZ salt-okuma kabuk komutları kullan "
-            "(ör. `Get-Content`, `Select-String`, `cat`, `rg`).\n"
+            "KURALLAR (depo kökündeki CLAUDE.md'den bağlayıcı özet — dosya okuma aracın ve "
+            "kabuk iznin YOK, bu yüzden kurallar burada): yatırım tavsiyesi üretme, çıktılar "
+            "daima hipotez + test noktasıdır; test edilmeden 'başarılı/çalışıyor' deme; "
+            "kaynak uydurma, veri boşsa açıkça söyle; gerçek LoRA eğitimi ve onay YALNIZ "
+            "insan yetkisidir (Kural 8).\n"
             "\n"
-            "ARAÇ KULLANIMI: işleri YALNIZCA Hektor MCP araçlarıyla (`mcp__*`) yap. "
-            "Dosyaları DOĞRUDAN DÜZENLEME, git commit/push yapma. Kabuk YALNIZ dosya "
-            "okumak içindir: ağ/HTTP çağrısı (curl, Invoke-WebRequest vb.) ve `hektor`, "
-            "`uv`, `python`, `git` çalıştırmak YASAK.\n"
+            "ARAÇ KULLANIMI: işleri YALNIZCA Hektor MCP araçlarıyla (`mcp__*`) yap; durumu da "
+            "MCP araçlarından oku. Kabuk komutu ÇALIŞTIRMA (dosya okumak için bile), "
+            "dosyaları DOĞRUDAN DÜZENLEME, git commit/push yapma.\n"
         )
     return (
         "İLK İŞ: depo kökündeki CLAUDE.md'yi Read ile OKU — bağlayıcı kurallar oradadır.\n"

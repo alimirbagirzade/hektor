@@ -60,19 +60,21 @@ def test_drive_prompt_claude_md_okur() -> None:
     assert "CLAUDE.md" in build_drive_prompt(_RUN)
 
 
-def test_drive_prompt_codex_dosyayi_kabukla_okuyabilir() -> None:
-    """Regresyon (2026-09-27): codex'e "Read ile OKU" + "kabuk komutu çalıştırma" deniyordu.
+def test_drive_prompt_codex_kabuksuz_kurallar_gomulu() -> None:
+    """Regresyon (2026-09-27): codex'e "CLAUDE.md'yi Read ile OKU" deniyordu.
 
-    Codex'te Read aracı yok, dosyayı yalnız kabukla okur → zorunlu ilk adım imkânsızdı ve
-    her supervisor koşusu FAIL veriyordu. Kabuk YALNIZ okumaya açılır; ağ/CLI yasak kalır.
+    Codex'te Read aracı yok; kabuk da `--ignore-user-config` altında Windows'ta reddediliyor
+    → zorunlu ilk adım imkânsızdı, her supervisor koşusu FAIL. Codex artık dosya OKUMAZ:
+    bağlayıcı kurallar metne gömülür, iş yalnız MCP ile yapılır, kabuk tamamen yasaktır.
     """
     p = build_drive_prompt(_RUN, "codex")
-    assert "CLAUDE.md" in p
     assert "Read ile" not in p
-    assert "kabuk komutu çalıştırma" not in p
-    assert "salt-okuma kabuk" in p
-    for yasak in ("curl", "Invoke-WebRequest", "`hektor`", "`uv`", "`python`", "`git`"):
-        assert yasak in p, yasak
+    assert "OKU" not in p.split("KURALLAR", 1)[0]  # "İLK İŞ: ... OKU" talimatı yok
+    assert "Kabuk komutu ÇALIŞTIRMA (dosya okumak için bile)" in p
+    assert "salt-okuma kabuk" not in p
+    # CLAUDE.md'nin sürücüyü bağlayan kuralları metinde (dosyayı okumadan da bağlayıcı).
+    for kural in ("yatırım tavsiyesi üretme", "test edilmeden", "kaynak uydurma", "Kural 8"):
+        assert kural in p, kural
 
 
 def test_drive_prompt_claude_read_araciyla_okur_kabuk_yasak() -> None:
@@ -101,8 +103,26 @@ def test_codex_drive_komutu_codex_promptunu_tasir() -> None:
     """`build_drive_command` motoru prompt kurucusuna iletir (claude metni codex'e gitmez)."""
     cmd = build_drive_command(_RUN, "C:/repo/storage/mcp/drive-x.json", "codex")
     prompt = cmd[-1]
-    assert "salt-okuma kabuk" in prompt
+    assert "Kabuk komutu ÇALIŞTIRMA" in prompt
     assert "Read ile" not in prompt
+
+
+def test_codex_sur_hektor_mcp_araclarini_onaylar() -> None:
+    """Regresyon (canlı, 2026-09-27): codex annotation'sız MCP araçlarını onaya sorar ve
+    `approval_policy="never"` altında HER çağrıyı reddederdi ("MCP tool call requires
+    approval, but approval policy is never"). Onay YALNIZ hektor sunucusuna verilir."""
+    cmd = build_drive_command(_RUN, "C:/repo/storage/mcp/drive-x.json", "codex")
+    assert 'mcp_servers.hektor.default_tools_approval_mode="approve"' in cmd
+    assert 'approval_policy="never"' in cmd  # genel politika gevşemedi
+    # Onay ayarı `-c` bayrağının değeri olarak geçer (argv sırası bozulmasın).
+    i = cmd.index('mcp_servers.hektor.default_tools_approval_mode="approve"')
+    assert cmd[i - 1] == "-c"
+
+
+def test_codex_av_modu_mcp_onayi_tasimaz() -> None:
+    """Av modu MCP'siz salt-rapordur → onay ayarı oraya sızmamalı."""
+    cmd = engines.build_command("codex", "SORU")
+    assert not any("default_tools_approval_mode" in str(part) for part in cmd)
 
 
 # ── Verdict: desen aynalanır, işaretçiler KARIŞMAZ ──────────────────────────────────────

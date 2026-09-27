@@ -381,6 +381,14 @@ def build_drive_command(name: str, prompt: str, mcp_config_path: str) -> list[st
             f"mcp_servers.hektor.args={json.dumps(args)}",
             "-c",
             "mcp_servers.hektor.required=true",
+            # Codex, salt-okuma işareti (annotation) taşımayan MCP araçlarını varsayılan olarak
+            # ONAYA sorar; `approval_policy="never"` altında her çağrı otomatik REDDEDİLİYORDU
+            # ("MCP tool call requires approval, but approval policy is never" — canlı,
+            # 2026-09-27). Onay YALNIZ bu sunucu için verilir: Hektor MCP yüzeyi zaten sunucu
+            # tarafında sınırlıdır (mcp_server/allowlist.py + require_human + sürücü token'ı).
+            # Değerler (auto|prompt|writes|approve) codex-cli 0.157.1'de doğrulandı.
+            "-c",
+            'mcp_servers.hektor.default_tools_approval_mode="approve"',
         )
         command_line: list[str] = []
         for part in get_engine(name).drive_argv_template:

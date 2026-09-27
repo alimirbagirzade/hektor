@@ -223,15 +223,34 @@ Claude'a göre yazılmış → **codex motoruyla bu görev yapısal olarak PASS 
 geri çekilmeyi ikiye katlar (5 dk → … → 6 sa tavan) ve her koşu ~20k token harcar
 (ChatGPT kotası).
 
-**Düzeltme (aynı gün, `fix/supervisor-codex-drive-prompt`):**
-- `build_drive_prompt(run, engine)` motora özgü: codex dosyayı YALNIZ salt-okuma kabuk
-  komutlarıyla okur (ağ/HTTP ve `hektor`/`uv`/`python`/`git` yasak); claude metni aynen.
+**Düzeltme 1 (`8e413d2`):**
+- `build_drive_prompt(run, engine)` motora özgü; claude metni aynen.
 - Hedef yalnız MCP'de olan adım: RAG turu (`run-once`; carding turun içinde). RLM/curate/
   assemble "KAPSAM DIŞI" raporlanır, FAIL sebebi sayılmaz.
-- **İkinci, gizli hata:** PASS `retry_after`'ı boşaltıyordu → reconcile (60 sn) motoru hemen
+- **Gizli hata:** PASS `retry_after`'ı boşaltıyordu → reconcile (60 sn) motoru hemen
   yeniden doğuruyordu. Görev düzelip codex ~40 sn'de PASS verince bu, dakikada bir ~20k
   token demekti. Artık PASS sonrası sabit **30 dk dinlenme** (`_IDLE_COOLDOWN_S`, durum
   `cooldown`); DURDUR ile kesilen koşu hariç.
+
+**Canlı koşu yine FAIL → iki engel daha (codex'in kendi onay katmanı):**
+1. MCP çağrıları: `MCP tool call requires approval, but approval policy is never`. Codex
+   annotation'sız MCP araçlarını onaya sorar. Çözüm: yalnız hektor sunucusu için
+   `-c mcp_servers.hektor.default_tools_approval_mode="approve"` (değerler
+   `auto|prompt|writes|approve`, codex-cli 0.157.1 binary'sinden). Genel
+   `approval_policy="never"` aynen; yüzey sunucu tarafında sınırlı (allowlist + require_human).
+2. Kabuk: `--ignore-user-config` altında Windows'ta her komut `blocked by policy`.
+   `-c windows.sandbox="elevated"` canlıda okumayı açtı (yazma `PermissionDenied` ile
+   düştü), ama özerk ajanın kabuk yetkisini büyüten bu değişiklik Claude Code izin
+   denetleyicisince **engellendi** ve kullanıcı **kabuksuz codex**'i seçti.
+
+**Düzeltme 2 (kabuksuz codex):** codex sür görevi dosya OKUMAZ ve kabuk KULLANMAZ;
+CLAUDE.md'nin sürücüyü bağlayan kuralları (tavsiye yok, test edilmeden "başarılı" yok,
+uydurma yok, eğitim/onay yalnız insan — Kural 8) metne gömülür, iş yalnız MCP ile yapılır
+(en dar yüzey). Canlı doğrulandı (gerçek sür argv'si): `rag-loop/status` +
+`learning/summary` + `rag-mastery` okundu, tek `run-once` turu hatasız
+(`cycles_completed=1`), RLM/curate/assemble "kapsam dışı" raporlandı, eğitim/onay ucu
+çağrılmadı → **`HEKTOR_DRIVE_VERDICT: PASS`**. Not: turda 3 kartsız makaleye kart
+denendi, üretilemedi (300 makale / 293 kart — 7 makale takılı, incelenmeli).
 
 ### 5. Sıradaki
 
@@ -241,9 +260,9 @@ geri çekilmeyi ikiye katlar (5 dk → … → 6 sa tavan) ve her koşu ~20k tok
 3. Mastery kuyruğu bitince raporları DB'den yeniden üret; `failed` / `needs_rechunking`
    makaleleri incele.
 4. v9 terfisi için kalan eval setleri (`overfit_awareness`, `risk_management`) hâlâ açık.
-5. Supervisor görev metni düzeltildi (§4). Açık kalan: RLM/curate/assemble için MCP aracı
-   eklemek ayrı karar (Kural 8 sınırı: eğitim/onay uçları motora kapalı kalmalı). İlk
-   düzeltilmiş koşunun gerçekten PASS verdiği canlıda doğrulanmalı.
+5. Supervisor codex ile canlıda PASS veriyor (§4). Açık kalan: RLM/curate/assemble için
+   MCP aracı eklemek ayrı karar (Kural 8 sınırı: eğitim/onay uçları motora kapalı kalmalı);
+   kartı üretilemeyen 7 makale incelenmeli.
 
 ---
 
