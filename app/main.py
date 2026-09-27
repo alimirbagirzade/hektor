@@ -25,6 +25,11 @@ app = typer.Typer(
 )
 console = Console()
 
+# LoRA karışım profilleri + profil eval (hektor mix ...) — ayrı modülde, main.py şişmesin.
+from app.lora.mix_cli import mix_app  # noqa: E402
+
+app.add_typer(mix_app, name="mix")
+
 
 @app.callback()
 def _root(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
@@ -537,8 +542,23 @@ def train(
     skip_load_check: bool = typer.Option(
         False, "--skip-load-check", help="train-load-doctor rakip yük taramasını atla (önerilmez)"
     ),
+    mix_profile: str = typer.Option(
+        None,
+        "--mix-profile",
+        help="Eğitim öncesi karışım ağırlık kararı: configs/lora/mix_profiles.yaml profil adı",
+    ),
+    mix_weights: str = typer.Option(
+        None,
+        "--mix-weights",
+        help='Eğitim öncesi özel karışım ağırlıkları: "math=0.3,statistics=0.2,..."',
+    ),
 ) -> None:
-    """LoRA eğitim komutunu hazırla — platform otomatik tespit edilir."""
+    """LoRA eğitim komutunu hazırla — platform otomatik tespit edilir.
+
+    ``--run`` ile gerçek eğitim, karışım ağırlık kararı OLMADAN başlamaz (kullanıcı isteği:
+    her eğitimin başında ağırlıklar sorulur): bayrak, `hektor mix weights` kaydı ya da
+    etkileşimli soru. Ayrıca eğitim verisi ↔ eval (validation/golden) sızıntısı varsa durur.
+    """
     from app.training.backend import detect_lora_backend
 
     settings = get_settings()
@@ -566,6 +586,36 @@ def train(
                 "Kaldır: [cyan]uv run hektor clear-stop-all[/cyan]"
             )
             raise typer.Exit(2)
+
+        # Karışım ağırlık kararı — onay/yük taramasından ÖNCE (karar yoksa onay boşa gitmesin).
+        # Karar burada yalnız ÇÖZÜLÜR; eğitim gerçekten başlarken tüketilir.
+        import sys as _sys
+
+        from app.lora.mix_common import MixConfigError, format_weights
+        from app.lora.weight_decision import (
+            WeightDecisionRequired,
+            finalize_decision,
+            resolve_training_weights,
+        )
+
+        try:
+            weight_decision = resolve_training_weights(
+                mix_profile=mix_profile,
+                mix_weights=mix_weights,
+                interactive=_sys.stdin.isatty() and not supervised,
+                prompt=lambda m: str(typer.prompt(m)),
+                echo=console.print,
+            )
+        except (WeightDecisionRequired, MixConfigError) as exc:
+            console.print(
+                Panel.fit(str(exc), title="⛔ Karışım ağırlığı sorulmadı", border_style="red")
+            )
+            raise typer.Exit(5) from exc
+        console.print(
+            f"[cyan]Karışım ağırlıkları[/cyan] ({weight_decision.profile_name}): "
+            f"{format_weights(weight_decision.weights)} "
+            "[dim](semantik yüzde değil — adapter ölçek katsayısı)[/dim]"
+        )
 
         # train-load-doctor: rakip LLM/GPU yükü (ör. Ollama'da hâlâ yüklü model) taze
         # onay tüketilmeden ÖNCE taranır — kaynak yoksa onayı boşa harcamayalım.
@@ -644,6 +694,24 @@ def train(
             raise typer.Exit(1)
         console.print(f"[dim]Eğitim verisi tazelendi: train={n_train}, valid={_n_valid}.[/dim]")
 
+        # Sızıntı kapısı: eval (validation/golden) soruları/cevapları eğitim verisinde olamaz.
+        from app.lora.mix_cli import run_leakage_check
+
+        leak = run_leakage_check(settings.jsonl_dir / "train.jsonl")
+        if not leak["clean"]:
+            console.print(
+                Panel.fit(
+                    f"Eğitim verisinde eval sızıntısı: {leak['counts']}\n"
+                    "Ayrıntı: [cyan]uv run hektor mix leakage[/cyan]",
+                    title="⛔ Golden/validation sızıntısı — eğitim başlamaz",
+                    border_style="red",
+                )
+            )
+            raise typer.Exit(6)
+
+        weight_decision = finalize_decision(weight_decision, consumed_by=f"train:{adapter_name}")
+        console.print(f"[dim]Ağırlık kararı tüketildi: {weight_decision.decision_id}[/dim]")
+
     if resolved == "mlx":
         from app.training.mlx_lora_train import TrainConfig
         from app.training.mlx_lora_train import main as train_main
@@ -667,7 +735,10 @@ def train(
                     train_jsonl=cfg.train_jsonl,
                     valid_jsonl=cfg.valid_jsonl,
                     learning_rate=cfg.learning_rate,
-                    notes=f"manuel train --run --backend mlx (iterations={iterations})",
+                    notes=(
+                        f"manuel train --run --backend mlx (iterations={iterations}) "
+                        f"mix[{weight_decision.decision_id}]={weight_decision.profile_name}"
+                    ),
                 )
         else:
             train_main(
@@ -739,7 +810,8 @@ def train(
                     target_modules=list(TARGET_MODULES),
                     notes=(
                         f"manuel train --run --backend peft "
-                        f"(iterations={iterations}, profile={profile or '-'})"
+                        f"(iterations={iterations}, profile={profile or '-'}) "
+                        f"mix[{weight_decision.decision_id}]={weight_decision.profile_name}"
                     ),
                 )
         else:

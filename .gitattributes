@@ -18,3 +18,7 @@
 *.bin  binary
 *.pt   binary
 *.pth  binary
+
+# Profil eval setleri hash ile korunur (evals/profile_mix/manifest.json) — satır sonu
+# dönüşümü hash'i bozar; bayt-bayt aynı kalmalı.
+evals/profile_mix/*.jsonl -text

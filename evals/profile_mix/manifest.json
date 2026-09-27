@@ -1,0 +1,13 @@
+{
+  "version": "1",
+  "splits": {
+    "validation": {
+      "file": "validation.jsonl",
+      "sha256": "826b481f73f11b25f8f52cd171002705ac72a2e16fd5ad991d514201b7552ecc"
+    },
+    "golden_test": {
+      "file": "golden_test.jsonl",
+      "sha256": "4bc75624a148511a3ce70494ff29f99bc168e4ef0397dfc1bf912496ff50f8ce"
+    }
+  }
+}

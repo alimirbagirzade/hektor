@@ -1,0 +1,67 @@
+# LoRA KARIŞIM (adapter mixing) profilleri — Hektor.
+#
+# DİKKAT — iki ayrı dosya, iki ayrı kavram:
+#   configs/lora/lora_profiles.yaml : EĞİTİM hiperparametre ön ayarları (r, lr, epoch...)
+#   configs/lora/mix_profiles.yaml  : BU DOSYA — bağımsız eğitilmiş domain adapter'larını
+#                                     yeniden eğitmeden ağırlıklı birleştirme profilleri.
+#
+# Katsayılar SEMANTİK YÜZDE DEĞİLDİR. math: 0.30 "cevabın %30'u matematik" demek değildir;
+# PEFT add_weighted_adapter'a verilen adapter ölçek (scaling) katsayısıdır. Bir profilin
+# gerçekten işe yarayıp yaramadığını YALNIZ eval belirler (hektor mix eval).
+#
+# Hiçbir merge yöntemi "en iyi" kabul edilmez: aynı profil svd / ties / dare_ties / linear
+# ile ayrı ayrı kurulup (balanced_v1_svd, balanced_v1_ties ...) ayrı ayrı test edilir.
+# Base model ağırlıkları ASLA değişmez (merge_and_unload kullanılmaz).
+
+version: 1
+
+domains: [math, statistics, reasoning, trading, coding]
+
+merge_methods:
+  svd: {}                       # farklı rank'leri kabul eder; svd_rank varsayılanı = max(r)
+  ties: {density: 0.5}          # tüm adapter'larda AYNI r zorunlu (PEFT kısıtı)
+  dare_ties: {density: 0.5}     # tüm adapter'larda AYNI r zorunlu; seed'li (determinizm)
+  linear: {}                    # tüm adapter'larda AYNI r zorunlu
+
+profiles:
+  balanced_v1:
+    math: 0.30
+    statistics: 0.20
+    reasoning: 0.30
+    trading: 0.15
+    coding: 0.05
+  math_reasoning_v1:
+    math: 0.40
+    statistics: 0.15
+    reasoning: 0.30
+    trading: 0.10
+    coding: 0.05
+  statistics_v1:
+    math: 0.25
+    statistics: 0.35
+    reasoning: 0.20
+    trading: 0.15
+    coding: 0.05
+  trading_analysis_v1:
+    math: 0.20
+    statistics: 0.30
+    reasoning: 0.20
+    trading: 0.25
+    coding: 0.05
+  coding_backtest_v1:
+    math: 0.10
+    statistics: 0.15
+    reasoning: 0.10
+    trading: 0.25
+    coding: 0.40
+
+# Router (v1): SÜREKLİ ağırlık ÜRETMEZ — yalnız VALIDATED/PRODUCTION profiller arasından seçer.
+router:
+  confidence_threshold: 0.5
+  fallback_profile: balanced_v1
+  domain_profiles:
+    math: math_reasoning_v1
+    statistics: statistics_v1
+    trading: trading_analysis_v1
+    coding: coding_backtest_v1
+    general: balanced_v1

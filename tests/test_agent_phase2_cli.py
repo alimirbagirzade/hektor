@@ -67,7 +67,16 @@ def test_train_run_blocked_without_approval(monkeypatch) -> None:
     monkeypatch.setattr("app.agents.runtime.supervisor.is_stop_all_active", lambda root=None: False)
     r = runner.invoke(
         app,
-        ["train", "--run", "--backend", "peft", "--adapter-name", "phase2_smoke_block"],
+        [
+            "train",
+            "--run",
+            "--backend",
+            "peft",
+            "--adapter-name",
+            "phase2_smoke_block",
+            "--mix-profile",
+            "balanced_v1",
+        ],
     )
     assert r.exit_code == 3  # onay gerekli → eğitim başlamadı
 

@@ -165,7 +165,7 @@ def test_train_run_blocks_on_no_go(monkeypatch) -> None:
 
     monkeypatch.setattr(unattended_policy, "authorize_training_action", _fake_authorize)
 
-    result = runner.invoke(app, ["train", "--run"], env=_ENV)
+    result = runner.invoke(app, ["train", "--run", "--mix-profile", "balanced_v1"], env=_ENV)
     assert result.exit_code == 4
     assert called["authorize"] is False
 
@@ -193,7 +193,9 @@ def test_train_run_skip_load_check_bypasses_doctor(monkeypatch) -> None:
 
     monkeypatch.setattr(unattended_policy, "authorize_training_action", _fake_authorize)
 
-    result = runner.invoke(app, ["train", "--run", "--skip-load-check"], env=_ENV)
+    result = runner.invoke(
+        app, ["train", "--run", "--skip-load-check", "--mix-profile", "balanced_v1"], env=_ENV
+    )
     assert called["doctor"] is False
     # skip-load-check sonrası akış onay kapısına ulaşmalı (exit 3, doctor'dan (4) değil).
     assert result.exit_code == 3
