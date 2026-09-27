@@ -2,7 +2,44 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.lora.math_verifier import verify_math_content
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Canlı vaka (2026-09-27 lora-audit, card_d489175087d1 — Cholesky/Bayesian Filtering).
+        "Higher-order filters increase computational complexity without guaranteed "
+        "performance gains.",
+        "Convergence is not guaranteed for non-convex objectives.",
+        "Profits are not necessarily guaranteed.",
+        "There are no guaranteed returns in live markets.",
+        "Getiri garanti değildir.",
+        "Kâr garantisi yoktur.",
+    ],
+)
+def test_negated_overconfident_phrase_is_not_blocker(text: str) -> None:
+    """Olumsuzlanmış aşırı-emin ifade ihtiyatlı dildir → blok DEĞİL (Gate 5 yanlış reddi)."""
+    result = verify_math_content(text)
+    assert result.passed is True, result.issues
+    assert not any("aşırı emin" in issue for issue in result.issues)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "This strategy delivers guaranteed returns.",
+        "You will never lose, guaranteed.",  # olumsuzlayıcı ifadeye değil başka söze bağlı
+        "Not only profitable but guaranteed to win.",  # olumsuzlayıcı iki+ kelime uzakta
+        "Convergence is not guaranteed, but profit is guaranteed.",  # ikinci geçiş çıplak
+        "Bu yöntem garantili getiri sağlar.",
+    ],
+)
+def test_unnegated_overconfident_phrase_still_fails(text: str) -> None:
+    """Olumsuzlama muafiyeti gerçek aşırı-emin dili KAÇIRMAMALI (yanlış negatif koruması)."""
+    assert verify_math_content(text).passed is False
 
 
 def test_clean_text_passes_without_review() -> None:

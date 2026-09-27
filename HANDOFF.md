@@ -277,14 +277,19 @@ metin çıkarımı/ingest (bkz. §6-5).
 - İkinci koşu: Gate 0 ✅, Gate 3 ✅; genel sonuç hâlâ **FAIL** — yalnız Gate 5'teki tek red:
   `card_d489175087d1` (Cholesky Factorization, Bayesian Filtering kitabı) "aşırı emin
   yatırım ifadesi: 'guaranteed'" — metin "…without guaranteed performance gains" yani
-  OLUMSUZLANMIŞ, ihtiyatlı ifade → **muhtemel yanlış pozitif** (Gate 6 olumsuzlama-bilinçli,
-  `verify_math_content` değil). Düzeltilmedi — karar bekliyor.
+  OLUMSUZLANMIŞ, ihtiyatlı ifade → yanlış pozitif (Gate 6 olumsuzlama-bilinçliydi,
+  `verify_math_content` değildi).
+- **Gate 5 düzeltmesi:** aşırı-emin ifade taraması artık olumsuzlama-bilinçli — ÖNCE
+  olumsuzlayıcı (without/not/no/never/cannot…, arada ≤1 kelime) ya da SONRA Türkçe yüklem
+  olumsuzlaması (değil/yok/edilmez…) olan geçiş muaf; tek bir çıplak geçiş yine BLOK
+  ("not guaranteed, but profit is guaranteed" yakalanır). 292 kartta yalnız o tek kart
+  değişti. **Üçüncü koşu: `lora-audit` PASS** (Gate 0-7 yeşil; 58 inceleme bloklamıyor).
 - Yan gözlem: rapor özeti "Reddedilen 0" diyor ama kapılar red sayıyor — özet hesabı
   incelenmeli. Kapı ayrıntıları 20 satırda kesiliyor (Gate 5'in reddi raporda görünmüyordu).
 
 ### 6. Sıradaki
 
-1. Gate 5 yanlış pozitifi (olumsuzlanmış 'guaranteed') → `lora-audit` PASS.
+1. ~~Gate 5 yanlış pozitifi~~ → düzeltildi, `lora-audit` PASS.
 2. 58 inceleme işaretli kartın insan incelemesi (Gate 5: 38 doğrulanmamış performans
    iddiası / look-ahead uyarısı; Gate 6: 20 yönlendirme dili).
 3. Kanonik akış: `lora-curate --run` → `assemble_sft.py` → `pretrain-gate` → `lora-split`.

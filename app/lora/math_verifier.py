@@ -40,6 +40,18 @@ OVERCONFIDENT_PHRASES: list[str] = [
     "100% profit",
 ]
 
+# Olumsuzlanmış aşırı-emin ifade ihtiyatlı dildir, BLOK değildir: "…without guaranteed
+# performance gains" (2026-09-27 lora-audit, card_d489175087d1) ve "getiri garanti
+# değildir" düz alt-dize taramasında kartı REDDEDİYORDU. Desenler tr_fold'lanmış metne
+# karşı çalışır. ÖNCE: olumsuzlayıcı + en fazla bir ara kelime ("is not necessarily
+# guaranteed"); SONRA: Türkçe yüklem olumsuzlaması ("garantisi yoktur").
+_OVERCONF_NEG_BEFORE_RE = re.compile(
+    r"\b(?:not|no|non|without|never|cannot|can't|isn't|aren't|hardly|neither|nor|hic|hicbir)"
+    r"\b(?:\s+\w+)?[\s\-]*$"
+)
+_OVERCONF_NEG_AFTER_RE = re.compile(r"^\w*\s*(?:degil|yok|edilmez|olmaz|olmad)")
+_OVERCONF_NEG_WINDOW: int = 30
+
 # "%<sayı>" desenini yakalar.
 _PERCENT_RE = re.compile(r"%\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*%")
 
@@ -158,6 +170,23 @@ def _check_performance_claims(folded: str) -> list[str]:
     return issues
 
 
+def _has_unnegated(folded: str, phrase: str) -> bool:
+    """`phrase`'in en az bir OLUMSUZLANMAMIŞ geçişi var mı (`folded`: tr_fold'lanmış)?
+
+    Tek bir olumsuzlanmamış geçiş yeterlidir → "not guaranteed … but guaranteed profit"
+    yine yakalanır; olumsuzlama yalnız kendi geçişini muaf tutar.
+    """
+    start = 0
+    while (i := folded.find(phrase, start)) >= 0:
+        end = i + len(phrase)
+        before = folded[max(0, i - _OVERCONF_NEG_WINDOW) : i]
+        after = folded[end : end + _OVERCONF_NEG_WINDOW]
+        if not (_OVERCONF_NEG_BEFORE_RE.search(before) or _OVERCONF_NEG_AFTER_RE.search(after)):
+            return True
+        start = end
+    return False
+
+
 def verify_math_content(text: str) -> MathVerifyResult:
     """Bir metni matematik/istatistik açısından doğrula.
 
@@ -180,7 +209,7 @@ def verify_math_content(text: str) -> MathVerifyResult:
 
     overconfident_found = False
     for phrase in OVERCONFIDENT_PHRASES:
-        if tr_fold(phrase) in folded:
+        if _has_unnegated(folded, tr_fold(phrase)):
             issues.append(f"aşırı emin yatırım ifadesi: '{phrase}'")
             overconfident_found = True
 
