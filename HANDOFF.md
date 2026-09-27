@@ -287,11 +287,45 @@ metin çıkarımı/ingest (bkz. §6-5).
 - Yan gözlem: rapor özeti "Reddedilen 0" diyor ama kapılar red sayıyor — özet hesabı
   incelenmeli. Kapı ayrıntıları 20 satırda kesiliyor (Gate 5'in reddi raporda görünmüyordu).
 
-### 6. Sıradaki
+### 6. 58 inceleme işaretinin gözden geçirmesi + 19 kart düzeltmesi (VERİ, kod yok)
+
+58 işaret = **57 kart**; her tetik cümlesi okundu, Gate 5 başarı iddialarındaki sayılar
+ilgili makalenin KENDİ chunk metninde arandı (küçük makalede "sayı yok" = güçlü uydurma
+kanıtı; 1000+ chunk'lık kitapta "var" = zayıf kanıt). Ayrıntı (yerel, git'e girmez):
+`reports/lora/inceleme_58_kart_2026-09-27.md`.
+
+- **38 kart bırakıldı (yanlış pozitif):** önyargıya karşı UYARI (look-ahead'den kaçın…),
+  ihtiyatlı/maliyet-bilinçli "should", "Test if …" hipotez biçimi, makalede doğrulanan bulgu
+  (DeepAR ~%15, STST %63,7, LTR ~3x Sharpe), makaleye atfedilen "superior performance".
+- **15 kart: makalede OLMAYAN kesin başarı rakamı** (ör. HHMM "%90 doğruluk, buy-and-hold'u
+  yılda %15 geçer" — iki sayı da makalede yok; trading'le ilgisiz kitaplarda — Spirtes,
+  Tsay, Hogg, matematiksel fizik — uydurma strateji rakamları). **4 kart: tavsiye dili**
+  ("investors should consider mean-reversion strategies", "implement a 10% reduction in
+  equity exposure").
+- **Kullanıcı onayıyla 19 kartta 45 alan yeniden yazıldı** (`possible_strategy_hypotheses`,
+  4 kartta `trading_relevance`/`implementation_notes`): uydurma rakam çıkarıldı →
+  "Test if … out-of-sample, net of transaction costs"; kaynakta doğrulanan rakam/eşik
+  korundu. Tek transaction, alan başına "önizlemedeki eski metin hâlâ aynı mı" korumalı;
+  45/45 DB'de doğrulandı. Başlık/özet/onay durumu değişmedi. Kartlar Chroma'da ayrıca embed
+  EDİLMEZ → bayat kopya yok. **Yedek:**
+  `storage/card_backups/card_json_before_edit_2026-09-27.json`.
+- **Dördüncü `lora-audit`: PASS, inceleme 58 → 40** (Gate 5: 38 → 23, Gate 6: 20 → 17). Kalan
+  40 = bırakılan 38 yanlış pozitif + 2 (matematik terimi "contradiction", çekinceli
+  "superior performance").
+- **Kök neden (kart üreticisi):** `app/prompts/knowledge_card.md` satır 20:
+  *"possible_strategy_hypotheses alanı test edilebilir, somut ve **ölçülebilir** olmalı"* —
+  model "ölçülebilir"i rakam uydurarak karşılıyor. Talimatta "rakamı yalnız kaynakta
+  geçiyorsa yaz", "Test if" biçimi, OOS/maliyet şartı ve tavsiye yasağı YOK. Düzeltilmezse
+  yeni kartlarda sorun tekrar eder (bkz. §7-2).
+
+### 7. Sıradaki
 
 1. ~~Gate 5 yanlış pozitifi~~ → düzeltildi, `lora-audit` PASS.
-2. 58 inceleme işaretli kartın insan incelemesi (Gate 5: 38 doğrulanmamış performans
-   iddiası / look-ahead uyarısı; Gate 6: 20 yönlendirme dili).
+2. ~~58 inceleme kartı~~ → gözden geçirildi, 19 kart düzeltildi (§6). **Sistemik:** kart
+   talimatı (`app/prompts/knowledge_card.md`) sıkılaştırılmalı; Gate 5'e "iddiadaki sayı
+   kaynak chunk'larında var mı" deterministik kontrolü eklenebilir; Gate 6 olumsuzlama
+   penceresi araya giren kelimeyi ("may not **be** directly applicable") kaçırıyor; Gate 5
+   risk kuralı kümülatif getiriyi (%340) risk yüzdesi sanıyor.
 3. Kanonik akış: `lora-curate --run` → `assemble_sft.py` → `pretrain-gate` → `lora-split`.
 4. Eğitimden ÖNCE **Kademe 2** derin av (zorunlu) → ardından taze insan onayı (Kural 8).
 5. Mastery kuyruğu bitince `hektor mastery-report --rebuild` (#24); `failed` /
