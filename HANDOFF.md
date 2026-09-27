@@ -148,7 +148,7 @@ kuruldu (`data/`, `storage/` git'te yok → korpus yeniden üretildi).
 | Stage 1 — `continuous-learning.sh 72` | 01:10–13:34, 73 tur; yalnız 77 sentetik örnek (her tur yalnız "yeni makaleler" → çoğu tur boş). `storage/STOP_LEARNING` ile **durduruldu** (dosya yerinde; döngüyü yeniden açmak için sil) |
 | Stage 1 — `synth-qa-bulk --target 1000 --resume --seed 0` | 13:35'te ayrık süreç olarak başladı (log: `storage/synth_bulk.log`), 298 makale / 60 batch; ilk batch +78 → **155** |
 | `lora-readiness` | 13:30'da 370/1000 (%37; synth 77 + onaylı kart 293) |
-| Unattended supervisor | `backoff`, 8 hata: bu makinede `codex` CLI PATH'te yok → gözetimsiz sürücü çalışmıyor (veri üretimini etkilemez) |
+| Unattended supervisor | ~14:00'te `backoff`, 8 hata (`codex` CLI yoktu). 15:05'ten beri codex kurulu + girişli, motor kalkıyor ama sür-modu **FAIL** veriyor — bkz. §4 |
 | Ollama | `qwen3:30b` yüklü (~17.6 GB, VRAM ~19/20 GB dolu) |
 
 ### 2. Hata: mastery raporları Windows'ta 0 bayt (`55453df`)
@@ -182,10 +182,48 @@ macOS/Linux'ta varsayılan UTF-8 → CI hiç görmedi.
   koruması `keep_last`'ı aşıyordu; deterministik damgalar.
 
 **Kapı (Windows):** ruff format --check + ruff check + mypy (222 dosya, 0 hata) +
-pytest `-m "not ollama"` **2292 passed, 5 skipped, 4 deselected**. Bu makinede `uv`,
-`make`, `gh` PATH'te yok → araçlar `.venv\Scripts\` altından doğrudan koşuldu.
+pytest `-m "not ollama"` **2292 passed, 5 skipped, 4 deselected**. `make` ve `gh` bu
+makinede kurulu değil; `uv` winget ile kurulu ve kullanıcı PATH'inde, ama o PATH'ten önce
+açılmış kabuklar onu görmez → araçlar `.venv\Scripts\` altından doğrudan koşuldu.
 
-### 4. Sıradaki
+### 4. Codex CLI kurulumu + gözetimsiz supervisor (motor kalkıyor, sür-modu FAIL)
+
+**Kurulum (bu makine):**
+- `winget install --id OpenAI.Codex -e` → **codex-cli 0.157.1**, kurulum dizini
+  `%LOCALAPPDATA%\Microsoft\WinGet\Packages\OpenAI.Codex_Microsoft.Winget.Source_8wekyb3d8bbwe`
+  (kullanıcı PATH'ine eklendi). winget `codex` takma adını oluşturamadı (`WinGet\Links` boş;
+  muhtemelen Geliştirici Modu kapalı) → aynı dizine **`codex.exe` hardlink'i** elle eklendi
+  (`codex-x86_64-pc-windows-msvc.exe`'ye). `winget upgrade` sonrası bu hardlink yeniden
+  kurulmalı.
+- MCP sunucusunun bağımlılığı eksikti: `uv sync --inexact --extra mcp` → `fastmcp 3.4.4` +
+  35 bağımlılık (yalnız ekleme; `--inexact` dev/train-cpu extra'larını korur).
+- Giriş: `codex login` (tarayıcı akışı, ChatGPT hesabı) → `~/.codex/auth.json`,
+  `codex login status` = "Logged in using ChatGPT". Dersler: (a) kurulumdan ÖNCE açılmış
+  terminal `codex`'i görmez (tam yol ya da yeni terminal); (b) iki cihaz-kodu denemesi
+  onaysız 15 dk'da zaman aşımına uğradı — makinede Codex masaüstü uygulaması da açıktı,
+  kodlar karışmış olabilir; tarayıcı akışı sorunsuz. Ağ sağlam (proxy yok, TLS zinciri
+  gerçek Let's Encrypt/Google; codex sistem köklerini kullanıyor).
+- `hektor-web` yeni PATH'le yeniden başlatıldı (supervisor `codex`'i web sürecinin
+  PATH'inde arar — `driver._resolve_executable`); log `storage/web.log`, eski log
+  `storage/web.20260927-1505.log`.
+- Geri çekilme sayacı sıfırlandı (8 → 0; eski dosya
+  `storage/unattended_supervisor_state.json.bak-20260927`) — o 8 hata kurulum eksikliğiydi.
+
+**İlk motor koşusu (15:05:29–15:06:08): `HEKTOR_DRIVE_VERDICT: FAIL`, ~19,7k token.**
+Codex girişli ve MCP'ye bağlı; başarısızlık **görev metninde**. Codex'in kendi açıklaması:
+1. Sür-modu görevi ([driver.py:146](app/orchestration/driver.py:146)) "İLK İŞ: CLAUDE.md'yi
+   **Read** ile OKU" diyor ve kabuk komutunu yasaklıyor. `Read/Grep/Glob` Claude Code
+   araçları; codex dosyayı yalnız kabukla okur → zorunlu ilk adım imkânsız, hiç ilerlemiyor.
+2. Görev "carding → RLM → curate → assemble" istiyor ama MCP izin listesinde
+   (`mcp_server/allowlist.py`) bu adımlar için araç yok; veri hattını ilerleten tek uç
+   `POST /api/rag-loop/run-once` (diğer POST `/api/ask` yalnız sorgu).
+
+Supervisor'ın varsayılan motoru `codex` (`unattended_supervisor.py:56`), sür görevi ise
+Claude'a göre yazılmış → **codex motoruyla bu görev yapısal olarak PASS veremez.** Her FAIL
+geri çekilmeyi ikiye katlar (5 dk → … → 6 sa tavan) ve her koşu ~20k token harcar
+(ChatGPT kotası). Kalıcı çözüm için karar gerekiyor (sıradaki §5-5).
+
+### 5. Sıradaki
 
 1. `synth-qa-bulk` 1000'e ulaşınca: `lora-curate --run` → `assemble_sft.py` →
    `lora-audit` → `pretrain-gate`.
@@ -193,6 +231,11 @@ pytest `-m "not ollama"` **2292 passed, 5 skipped, 4 deselected**. Bu makinede `
 3. Mastery kuyruğu bitince raporları DB'den yeniden üret; `failed` / `needs_rechunking`
    makaleleri incele.
 4. v9 terfisi için kalan eval setleri (`overfit_awareness`, `risk_management`) hâlâ açık.
+5. Supervisor sür-modu görevi motor-bağımsız olmalı: ya codex için dosya okumaya izin veren
+   (sandbox zaten `read-only`) motor-özel bir görev metni, ya da yalnız MCP'de gerçekten
+   bulunan adımları isteyen bir metin; eksik adımlar (carding/RLM/curate/assemble) için MCP
+   aracı eklemek ayrı karar (Kural 8 sınırı: eğitim/onay uçları kapalı kalmalı). Karar
+   verilene kadar supervisor boşa FAIL koşar — istenirse `enabled=false` ile durdurulabilir.
 
 ---
 
