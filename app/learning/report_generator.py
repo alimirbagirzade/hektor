@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from app.learning.mastery_scorer import MasteryScore
 from app.memory.mastery_store import MasteryStore
 
 _REPORT_DIR = Path("reports/papers/mastery")
+
+_SCORE_COMPONENTS: tuple[str, ...] = (
+    "parse_score",
+    "metadata_score",
+    "chunk_quality_score",
+    "index_score",
+    "retrieval_score",
+    "citation_score",
+    "grounding_score",
+    "abstention_score",
+    "formula_argument_score",
+)
 
 
 class ReportGenerator:
@@ -86,3 +100,92 @@ class ReportGenerator:
 
         self._store.set_test_report(test_id, str(json_path))
         return json_path, md_path
+
+
+# ── Veritabanından yeniden üretim ────────────────────────────────────────────
+
+
+def has_valid_report(paper_id: str, report_dir: Path | None = None) -> bool:
+    """JSON + MD mevcut, boş değil ve JSON ayrıştırılabilir mi."""
+    d = report_dir or _REPORT_DIR
+    json_path = d / f"{paper_id}_mastery_report.json"
+    md_path = d / f"{paper_id}_mastery_report.md"
+    for p in (json_path, md_path):
+        if not p.exists() or p.stat().st_size == 0:
+            return False
+    try:
+        json.loads(json_path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return True
+
+
+def score_from_record(record: dict[str, Any]) -> MasteryScore:
+    """DB skor kaydından MasteryScore kur (toplam + durum bileşenlerden hesaplanır)."""
+    return MasteryScore(
+        paper_id=str(record["paper_id"]),
+        test_id=str(record["test_id"]),
+        **{c: float(record.get(c) or 0.0) for c in _SCORE_COMPONENTS},
+    )
+
+
+@dataclass
+class RebuildResult:
+    """`rebuild_reports` özeti."""
+
+    finished_papers: int
+    rebuilt: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)  # "paper_id: sebep"
+    failed: list[str] = field(default_factory=list)  # "paper_id: hata"
+    dry_run: bool = False
+
+
+def rebuild_reports(
+    store: MasteryStore | None = None,
+    report_dir: Path | None = None,
+    *,
+    paper_id: str | None = None,
+    force: bool = False,
+    dry_run: bool = False,
+) -> RebuildResult:
+    """Tamamlanmış testlerin eksik/bozuk raporlarını veritabanından yeniden üret.
+
+    Rapor yazımı best-effort olduğundan (bkz. PaperMasteryAgent) test/skor DB'de sağlam
+    kalıp rapor dosyası kaybolabilir — ör. Windows'ta UTF-8'siz yazım 0 baytlık dosya
+    bırakıyordu. Makale başına EN SON biten test kullanılır. Geçerli raporu olan makaleye
+    dokunulmaz (``force=True`` hariç). Bileşenlerden hesaplanan toplam, DB'deki kayıtlı
+    toplamla uyuşmazsa rapor YAZILMAZ (tutarsız veriyle rapor üretme).
+    """
+    st = store or MasteryStore()
+    gen = ReportGenerator(store=st, report_dir=report_dir)
+    latest: dict[str, dict[str, Any]] = {}
+    for t in st.list_finished_tests():  # eskiden yeniye → son kazanır
+        if paper_id is None or t["paper_id"] == paper_id:
+            latest[t["paper_id"]] = t
+
+    result = RebuildResult(finished_papers=len(latest), dry_run=dry_run)
+    for pid, test in latest.items():
+        if not force and has_valid_report(pid, report_dir):
+            continue
+        record = st.get_score_for_test(test["test_id"])
+        if record is None:
+            result.skipped.append(f"{pid}: skor kaydı yok")
+            continue
+        score = score_from_record(record)
+        stored_total = float(record.get("total_score") or 0.0)
+        if abs(score.total_score - stored_total) > 0.011:
+            result.skipped.append(f"{pid}: toplam uyuşmuyor ({score.total_score} ≠ {stored_total})")
+            continue
+        if dry_run:
+            result.rebuilt.append(pid)
+            continue
+        try:
+            gen.generate(pid, test["test_id"], score)
+        except (OSError, ValueError) as exc:  # ValueError ⊃ UnicodeEncodeError
+            result.failed.append(f"{pid}: {exc}")
+            continue
+        if has_valid_report(pid, report_dir):
+            result.rebuilt.append(pid)
+        else:
+            result.failed.append(f"{pid}: yazıldı ama doğrulanamadı")
+    return result

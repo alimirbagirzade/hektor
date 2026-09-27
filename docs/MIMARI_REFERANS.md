@@ -954,7 +954,7 @@ Desired-state reconciler (web lifespan 60 s): STOP_ALL? → motor canlı? → ba
 | RLM | `rlm-answer <q> --engine native|alexzhang --rounds`, `rlm-runs`, `rlm-trajectory <id>`, `rlm-lora-candidates --export`, `rlm-engine`, `rlm-test-adapter`, `rlm-tools --call` |
 | Trading | `gen-data`, `backtest <csv> --strategy-json`, `pine [name]`, `export-package`, `risk <backtest_id>` |
 | Anlama | `exam-l3 --indicator`, `exam-l4`, `exam-l5`, `understanding-score --full --with-rag --record`, `understanding-history --compare` |
-| Mastery | `mastery-run <id>`, `mastery-queue --enqueue-all --run-next --run-all`, `mastery-score`, `mastery-report`, `mastery-to-sft` |
+| Mastery | `mastery-run <id>`, `mastery-queue --enqueue-all --run-next --run-all`, `mastery-score`, `mastery-report [--rebuild]`, `mastery-to-sft` |
 | Veri üretimi | `dataset`, `synth-qa`, `synth-qa-bulk --target`, `discipline-dataset --write`, `unified-dataset`, `lora-dataset`, `lora-curate --run`, `lora-split`, `lora-readiness --threshold 1000`, `pretrain-gate --json`, `lora-cloud-prep`, `lora-audit --run`, `tool-use-train`, `tool-use-dataset`, `reward-analyze --build-dpo` |
 | Eğitim | **`train [--run] --backend auto|mlx|peft --profile --max-examples`** (dry-run varsayılan; `--run`: STOP_ALL→2, onay→3, `ensure_train_split`), `evaluate <set>`, `lora-eval <adapter> --n`, `lora-chat`, `lora-registry`, `lora-status` |
 | Yerel eğitim 5A-5E | `local-training-audit`, `-request --create-approval`, `-dry-run`, `-handoff`, `-postcheck` (hepsi salt-rapor) |
