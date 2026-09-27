@@ -47,6 +47,10 @@ DOMAIN_KEYWORDS: dict[Domain, list[str]] = {
         "markov",
         "stochastic",
         "stokastik",
+        # Alan ADI kendi anahtarı (2026-09-27): kartın `domain` alanı açıkça "Mathematics"
+        # dese bile eşleşmiyordu. Bkz. PHYSICS notu.
+        "mathematics",
+        "matematik",
     ],
     Domain.PHYSICS: [
         "force",
@@ -63,6 +67,12 @@ DOMAIN_KEYWORDS: dict[Domain, list[str]] = {
         "termodinamik",
         "birim",
         "kütle",
+        # Alan ADI kendi anahtarı (2026-09-27 lora-audit): 8 alandan yalnız TRADING kendi
+        # adını tanıyordu → saklı domain'i açıkça "Physics" / "Philosophy of Science" olan
+        # içerikli kartlar Gate 0/3'te "domain atanamadı" ile düşüyordu. Açık alan adı
+        # güçlü sinyal; 293 onaylı kartta yalnız EKLEME yaptı (32 kart), hiçbir alan düşmedi.
+        "physics",
+        "fizik",
     ],
     Domain.STATISTICS: [
         "distribution",
@@ -80,6 +90,9 @@ DOMAIN_KEYWORDS: dict[Domain, list[str]] = {
         "varyans",
         "ortalama",
         "sample",
+        # Alan ADI kendi anahtarı (2026-09-27) — bkz. PHYSICS notu.
+        "statistics",
+        "istatistik",
     ],
     Domain.PHILOSOPHY: [
         "epistemology",
@@ -93,6 +106,9 @@ DOMAIN_KEYWORDS: dict[Domain, list[str]] = {
         "ontoloji",
         "argument",
         "akıl yürütme",
+        # Alan ADI kendi anahtarı (2026-09-27) — bkz. PHYSICS notu.
+        "philosophy",
+        "felsefe",
     ],
     Domain.TRADING: [
         "backtest",

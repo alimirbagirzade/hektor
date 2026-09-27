@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.lora.domain_classifier import Domain, classify_domains
 
 
@@ -52,6 +54,46 @@ def test_markov_stochastic_detected_mathematics() -> None:
     """Kademe-2 kör noktası: 'markov'/'stochastic' MATHEMATICS döndürmeli."""
     assert Domain.MATHEMATICS in classify_domains("Markov chain analysis")
     assert Domain.MATHEMATICS in classify_domains("stokastik süreç")
+
+
+@pytest.mark.parametrize(
+    ("text", "domain"),
+    [
+        ("Mathematics", Domain.MATHEMATICS),
+        ("matematik", Domain.MATHEMATICS),
+        ("Physics", Domain.PHYSICS),
+        ("Econophysics literature", Domain.PHYSICS),
+        ("fiziksel sistem", Domain.PHYSICS),
+        ("Bayesian Statistics", Domain.STATISTICS),
+        ("istatistiksel anlamlılık", Domain.STATISTICS),
+        ("Philosophy of Science", Domain.PHILOSOPHY),
+        ("bilim felsefesi", Domain.PHILOSOPHY),
+    ],
+)
+def test_domain_name_is_its_own_keyword(text: str, domain: Domain) -> None:
+    """Regresyon (2026-09-27 lora-audit): yalnız TRADING kendi adını tanıyordu.
+
+    Saklı domain'i açıkça "Physics" / "Philosophy of Science" olan içerikli kartlar Gate 0/3'te
+    "domain atanamadı" ile düşüyordu.
+    """
+    assert domain in classify_domains(text)
+
+
+def test_card_with_explicit_physics_domain_passes_gate_3() -> None:
+    """Canlı vakanın birebiri: metnin geri kalanında hiçbir fizik anahtarı yok, yalnız
+    `domain="Physics"` alanı var (card_b8d450205d8c — Statistical Mechanics)."""
+    from app.lora.gates import gate_3_domain
+
+    card = {
+        "card_id": "card_x",
+        "card_json": {
+            "title": "Statistical Mechanics",
+            "summary": "Phase transitions, critical phenomena and degenerate Fermi gas behavior.",
+            "domain": "Physics",
+        },
+    }
+    result = gate_3_domain([card])
+    assert result.passed, result.details
 
 
 def test_empty_text_returns_empty_list() -> None:

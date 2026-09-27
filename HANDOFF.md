@@ -252,17 +252,49 @@ uydurma yok, eğitim/onay yalnız insan — Kural 8) metne gömülür, iş yaln�
 çağrılmadı → **`HEKTOR_DRIVE_VERDICT: PASS`**. Not: turda 3 kartsız makaleye kart
 denendi, üretilemedi (300 makale / 293 kart — 7 makale takılı, incelenmeli).
 
-### 5. Sıradaki
+**Supervisor canlıda (`83275b5`, web 17:15'te yeniden başlatıldı):** ilk gerçek koşu
+17:16–17:18, ~27k token, **PASS**; durum `cooldown` (30 dk), `failures=0`. Motorun kendi
+bulgusu: kartı üretilemeyen makalelerin **chunk sayısı 0** → sorun kart üretimi değil
+metin çıkarımı/ingest (bkz. §6-5).
 
-1. `synth-qa-bulk` 1000'e ulaşınca: `lora-curate --run` → `assemble_sft.py` →
-   `lora-audit` → `pretrain-gate`.
-2. Eğitimden ÖNCE **Kademe 2** derin av (zorunlu) → ardından taze insan onayı (Kural 8).
-3. Mastery kuyruğu bitince raporları DB'den yeniden üret; `failed` / `needs_rechunking`
-   makaleleri incele.
-4. v9 terfisi için kalan eval setleri (`overfit_awareness`, `risk_management`) hâlâ açık.
-5. Supervisor codex ile canlıda PASS veriyor (§4). Açık kalan: RLM/curate/assemble için
-   MCP aracı eklemek ayrı karar (Kural 8 sınırı: eğitim/onay uçları motora kapalı kalmalı);
-   kartı üretilemeyen 7 makale incelenmeli.
+### 5. Stage 1 eşiği + `lora-audit` (eğitim YOK)
+
+- `synth-qa-bulk` 15:51'de bitti: **1051** sentetik örnek; `lora-readiness` **1344/1000**
+  (synth 1051 + onaylı kart 293) → nicelik eşiği karşılandı.
+- `lora-audit` (dry-run; **onaylı KARTLARI** denetler, `synthetic_qa.jsonl`'ı değil) ilk
+  koşu: **FAIL** — Gate 0/3: 4 kart "domain atanamadı", Gate 5: 1 red + 38 inceleme,
+  Gate 6: 20 inceleme.
+- Kök neden (Gate 0/3): `domain_classifier.py`'de 8 alandan yalnız `trading` kendi adını
+  tanıyordu; saklı domain'i açıkça "Physics" / "Philosophy of Science" olan içerikli
+  kartlar düşüyordu. `lora-domain-verifier` ajanı kartları içerikli buldu ama domain alanının
+  üstüne anahtar kelime yazmayı önerdi — reddedildi (kapıyı kandırmak olurdu).
+  **Düzeltme:** alan adları (mathematics/physics/statistics/philosophy + TR) kendi
+  anahtarları; 293 kartta yalnız EKLEME (32 kart), hiçbir alan düşmedi.
+- `card_14a4b76c0844` ("Cognitive Science") `card_7975b9f9a0d0` ile AYNI makalenin
+  (`paper_a80d2659b084`) 5 dk sonraki ikinci kartıydı → kullanıcı kararıyla
+  `hektor cards reject` ile **reddedildi**, eskisi tutuldu (geri alma:
+  `hektor cards approve card_14a4b76c0844`).
+- İkinci koşu: Gate 0 ✅, Gate 3 ✅; genel sonuç hâlâ **FAIL** — yalnız Gate 5'teki tek red:
+  `card_d489175087d1` (Cholesky Factorization, Bayesian Filtering kitabı) "aşırı emin
+  yatırım ifadesi: 'guaranteed'" — metin "…without guaranteed performance gains" yani
+  OLUMSUZLANMIŞ, ihtiyatlı ifade → **muhtemel yanlış pozitif** (Gate 6 olumsuzlama-bilinçli,
+  `verify_math_content` değil). Düzeltilmedi — karar bekliyor.
+- Yan gözlem: rapor özeti "Reddedilen 0" diyor ama kapılar red sayıyor — özet hesabı
+  incelenmeli. Kapı ayrıntıları 20 satırda kesiliyor (Gate 5'in reddi raporda görünmüyordu).
+
+### 6. Sıradaki
+
+1. Gate 5 yanlış pozitifi (olumsuzlanmış 'guaranteed') → `lora-audit` PASS.
+2. 58 inceleme işaretli kartın insan incelemesi (Gate 5: 38 doğrulanmamış performans
+   iddiası / look-ahead uyarısı; Gate 6: 20 yönlendirme dili).
+3. Kanonik akış: `lora-curate --run` → `assemble_sft.py` → `pretrain-gate` → `lora-split`.
+4. Eğitimden ÖNCE **Kademe 2** derin av (zorunlu) → ardından taze insan onayı (Kural 8).
+5. Mastery kuyruğu bitince `hektor mastery-report --rebuild` (#24); `failed` /
+   `needs_rechunking` makaleleri incele. Kartsız makaleler (8; supervisor'a göre chunk
+   sayısı 0 → ingest/metin çıkarımı sorunu) `ingestion-quality-scorer` ile incelenmeli.
+6. v9 terfisi için kalan eval setleri (`overfit_awareness`, `risk_management`) hâlâ açık.
+7. Supervisor: RLM/curate/assemble için MCP aracı eklemek ayrı karar (Kural 8 sınırı:
+   eğitim/onay uçları motora kapalı kalmalı).
 
 ---
 
