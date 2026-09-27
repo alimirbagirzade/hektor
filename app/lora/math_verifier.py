@@ -40,17 +40,27 @@ OVERCONFIDENT_PHRASES: list[str] = [
     "100% profit",
 ]
 
-# Olumsuzlanmış aşırı-emin ifade ihtiyatlı dildir, BLOK değildir: "…without guaranteed
-# performance gains" (2026-09-27 lora-audit, card_d489175087d1) ve "getiri garanti
-# değildir" düz alt-dize taramasında kartı REDDEDİYORDU. Desenler tr_fold'lanmış metne
-# karşı çalışır. ÖNCE: olumsuzlayıcı + en fazla bir ara kelime ("is not necessarily
-# guaranteed"); SONRA: Türkçe yüklem olumsuzlaması ("garantisi yoktur").
-_OVERCONF_NEG_BEFORE_RE = re.compile(
+# Olumsuzlama tespiti — Gate 5 (aşırı-emin ifade) ve Gate 6 (tavsiye dili) ORTAK kullanır.
+# Olumsuzlanmış ifade ihtiyatlı dildir: "…without guaranteed performance gains" (2026-09-27
+# lora-audit, card_d489175087d1) Gate 5'te, "may not be directly applicable"
+# (card_8aad7e24a61e) Gate 6'da yanlış işaretleniyordu. Desenler tr_fold'lanmış metne karşı
+# çalışır. ÖNCE: olumsuzlayıcı + en fazla bir ara kelime ("is not necessarily …"); ara kelime
+# "only" OLAMAZ — "not only superior performance but…" olumsuzlama değildir. SONRA: Türkçe
+# yüklem olumsuzlaması ("garantisi yoktur", "uygulanabilir değildir").
+NEG_BEFORE_RE = re.compile(
     r"\b(?:not|no|non|without|never|cannot|can't|isn't|aren't|hardly|neither|nor|hic|hicbir)"
-    r"\b(?:\s+\w+)?[\s\-]*$"
+    r"\b(?:\s+(?!only\b)\w+)?[\s\-]*$"
 )
-_OVERCONF_NEG_AFTER_RE = re.compile(r"^\w*\s*(?:degil|yok|edilmez|olmaz|olmad)")
-_OVERCONF_NEG_WINDOW: int = 30
+NEG_AFTER_RE = re.compile(r"^\w*\s*(?:degil|yok|edilmez|olmaz|olmad)")
+NEG_WINDOW: int = 30
+
+
+def is_negated(folded: str, start: int, end: int) -> bool:
+    """`folded[start:end]` eşleşmesi olumsuzlanmış mı (öncesinde ya da sonrasında)?"""
+    before = folded[max(0, start - NEG_WINDOW) : start]
+    after = folded[end : end + NEG_WINDOW]
+    return bool(NEG_BEFORE_RE.search(before) or NEG_AFTER_RE.search(after))
+
 
 # "%<sayı>" desenini yakalar.
 _PERCENT_RE = re.compile(r"%\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*%")
@@ -179,9 +189,7 @@ def _has_unnegated(folded: str, phrase: str) -> bool:
     start = 0
     while (i := folded.find(phrase, start)) >= 0:
         end = i + len(phrase)
-        before = folded[max(0, i - _OVERCONF_NEG_WINDOW) : i]
-        after = folded[end : end + _OVERCONF_NEG_WINDOW]
-        if not (_OVERCONF_NEG_BEFORE_RE.search(before) or _OVERCONF_NEG_AFTER_RE.search(after)):
+        if not is_negated(folded, i, end):
             return True
         start = end
     return False

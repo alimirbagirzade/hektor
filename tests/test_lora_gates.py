@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.lora.dataset_builder import SYSTEM_PROMPT
 from app.lora.gates import (
     gate_0_source,
@@ -96,6 +98,64 @@ def test_gate_6_uppercase_turkish_markers_flagged() -> None:
 # --------------------------------------------------------------------------- #
 # Gerçek-pozitif: tavsiye/yönlendirme dili işaretlenmeli. Yanlış-pozitif:
 # olumsuzlanmış (alçakgönüllü) ifade işaretlenMEMELİ.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Canlı vaka (2026-09-27 lora-audit, card_8aad7e24a61e): araya "be" giriyordu.
+        "The method may not be directly applicable to all types of investment strategies.",
+        "This result is not necessarily directly applicable to live trading.",
+        "The study does not demonstrate superior performance out-of-sample.",
+        "Without superior performance after costs, the edge is doubtful.",
+        "Bu yöntem doğrudan uygulanabilir değildir.",
+    ],
+)
+def test_gate_6_negated_with_intervening_word_not_flagged(text: str) -> None:
+    """Olumsuzlayıcı ile ifade arasında tek kelime olsa da olumsuzlama tanınmalı."""
+    from app.lora.gates import gate_6_philosophy
+
+    assert gate_6_philosophy([_approved_card("c1", text)]).review_count == 0
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Not only superior performance but also lower drawdowns were reported.",
+        "The model is directly applicable to intraday trading.",
+        "In bull markets, investors should buy when the signal fires.",
+        "No doubt, traders should follow this rule.",  # olumsuzlayıcı 2+ kelime uzakta
+    ],
+)
+def test_gate_6_unnegated_still_flagged(text: str) -> None:
+    """Olumsuzlama penceresi genişledi ama gerçek tavsiye/üstünlük dili KAÇMAMALI."""
+    from app.lora.gates import gate_6_philosophy
+
+    assert gate_6_philosophy([_approved_card("c1", text)]).review_count >= 1
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Bilinen gizli hata: tr_fold büyük Latin 'I'yı Türkçe kuralıyla 'ı' yapıyor → "
+        "'Investors should' → 'ınvestors should', ASCII kalıp eşleşmiyor. 2026-09-27'de 292 "
+        "onaylı kartta hiçbir kapı sonucunu değiştirmediği ölçüldü; ayrı düzeltme bekliyor. "
+        "Düzeltilince bu test geçer ve strict xfail işareti kaldırılmalıdır."
+    ),
+)
+def test_gate_6_capitalized_investors_should_flagged() -> None:
+    from app.lora.gates import gate_6_philosophy
+
+    card = _approved_card("c1", "Investors should buy when the signal fires.")
+    assert gate_6_philosophy([card]).review_count >= 1
+
+
+def test_gate_5_not_only_guaranteed_still_fails() -> None:
+    """'not only … guaranteed' olumsuzlama değildir (ortak `is_negated` 'only'yi dışlar)."""
+    assert (
+        gate_5_math([_approved_card("c1", "It is not only guaranteed but risk-free.")]).passed
+        is False
+    )
 
 
 def test_gate_6_directly_applied_advice_flagged() -> None:

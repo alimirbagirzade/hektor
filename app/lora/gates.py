@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from app.lora.dataset_splitter import DatasetSplit, check_leakage, split_dataset
 from app.lora.domain_classifier import classify_domains
-from app.lora.math_verifier import verify_math_content
+from app.lora.math_verifier import is_negated, verify_math_content
 from app.lora.quality_filter import QualityFilter
 from app.lora.safety_scanner import scan_for_secrets
 
@@ -53,10 +53,9 @@ ADVICE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"superior performance|demonstrated superior|ustun performans"),
     ),
 ]
-# Eşleşmeden hemen ÖNCE/SONRA olumsuzlama → meşru (alçakgönüllü) ifade, atla.
-_NEG_BEFORE_RE = re.compile(r"\b(?:not|non|cannot|can't|isn't|aren't|hardly|never)\b[\s\-]*$")
-_NEG_AFTER_RE = re.compile(r"^\s*\w*\s*(?:degil|olmaz|olmad)")
-_NEG_WINDOW: int = 14
+# Eşleşmeden ÖNCE/SONRA olumsuzlama → meşru (alçakgönüllü) ifade, atla. Kural Gate 5 ile
+# ORTAK (`math_verifier.is_negated`): eskiden burada yalnız HEMEN önceki olumsuzlayıcı
+# aranıyordu → "may not be directly applicable" (araya "be" girince) işaretleniyordu.
 
 # Gate 6 yumuşak-blok: incelemeli kart oranı bu eşiği aşarsa eğitim-öncesi kapı
 # BAŞARISIZ olur (disiplin dili yaygınsa eğitimi durdur). 0.25 = kartların dörtte
@@ -298,9 +297,7 @@ def _scan_advice_language(folded: str) -> list[str]:
     flags: list[str] = []
     for label, pattern in ADVICE_PATTERNS:
         for match in pattern.finditer(folded):
-            before = folded[max(0, match.start() - _NEG_WINDOW) : match.start()]
-            after = folded[match.end() : match.end() + _NEG_WINDOW]
-            if _NEG_BEFORE_RE.search(before) or _NEG_AFTER_RE.search(after):
+            if is_negated(folded, match.start(), match.end()):
                 continue  # olumsuzlanmış → meşru (alçakgönüllü) ifade
             flags.append(label)
             break

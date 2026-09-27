@@ -334,9 +334,18 @@ kanıtı; 1000+ chunk'lık kitapta "var" = zayıf kanıt). Ayrıntı (yerel, git
 1. ~~Gate 5 yanlış pozitifi~~ → düzeltildi, `lora-audit` PASS.
 2. ~~58 inceleme kartı~~ → gözden geçirildi, 19 kart düzeltildi (§6). ~~Kart talimatı~~ →
    sıkılaştırıldı (aşağıya bkz.). **Kalan sistemik:** Gate 5'e "iddiadaki sayı
-   kaynak chunk'larında var mı" deterministik kontrolü eklenebilir; Gate 6 olumsuzlama
-   penceresi araya giren kelimeyi ("may not **be** directly applicable") kaçırıyor; Gate 5
-   risk kuralı kümülatif getiriyi (%340) risk yüzdesi sanıyor.
+   kaynak chunk'larında var mı" deterministik kontrolü eklenebilir; Gate 5 risk kuralı
+   kümülatif getiriyi (%340) risk yüzdesi sanıyor. ~~Gate 6 olumsuzlama penceresi~~ →
+   düzeltildi: Gate 5 ve 6 artık ORTAK `math_verifier.is_negated` kullanır (olumsuzlayıcı +
+   ≤1 ara kelime, "without"/"no" dahil; "not **only** …" olumsuzlama SAYILMAZ). 292 kartta
+   yalnız card_8aad7e24a61e değişti; `lora-audit` PASS, inceleme 40 → 39.
+   **Yeni bulunan gizli hata:** `safety_scanner.tr_fold` büyük Latin **"I"**'yı Türkçe
+   kuralıyla **"ı"** yapıyor → "Investors should" → "ınvestors should", ASCII kalıplar
+   (Gate 5/6, alan sınıflandırıcı, Gate 7 BLOCKER) büyük I ile başlayan İngilizce kelimeyi
+   kaçırır. Ölçüm: bugün 292 kartta HİÇBİR kapı sonucunu değiştirmiyor (gizli risk).
+   `tests/test_lora_gates.py::test_gate_6_capitalized_investors_should_flagged`
+   `xfail(strict=True)` ile belgelendi; düzeltme ayrı iş (Gate 7'ye dokunduğu için dikkatli —
+   çıktıdaki "ı"yı "i"ye eşlemek, "ı" literal içeren kalıp kalmadığını doğrulayarak).
 3. Kanonik akış: `lora-curate --run` → `assemble_sft.py` → `pretrain-gate` → `lora-split`.
 4. Eğitimden ÖNCE **Kademe 2** derin av (zorunlu) → ardından taze insan onayı (Kural 8).
 5. Mastery kuyruğu bitince `hektor mastery-report --rebuild` (#24); `failed` /
