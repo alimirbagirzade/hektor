@@ -14,6 +14,9 @@ class StatusResponse(BaseModel):
     n_papers: int
     n_chunks: int
     max_upload_mb: int = 500
+    # LoRA eğitim/sohbet temel modeli (HF). LLM modelinden AYRI bir ayardır; UI metinleri
+    # sabit "4B" yazmak yerine bunu gösterir (model değişince yazı da değişir).
+    peft_base_model: str = ""
 
 
 class VersionResponse(BaseModel):

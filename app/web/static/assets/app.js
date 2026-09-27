@@ -380,9 +380,18 @@
       .then(function (s) {
         dot.className = "dot " + (s.ollama_available ? "dot-ok" : "dot-warn");
         txt.className = s.ollama_available ? "conn-ok" : "conn-warn";
-        txt.textContent = s.ollama_available ? "ollama bağlı" : "ollama yok (RAG sınırlı)";
+        txt.textContent =
+          (s.ollama_available ? "ollama bağlı" : "ollama yok (RAG sınırlı)") +
+          (s.llm_model ? " · " + s.llm_model : "");
         document.getElementById("embedMode").textContent = "gömme: " + s.embedding_mode;
         document.getElementById("paperCount").textContent = "makale: " + s.n_papers;
+        // Model adları HTML'e gömülü değil; her durum yenilemesinde sunucu ayarından yazılır.
+        document.querySelectorAll(".js-llm-model").forEach(function (el) {
+          if (s.llm_model) el.textContent = s.llm_model;
+        });
+        document.querySelectorAll(".js-peft-base").forEach(function (el) {
+          if (s.peft_base_model) el.textContent = s.peft_base_model;
+        });
         if (s.max_upload_mb) {
           MAX_UPLOAD_MB = s.max_upload_mb;
           var pdfH = document.getElementById("pdfHint");
@@ -515,11 +524,17 @@
   function loadLoraAdapters() {
     var sel = document.getElementById("loraChatAdapter");
     if (!sel) return;
-    api("/lora-adapters")
-      .then(function (data) {
+    Promise.all([
+      api("/lora-adapters"),
+      api("/status", { method: "GET" }).catch(function () { return {}; })
+    ])
+      .then(function (res) {
+        var data = res[0];
         var cur = sel.value;
         var adapters = data.adapters || [];
-        var opts = '<option value="">(base model — eğitimsiz, 4B)</option>';
+        // Base adı sabit "4B" değil, sunucudaki peft_base_model'den (model değişince yazı da değişir).
+        var base = String(res[1].peft_base_model || "").split("/").pop() || "base";
+        var opts = '<option value="">(base model — eğitimsiz, ' + esc(base) + ')</option>';
         adapters.forEach(function (a) {
           opts += '<option value="' + esc(a) + '">' + esc(a) + "</option>";
         });
@@ -2781,12 +2796,24 @@
     var recsHtml = recs.recommended.length
       ? recs.recommended.map(function (r) {
           return (
-            '<tr><td><strong>' + r.name + '</strong></td>' +
-            '<td><code>' + r.ollama + '</code></td>' +
+            '<tr><td><strong>' + esc(r.name) + '</strong>' +
+            (r.active ? ' <span style="color:#4ade80">● aktif</span>' : '') + '</td>' +
+            '<td><code>' + esc(r.ollama) + '</code></td>' +
             '<td>' + r.confidence + '%</td></tr>'
           );
         }).join('')
       : '<tr><td colspan="3" class="muted">Öneri bulunamadı.</td></tr>';
+    // Aktif model settings'ten gelir (öneri listesinden bağımsız) — model değişince bu satır da değişir.
+    var act = recs.active || {};
+    var actState = act.installed === true
+      ? '<span style="color:#4ade80">&#10003; Ollama\'da yüklü</span>'
+      : act.installed === false
+        ? '<span style="color:#f87171">&#10007; Ollama\'da yok — <code>ollama pull ' + esc(act.ollama || '') + '</code></span>'
+        : '<span class="muted">Ollama durumu bilinmiyor</span>';
+    var activeHtml = act.ollama
+      ? '<tr><td style="padding:3px 8px 3px 0"><strong>Aktif LLM</strong></td><td><strong>' +
+        esc(act.name || act.ollama) + '</strong> <code>' + esc(act.ollama) + '</code> ' + actState + '</td></tr>'
+      : '';
 
     return (
       '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px">' +
@@ -2794,9 +2821,10 @@
       '<tr><td style="padding:3px 8px 3px 0"><strong>CPU</strong></td><td>' + profile.cpu + ' (' + profile.cores + ' çekirdek)</td></tr>' +
       '<tr><td style="padding:3px 8px 3px 0"><strong>RAM</strong></td><td>' + profile.ram_gb + ' GB</td></tr>' +
       '<tr><td style="padding:3px 8px 3px 0"><strong>GPU</strong></td><td>' + profile.gpu + '</td></tr>' +
+      activeHtml +
       '</table>' +
       loraNote +
-      '<h4 style="margin:12px 0 6px">Önerilen Modeller</h4>' +
+      '<h4 style="margin:12px 0 6px">Önerilen Modeller <span class="muted small">(donanıma göre öneri — aktif modeli değiştirmez)</span></h4>' +
       '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
       '<thead><tr><th style="text-align:left;padding-bottom:4px">Model</th><th style="text-align:left">Ollama Komutu</th><th style="text-align:left">Uyum</th></tr></thead>' +
       '<tbody>' + recsHtml + '</tbody></table>'

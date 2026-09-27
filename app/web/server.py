@@ -301,6 +301,7 @@ def api_status() -> StatusResponse:
         n_papers=len(store.list_papers()),
         n_chunks=n_chunks,
         max_upload_mb=s.max_upload_mb,
+        peft_base_model=s.peft_base_model,
     )
 
 
@@ -2318,11 +2319,41 @@ def api_model_recommend() -> dict:
             "ollama": r.ollama_name,
             "confidence": round(r.confidence * 100),
             "reasons": r.reasons[:2],
+            "active": r.ollama_name == get_settings().llm_model,
         }
         for r in result.recommended
     ]
     rejected = [{"name": r.display_name, "reason": r.reason} for r in result.rejected[:3]]
-    return {"recommended": recommended, "rejected": rejected}
+    return {"recommended": recommended, "rejected": rejected, "active": _active_llm_info()}
+
+
+def _active_llm_info() -> dict:
+    """ŞU AN kullanılan LLM (settings) — öneri listesinden AYRI gösterilir.
+
+    Öneri listesi sabit registry'den gelir ve aktif modeli içermeyebilir; UI eskiden
+    yalnız öneriyi gösterdiği için model değişince ekranda eski/yanlış model kalıyordu.
+    ``installed``: Ollama'da bu etiket var mı (Ollama kapalıysa ``None`` = bilinmiyor).
+    """
+    import httpx
+
+    from app.agents.model_advisor.advisor import _load_registry
+
+    s = get_settings()
+    tag = s.llm_model
+    name = tag
+    for m in _load_registry():
+        if m.get("backends", {}).get("ollama", {}).get("name") == tag:
+            name = m.get("display_name") or tag
+            break
+    installed: bool | None = None
+    try:
+        r = httpx.get(f"{s.ollama_host.rstrip('/')}/api/tags", timeout=3.0)
+        if r.status_code == 200:
+            names = {m.get("name") for m in r.json().get("models", [])}
+            installed = tag in names or f"{tag}:latest" in names
+    except Exception:
+        installed = None
+    return {"name": name, "ollama": tag, "installed": installed}
 
 
 @app.get("/api/auto-lora/status", dependencies=[api_auth])

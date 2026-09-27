@@ -411,8 +411,8 @@
           <p class="muted small">Aşağıdaki değerleri değiştirerek eğitimi özelleştirebilirsin.</p>
           <div class="dry-run-form">
             <div class="setting-group">
-              <label>Temel model<input type="text" id="drBaseModel" value="" placeholder="boş = otomatik (Windows/Linux: 4B brain, macOS: MLX)" /></label>
-              <p class="setting-desc">Boş bırakırsan sunucu backend'e göre seçer: Windows/Linux PEFT → <code>Qwen3-4B-Instruct-2507</code> (Ollama <code>qwen3:4b</code> ile uyumlu), macOS → MLX modeli. <strong>Bellek uyarısı:</strong> 4B modeli yerel CPU eğitiminde ~18–20 GB tutar; Ollama da ayrıca 4–7 GB kullanır. 32 GB'lık bir makinede bu sınırda kalır. Dar bellekte <code>Qwen/Qwen2.5-1.5B-Instruct</code> (~6 GB) yaz. Modeli değiştirirsen önceki adapter'lar uyumsuz olur.</p>
+              <label>Temel model<input type="text" id="drBaseModel" value="" placeholder="boş = otomatik (Windows/Linux: PEFT temel model, macOS: MLX)" /></label>
+              <p class="setting-desc">Boş bırakırsan sunucu backend'e göre seçer: Windows/Linux PEFT → <code class="js-peft-base">HEKTOR_PEFT_BASE_MODEL</code>, macOS → MLX modeli. Aktif LLM (RAG/sohbet): <code class="js-llm-model">HEKTOR_LLM_MODEL</code> — LoRA adapter'ı yalnız eğitildiği temel modelle uyumludur; ikisi farklıysa adapter aktif LLM'e takılamaz. <strong>Bellek uyarısı:</strong> yerel CPU eğitimi temel modelin boyutuyla büyür (4B ≈ 18–20 GB) ve Ollama da ayrıca bellek kullanır. Dar bellekte <code>Qwen/Qwen2.5-1.5B-Instruct</code> (~6 GB) yaz. Modeli değiştirirsen önceki adapter'lar uyumsuz olur.</p>
               <p class="setting-desc">Diğer hiper-parametreler (LoRA rank, öğrenme oranı, epoch, batch, maskeleme) <strong>reçete profilinden</strong> gelir: <code>configs/lora/lora_profiles.yaml</code> → varsayılan <code>discipline_safe_local</code>. Buradan tek tek ayarlanmaz — profil, v5 aşırı-öğrenme onarımını da içerdiği için bütün olarak uygulanır.</p>
             </div>
             <div class="setting-group">
