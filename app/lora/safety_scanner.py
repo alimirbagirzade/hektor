@@ -38,8 +38,15 @@ def tr_fold(text: str) -> str:
     Bu fonksiyon İ/I'yı doğru eşler, casefold uygular ve birleşik aksanları
     temizler — böylece büyük harf / aksanlı yazımlar finansal-yönlendirme
     taramasını atlatamaz (BLOCKER gate güvenliği).
+
+    ı/i AYRIMI KAPATILIR (çıktıda 'ı' yoktur): büyük Latin 'I' Türkçede 'ı', İngilizcede
+    'i'dir ve metnin dili bilinemez. Eskiden 'I'→'ı' yapılıyordu → İngilizce büyük harfli
+    kelimeler ASCII kalıplardan kaçıyordu ("Investors should" → "ınvestors should", Gate 6;
+    "SLIPPAGE" → "slıppage", 2026-09-27). Artık hem 'ı' hem 'i' → 'i': "HIZ"/"hız"/"hiz"
+    aynı "hiz"e iner. Anahtar kelimeler de bu fonksiyondan geçirildiği için eşleşme korunur;
+    tr_fold çıktısına uygulanan DÜZ kalıplar ASCII yazılmalıdır ('ı' asla eşleşmez).
     """
-    folded = text.replace("İ", "i").replace("I", "ı").casefold()
+    folded = text.replace("İ", "i").casefold().replace("ı", "i")
     decomposed = unicodedata.normalize("NFKD", folded)
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 

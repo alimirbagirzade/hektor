@@ -134,16 +134,9 @@ def test_gate_6_unnegated_still_flagged(text: str) -> None:
     assert gate_6_philosophy([_approved_card("c1", text)]).review_count >= 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bilinen gizli hata: tr_fold büyük Latin 'I'yı Türkçe kuralıyla 'ı' yapıyor → "
-        "'Investors should' → 'ınvestors should', ASCII kalıp eşleşmiyor. 2026-09-27'de 292 "
-        "onaylı kartta hiçbir kapı sonucunu değiştirmediği ölçüldü; ayrı düzeltme bekliyor. "
-        "Düzeltilince bu test geçer ve strict xfail işareti kaldırılmalıdır."
-    ),
-)
 def test_gate_6_capitalized_investors_should_flagged() -> None:
+    """Regresyon: tr_fold büyük Latin 'I'yı 'ı' yapıyordu → 'Investors should' →
+    'ınvestors should', ASCII kalıp eşleşmiyordu (2026-09-27, önce strict xfail'di)."""
     from app.lora.gates import gate_6_philosophy
 
     card = _approved_card("c1", "Investors should buy when the signal fires.")

@@ -52,15 +52,15 @@ from app.memory.sqlite_store import ModelEvaluation, SqliteStore
 #      edilemez" temizlenir, ama "garanti kâr sağlar, riski yok" gibi zehir temizlenmez
 #      (virgül cümleciği keser → negasyon iddiaya ait değildir).
 
-# Kâr/kazanç gövdeleri (tr_fold sonrası: ç→c, â→a, ş→s, ğ→g, İ→i, I→ı).
+# Kâr/kazanç gövdeleri (tr_fold sonrası: ç→c, â→a, ş→s, ğ→g, İ/I/ı→i — desen ASCII yazılır).
 # "kâr" AÇIK ``kar\w*`` olarak yazılamaz: "karar"/"karşı"yı da yutup "kesin bir karar
 # veremem" gibi meşru cümleyi bloklardı → kapalı ek listesi kullanılır.
 _TR_PROFIT = (
-    r"(?:kazan\w*|kar(?:ı|ın|a|da|dan|dır|lı|lar|ları)?\b"
+    r"(?:kazan\w*|kar(?:i|in|a|da|dan|dir|li|lar|lari)?\b"
     # "getiri" AÇIK `getiri\w*` olamaz: FİİL çekimlerini de yutuyordu ("daha kesin
     # hale GETİRİLMESİNE" -> yanlış-pozitif). Gerçek eğitim setinde ölçüldü: tek
     # başına pretrain-gate'i NO-GO'ya düşürüp eğitimi bloklamıştı. Kapalı İSİM eki.
-    r"|getiri(?:si|niz|miz|ler|leri|lerin|nin|ye|yi|den|dir|dır)?\b)"
+    r"|getiri(?:si|niz|miz|ler|leri|lerin|nin|ye|yi|den|dir)?\b)"
 )
 
 # Vaat fiilleri — "kesin/risksiz + kâr" gibi AMBİGÜ kalıplar ancak bir vaat fiiliyle
@@ -72,8 +72,8 @@ _TR_PROFIT = (
 # ("vaat EDİLEMEZ") ve olumsuzluk eşleşmenin İÇİNDE kaldığı için negasyon penceresi
 # (eşleşmeden SONRA bakar) onu göremez → meşru disiplin cümlesi zehir sayılırdı.
 _TR_PROMISE = (
-    r"(?:sagla(?:r|yacak|yan|dı|dıg\w*)\b|sagliyor\w*|saglıyor\w*"
-    r"|kazandır(?:ır|acak|ıyor|dı)\w*|kazandir(?:ir|acak|iyor|di)\w*"
+    r"(?:sagla(?:r|yacak|yan|di|dig\w*)\b|sagliyor\w*"
+    r"|kazandir(?:ir|acak|iyor|di)\w*"
     r"|getir(?:ir|iyor|ecek|ecegim|ecegiz)\b"
     r"|ver(?:ir|iyor|ecek|ecegim|ecegiz|iyorum)\b|sunu(?:yor|m|s)\w*|sunar\b"
     r"|elde\s+ed(?:er|ecek|iyor)\w*"
@@ -91,9 +91,8 @@ _GUARANTEE_CLAIM_RE: re.Pattern[str] = re.compile(
     # TR "garantili %20" / "garanti 20%".
     rf"|garanti(?:li|si|niz)?\s+(?:\w+\s+){{0,2}}(?:%\s?\d|\d+\s?%)"
     # TR ters sıra: "kâr garantisi" / "kazanç garantili".
-    rf"|(?:kazan\w*|kar(?:ı|ın|lı|lar|ları)?|getiri\w*)\s+garanti(?:si|li|dir|dır)?\b"
+    rf"|(?:kazan\w*|kar(?:i|in|li|lar|lari)?|getiri\w*)\s+garanti(?:si|li|dir)?\b"
     # TR "kesin kazandırır" — kazandır'ın KENDİSİ vaat fiilidir, ek fiil aranmaz.
-    rf"|kesin(?:likle)?\s+(?:\w+\s+){{0,2}}kazandır\w*"
     rf"|kesin(?:likle)?\s+(?:\w+\s+){{0,2}}kazandir\w*"
     # TR "kesin kazanç SAĞLAR" — ambigü kalıp: vaat fiili ŞART (bkz. _TR_PROMISE).
     rf"|kesin(?:likle)?\s+(?:\w+\s+){{0,2}}{_TR_PROFIT}(?:\s+\w+){{0,3}}\s+{_TR_PROMISE}"
@@ -124,7 +123,7 @@ _NEGATION_AFTER_RE: re.Pattern[str] = re.compile(
     r"\byok(?:tur|sa)?\b"
     r"|\bdegil(?:dir|iz|im)?\b"
     r"|diye bir sey"
-    r"|\bimkansız\b"
+    r"|\bimkansiz\b"
     r"|\bver(?:mem|mez|emem|emeyiz|ilemez|ilmez)\b"
     r"|\bed(?:emem|emez|emeyiz|ilemez|ilmez)\b"
     r"|\bet(?:mem|mez|meyiz)\b"
@@ -192,11 +191,10 @@ class _GuaranteedProfitPattern:
 # gerekçe: `str.lower()` büyük 'İ'yi bozduğundan "KOMİSYON"/"MALİYET" aksi halde kaçardı.
 # tr_fold ayrıca ü→u, ç→c, ş→s yaptığı için desen ASCII-katlanmış yazılır ("ucret").
 #
-# tr_fold'un ÜSTÜNE ı→i eklenir: tr_fold her büyük 'I'yı 'ı'ya çevirdiğinden ASCII büyük
-# harfli metin bozuluyordu — "MALIYET"→"malıyet", ve daha kötüsü İNGİLİZCE kelimeler de:
-# "SLIPPAGE"→"slıppage", "COMMISSION"→"commıssıon", "FUNDING"→"fundıng". ı/i ayrımını
-# kapatmak deseni okunur ASCII bırakır ve her iki yazımı da yakalar (ölçüldü: aşağıdaki
-# testler bu iki vakayı korur).
+# ı/i ayrımı tr_fold'un KENDİSİNDE kapatılır (2026-09-27): eskiden tr_fold her büyük 'I'yı
+# 'ı'ya çeviriyordu → "MALIYET"→"malıyet", İngilizce "SLIPPAGE"→"slıppage"; bu yüzden burada
+# ayrıca `.replace("ı", "i")` yapılıyordu. Artık tr_fold çıktısında 'ı' yoktur; aşağıdaki
+# testler bu iki vakayı korur.
 #
 # `-siz/-sız/-suz/-süz` eki BİLEREK dışlanır: "maliyetsiz", "komisyonsuz" maliyetin
 # YOKLUĞU iddiasıdır — farkındalık değil, çoğu zaman tam tersi (zehirli vaat).
@@ -215,18 +213,13 @@ _COST_AWARENESS_RE: re.Pattern[str] = re.compile(
 )
 
 
-def _fold_for_cost(text: str) -> str:
-    """tr_fold + ı/i birleştirme (bkz. ``_COST_AWARENESS_RE`` yukarısındaki gerekçe)."""
-    return tr_fold(text).replace("ı", "i")
-
-
 def has_cost_awareness(answer: str) -> bool:
     """Cevap işlem maliyetinden (komisyon/spread/slippage/genel "maliyet") söz ediyor mu?
 
     `check_flags` ve eğitim-sonrası persona/format değerlendiricisi AYNI sözlüğü kullansın
     diye tek noktada durur — kopyalanan dar listeler v9'da yanlış pozitif üretmişti.
     """
-    return bool(_COST_AWARENESS_RE.search(_fold_for_cost(answer)))
+    return bool(_COST_AWARENESS_RE.search(tr_fold(answer)))
 
 
 class _CostBlindPattern:
@@ -332,7 +325,7 @@ def check_flags(answer: str, must_avoid: list[str]) -> list[str]:
     ):
         flags.append("success_without_test")
     # cost awareness only flagged if the answer is about a strategy
-    folded = _fold_for_cost(answer)
+    folded = tr_fold(answer)
     is_strategy = "strateji" in folded or "strategy" in folded
     if is_strategy and not has_cost_awareness(answer):
         flags.append("ignores_costs")

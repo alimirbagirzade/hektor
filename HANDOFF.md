@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-27 (LoRA karışım profilleri + profil eval altyapısı — eğitim ÖNCESİ ağırlık sorusu zorunlu · yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-27 (bu makinede LLM `qwen3:30b` [Thinking] → `qwen3:30b-a3b-instruct-2507-q4_K_M`, gerekçe ölçüldü · LoRA karışım profilleri + profil eval altyapısı — eğitim ÖNCESİ ağırlık sorusu zorunlu · yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -37,7 +37,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 | Kapı (`make ci`) | **CI (Linux):** ✅ main'de yeşil — `1ceb867`, `e99a3bb`, `5841f7c` ve `4f32768` push koşuları success. 2026-09-07 ile 2026-09-13 arası kırmızıydı (`test_sentinel_autostart_probe` ×2; bkz. 2026-09-13 kaydı). **Yerel (Windows):** ✅ ruff format --check (429 dosya, app+tests) + ruff check + mypy (219 dosya) + pytest **2179 passed, 5 skipped, 4 deselected** (2026-09-16, `-m "not ollama"`, `4db170d` + Kademe 2 düzeltmeleri). **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
 | Son adapter | **`hektor_lora_v9_4b` — eğitim TAMAMLANDI** (600/600 adım, 2026-09-17 10:16, checkpoint-600). `discipline_core` eval: **verdict=accept**, adapter 0.625 vs base 0.0 (bayrak 6/16 vs 16/16 — base dejenere). İnsan incelemesi: 6 bayraktan 5'i `ignores_costs` regex'inin dar kelime listesinden kaynaklı **yanlış pozitif**; tek gerçek eksik Q4. **Terfi ETMEDİ** — `accept` tek başına terfi gerekçesi değildir (Kural 2) ve `overfit_awareness` + `risk_management` v9 için HİÇ koşulmadı. Önceki `hektor_lora_v8_4b` (2026-09-10) → REJECT (2026-09-11 seansı) |
-| LLM | Yalnız yerel Ollama (`qwen3:4b-instruct-2507-q4_K_M` varsayılan, 2026-09-13'ten beri; önceki `qwen3:4b` = Thinking-2507). Bulut API istemcisi YOK. |
+| LLM | Yalnız yerel Ollama (`qwen3:4b-instruct-2507-q4_K_M` kod varsayılanı, 2026-09-13'ten beri; önceki `qwen3:4b` = Thinking-2507). **Bu makinenin `.env`'i: `qwen3:30b-a3b-instruct-2507-q4_K_M`** (2026-09-27; `qwen3:30b` etiketi de Thinking-2507'dir — bkz. 2026-09-27 (3) kaydı). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
 | Bilgi kartı tanımı | "Kartı var" = canlı (`rejected` değil) **ve içerikli** (`card_has_content`: title veya main_claim alfanümerik). Boş kart = kart yok → makale yeniden kartlanabilir (`has_knowledge_card` / `get_latest_knowledge_card`) |
@@ -103,6 +103,69 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-27 (3): neden `qwen3:30b` → `qwen3:30b-a3b-instruct-2507-q4_K_M` (ölçüldü)
+
+**Kod değişmedi, eğitim yok.** Bu makinenin `.env`'i 10:47'de `logs/switch-to-instruct.ps1`
+ile `HEKTOR_LLM_MODEL=qwen3:30b-a3b-instruct-2507-q4_K_M`'e geçmişti; gerekçesi yazılmamıştı.
+Bu kayıt onu ölçümle belgeler. Kod varsayılanı (`qwen3:4b-instruct-2507-q4_K_M`) aynı.
+
+**Kök neden — 2026-09-13'teki 4B tuzağının aynısı.** Ollama'nın `qwen3:30b` etiketi hibrit
+değil, **Qwen3-30B-A3B-Thinking-2507**'dir (`/api/show`: `general.finetune=Thinking`, şablon
+son `<think>`'i kapatmaz → `classify_think_support` = `forced`, düşünme kapatılamaz). Instruct
+etiketi `general.finetune=Instruct` → `toggle`. İkisi de 30.5B MoE (~3B aktif), q4_K_M,
+18.6 GB: **boyut/bellek farkı yok, yalnız ince-ayar farkı.**
+
+**Ölçüm (2026-09-27 ~21:10, Ollama 0.34.4, RTX 4000 Ada 20 GB).** Payload
+`LocalLLM._generate_ollama` ile birebir: think kararı, `num_predict` (varsayılan 1024; forced +
+serbest metinde +1024), çağrı yerlerinin temperature/seed değerleri, gerçek `rag_answer` ve
+`knowledge_card` system prompt'ları. **Tek sapma:** Thinking modeli CPU'da (`num_gpu=0`) koştu,
+çünkü mastery kuyruğu instruct'ı GPU'da kullanıyordu ve iki 30B 20 GB'a sığmıyor (aşağıdaki
+olay). Süreler cihazlar arası karşılaştırılamaz; **karşılaştırılabilir metrik üretilen token
+sayısıdır** (aynı mimari + kuantizasyon → token başına iş aynı).
+
+| Çağrı | Instruct (GPU): token · üretim | Thinking (CPU): token · üretim | Not |
+|---|---|---|---|
+| "Tek kelimeyle: 2+2" (serbest metin) | **2** · 0.02 sn → "4" | **1219** · 41.9 sn → "dört" | 4.5k krk atılan düşünme |
+| EN→TR çeviri, "5-10%" (serbest) | **36** · 0.4 sn | **849** · 28.6 sn | ikisi de "%5-10"u korudu |
+| RAG cevabı, `rag_answer` prompt'u (serbest) | 1024 · 11.6 sn, `length` — cevap kesik ama VAR (2964 krk) | 2048 · 93.4 sn, `length` — **cevap 0 krk** | app'te `LLMUnavailable` |
+| Bilgi kartı, `format=json`, max 700 | 637 · 7.3 sn, geçerli JSON, `main_claim` dolu | 379 · 14.8 sn, geçerli JSON, `main_claim` dolu | JSON'da `think=false` gider |
+
+Hız: instruct GPU 87–127 tok/s, Thinking CPU 22–30 tok/s. **Tahmin (ölçülmedi):** Thinking
+GPU'da aynı hızda koşsa 2+2 ≈ 13 sn, çeviri ≈ 9 sn, RAG ≈ 23 sn — ve yine cevapsız.
+
+**Sonuç.**
+1. Serbest metin çağrılarında Thinking ~24–600× daha çok token üretiyor; fazlası atılan düşünme.
+2. En kritiği: gerçek RAG prompt'unda düşünme 1024+1024 bütçenin tamamını yedi → **cevap yok.**
+   Küçük bütçeli çağrılarda risk daha büyük: `comprehension_scorer` `max_tokens=120` → forced'da
+   1144 token; 2+2'nin düşünmesi bile 1219 token tuttu (çıkarım — bu çağrı ayrıca ölçülmedi).
+3. `format=json` çağrılarında (kart, synth-qa, l3/l4 sınav, formül, sentez) `think=false`
+   gittiği için fark küçük; ikisi de geçerli kart üretti.
+4. Vaka başına n=1, sabit seed → yön göstergesi, istatistik değil.
+
+**Yan bulgular (açık).**
+- Instruct'ta da RAG cevabı 1024 varsayılan bütçeye takıldı (9 bölümlü format uzun) → cevabın
+  sonu kesiliyor. `rag_answerer` `max_tokens` vermiyor; bütçe mi format mı kısalsın — karar/iş.
+- `num_gpu=0` verilse bile Ollama 0.34.4 Thinking modelinin ~0.79 GB'ını GPU'ya koydu (instruct
+  etkilenmedi; toplam ~20.0/20.5 GB).
+- Çeviri ikisinde de kusurlu: instruct "drawdown"→"çekiliş", "net of"→"…ile birlikte";
+  Thinking "net of"→"hariç". Yüzde ikisinde korundu.
+
+**Olay (16:02–17:20).** 10:17'de başlayan `mastery-queue` eski `.env` ile `qwen3:30b`'yi, yeni
+`.env` ile kalkan süreçler instruct'ı çağırdı. İki 30B 20 GB'a sığmadığı için Ollama modelleri
+sürekli değiştirdi, embedding modeli yüklenemedi → `Read timed out`. 17:39'da kuyruk yeniden
+başlatıldı (`logs/mastery-resume.ps1`), artık yalnız instruct. **Aynı makinede iki 30B'yi aynı
+anda çağıracak iş başlatma.**
+
+**`qwen3:30b` silindi (kullanıcı kararı, 2026-09-27 ~21:25).** Önce doğrulandı: yüklü değildi,
+`.env`/`configs`/`storage` içinde düz `qwen3:30b` referansı yoktu. Ollama'da yalnız
+`qwen3:30b-a3b-instruct-2507-q4_K_M` + `nomic-embed-text` kaldı; ~17 GB disk boşaldı; mastery
+kuyruğu kesintisiz sürdü.
+
+**Açık:** `setup.ps1`/`setup.sh` seçenek [4] ve README tablosu hâlâ `qwen3:30b`'yi (Thinking)
+kuruyor → yeni kurulum aynı tuzağa düşer; `qwen3:30b-a3b-instruct-2507-q4_K_M` olmalı.
+
+---
+
 ## Son seans — 2026-09-27 (2): LoRA karışım profilleri + router + profil eval (eğitim YOK)
 
 Dal: `claude/lora-mix-eval`. **Eğitim başlatılmadı, model indirilmedi, base/production'a
@@ -149,7 +212,7 @@ kuruldu (`data/`, `storage/` git'te yok → korpus yeniden üretildi).
 | Stage 1 — `synth-qa-bulk --target 1000 --resume --seed 0` | 13:35'te ayrık süreç olarak başladı (log: `storage/synth_bulk.log`), 298 makale / 60 batch; ilk batch +78 → **155** |
 | `lora-readiness` | 13:30'da 370/1000 (%37; synth 77 + onaylı kart 293) |
 | Unattended supervisor | ~14:00'te `backoff`, 8 hata (`codex` CLI yoktu). 15:05'ten beri codex kurulu + girişli, motor kalkıyor ama sür-modu **FAIL** veriyor — bkz. §4 |
-| Ollama | `qwen3:30b` yüklü (~17.6 GB, VRAM ~19/20 GB dolu) |
+| Ollama | ~14:00'te `qwen3:30b` yüklüydü; 10:47'de `.env` `qwen3:30b-a3b-instruct-2507-q4_K_M`'e geçti, 17:39'dan beri GPU'da yalnız o (18.9 GB) — bkz. 2026-09-27 (3) kaydı |
 
 ### 2. Hata: mastery raporları Windows'ta 0 bayt (`55453df`)
 
@@ -339,13 +402,15 @@ kanıtı; 1000+ chunk'lık kitapta "var" = zayıf kanıt). Ayrıntı (yerel, git
    düzeltildi: Gate 5 ve 6 artık ORTAK `math_verifier.is_negated` kullanır (olumsuzlayıcı +
    ≤1 ara kelime, "without"/"no" dahil; "not **only** …" olumsuzlama SAYILMAZ). 292 kartta
    yalnız card_8aad7e24a61e değişti; `lora-audit` PASS, inceleme 40 → 39.
-   **Yeni bulunan gizli hata:** `safety_scanner.tr_fold` büyük Latin **"I"**'yı Türkçe
-   kuralıyla **"ı"** yapıyor → "Investors should" → "ınvestors should", ASCII kalıplar
-   (Gate 5/6, alan sınıflandırıcı, Gate 7 BLOCKER) büyük I ile başlayan İngilizce kelimeyi
-   kaçırır. Ölçüm: bugün 292 kartta HİÇBİR kapı sonucunu değiştirmiyor (gizli risk).
-   `tests/test_lora_gates.py::test_gate_6_capitalized_investors_should_flagged`
-   `xfail(strict=True)` ile belgelendi; düzeltme ayrı iş (Gate 7'ye dokunduğu için dikkatli —
-   çıktıdaki "ı"yı "i"ye eşlemek, "ı" literal içeren kalıp kalmadığını doğrulayarak).
+   ~~`tr_fold` gizli hatası~~ → düzeltildi: `safety_scanner.tr_fold` büyük Latin "I"yı
+   Türkçe kuralıyla "ı" yapıyordu → İngilizce büyük harfli kelimeler ASCII kalıplardan
+   kaçıyordu ("Investors should" Gate 6'dan; **"GARANTI KAR" (ASCII I) BLOCKER Gate 7'den**
+   — gerçek güvenlik açığı). Artık çıktıda 'ı' yok: ı/i ayrımı kapatıldı ("HIZ"/"hız"/"hiz"
+   → "hiz"). `tr_fold` çıktısına uygulanan tek "ı" bağımlısı `evaluate_model` garanti
+   kalıplarıydı (`kar(?:ı…)`, `kazandır`, `imkansız`) → ASCII'ye çevrildi; ara yama
+   `_fold_for_cost` kaldırıldı. **Fark ölçümü** (1344 metin: kartlar + sentetik QA, alan /
+   Gate 5 / Gate 6 / Gate 7 / garanti / maliyet dedektörleri): yalnız 1 metne
+   `risk_management` alanı EKLENDİ, başka hiçbir sonuç değişmedi.
 3. Kanonik akış: `lora-curate --run` → `assemble_sft.py` → `pretrain-gate` → `lora-split`.
 4. Eğitimden ÖNCE **Kademe 2** derin av (zorunlu) → ardından taze insan onayı (Kural 8).
 5. Mastery kuyruğu bitince `hektor mastery-report --rebuild` (#24); `failed` /

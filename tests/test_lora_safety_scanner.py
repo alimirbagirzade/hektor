@@ -2,12 +2,41 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.lora.safety_scanner import (
     _detect_api_key,
     _detect_national_id,
     _valid_tc_checksum,
     scan_for_secrets,
+    tr_fold,
 )
+
+
+@pytest.mark.parametrize(
+    ("raw", "folded"),
+    [
+        ("Investors should", "investors should"),  # İngilizce büyük I → i ('ı' DEĞİL)
+        ("SLIPPAGE", "slippage"),
+        ("HIZ", "hiz"),  # Türkçe büyük I → i (ı/i ayrımı bilerek kapatıldı)
+        ("hız", "hiz"),
+        ("İSTANBUL", "istanbul"),
+        ("ŞİMDİ AL", "simdi al"),
+        ("KÂR GARANTİLİ", "kar garantili"),
+    ],
+)
+def test_tr_fold_closes_dotless_i_distinction(raw: str, folded: str) -> None:
+    """Regresyon (2026-09-27): tr_fold büyük 'I'yı 'ı' yapıyordu → İngilizce büyük harfli
+    kelimeler ASCII kalıplardan kaçıyordu. Çıktıda 'ı' OLMAMALI; HIZ/hız/hiz aynı forma iner."""
+    assert tr_fold(raw) == folded
+    assert "ı" not in tr_fold(raw)
+
+
+def test_financial_directive_ascii_capital_i_rejected() -> None:
+    """Gate 7 (BLOCKER) açığı: ASCII büyük I ile 'GARANTI KAR' eskiden 'garantı kar'a
+    iniyor ve 'garanti kar' yönlendirmesinden KAÇIYORDU. Noktalı 'GARANTİ' zaten yakalanıyordu."""
+    for text in ("Bu sistem GARANTI KAR saglar.", "BUY NOW, GUARANTEED PROFIT!"):
+        assert scan_for_secrets(text).passed is False, text
 
 
 def test_clean_text_passes() -> None:
