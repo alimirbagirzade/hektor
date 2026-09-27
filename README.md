@@ -884,6 +884,7 @@ uv run hektor mastery-queue --run-all
 # Skor ve rapor
 uv run hektor mastery-score <paper_id>
 uv run hektor mastery-report <paper_id>
+uv run hektor mastery-report --rebuild   # eksik/bozuk raporları DB'den yeniden üret (--dry-run: listele)
 ```
 
 ---
@@ -1069,6 +1070,7 @@ uv run hektor mastery-queue --run-next          # sıradaki makaleyi test et
 uv run hektor mastery-queue --run-all           # tüm kuyruğu işle
 uv run hektor mastery-score <paper_id>          # son skoru göster
 uv run hektor mastery-report <paper_id>         # JSON/MD raporu göster
+uv run hektor mastery-report --rebuild         # eksik/0 baytlık raporları DB'den yeniden üret (--dry-run · --force · <paper_id>)
 ```
 
 ### Ajan Runtime & Otomasyon (Phase 2)

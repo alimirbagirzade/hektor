@@ -240,6 +240,16 @@ class MasteryStore:
             ).all()
             return [_test_to_dict(r) for r in rows]
 
+    def list_finished_tests(self) -> list[dict[str, Any]]:
+        """Tamamlanmış (status=done) tüm testler — eskiden yeniye (finished_at)."""
+        with self.session() as s:
+            rows = s.scalars(
+                select(PaperMasteryTest)
+                .where(PaperMasteryTest.status == "done")
+                .order_by(PaperMasteryTest.finished_at.asc())
+            ).all()
+            return [_test_to_dict(r) for r in rows]
+
     # ── Questions ────────────────────────────────────────────────────────────
 
     def save_questions(self, questions: list[dict[str, Any]]) -> None:
@@ -322,6 +332,17 @@ class MasteryStore:
             row = s.scalar(
                 select(PaperMasteryScore)
                 .where(PaperMasteryScore.paper_id == paper_id)
+                .order_by(PaperMasteryScore.created_at.desc())
+                .limit(1)
+            )
+            return _score_to_dict(row) if row else None
+
+    def get_score_for_test(self, test_id: str) -> dict[str, Any] | None:
+        """Belirli bir testin (en son kaydedilmiş) skoru."""
+        with self.session() as s:
+            row = s.scalar(
+                select(PaperMasteryScore)
+                .where(PaperMasteryScore.test_id == test_id)
                 .order_by(PaperMasteryScore.created_at.desc())
                 .limit(1)
             )

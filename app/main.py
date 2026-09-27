@@ -2228,11 +2228,44 @@ def mastery_score(
 
 @app.command("mastery-report")
 def mastery_report(
-    paper_id: str = typer.Argument(..., help="Makale paper_id"),
+    paper_id: str = typer.Argument(None, help="Makale paper_id (--rebuild ile opsiyonel)"),
+    rebuild: bool = typer.Option(
+        False,
+        "--rebuild",
+        help="Eksik/bozuk raporları veritabanından yeniden üret (paper_id verilirse yalnız o)",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="--rebuild ile: yazmadan yalnız listele"),
+    force: bool = typer.Option(
+        False, "--force", help="--rebuild ile: geçerli raporu olanları da yeniden yaz"
+    ),
 ) -> None:
-    """Bir makalenin mastery raporunu göster."""
+    """Bir makalenin mastery raporunu göster ya da raporları DB'den yeniden üret (--rebuild)."""
     import json as _json2
     from pathlib import Path
+
+    if rebuild:
+        from app.learning.report_generator import rebuild_reports
+
+        res = rebuild_reports(paper_id=paper_id, force=force, dry_run=dry_run)
+        verb = "yeniden üretilecek" if dry_run else "yeniden üretildi"
+        console.print(
+            f"Biten test (makale): {res.finished_papers} · {verb}: {len(res.rebuilt)} · "
+            f"atlanan: {len(res.skipped)} · hata: {len(res.failed)}"
+        )
+        for pid in res.rebuilt:
+            console.print(f"  [green]✓[/green] {pid}")
+        for line in res.skipped:
+            console.print(f"  [yellow]atlandı[/yellow] {line}")
+        for line in res.failed:
+            console.print(f"  [red]hata[/red] {line}")
+        if dry_run:
+            console.print("[dim]DRY-RUN — yazmak için --dry-run olmadan çalıştır.[/dim]")
+        if res.failed:
+            raise typer.Exit(1)
+        return
+    if not paper_id:
+        console.print("[red]paper_id gerekli (ya da --rebuild).[/red]")
+        raise typer.Exit(2)
 
     report_path = Path("reports/papers/mastery") / f"{paper_id}_mastery_report.json"
     if not report_path.exists():
