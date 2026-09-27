@@ -321,8 +321,8 @@ kanıtı; 1000+ chunk'lık kitapta "var" = zayıf kanıt). Ayrıntı (yerel, git
 ### 7. Sıradaki
 
 1. ~~Gate 5 yanlış pozitifi~~ → düzeltildi, `lora-audit` PASS.
-2. ~~58 inceleme kartı~~ → gözden geçirildi, 19 kart düzeltildi (§6). **Sistemik:** kart
-   talimatı (`app/prompts/knowledge_card.md`) sıkılaştırılmalı; Gate 5'e "iddiadaki sayı
+2. ~~58 inceleme kartı~~ → gözden geçirildi, 19 kart düzeltildi (§6). ~~Kart talimatı~~ →
+   sıkılaştırıldı (aşağıya bkz.). **Kalan sistemik:** Gate 5'e "iddiadaki sayı
    kaynak chunk'larında var mı" deterministik kontrolü eklenebilir; Gate 6 olumsuzlama
    penceresi araya giren kelimeyi ("may not **be** directly applicable") kaçırıyor; Gate 5
    risk kuralı kümülatif getiriyi (%340) risk yüzdesi sanıyor.
