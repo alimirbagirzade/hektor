@@ -42,6 +42,25 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_train_load_doctor(request, monkeypatch):
+    """`train --run` yolundaki train-load-doctor'ı sahtele (GO).
+
+    Doktor canlı Ollama `/api/ps` + `nvidia-smi` okur; makinede büyük model yüklüyken
+    (ör. qwen3:30b, VRAM dolu) NO-GO → exit 4 verip onay/kayıt testlerini makine
+    durumuna göre kırıyordu. Doktorun kendi testleri gerçek fonksiyonu sınar.
+    """
+    if request.module.__name__.endswith("test_train_load_doctor"):
+        return
+    from app.training import train_load_doctor
+
+    monkeypatch.setattr(
+        train_load_doctor,
+        "run_train_doctor",
+        lambda **kw: train_load_doctor.TrainDoctorReport(verdict="GO"),
+    )
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _isolate_storage(tmp_path_factory):
     """Tüm veri/durum yollarını tmp'ye al ve GERÇEK ağaca yazımı YASAKLA.

@@ -102,7 +102,10 @@ class MasterySFTBuilder:
         examples = self.collect(min_mastery_score, citation_threshold)
         out = output_path or (_OUTPUT_DIR / "mastery_sft.jsonl")
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("\n".join(json.dumps(e.to_dict(), ensure_ascii=False) for e in examples))
+        out.write_text(
+            "\n".join(json.dumps(e.to_dict(), ensure_ascii=False) for e in examples),
+            encoding="utf-8",
+        )
         return out, len(examples)
 
 

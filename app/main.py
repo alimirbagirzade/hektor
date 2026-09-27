@@ -2166,7 +2166,7 @@ def mastery_report(
     if not report_path.exists():
         console.print(f"[yellow]Rapor bulunamadı:[/yellow] {report_path}")
         raise typer.Exit(1)
-    data = _json2.loads(report_path.read_text())
+    data = _json2.loads(report_path.read_text(encoding="utf-8"))
     score = data.get("score", {})
     ts = score.get("total_score", 0)
     fs = score.get("final_status", "?")

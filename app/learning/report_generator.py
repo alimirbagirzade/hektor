@@ -37,7 +37,7 @@ class ReportGenerator:
             "failed": sum(1 for a in answers if not a["passed"]),
             "answers": answers,
         }
-        json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+        json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
         md_lines = [
             f"# Paper Mastery Raporu — `{paper_id}`",
@@ -82,7 +82,7 @@ class ReportGenerator:
             f"**Sonuç:** {passed_n} geçti / {failed_n} başarısız",
         ]
 
-        md_path.write_text("\n".join(md_lines))
+        md_path.write_text("\n".join(md_lines), encoding="utf-8")
 
         self._store.set_test_report(test_id, str(json_path))
         return json_path, md_path

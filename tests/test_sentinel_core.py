@@ -96,7 +96,15 @@ def test_persist_false_writes_nothing(store: MonitoringStore) -> None:
     assert s.history() == []
 
 
-def test_history_pruned_to_keep_last(tmp_path: Path) -> None:
+def test_history_pruned_to_keep_last(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Damgalar deterministik ve farklı: Windows saat çözünürlüğünde art arda koşular aynı
+    # damgayı alabiliyor; bağda budama bilerek fazla tutar (bkz. ties testi) → flaky idi.
+    import itertools
+
+    import app.monitoring.store as store_mod
+
+    tick = itertools.count()
+    monkeypatch.setattr(store_mod, "utcnow", lambda: f"2026-01-01T00:00:{next(tick):02d}+00:00")
     store = MonitoringStore(db_path=tmp_path / "prune.db", keep_last=3)
     s = Sentinel(probes=[_mk(_p("a", "ok"))], store=store)
     for _ in range(6):

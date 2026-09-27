@@ -96,7 +96,7 @@ def test_build_jsonl_creates_file(tmp_path: Path) -> None:
     assert n == 1
     import json
 
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     assert data["source"] == "mastery:p1"
 
 
@@ -111,3 +111,21 @@ def test_instruction_varies_by_type() -> None:
     assert (
         "trading" in examples[0].instruction.lower() or "hipotez" in examples[0].instruction.lower()
     )
+
+
+def test_build_jsonl_writes_utf8_non_cp1254_chars(tmp_path: Path) -> None:
+    """Regresyon: '≤ σ →' içeren cevap, Windows varsayılan kodlamasında yazılamıyordu."""
+    import json
+
+    sq = MagicMock()
+    sq.list_papers.return_value = [_make_paper("p1")]
+    ms = MagicMock()
+    ms.get_latest_score.return_value = _make_score(90.0, "t1")
+    ms.list_questions.return_value = [_make_question("q1")]
+    ans = _make_answer("q1")
+    ans["answer_text"] = "Getiri σ ≤ 0.2 → risk düşük."
+    ms.list_answers.return_value = [ans]
+    path, n = _builder(sq, ms).build_jsonl(output_path=tmp_path / "out.jsonl")
+    assert n == 1
+    raw = path.read_bytes().decode("utf-8")
+    assert "σ ≤ 0.2 →" in json.loads(raw)["output"]
