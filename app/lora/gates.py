@@ -8,6 +8,7 @@ veri reddeder veya inceleme işaretler; ağır eğitim başlatmaz.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from app.lora.dataset_splitter import DatasetSplit, check_leakage, split_dataset
@@ -261,13 +262,20 @@ def gate_4_quality(cards: list[dict]) -> tuple[GateResult, list[dict]]:
     return result, clean
 
 
-def gate_5_math(cards: list[dict]) -> GateResult:
-    """Matematik/istatistik: hesap tutarlılığı ve kırmızı bayraklar."""
+def gate_5_math(
+    cards: list[dict], source_nums_by_paper: Mapping[str, frozenset[str]] | None = None
+) -> GateResult:
+    """Matematik/istatistik: hesap tutarlılığı ve kırmızı bayraklar.
+
+    ``source_nums_by_paper`` (paper_id → ``math_verifier.source_numbers``) verilirse karttaki
+    yüzdeler kendi makalesinin metninde aranır (control_plane doldurur; kapı saf kalır).
+    """
     rejected = 0
     review = 0
     details: list[str] = []
     for card in cards:
-        result = verify_math_content(_card_text(card))
+        nums = (source_nums_by_paper or {}).get(str(card.get("paper_id") or ""))
+        result = verify_math_content(_card_text(card), nums)
         card_json = card.get("card_json")
         requires_check = isinstance(card_json, dict) and bool(card_json.get("requires_math_check"))
         if not result.passed:

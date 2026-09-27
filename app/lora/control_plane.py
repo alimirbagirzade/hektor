@@ -8,6 +8,7 @@ yalnızca veri denetimi, dataset bölme ve raporlama yapar.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,6 +27,8 @@ from app.lora.gates import (
     gate_8_split,
 )
 from app.memory.sqlite_store import SqliteStore
+
+log = logging.getLogger(__name__)
 
 DEFAULT_DATA_DIR = Path("data/lora")
 DEFAULT_DATASET_DIR = Path("data/lora_sft")
@@ -142,7 +145,7 @@ class LoRAControlPlane:
 
         gate4, clean_cards = gate_4_quality(nonempty)
         stages.append(gate4)
-        stages.append(gate_5_math(clean_cards))
+        stages.append(gate_5_math(clean_cards, self._source_numbers(clean_cards)))
         stages.append(gate_6_philosophy(clean_cards))
         # Gate 7 (safety) BLOCKER → Gate 4 elemesinden BAĞIMSIZ, içerikli kartların
         # TAMAMINI tara. Aksi halde kısa/duplicate diye Gate 4'te elenen ama sır/PII
@@ -151,6 +154,23 @@ class LoRAControlPlane:
 
         examples = build_dataset(clean_cards)
         return stages, clean_cards, examples
+
+    def _source_numbers(self, cards: list[dict]) -> dict[str, frozenset[str]]:
+        """Gate 5 kaynak sayı kontrolü için: kartların makalelerinin chunk metnindeki sayılar."""
+        from app.lora.math_verifier import source_numbers
+
+        out: dict[str, frozenset[str]] = {}
+        list_chunks = getattr(self.store, "list_chunks", None)
+        if not callable(list_chunks):
+            return out  # chunk erişimi olmayan store (test sahtesi) → kontrol atlanır
+        for pid in {str(c.get("paper_id") or "") for c in cards} - {""}:
+            try:
+                chunks = list_chunks(pid)
+            except Exception:  # okunamayan makale → o kart için kontrol atlanır, kapı çökmez
+                log.warning("Gate 5 kaynak sayıları okunamadı: %s", pid)
+                continue
+            out[pid] = source_numbers(" ".join(str(getattr(c, "text", "") or "") for c in chunks))
+        return out
 
     @staticmethod
     def _example_to_dict(example: object) -> dict:

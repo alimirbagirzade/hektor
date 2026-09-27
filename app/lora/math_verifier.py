@@ -116,6 +116,51 @@ _EVIDENCE_MARKER_RE = re.compile(
 _EVIDENCE_WINDOW: int = 70
 
 
+# --------------------------------------------------------------------------- #
+# Kaynak sayı kontrolü (Gate 5 — requires_review, BLOK DEĞİL)
+# --------------------------------------------------------------------------- #
+# 2026-09-27 lora-audit incelemesi: kart üreticisi makalede OLMAYAN yüzdeler uyduruyordu
+# ("could reduce VaR by 10-15%", "will reduce forgetting by at least 30%"); yukarıdaki
+# performans-iddiası kalıpları yalnız bir kısmını yakalıyordu. Karttaki her yüzde, kartın
+# dayandığı makalenin chunk metninde aranır; yoksa inceleme işareti (Kural 7). Büyük
+# kitaplarda "var" zayıf kanıt olduğundan BLOK değil, insan incelemesi.
+_SRC_PCT_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*(?:%|percent\b|per cent\b)")
+# Ondalıklı sayı yeterince ayırt edicidir → kaynakta % işaretsiz de kabul ("accuracies of
+# 63.707" tablosu). Tam sayı ise % bağlamı ister ("15" her metinde sayfa no. olarak geçer).
+_SRC_DECIMAL_RE = re.compile(r"(?<![\w.,])(\d+[.,]\d+)(?!\d)")
+# Cümle sınırı — sayı İÇİNDEKİ nokta bölmez ("63.707%" tek parça kalır).
+_SENTENCE_SPLIT_RE = re.compile(r"(?<!\d)[.;](?!\d)|\n")
+# Bu cümlelerdeki yüzde iddia DEĞİL: önerilen test eşiği ("Test if … above 70%") ya da
+# açıkça örnek parametre ("e.g., 2% below current price").
+_NOT_A_CLAIM_RE = re.compile(
+    r"\b(?:test|evaluate|measure|assess|examine)\s+(?:if|whether)\b|\be\.?g\b"
+)
+
+
+def _norm_number(raw: str) -> str:
+    return f"{float(raw.replace(',', '.')):g}"
+
+
+def source_numbers(source_text: str) -> frozenset[str]:
+    """Kaynak metindeki yüzdeler + ondalıklı sayılar (normalize: "15.0" → "15")."""
+    folded = tr_fold(source_text)
+    nums = {_norm_number(m.group(1)) for m in _SRC_PCT_RE.finditer(folded)}
+    nums |= {_norm_number(m.group(1)) for m in _SRC_DECIMAL_RE.finditer(folded)}
+    return frozenset(nums)
+
+
+def _numbers_missing_from_source(folded: str, source_nums: frozenset[str]) -> list[str]:
+    """Karttaki (iddia cümlelerindeki) yüzdelerden kaynakta OLMAYANLAR, artan sırada."""
+    claims: set[str] = set()
+    # "e.g." kısaltmasının noktaları cümleyi bölmesin (örnek parametre muafiyeti kaybolurdu).
+    folded = re.sub(r"\be\.g\.", "eg", folded)
+    for sentence in _SENTENCE_SPLIT_RE.split(folded):
+        if _NOT_A_CLAIM_RE.search(sentence):
+            continue
+        claims |= {_norm_number(m.group(1)) for m in _SRC_PCT_RE.finditer(sentence)}
+    return sorted(claims - source_nums, key=float)
+
+
 @dataclass
 class MathVerifyResult:
     """Bir metnin matematik/istatistik doğrulama sonucu."""
@@ -212,13 +257,17 @@ def _has_unnegated(folded: str, phrase: str) -> bool:
     return False
 
 
-def verify_math_content(text: str) -> MathVerifyResult:
+def verify_math_content(text: str, source_nums: frozenset[str] | None = None) -> MathVerifyResult:
     """Bir metni matematik/istatistik açısından doğrula.
 
     Geriye dönen sonuç:
       - `issues`: bulunan tüm uyarılar
       - `requires_review`: insan incelemesi gerekiyor mu
       - `passed`: aşırı emin yatırım ifadesi yoksa True (bunlar blocker)
+
+    `source_nums` (``source_numbers(kaynak_metin)``) verilirse, karttaki yüzdelerden kaynakta
+    OLMAYANLAR inceleme işareti alır. ``None`` ya da boş küme (kaynak metni yok) → kontrol
+    atlanır; doğrulanamayan kart yanlışlıkla işaretlenmez.
     """
     if not text:
         return MathVerifyResult(passed=True)
@@ -241,6 +290,11 @@ def verify_math_content(text: str) -> MathVerifyResult:
     issues.extend(_check_percentage_sanity(text))
     # Doğrulanmamış sayısal performans iddiaları (requires_review, BLOK DEĞİL).
     issues.extend(_check_performance_claims(folded))
+    if source_nums:
+        missing = _numbers_missing_from_source(folded, source_nums)
+        if missing:
+            listed = ", ".join(f"%{n}" for n in missing)
+            issues.append(f"kaynakta olmayan sayı: {listed}")
 
     requires_review = bool(issues)
 

@@ -396,8 +396,18 @@ kanıtı; 1000+ chunk'lık kitapta "var" = zayıf kanıt). Ayrıntı (yerel, git
 
 1. ~~Gate 5 yanlış pozitifi~~ → düzeltildi, `lora-audit` PASS.
 2. ~~58 inceleme kartı~~ → gözden geçirildi, 19 kart düzeltildi (§6). ~~Kart talimatı~~ →
-   sıkılaştırıldı (aşağıya bkz.). **Kalan sistemik:** Gate 5'e "iddiadaki sayı
-   kaynak chunk'larında var mı" deterministik kontrolü eklenebilir. ~~Gate 5 risk kuralı~~ →
+   sıkılaştırıldı (aşağıya bkz.). ~~Gate 5 kaynak sayı kontrolü~~ → eklendi: karttaki her
+   yüzde kendi makalesinin chunk metninde aranır (`math_verifier.source_numbers`,
+   `control_plane._source_numbers` doldurur, `gate_5_math` saf kalır); yoksa **inceleme**
+   ("kaynakta olmayan sayı: %15"), BLOK değil. Ondalık sayı kaynakta % işaretsiz de kabul
+   (tablo: "accuracies of 63.707"); "Test if/evaluate whether" eşikleri ve "e.g." örnek
+   parametreleri muaf; kaynak metni yoksa kontrol atlanır. **Etki:** 34 kartta kaynakta
+   olmayan yüzde — **31'i daha önce hiç işaretlenmemişti** (mevcut kalıpların kaçırdığı
+   uydurma etki büyüklükleri: "could reduce VaR by 10-15%", "will reduce forgetting by at
+   least 30%", İspanyolca kartta "retorno ... del 0.5%"). `lora-audit` PASS; inceleme
+   38 → **69** (Gate 5: 22 → 53); denetim süresi ~3 → ~25 sn (132k chunk okunuyor).
+   **Sıradaki:** bu 31 yeni işaretli kart §6'daki gibi gözden geçirilip düzeltilmeli.
+   ~~Gate 5 risk kuralı~~ →
    düzeltildi: "%100 üstü risk yüzdesi" artık metnin herhangi bir yerindeki "risk"e değil,
    yüzdenin ±40 krk YEREL bağlamına bakar; bağlamda getiri kelimesi (return/getiri/
    cumulative/gain/…) varsa işaretlemez. 1344 metinde yalnız card_89d30aac91b1'in sahte
