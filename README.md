@@ -37,7 +37,7 @@ API anahtarı istenmez):
   [1] qwen3:4b-instruct-2507  ~2.5 GB   8 GB+ RAM  Hızlı ← önerilen (düşünmesiz)
   [2] qwen3:8b        ~5 GB     16 GB+ RAM   Dengeli
   [3] qwen3:14b       ~9 GB     32 GB+ RAM   Güçlü
-  [4] qwen3:30b      ~20 GB     32 GB+ RAM   Çok güçlü
+  [4] qwen3:30b-a3b-instruct ~19 GB  32 GB+ RAM  Çok güçlü (düşünmesiz)
   [5] llama3.1:8b     ~5 GB     16 GB+ RAM
   [6] llama3.1:70b   ~40 GB     80 GB+ RAM   Çok güçlü
   [7] mistral:7b      ~4 GB      8 GB+ RAM   Hızlı
@@ -925,6 +925,7 @@ uv run hektor-web
 | 8 GB | `qwen3:4b-instruct-2507-q4_K_M` | Hızlı (düşünmesiz; çıplak `qwen3:4b` = Thinking-2507, yavaş) |
 | 16 GB | `qwen3:8b` | Dengeli |
 | 32 GB | `qwen3:14b` | Güçlü |
+| 32 GB (veya 20 GB GPU) | `qwen3:30b-a3b-instruct-2507-q4_K_M` | Çok güçlü (düşünmesiz; çıplak `qwen3:30b` = Thinking-2507: düşünme kapatılamaz, serbest metinde bütçeyi yiyip boş cevap dönebilir) |
 
 > **Ollama yoksa:** Embedding için deterministik hash yedek devreye girer (`HEKTOR_ALLOW_FAKE_EMBEDDINGS=true`); LLM cevabı üretilmez, yalnız kaynak parçaları gösterilir.
 > Bulut sağlayıcı (OpenAI/Anthropic/Google) desteği kodda **opsiyonel** kalır ve bu projede kullanılmaz (bkz. `.env.example`).

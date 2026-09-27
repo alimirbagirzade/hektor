@@ -36,7 +36,7 @@ echo "  |  -- Qwen3 (Alibaba) --                                             |"
 echo "  |  [1] qwen3:4b-instruct-2507 ~2.5GB  8GB+ RAM   Hizli [ONERILEN]    |"
 echo "  |  [2] qwen3:8b     ~5 GB disk     16 GB+ RAM   Dengeli              |"
 echo "  |  [3] qwen3:14b    ~9 GB disk     32 GB+ RAM   Guclu                |"
-echo "  |  [4] qwen3:30b    ~20 GB disk    32 GB+ RAM   Cok guclu            |"
+echo "  |  [4] qwen3:30b-a3b-instruct ~19GB  32GB+ RAM   Cok guclu           |"
 echo "  |                                                                    |"
 echo "  |  -- Llama 3.1 (Meta) --                                            |"
 echo "  |  [5] llama3.1:8b     ~5 GB disk  16 GB+ RAM                        |"
@@ -66,7 +66,8 @@ case "$CHOICE" in
   1) LLM_MODEL="qwen3:4b-instruct-2507-q4_K_M"; OLLAMA_RAM=8;  OLLAMA_DSK=3  ;;
   2) LLM_MODEL="qwen3:8b";        OLLAMA_RAM=16; OLLAMA_DSK=5  ;;
   3) LLM_MODEL="qwen3:14b";       OLLAMA_RAM=32; OLLAMA_DSK=9  ;;
-  4) LLM_MODEL="qwen3:30b";       OLLAMA_RAM=32; OLLAMA_DSK=20 ;;
+  # 4: ciplak "qwen3:30b" = Thinking-2507, dusunme kapatilamaz (yavas, bos cevap) -> instruct
+  4) LLM_MODEL="qwen3:30b-a3b-instruct-2507-q4_K_M"; OLLAMA_RAM=32; OLLAMA_DSK=20 ;;
   5) LLM_MODEL="llama3.1:8b";     OLLAMA_RAM=16; OLLAMA_DSK=5  ;;
   6) LLM_MODEL="llama3.1:70b";    OLLAMA_RAM=80; OLLAMA_DSK=40 ;;
   7) LLM_MODEL="mistral:7b";      OLLAMA_RAM=8;  OLLAMA_DSK=4  ;;

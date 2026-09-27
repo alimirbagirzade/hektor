@@ -161,8 +161,10 @@ anda çağıracak iş başlatma.**
 `qwen3:30b-a3b-instruct-2507-q4_K_M` + `nomic-embed-text` kaldı; ~17 GB disk boşaldı; mastery
 kuyruğu kesintisiz sürdü.
 
-**Açık:** `setup.ps1`/`setup.sh` seçenek [4] ve README tablosu hâlâ `qwen3:30b`'yi (Thinking)
-kuruyor → yeni kurulum aynı tuzağa düşer; `qwen3:30b-a3b-instruct-2507-q4_K_M` olmalı.
+**Kurulum düzeltildi (dal `fix/setup-30b-instruct`):** `setup.ps1`/`setup.sh` seçenek [4] ve
+README (menü + RAM profilleri tablosu) artık `qwen3:30b-a3b-instruct-2507-q4_K_M` kuruyor;
+çıplak `qwen3:30b`'nin Thinking olduğu yorum/tabloda yazılı. `qwen3:8b`/`qwen3:14b`
+seçeneklerinin think modu bu makinede ölçülmedi (etiketler yüklü değil).
 
 ---
 
