@@ -287,6 +287,13 @@ if (-not $Supervised -and $proc) {
             Write-Host "          Taze insan onayi gerekiyor (Kural 8). Onay istegi: $aprId" -ForegroundColor Yellow
             Write-Host "          Onayla:  uv run --no-sync hektor approval-approve $aprId" -ForegroundColor Cyan
             Write-Host "          Sonra bu betigi TEKRAR calistir (onay tek kullanimliktir)." -ForegroundColor Cyan
+        } elseif ($code -eq 5) {
+            Write-Host "          Karisim agirligi sorulmadi (her egitimden once zorunlu)." -ForegroundColor Yellow
+            Write-Host "          Once:  uv run --no-sync hektor mix weights" -ForegroundColor Cyan
+            Write-Host "          Sonra bu betigi TEKRAR calistir (karar tek kullanimliktir)." -ForegroundColor Cyan
+        } elseif ($code -eq 6) {
+            Write-Host "          Egitim verisinde eval (golden/validation) sizintisi var." -ForegroundColor Yellow
+            Write-Host "          Ayrinti:  uv run --no-sync hektor mix leakage" -ForegroundColor Cyan
         } else {
             Write-Host "          Ayrinti: $LogErr" -ForegroundColor Gray
         }

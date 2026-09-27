@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-27 (yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-27 (LoRA karışım profilleri + profil eval altyapısı — eğitim ÖNCESİ ağırlık sorusu zorunlu · yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -100,6 +100,37 @@ production terfisi ayrı insan onayı ister.
 
 > **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
 > rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-27 (2): LoRA karışım profilleri + router + profil eval (eğitim YOK)
+
+Dal: `claude/lora-mix-eval`. **Eğitim başlatılmadı, model indirilmedi, base/production'a
+dokunulmadı.** Ayrıntı: **[docs/LORA_MIX_EVAL.md](docs/LORA_MIX_EVAL.md)**.
+
+- Achilles "Adapter Mixing / Profile Routing / Evaluation" şartnamesi Hektor'a uyarlandı:
+  `configs/lora/mix_profiles.yaml` (eğitim reçeteleri olan `lora_profiles.yaml`'dan AYRI),
+  `app/lora/{domain_adapter_registry,profile_registry,profile_builder,profile_router,
+  weight_decision,mix_cli}.py`, `app/memory/rag_version.py`, `app/evals/profile/` (eval
+  runner + deterministik değerlendiriciler + regression gate + insan denetimi + karşılaştırma),
+  `evals/profile_mix/` (validation 27 + golden_test 27, sha256 manifest).
+- **Yeni kullanıcı kuralı — her LoRA eğitiminden ÖNCE karışım ağırlıkları sorulur.**
+  `train --run` karar olmadan exit 5; web/detached `launch()` alt süreci hiç açmaz;
+  `start-train.ps1` exit 5/6 için yönlendirme basar. Karar: `uv run hektor mix weights`
+  (etkileşimli ya da `--profile`/`--weights`) veya `train --run --mix-profile X`.
+  Karar tek kullanımlık. Ayrıca `train --run` artık eval sızıntısında exit 6.
+- Gerçek PEFT `add_weighted_adapter` küçük rastgele Llama ile 4 yöntemde (svd/linear/ties/
+  dare_ties) doğrulandı (torch 2.14 · transformers 5.16 · peft 0.20, ayrı geçici venv) —
+  base ağırlıkları bayt-bayt aynı kaldı. Ana venv'de peft yok → o 4 test burada `skip`.
+- Kapı: ruff format/check ✅ · mypy (255 dosya) ✅ · pytest **2409 passed, 8 skipped**.
+
+**Açık işler (sıra önerisi):**
+1. `evals/profile_mix/*.jsonl` seed setleri Claude yazdı → `human_verified=false`; insan
+   doğrulaması + korpusa özgü RAG soruları (`expected_chunk_ids`) eklenmeli, sonra
+   `write_manifest()` ile hash yenilenmeli.
+2. Domain başına eğitim veri setleri (math/statistics/reasoning/trading/coding) yok —
+   her adapter base'ten bağımsız eğitilecek; eğitimden ÖNCE Kademe 2 + ağırlık sorusu.
+3. GGUF→Ollama servis modeli olmadan C/D sistemleri "koşulamadı" raporlanır.
 
 ---
 
