@@ -78,6 +78,29 @@ def test_suspicious_high_return_flagged() -> None:
     assert any("getiri" in issue for issue in result.issues)
 
 
+def test_cumulative_return_over_100_not_flagged_as_risk() -> None:
+    """Regresyon (2026-09-27 lora-audit, card_89d30aac91b1): "risk" metnin BAŞKA bir yerinde
+    geçince %100 üstü kümülatif getiri risk yüzdesi sanılıyordu."""
+    text = (
+        "The strategy manages downside risk with volatility targeting. It achieves cumulative "
+        "returns of 340%, 185%, 371%, and 360% respectively over 2010-2018."
+    )
+    result = verify_math_content(text)
+    assert not any("risk yüzdesi" in issue for issue in result.issues), result.issues
+
+
+def test_risk_percentage_far_from_risk_word_not_flagged() -> None:
+    """Risk kelimesi yüzdeden uzaktaysa (ayrı bağlam) kural tetiklenmemeli."""
+    text = "Risk is discussed in chapter two. " + "Filler text. " * 10 + "Volume grew 250%."
+    assert not any("risk yüzdesi" in i for i in verify_math_content(text).issues)
+
+
+def test_risk_percentage_over_100_english_flagged() -> None:
+    """Yerel risk bağlamı İngilizce de yakalanmalı (yanlış negatif koruması)."""
+    result = verify_math_content("Set the risk per trade to 150% of equity.")
+    assert any("risk yüzdesi" in issue for issue in result.issues)
+
+
 def test_risk_percentage_over_100_flagged() -> None:
     """%100'ü aşan risk yüzdesi tutarsızlık olarak işaretlenmeli."""
     result = verify_math_content("Pozisyon başına risk %150 olmalı.")

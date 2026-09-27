@@ -65,6 +65,14 @@ def is_negated(folded: str, start: int, end: int) -> bool:
 # "%<sayı>" desenini yakalar.
 _PERCENT_RE = re.compile(r"%\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*%")
 
+# Risk-yüzdesi kuralı için YEREL bağlam (tr_fold'lanmış metin, her iki yana karakter).
+_RISK_PCT_WINDOW: int = 40
+_RISK_WORD_RE = re.compile(r"\brisk")
+_RETURN_WORD_RE = re.compile(
+    r"return|getiri|profit|\bkar\b|kazanc|gain|cumulative|kumulatif|growth|buyume|"
+    r"increase|artis|outperform|performance|performans"
+)
+
 # --------------------------------------------------------------------------- #
 # Doğrulanmamış / aşırı-kesin performans iddiaları (Gate 5 — requires_review)
 # --------------------------------------------------------------------------- #
@@ -152,11 +160,20 @@ def _check_percentage_sanity(text: str) -> list[str]:
             if pct > 1000:
                 issues.append(f"şüpheli yüksek getiri iddiası (%{pct:g})")
 
-    has_risk_context = tr_fold("risk") in folded
-    if has_risk_context:
-        for pct in percentages:
-            if pct > 100:
-                issues.append(f"risk yüzdesi %100'ü aşıyor (%{pct:g}) — tutarsız olabilir")
+    # Risk bağlamı YÜZDENİN YANINDA aranır. Eskiden metnin herhangi bir yerinde "risk"
+    # geçmesi yetiyordu → "cumulative returns of 340%, 185%, 371%" (card_89d30aac91b1,
+    # 2026-09-27) risk yüzdesi sanılıyordu. Getiri bağlamı bitişikse yüzde risk değildir.
+    for match in _PERCENT_RE.finditer(folded):
+        raw = match.group(1) or match.group(2)
+        try:
+            pct = float(raw.replace(",", "."))
+        except ValueError:
+            continue
+        if pct <= 100:
+            continue
+        window = folded[max(0, match.start() - _RISK_PCT_WINDOW) : match.end() + _RISK_PCT_WINDOW]
+        if _RISK_WORD_RE.search(window) and not _RETURN_WORD_RE.search(window):
+            issues.append(f"risk yüzdesi %100'ü aşıyor (%{pct:g}) — tutarsız olabilir")
     return issues
 
 

@@ -397,8 +397,12 @@ kanıtı; 1000+ chunk'lık kitapta "var" = zayıf kanıt). Ayrıntı (yerel, git
 1. ~~Gate 5 yanlış pozitifi~~ → düzeltildi, `lora-audit` PASS.
 2. ~~58 inceleme kartı~~ → gözden geçirildi, 19 kart düzeltildi (§6). ~~Kart talimatı~~ →
    sıkılaştırıldı (aşağıya bkz.). **Kalan sistemik:** Gate 5'e "iddiadaki sayı
-   kaynak chunk'larında var mı" deterministik kontrolü eklenebilir; Gate 5 risk kuralı
-   kümülatif getiriyi (%340) risk yüzdesi sanıyor. ~~Gate 6 olumsuzlama penceresi~~ →
+   kaynak chunk'larında var mı" deterministik kontrolü eklenebilir. ~~Gate 5 risk kuralı~~ →
+   düzeltildi: "%100 üstü risk yüzdesi" artık metnin herhangi bir yerindeki "risk"e değil,
+   yüzdenin ±40 krk YEREL bağlamına bakar; bağlamda getiri kelimesi (return/getiri/
+   cumulative/gain/…) varsa işaretlemez. 1344 metinde yalnız card_89d30aac91b1'in sahte
+   işaretleri (%340/%185/%371/%360 kümülatif getiri) kalktı; `lora-audit` PASS, inceleme
+   39 → 38. ~~Gate 6 olumsuzlama penceresi~~ →
    düzeltildi: Gate 5 ve 6 artık ORTAK `math_verifier.is_negated` kullanır (olumsuzlayıcı +
    ≤1 ara kelime, "without"/"no" dahil; "not **only** …" olumsuzlama SAYILMAZ). 292 kartta
    yalnız card_8aad7e24a61e değişti; `lora-audit` PASS, inceleme 40 → 39.
