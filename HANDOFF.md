@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-21 (v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-27 (yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -100,6 +100,68 @@ production terfisi ayrı insan onayı ister.
 
 > **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
 > rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-27: yeni makinede veri hattı + Windows'ta boş mastery raporları
+
+**Eğitim başlatılmadı.** Bu makine (Windows, `C:\HP\hektor`) 2026-09-26'da sıfırdan
+kuruldu (`data/`, `storage/` git'te yok → korpus yeniden üretildi).
+
+### 1. Veri hattının durumu (2026-09-27 ~14:00)
+
+| İş | Durum |
+|---|---|
+| Korpus | 300 makale · 132.217 chunk (hepsi embed) · 293 bilgi kartı |
+| `mastery-queue --run-all --limit 400` | 10:17'de başladı, **35/300 bitti**, ~6 dk/makale → ~26 sa daha. Sonuçlar: 15 `usable_needs_review` · 12 `partially_learned` · 4 `needs_rechunking` · 4 `failed`; henüz `learned` yok |
+| Stage 1 — `continuous-learning.sh 72` | 01:10–13:34, 73 tur; yalnız 77 sentetik örnek (her tur yalnız "yeni makaleler" → çoğu tur boş). `storage/STOP_LEARNING` ile **durduruldu** (dosya yerinde; döngüyü yeniden açmak için sil) |
+| Stage 1 — `synth-qa-bulk --target 1000 --resume --seed 0` | 13:35'te ayrık süreç olarak başladı (log: `storage/synth_bulk.log`), 298 makale / 60 batch; ilk batch +78 → **155** |
+| `lora-readiness` | 13:30'da 370/1000 (%37; synth 77 + onaylı kart 293) |
+| Unattended supervisor | `backoff`, 8 hata: bu makinede `codex` CLI PATH'te yok → gözetimsiz sürücü çalışmıyor (veri üretimini etkilemez) |
+| Ollama | `qwen3:30b` yüklü (~17.6 GB, VRAM ~19/20 GB dolu) |
+
+### 2. Hata: mastery raporları Windows'ta 0 bayt (`55453df`)
+
+**Kök neden:** `ReportGenerator` `write_text()`'i encoding'siz çağırıyordu; Windows
+varsayılanı `cp1254` `✅ ❌ → ≤ σ` yazamaz. Dosya önce açılıp boşaltıldığı için 0 bayt
+kalıyordu: `.md` raporların **tamamı** + cevabında bu karakterler geçen JSON'lar (ilk 25'te
+12). Hata `paper_mastery_agent`'ta yutulup yalnız `'charmap' codec` uyarısı loglanıyordu
+(`storage/mastery.log`). **Skor/soru/cevap DB'de sağlamdı** — kaybolan yalnız dosyalardı.
+macOS/Linux'ta varsayılan UTF-8 → CI hiç görmedi.
+
+- Düzeltme: `report_generator.py` (JSON+MD), `mastery_sft_builder.py` (eğitim JSONL'i,
+  `ensure_ascii=False` → aynı hataya açıktı), `main.py` rapor okuması → `encoding="utf-8"`.
+- Regresyon testi platformdan bağımsız: encoding'siz `write_text`'i yakalayan koruma.
+- Mevcut raporlar DB'den UTF-8 olarak yeniden üretildi (0 boş, 0 geçersiz UTF-8).
+- **Dikkat:** çalışan `mastery-queue` süreci eski kodu yüklü → bittiğine kadar yeni
+  raporları yine boş yazabilir. Kuyruk bitince DB'den yeniden üretmek gerekir
+  (`ReportGenerator(...).generate(pid, test_id, MasteryScore(...))`, skor alanları
+  `MasteryStore.get_latest_score`'tan).
+- AST taraması: `app/` içinde kalan encoding'siz `read_text/write_text` çağrıları yalnız
+  ASCII JSON yazar (`auto_pipeline`, `training_manager`, `server.py` loss okuma) veya
+  Linux'a özeldir (`profiler`) — risk düşük, dokunulmadı.
+
+### 3. Makineye bağımlı iki test (main'de de kırılıyordu)
+
+- `train --run` testleri (`test_manual_adapter_registration`, `test_agent_phase2_cli`):
+  `train-load-doctor` canlı Ollama + `nvidia-smi` okuyor; büyük model yüklüyken NO-GO →
+  exit 4. `tests/conftest.py`'ye autouse sahte (GO) eklendi; doktorun kendi testleri
+  (`test_train_load_doctor.py`) hariç.
+- `test_history_pruned_to_keep_last`: Windows saat çözünürlüğünde aynı damga → bağ
+  koruması `keep_last`'ı aşıyordu; deterministik damgalar.
+
+**Kapı (Windows):** ruff format --check + ruff check + mypy (222 dosya, 0 hata) +
+pytest `-m "not ollama"` **2292 passed, 5 skipped, 4 deselected**. Bu makinede `uv`,
+`make`, `gh` PATH'te yok → araçlar `.venv\Scripts\` altından doğrudan koşuldu.
+
+### 4. Sıradaki
+
+1. `synth-qa-bulk` 1000'e ulaşınca: `lora-curate --run` → `assemble_sft.py` →
+   `lora-audit` → `pretrain-gate`.
+2. Eğitimden ÖNCE **Kademe 2** derin av (zorunlu) → ardından taze insan onayı (Kural 8).
+3. Mastery kuyruğu bitince raporları DB'den yeniden üret; `failed` / `needs_rechunking`
+   makaleleri incele.
+4. v9 terfisi için kalan eval setleri (`overfit_awareness`, `risk_management`) hâlâ açık.
 
 ---
 
