@@ -2802,7 +2802,7 @@
 
   loadAutoLoraStatus();
 
-  // ---------- donanım profili + model önerisi ----------
+  // ---------- donanım profili + kullanılan model ----------
   function renderHwProfile(profile, recs) {
     var loraBackend = profile.lora_backend || (profile.lora_supported ? 'mlx' : 'peft_cpu');
     var loraNote = loraBackend === 'mlx'
@@ -2810,16 +2810,6 @@
       : loraBackend === 'peft_cuda'
         ? '<span style="color:#4ade80">&#10003; LoRA egitimi destekleniyor (CUDA GPU, hizli)</span>'
         : '<span style="color:#facc15">&#9888; LoRA egitimi CPU ile calisir (yavas ~2-4 saat) &mdash; Hizli egitim icin Egitim sekmesindeki "Colab Notebook Indir" dugmesini kullanin.</span>';
-    var recsHtml = recs.recommended.length
-      ? recs.recommended.map(function (r) {
-          return (
-            '<tr><td><strong>' + esc(r.name) + '</strong>' +
-            (r.active ? ' <span style="color:#4ade80">● aktif</span>' : '') + '</td>' +
-            '<td><code>' + esc(r.ollama) + '</code></td>' +
-            '<td>' + r.confidence + '%</td></tr>'
-          );
-        }).join('')
-      : '<tr><td colspan="3" class="muted">Öneri bulunamadı.</td></tr>';
     // Aktif model settings'ten gelir (öneri listesinden bağımsız) — model değişince bu satır da değişir.
     var act = recs.active || {};
     var actState = act.installed === true
@@ -2828,9 +2818,10 @@
         ? '<span style="color:#f87171">&#10007; Ollama\'da yok — <code>ollama pull ' + esc(act.ollama || '') + '</code></span>'
         : '<span class="muted">Ollama durumu bilinmiyor</span>';
     var activeHtml = act.ollama
-      ? '<tr><td style="padding:3px 8px 3px 0"><strong>Aktif LLM</strong></td><td><strong>' +
-        esc(act.name || act.ollama) + '</strong> <code>' + esc(act.ollama) + '</code> ' + actState + '</td></tr>'
-      : '';
+      ? '<tr><td style="padding:6px 12px 6px 0"><strong>' + esc(act.name || act.ollama) +
+        '</strong></td><td style="padding:6px 12px"><code>' + esc(act.ollama) +
+        '</code></td><td style="padding:6px 0 6px 12px">' + actState + '</td></tr>'
+      : '<tr><td colspan="3" class="muted">Aktif model bilgisi alınamadı.</td></tr>';
 
     return (
       '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px">' +
@@ -2838,13 +2829,12 @@
       '<tr><td style="padding:3px 8px 3px 0"><strong>CPU</strong></td><td>' + profile.cpu + ' (' + profile.cores + ' çekirdek)</td></tr>' +
       '<tr><td style="padding:3px 8px 3px 0"><strong>RAM</strong></td><td>' + profile.ram_gb + ' GB</td></tr>' +
       '<tr><td style="padding:3px 8px 3px 0"><strong>GPU</strong></td><td>' + profile.gpu + '</td></tr>' +
-      activeHtml +
       '</table>' +
       loraNote +
-      '<h4 style="margin:12px 0 6px">Önerilen Modeller <span class="muted small">(donanıma göre öneri — aktif modeli değiştirmez)</span></h4>' +
+      '<h4 style="margin:12px 0 6px">Kullanılan Model</h4>' +
       '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
-      '<thead><tr><th style="text-align:left;padding-bottom:4px">Model</th><th style="text-align:left">Ollama Komutu</th><th style="text-align:left">Uyum</th></tr></thead>' +
-      '<tbody>' + recsHtml + '</tbody></table>'
+      '<thead><tr><th style="text-align:left;padding:6px 12px 6px 0">Model</th><th style="text-align:left;padding:6px 12px">Ollama Etiketi</th><th style="text-align:left;padding:6px 0 6px 12px">Durum</th></tr></thead>' +
+      '<tbody>' + activeHtml + '</tbody></table>'
     );
   }
 
