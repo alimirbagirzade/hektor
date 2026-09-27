@@ -317,6 +317,17 @@ kanıtı; 1000+ chunk'lık kitapta "var" = zayıf kanıt). Ayrıntı (yerel, git
   model "ölçülebilir"i rakam uydurarak karşılıyor. Talimatta "rakamı yalnız kaynakta
   geçiyorsa yaz", "Test if" biçimi, OOS/maliyet şartı ve tavsiye yasağı YOK. Düzeltilmezse
   yeni kartlarda sorun tekrar eder (bkz. §7-2).
+- **Kart talimatı sıkılaştırıldı (`2b07b2b`):** kaynakta AYNEN geçmeyen sayı yasak (geçeni
+  "The paper reports ..." ile atfet); hipotez = "Test if X improves Y vs Z, out-of-sample
+  and net of transaction costs", etki büyüklüğü yok; trading dışı makalede hipotez listesi
+  BOŞ; tavsiye/kesinlik dili yasak; main_claim her zaman (metne dayalı konu özeti uydurma
+  değildir). **Ölçüm** (gerçek `build()` akışı, DB'ye yazmadan, 5 makale, qwen3:30b,
+  seed 42): eski talimat 4 makalede **uydurma rakam** ("at least 15/20/30%", WKB "%90
+  doğruluk") + trading dışı kitaplara hipotez uydurdu; yeni talimat 5/5 kart, **0 uydurma
+  sayı**, trading hipotezlerinin tümü "Test if … OOS, net of costs", trading dışında
+  hipotez yok. İlk sürüm Hogg ders kitabında main_claim'i de "uydurma" sayıp kartı hiç
+  üretmedi → 6. kural eklendi, sorun kalktı. **Mevcut kartlar değişmedi** — yalnız yeni
+  üretilenler etkilenir.
 
 ### 7. Sıradaki
 
