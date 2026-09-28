@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-27 (bu makinede LLM `qwen3:30b` [Thinking] → `qwen3:30b-a3b-instruct-2507-q4_K_M`, gerekçe ölçüldü · LoRA karışım profilleri + profil eval altyapısı — eğitim ÖNCESİ ağırlık sorusu zorunlu · yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-28 (v10 öncesi Kademe 2: 5 alt-sistem, 39 bulgu, onaylananlar düzeltildi · bekçi mastery bitince v10 eğitimini hazırlıyor, insan onayı bekliyor · bu makinede LLM `qwen3:30b` [Thinking] → `qwen3:30b-a3b-instruct-2507-q4_K_M`, gerekçe ölçüldü · LoRA karışım profilleri + profil eval altyapısı — eğitim ÖNCESİ ağırlık sorusu zorunlu · yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -100,6 +100,51 @@ production terfisi ayrı insan onayı ister.
 
 > **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
 > rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-28: v10 öncesi Kademe 2 + "mastery bitince LoRA" bekçisi
+
+**Kullanıcı isteği:** "RAG eğitimini bitirdikten sonra LoRA'ya başla." Kararlar (kullanıcı):
+karışım profili **`trading_analysis_v1`** (`wd_a03273ef8c`, 2026-09-28 21:49 UTC'de bayatlar),
+Kademe 2 eğitimden önce, eğitim onayı insanda (bekçi onay VERMEZ).
+
+### 1. Ortam
+- Ana venv'de `train-cpu` extra'sı YOKTU (torch/peft/transformers) → `uv sync --inexact --extra
+  train-cpu --extra mcp --extra dev` (yalnız ekleme, kilitle birebir). torch `2.14.0+cpu` →
+  eğitim **CPU'da** koşar. Temel model `Qwen/Qwen3-4B-Instruct-2507` HF önbelleğine indirildi.
+- Mastery sonuçları `lora-curate`/`assemble_sft` hattına GİRMİYOR (yalnız `mastery-sft`/
+  `unified-dataset` kullanır); kuyruğu beklemek veri değil CPU/GPU çakışması içindir.
+
+### 2. Bekçi — `logs/lora-after-mastery.ps1` (git'te değil; `logs/` ignore)
+Kuyruk (`pending`=0 ve süreç yok; ölürse ≤3 yeniden başlatma) → `storage/KADEME2_OK` →
+`mastery-report --rebuild` · `rag-mastery` · `lora-curate --run` · `assemble_sft.py` →
+Ollama boşalt → `start-train.ps1 -Adapter hektor_lora_v10_4b` → Kural 8 onay isteği →
+insan `approval-approve <id>` deyince bekçi yeniden çağırır. Durum:
+`storage/lora_after_mastery_state.txt`, log `logs/lora-after-mastery*.log`. Durdur:
+`storage/STOP_LORA_WATCH`.
+
+### 3. Kademe 2 (5 finder + her gruba 2 şüpheci doğrulayıcı)
+Tam rapor (yerel, ignore): `reports/bug-scan/kademe2-2026-09-28.md`. Dal `claude/kademe2-v10`.
+- **A (başlatma/Kural 8):** CPU eğitimde VRAM NO-GO (artık WARN) · onay ucuz ön-kontrollerden
+  ÖNCE tüketiliyordu (web/CLI/auto; artık preflight sonra onay) · start-train durumunda
+  `started_at` yoktu → teşhis onay denetimini atlıyordu · nöbetçi kurtarması ağırlık kararını
+  taşımıyordu · onay eşleşmesi action sabit · kayma kapısı mtime → sha256 · sessiz 2. epoch.
+- **B (veri kapıları):** `lora-audit` DB'yi, eğitim `lora_sft.jsonl`'i okuyordu, bağ yoktu →
+  `pretrain-gate` tazelik kontrolü + her satıra Gate 5/7 taraması · olumlama deyimleri
+  ("hiç şüphesiz", "no doubt") olumsuzlama sayılıyordu (`app/lora/negation.py`) · Gate 5/7
+  yanlış pozitifleri · kaynak-sayı delikleri · rapor 20 satırda kırpılıyordu.
+  **Gerçek veri:** `lora_sft.jsonl` BAYAT (18 kart satırı DB'den farklı) → bekçi yeniden kurar.
+- **C (eğitim-sonrası eval):** tek kalıp cevap veren çökmüş adapter `accept` alıyordu · yeni
+  "garanti kâr" veto değildi · genişletilmiş setler bağlamsız koşuyordu · maliyet/risk/başarı
+  regex delikleri · boş cevap geçiyordu.
+- **D (karışım):** sızıntı kapısı gömülü soruyu görmüyordu · eski ağırlık kararı bekliyor
+  kalıyordu · regresyon referansı karşılaştırılabilir değildi · aynı-hash upsert eval'i siliyordu.
+- **E (mastery):** ölen süreç satırı sonsuza dek 'running' bırakıyordu · arka arkaya retry ·
+  başarısız test 'done' yazılıyordu · %100 yuvarlama.
+- AÇIK (iki oyda da "kısmen"): A7 onay parametre bağı · D3/D6/D7/D8.
+
+**Kapı (Windows):** ruff format/check ✅ · mypy 256 ✅ · pytest **2701 passed, 4 deselected**.
 
 ---
 
