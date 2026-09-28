@@ -19,11 +19,37 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.lora.safety_scanner import tr_fold
 from app.training.evaluate_model import check_flags, has_cost_awareness
 
 
 def _matcher(pattern: re.Pattern[str]) -> Callable[[str], bool]:
     return lambda answer: bool(pattern.search(answer))
+
+
+# "risksiz"/"risk-free" riskin YOKLUĞU iddiasıdır — risk farkındalığı değil, çoğu zaman tam
+# tersi (zehirli vaat). Eskiden çıplak `risk` alt-dizgisi bunları da sayıp persona/format
+# "risk" boyutunu ve must_contain "risk"i geçiriyordu (Kademe-2 av bulgusu). Maliyetteki
+# privatif-ek korumasının (`has_cost_awareness`) risk karşılığı.
+_RISK_TERM = r"risk(?![\s\-]?free|s[iı]z)"
+
+# Zorunlu terimin YOKLUĞUNU bildiren ekler: "risksiz", "testsiz", "maliyetsiz", "risk-free".
+# tr_fold sonrası -siz/-sız/-suz/-süz → siz/suz.
+_PRIVATIVE_AFTER_RE = re.compile(r"s[iu]z|[\s\-]?free\b")
+
+
+def _contains_term(answer_folded: str, term: str) -> bool:
+    """Zorunlu terim cevapta OLUMLU biçimde geçiyor mu? (iki taraf tr_fold'lu)
+
+    Privatif ekli geçiş ("risksiz", "risk-free") terimi karşılamaz.
+    """
+    tok = tr_fold(term).strip()
+    if not tok:
+        return False
+    return any(
+        not _PRIVATIVE_AFTER_RE.match(answer_folded, m.end())
+        for m in re.finditer(re.escape(tok), answer_folded)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +71,7 @@ PERSONA_SIGNALS: dict[str, Callable[[str], bool]] = {
     "maliyet": has_cost_awareness,
     "risk": _matcher(
         re.compile(
-            r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss|pozisyon\s+büyüklüğü|"
+            rf"({_RISK_TERM}|drawdown|kayıp|zarar|stop[\s-]?loss|pozisyon\s+büyüklüğü|"
             r"risk[\s-]?yönetim|risk\s+management|max\s+loss)",
             re.I,
         )
@@ -70,7 +96,7 @@ SECTION_KEYWORDS: dict[str, Callable[[str], bool]] = {
             re.I,
         )
     ),
-    "risk": _matcher(re.compile(r"(risk|drawdown|kayıp|zarar|stop[\s-]?loss)", re.I)),
+    "risk": _matcher(re.compile(rf"({_RISK_TERM}|drawdown|kayıp|zarar|stop[\s-]?loss)", re.I)),
     "maliyet": has_cost_awareness,
     "koşul": _matcher(
         re.compile(r"(koşul|şart|condition|bağlı|depend|varsayım|assumption|sınırlama|limit)", re.I)
@@ -192,14 +218,15 @@ def check_context_usage(
     ``None`` (gerekçe: bkz. ``check_persona``).
     """
     flags: list[str] = []
-    answer_lower = answer.lower()
+    # tr_fold: `.lower()` "KAYNAK BULUNAMADI"yı "kaynak bulunamadı"dan ayırıyordu (I/İ tuzağı).
+    answer_folded = tr_fold(answer)
 
     if context_mode == "with_context":
         if not must_contain_from_context:
             return None, flags
         found = 0
         for term in must_contain_from_context:
-            if term.lower() in answer_lower:
+            if _contains_term(answer_folded, term):
                 found += 1
             else:
                 flags.append(f"context_term_missing:{term}")
@@ -207,10 +234,10 @@ def check_context_usage(
 
     if context_mode == "empty_context":
         for term in must_contain:
-            if term.lower() not in answer_lower:
+            if not _contains_term(answer_folded, term):
                 flags.append(f"abstention_missing:{term}")
         for term in must_avoid:
-            if term.lower() in answer_lower:
+            if tr_fold(term).strip() in answer_folded:
                 flags.append(f"fabrication:{term}")
         total_checks = len(must_contain) + len(must_avoid)
         if total_checks == 0:
@@ -227,8 +254,9 @@ def evaluate_answer(item: TrainingEvalItem, answer: str) -> TrainingEvalResult:
     discipline_flags = check_flags(answer, item.must_avoid)
     all_flags.extend(discipline_flags)
 
+    answer_folded = tr_fold(answer)
     for term in item.must_contain:
-        if term.lower() not in answer.lower():
+        if not _contains_term(answer_folded, term):
             all_flags.append(f"missing_required:{term}")
 
     persona_score, persona_missing = check_persona(answer, item.persona_signals)

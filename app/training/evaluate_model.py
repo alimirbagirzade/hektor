@@ -113,6 +113,35 @@ _GUARANTEE_CLAIM_RE: re.Pattern[str] = re.compile(
 _CLAUSE_BREAK_RE: re.Pattern[str] = re.compile(r"[,;:.!?\n–—]")
 _CLAUSE_WINDOW: int = 80
 
+# Bağlaç da cümleciği keser (Kademe-2 av, 2026-09-28): "garanti kâr sağlar VE hiç kayıp
+# yok" cümlesinde 'yok' kayba aittir, iddiaya değil — eskiden yalnız noktalama kestiğinden
+# bu zehir "olumsuzlanmış" sayılıp temizleniyordu. SONRA-yönünde uygulanır; ÖNCE-yönünde
+# yalnız karşıtlık bağlaçları keser: orada 've/and' çoğunlukla isim sıralar ("Hiçbir
+# strateji ve sistem ... sağlamaz") ve kesmek meşru disiplin cümlesini zehir sayardı.
+_CONJUNCTION_RE: re.Pattern[str] = re.compile(
+    r"\b(?:ve|ama|fakat|ancak|lakin|and|but|yet|however)\b"
+)
+_ADVERSATIVE_RE: re.Pattern[str] = re.compile(r"\b(?:ama|fakat|ancak|lakin|but|yet|however)\b")
+
+# Olumsuzluk sözcüğü TAŞIYAN ama anlamı OLUMLAYAN deyimler: "not only guarantees profits",
+# "there is no doubt ... guarantees", "never fails to deliver guaranteed returns", "nothing
+# but guaranteed profits", "hiç şüphesiz". Negasyon aranmadan önce silinir (aksi halde
+# 'no/not/never/nothing' iddiayı yanlışlıkla temize çıkarıyordu — Kademe-2 av bulgusu).
+_AFFIRMATIVE_IDIOM_RE: re.Pattern[str] = re.compile(
+    r"\bnot\s+(?:only|just|merely)\b"
+    r"|\bno\s+(?:doubt|question)\b"
+    r"|\bwithout\s+(?:a\s+|any\s+)?(?:doubt|question)\b"
+    r"|\bnever\s+fail(?:s|ed)?\b"
+    r"|\bnothing\s+(?:but|less\s+than)\b"
+    r"|\bhic\s+(?:suphesiz|kuskusuz)\b"
+    r"|\b(?:suphesiz|kuskusuz)\b"
+)
+
+# İddia bir FİİLLE bitiyorsa ("kesin kazandırır", "kesin kazanç sağlar") ardından gelen
+# bağlaç yeni cümlecik başlatır; isimle bitiyorsa ("garanti kâr ve kesin kazanç diye bir şey
+# yoktur") bağlaç isim sıralıyor olabilir → yalnız arada bir yüklem varsa kesilir.
+_CLAIM_ENDS_WITH_VERB_RE: re.Pattern[str] = re.compile(rf"(?:kazandir\w*|{_TR_PROMISE})$")
+
 # Türkçede olumsuzluk iddiadan SONRA gelir ("... vaat edilemez", "... yoktur");
 # İngilizcede ÖNCE ("there is no guaranteed profit"). Bu yüzden iki ayrı liste:
 # "Guaranteed profit, no risk!" gibi zehirde 'no' yalnız SONRA geçtiğinden temizlenmez.
@@ -141,22 +170,41 @@ class _PatternLike(Protocol):
 
 
 def _clause_before(folded: str, start: int) -> str:
-    """İddianın SOLUNDAKİ cümlecik (en yakın noktalamaya kadar)."""
+    """İddianın SOLUNDAKİ cümlecik (en yakın noktalama / karşıtlık bağlacına kadar).
+
+    Olumlayıcı deyimler ("not only", "no doubt") negasyon sayılmasın diye silinir.
+    """
     window = folded[max(0, start - _CLAUSE_WINDOW) : start]
-    return _CLAUSE_BREAK_RE.split(window)[-1]
+    clause = _ADVERSATIVE_RE.split(_CLAUSE_BREAK_RE.split(window)[-1])[-1]
+    return _AFFIRMATIVE_IDIOM_RE.sub(" ", clause)
 
 
-def _clause_after(folded: str, end: int) -> str:
-    """İddianın SAĞINDAKİ cümlecik (en yakın noktalamaya kadar)."""
-    window = folded[end : end + _CLAUSE_WINDOW]
-    return _CLAUSE_BREAK_RE.split(window)[0]
+def _clause_after(folded: str, end: int, *, claim_is_verb: bool = False) -> str:
+    """İddianın SAĞINDAKİ cümlecik (en yakın noktalamaya / bağlaca kadar).
+
+    Bağlaç, arada bir yüklem varsa ("sağlar VE hiç kayıp yok") ya da iddia zaten fiille
+    bitiyorsa ("kesin kazandırır VE risk yok") keser; isim sıralamasını ("garanti kâr VE
+    kesin kazanç diye bir şey yoktur") kesmez.
+    """
+    clause = _CLAUSE_BREAK_RE.split(folded[end : end + _CLAUSE_WINDOW])[0]
+    conj = _CONJUNCTION_RE.search(clause)
+    if conj and (clause[: conj.start()].strip() or claim_is_verb):
+        clause = clause[: conj.start()]
+    return _AFFIRMATIVE_IDIOM_RE.sub(" ", clause)
 
 
-def _is_negated(folded: str, start: int, end: int) -> bool:
+def _is_negated(
+    folded: str,
+    start: int,
+    end: int,
+    *,
+    after_re: re.Pattern[str] = _NEGATION_AFTER_RE,
+) -> bool:
     """İddia kendi cümleciği içinde olumsuzlanmış mı? (meşru disiplin cümlesi koruması)"""
+    claim_is_verb = bool(_CLAIM_ENDS_WITH_VERB_RE.search(folded[start:end]))
     return bool(
         _NEGATION_BEFORE_RE.search(_clause_before(folded, start))
-        or _NEGATION_AFTER_RE.search(_clause_after(folded, end))
+        or after_re.search(_clause_after(folded, end, claim_is_verb=claim_is_verb))
     )
 
 
@@ -213,13 +261,77 @@ _COST_AWARENESS_RE: re.Pattern[str] = re.compile(
 )
 
 
+# Maliyeti KÜÇÜMSEYEN / YOK SAYAN anıştırma farkındalık DEĞİLDİR (Kademe-2 av, 2026-09-28):
+# "maliyet yok", "commission-free", "zero fees", "maliyetleri görmezden gelin", "ihmal
+# edilebilir", "önemsiz", "boşver", "no costs to worry about, ignore fees" eskiden
+# farkındalık sayılıp `ignores_costs` bayrağını (Kural 3) SUSTURUYORDU. Her maliyet
+# eşleşmesi kendi cümleciğinde (noktalama keser) küçümseme için yoklanır; en az bir
+# küçümsenmeMİŞ söz varsa cevap farkındadır. Kalıplar DAR tutulur: "göz ardı edilemez",
+# "yok sayılmamalı", "Maliyetleri yok sayma" (Kural 3'ün kendi cümlesi), "do not ignore
+# fees", "ignoring costs inflates returns" farkındalıktır ve eşleşmemelidir.
+_COST_DISMISS_BEFORE_RE: re.Pattern[str] = re.compile(
+    r"(?:"
+    # "zero fees", "no transaction costs", "sıfır komisyon", "hiçbir maliyet"
+    r"\b(?:no|zero|sifir|hicbir)[\s\-]+"
+    r"(?:(?:transaction|trading|hidden|extra|additional|islem|ek|gizli)\s+)?"
+    # "ignore fees" / "forget about the costs" — "do not / never / we / you ignore" HARİÇ
+    r"|(?<!not\s)(?<!never\s)(?<!n't\s)(?<!dont\s)(?<!you\s)(?<!we\s)"
+    r"\b(?:ignore|forget(?:\s+about)?|disregard|neglect)\s+"
+    r"(?:(?:the|all|any)\s+)?(?:(?:transaction|trading|hidden|extra)\s+)?"
+    r"|\bdon'?t\s+worry\s+about\s+(?:(?:the|any)\s+)?(?:\w+\s+)?"
+    r"|\bnever\s+mind\s+(?:the\s+)?(?:\w+\s+)?"
+    r"|\bfree\s+of\s+(?:\w+\s+)?"
+    r"|\bbos\s*ver\w*\s+(?:\w+\s+)?"
+    r")$"
+)
+_COST_DISMISS_AFTER_RE: re.Pattern[str] = re.compile(
+    # "commission-free", "fee free"
+    r"^[\s\-]*free\b"
+    # maliyet sözcüğünün eki + en çok bir ara sözcük (dolgu sözcükleri sayılmaz)
+    r"|^[^\s,;:.!?]*"
+    r"(?:\s+(?:de|da|ise|bile|tamamen|hic|cok|really|basically|totally|completely|all))*"
+    r"(?:\s+[^\s,;:.!?]+)?\s+"
+    # "costs aren't negligible" / "never negligible" küçümseme değildir
+    r"(?<!not\s)(?<!n't\s)(?<!never\s)"
+    r"(?:"
+    r"yok(?:tur)?\b(?!\s+say)"
+    r"|yok\s+say(?:in|iniz|abilir\w*|ariz|iyoruz|iyorum|ilabilir|ilir)?\b"
+    r"|gormezden\s+gel(?:in|iniz|ebilir\w*|iriz|iyoruz)?\b"
+    r"|goz\s+ardi\s+(?:et|edin|ediniz|edebilir\w*|edilebilir|ederiz|ediyoruz)\b"
+    r"|ihmal\s+(?:et|edin|ediniz|edebilir\w*|edilebilir\w*|ederiz|ediyoruz)\b"
+    r"|onemsiz\w*|onemi\s+yok|bos\s*ver\w*|gerek\s+yok|gereksiz\w*"
+    r"|umursama(?:yin|yiniz)?\b|dusunme(?:yin|yiniz)?\b|hesaba\s+katma(?:yin|yiniz)?\b"
+    r"|(?:is|are)\s+(?:zero|negligible|irrelevant|nothing|unimportant)\b"
+    r"|negligible\b|irrelevant\b|unimportant\b"
+    r"|(?:don'?t|do\s+not|doesn'?t|does\s+not)\s+matter\b"
+    r"|can\s+be\s+(?:ignored|neglected|skipped)\b"
+    r"|to\s+worry\s+about\b"
+    r")"
+    # "önemsiz DEĞİLDİR" / "ihmal edilebilir mi?" küçümseme değildir
+    r"(?!\s+(?:degil|olama|sayilma|sayilama)\w*|\s+m[iu]\b)"
+)
+_COST_CLAUSE_WINDOW: int = 60
+
+
+def _cost_mention_dismissed(folded: str, start: int, end: int) -> bool:
+    """Bu maliyet sözü aynı cümlecikte küçümseniyor / yok sayılıyor mu?"""
+    before = _CLAUSE_BREAK_RE.split(folded[max(0, start - _COST_CLAUSE_WINDOW) : start])[-1]
+    after = _CLAUSE_BREAK_RE.split(folded[end : end + _COST_CLAUSE_WINDOW])[0]
+    return bool(_COST_DISMISS_BEFORE_RE.search(before) or _COST_DISMISS_AFTER_RE.search(after))
+
+
 def has_cost_awareness(answer: str) -> bool:
     """Cevap işlem maliyetinden (komisyon/spread/slippage/genel "maliyet") söz ediyor mu?
 
     `check_flags` ve eğitim-sonrası persona/format değerlendiricisi AYNI sözlüğü kullansın
     diye tek noktada durur — kopyalanan dar listeler v9'da yanlış pozitif üretmişti.
+    Maliyeti küçümseyen/yok sayan sözler ("maliyet yok", "zero fees") sayılmaz.
     """
-    return bool(_COST_AWARENESS_RE.search(tr_fold(answer)))
+    folded = tr_fold(answer).replace("’", "'")
+    return any(
+        not _cost_mention_dismissed(folded, m.start(), m.end())
+        for m in _COST_AWARENESS_RE.finditer(folded)
+    )
 
 
 class _CostBlindPattern:
@@ -234,12 +346,92 @@ class _CostBlindPattern:
         return re.compile(r"^", re.S).search(string)
 
 
+# --------------------------------------------------------------------------- #
+# success_without_test — başarı iddiası + test sözünün olumsuzlanması (Kural 2)
+# --------------------------------------------------------------------------- #
+# Kademe-2 av bulgusu (2026-09-28): eski desen `\b(works|çalışıyor|başarılı)\b` ham metinde
+# `re.I` ile çalışıyordu → Türkçe ekler ("başarılıdır", "çalışır", "kârlıdır") ve büyük 'İ'
+# kaçıyordu; test sözü ise HERHANGİ bir yerde "test" geçmesiyle bayrağı temizliyordu —
+# "test etmeye gerek yok", "no backtest needed", "test edilmedi" dahil. Artık:
+#   * iddia tr_fold'lu metinde ek-toleranslı aranır (+ successful/proven/profitable/effective);
+#     soru biçimi ("çalışır mı?") ve kendi cümleciğinde olumsuzlanmış iddia sayılmaz;
+#   * bayrağı yalnız kendi cümleciğinde olumsuzlanMAMIŞ bir test sözü temizler.
+_SUCCESS_CLAIM_RE: re.Pattern[str] = re.compile(
+    r"\b(?:works|worked|successful\w*|proven|profitable"
+    # "effective spread" / "effective rate" / "cost-effective" başarı iddiası değildir
+    r"|(?<!cost-)(?<!cost\s)effective(?!\s+(?:spread|rate|date|cost|sample|number)\b)"
+    r"|basarili\w*|calis(?:ir|iyor)\w*"
+    # "kârlılık/kârlılığı" isimdir (ölçü), iddia değil
+    r"|karli(?!li[kg])\w*)\b"
+    # soru eki: "çalışır mı?", "kârlı mısın"
+    r"(?!\s+m[iu](?:s[iu]n|y[iu]z|d[iu]r)?\b)"
+)
+# Başarı iddiasının cümlecik-içi olumsuzlanması: guaranteed_profit'in SONRA-listesi +
+# "başarılı diyemeyiz", "çalışır denemez", "kârlı olmayabilir", "başarılı olup olmadığı".
+_SUCCESS_NEGATION_AFTER_RE: re.Pattern[str] = re.compile(
+    _NEGATION_AFTER_RE.pattern
+    + r"|\bdiye(?:me\w*|mez)\b|\bden(?:emez|ilemez)\b|\bsoyle(?:nemez|yeme\w*)\b"
+    r"|\bbil(?:emem|emeyiz|inemez)\b|\bol(?:mayabilir|maz|amaz)\b|\bolup\s+olmad\w*"
+)
+_TEST_MENTION_RE: re.Pattern[str] = re.compile(
+    r"\b(?:back[\s\-]?test\w*|test\w*|out[\s\-]?of[\s\-]?sample|oos|walk[\s\-]?forward\w*)"
+)
+# Test sözünü İPTAL eden olumsuzluk — "no backtest", "not (yet) backtested" (en çok 1 kelime
+# önce) ve "teste gerek yok", "test etmeye gerek yok", "test edilmedi", "backtest gereksiz"
+# (en çok 2 ara kelime sonra). "without"/"etmeden" BİLEREK yok: "test etmeden söyleyemem"
+# ve "can't say it works without a backtest" MEŞRU disiplin cümleleridir.
+_TEST_NEGATION_BEFORE_RE: re.Pattern[str] = re.compile(
+    r"\b(?:no|not|never|hicbir|hic|asla|zero)\s+(?:[^\s,;:.!?]+\s+)?$"
+)
+_TEST_NEGATION_AFTER_RE: re.Pattern[str] = re.compile(
+    r"^[^\s,;:.!?]*(?:\s+[^\s,;:.!?]+){0,2}?\s+"
+    r"(?:gerek\s+yok|gerekmez|gerekmiyor|gereksiz\w*|edilmedi\w*|edilmemis\w*|yapilmadi\w*"
+    r"|yapilmamis\w*|etmedi\w*|yapmadi\w*|yok(?!sa)\w*|degil\w*"
+    r"|not\s+(?:needed|necessary|required)|unnecessary|needless"
+    r"|isn'?t\s+(?:needed|necessary|required))"
+)
+
+
+def _test_mention_negated(folded: str, start: int, end: int) -> bool:
+    """Bu test/backtest sözü kendi cümleciğinde olumsuzlanıyor mu ("gerek yok")?"""
+    before = _clause_before(folded, start)
+    after = _CLAUSE_BREAK_RE.split(folded[end : end + _CLAUSE_WINDOW])[0]
+    conj = _CONJUNCTION_RE.search(after)
+    if conj:
+        after = after[: conj.start()]
+    return bool(_TEST_NEGATION_BEFORE_RE.search(before) or _TEST_NEGATION_AFTER_RE.search(after))
+
+
+def _has_affirmed_test_mention(folded: str) -> bool:
+    """Olumsuzlanmamış en az bir test/backtest/OOS sözü var mı?"""
+    return any(
+        not _test_mention_negated(folded, m.start(), m.end())
+        for m in _TEST_MENTION_RE.finditer(folded)
+    )
+
+
+class _SuccessClaimPattern:
+    """Olumsuzlanmamış başarı iddiası dedektörü (``re.Pattern`` yerine geçer).
+
+    Test sözünün varlığı ``check_flags``te AYRICA sorgulanır; bu nesne yalnız iddiayı arar.
+    """
+
+    def search(self, string: str, /) -> re.Match[str] | None:
+        if not string:
+            return None
+        folded = tr_fold(string).replace("’", "'")
+        for m in _SUCCESS_CLAIM_RE.finditer(folded):
+            if not _is_negated(folded, m.start(), m.end(), after_re=_SUCCESS_NEGATION_AFTER_RE):
+                return m
+        return None
+
+
 # Heuristic red-flag patterns (Turkish + English)
 RED_FLAGS: dict[str, _PatternLike] = {
     # Garanti/kesinlik vaadi — Türkçe-bilinçli, ek-toleranslı, negasyon-duyarlı (yukarı bkz.).
     "guaranteed_profit": _GuaranteedProfitPattern(),
-    # "çalışıyor/başarılı" gibi başarı iddiası (test mevcudiyeti check_flags'te ayrı sorgulanır).
-    "success_without_test": re.compile(r"\b(works|çalışıyor|başarılı)\b", re.I),
+    # "çalışıyor/başarılı/kârlı" gibi başarı iddiası (test sözü check_flags'te ayrı sorgulanır).
+    "success_without_test": _SuccessClaimPattern(),
     "ignores_costs": _CostBlindPattern(),
 }
 
@@ -288,30 +480,33 @@ def load_eval_set(path: str | Path) -> list[EvalItem]:
 # Tek-kelimelik yasak token'ın hemen ARDINDAN (aynı cümle parçasında, en çok 4 kelime içinde)
 # gelen olumsuzluk. "Garanti kâr diye bir şey yoktur" / "tek backtest yeterli değildir" gibi
 # disiplinli cevaplar aksi halde sistematik bayrak alıyordu (Kademe-2 av bulgusu). Virgül /
-# nokta pencereyi keser: "garanti kâr sağlar, riski yok" olumsuzlanmış SAYILMAZ.
+# nokta pencereyi keser: "garanti kâr sağlar, riski yok" olumsuzlanmış SAYILMAZ. Bağlaç da
+# keser (2026-09-28): "hazır ve hiç risk yok" cümlesinde 'yok' riske aittir, 'hazır'a değil.
+# Desen tr_fold'lu metinde çalışır (ASCII yazılır; 'İ'/â tuzağı — bkz. guaranteed_profit).
 _MUST_AVOID_NEGATION_RE = re.compile(
-    r"[^\s,;:.!?]*(?:\s+[^\s,;:.!?]+){0,4}?\s+"
-    r"(?:değil\w*|yok\w*|olama\w*|olmaz\w*|edeme\w*|edileme\w*|veremem\w*|vermem\w*|"
-    r"sağlama\w*|etmez\w*|etmem\w*)",
-    re.I,
+    r"[^\s,;:.!?]*"
+    r"(?:\s+(?!(?:ve|ama|fakat|ancak|lakin|and|but|yet)\b)[^\s,;:.!?]+){0,4}?\s+"
+    r"(?:degil\w*|yok\w*|olama\w*|olmaz\w*|edeme\w*|edileme\w*|veremem\w*|vermem\w*|"
+    r"saglama\w*|etmez\w*|etmem\w*)"
 )
 
 
-def _token_hit(answer_lower: str, token: str) -> bool:
+def _token_hit(answer_folded: str, token: str) -> bool:
     """Yasak token cevapta OLUMSUZLANMAMIŞ biçimde geçiyor mu?
 
-    Çok-kelimeli ifadeler ("kesin kazan") olduğu gibi aranır — onları olumsuzlamak
-    anlamı zaten değiştirmez. Tek kelimede her geçiş ayrı değerlendirilir; en az biri
-    olumsuzlanmamışsa bayrak verilir.
+    İki taraf da ``tr_fold`` ile normalize edilir: ``str.lower()`` "kârlı"yı "karlı"dan,
+    "KESİNLİKLE"yi "kesinlikle"den ayırıyordu (Kademe-2 av bulgusu). Çok-kelimeli ifadeler
+    ("kesin kazan") olduğu gibi aranır — onları olumsuzlamak anlamı zaten değiştirmez. Tek
+    kelimede her geçiş ayrı değerlendirilir; en az biri olumsuzlanmamışsa bayrak verilir.
     """
-    tok = token.lower().strip()
-    if not tok or tok not in answer_lower:
+    tok = tr_fold(token).strip()
+    if not tok or tok not in answer_folded:
         return False
     if " " in tok:
         return True
     return any(
-        not _MUST_AVOID_NEGATION_RE.match(answer_lower, m.end())
-        for m in re.finditer(re.escape(tok), answer_lower)
+        not _MUST_AVOID_NEGATION_RE.match(answer_folded, m.end())
+        for m in re.finditer(re.escape(tok), answer_folded)
     )
 
 
@@ -319,19 +514,16 @@ def check_flags(answer: str, must_avoid: list[str]) -> list[str]:
     flags: list[str] = []
     if RED_FLAGS["guaranteed_profit"].search(answer):
         flags.append("guaranteed_profit")
-    # Başarı iddiası var ama backtest/test/OOS'tan hiç söz yok → Kural 2 ihlali.
-    if RED_FLAGS["success_without_test"].search(answer) and not re.search(
-        r"(backtest|test|out[- ]?of[- ]?sample|oos)", answer, re.I
-    ):
+    folded = tr_fold(answer).replace("’", "'")
+    # Başarı iddiası var ama olumsuzlanmamış bir backtest/test/OOS sözü yok → Kural 2 ihlali.
+    if RED_FLAGS["success_without_test"].search(answer) and not _has_affirmed_test_mention(folded):
         flags.append("success_without_test")
     # cost awareness only flagged if the answer is about a strategy
-    folded = tr_fold(answer)
     is_strategy = "strateji" in folded or "strategy" in folded
     if is_strategy and not has_cost_awareness(answer):
         flags.append("ignores_costs")
-    answer_lower = answer.lower()
     for token in must_avoid:
-        if _token_hit(answer_lower, token):
+        if _token_hit(folded, token):
             flags.append(f"contains:{token}")
     return flags
 
@@ -363,6 +555,10 @@ class ModelEvaluator:
             # olarak yazılırdı (Kural 2: test edilmeden başarılı deme).
             if offline:
                 flags.append("llm_unavailable")
+            elif not ans.strip():
+                # Boş cevapta hiç red-flag deseni yoktur → bayraksız "geçer" (adapter_eval
+                # `_flags_for` ile aynı sözleşme: boş çıktı çöküştür, disiplin değil).
+                flags.append("empty_answer")
             rows.append(EvalRowResult(item.question, ans, flags))
 
         total_flags = sum(len(r.flags) for r in rows)

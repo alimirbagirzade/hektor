@@ -453,7 +453,8 @@ class AutoLoRAPipeline:
                 elif regression_any:
                     self._state.stage = PipelineStage.EVAL_FAILED
                     self._state.last_error = (
-                        "Adapter base'e göre GERİLEDİ veya dejenere/boş cevap üretti — terfi YOK"
+                        "Adapter base'e göre GERİLEDİ veya veto aldı (dejenere/boş cevap, "
+                        "cevaplar-arası çöküş, garanti-kâr vaadi) — terfi YOK"
                     )
                     log.warning("Auto-LoRA: Adapter regresyon/dejenerasyon → EVAL_FAILED")
                 else:

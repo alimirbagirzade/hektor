@@ -7,6 +7,13 @@ dejenerasyon (tekrar döngüsü) cezasıyla puanlar ve **base ile yan yana** kı
 
 AĞIR: CPU'da 4B inference (her soru dakikalar). Eğitim bittikten sonra çalıştır (RAM serbest).
 Verdict: adapter base'den iyi → accept, kötü → reject (terfi etme), eşit → inconclusive.
+
+Genişletilmiş setler (``trader_persona`` / ``format_compliance`` / ``rag_integration``):
+kalem ``context``/``must_contain``/``persona_signals``/``required_sections`` taşıyorsa soru
+bağlamla birlikte (eğitimdeki "BAĞLAM: … SORU: …" biçimi) sorulur ve
+``llm_training_eval.evaluate_answer`` ile puanlanır; eksik persona/bölüm/terim/çekimserlik
+bayrak olarak verdict'e girer. Yalnız ``question``+``must_avoid`` taşıyan disiplin setleri
+eskisi gibi (çıplak soru + ``check_flags``) değerlendirilir.
 """
 
 from __future__ import annotations
@@ -19,6 +26,12 @@ from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
+from app.evals.llm_training_eval import (
+    TrainingEvalItem,
+    evaluate_answer,
+    load_training_eval_set,
+)
+from app.lora.safety_scanner import tr_fold
 from app.training.evaluate_model import check_flags, load_eval_set
 
 
@@ -63,8 +76,9 @@ def _is_degenerate(answer: str) -> bool:
     return sent_dup or sent_repeat or ngram_loop or line_dup
 
 
-def _flags_for(answer: str, must_avoid: list[str]) -> list[str]:
-    flags = check_flags(answer, must_avoid)
+def _collapse_flags(answer: str) -> list[str]:
+    """Tek cevap düzeyinde çöküş bayrakları (boş çıktı / tekrar döngüsü)."""
+    flags: list[str] = []
     # Boş/whitespace cevap = çökmüş adapter. check_flags yalnız red-flag DESENİ arar;
     # boş cevapta hiç desen olmadığından 0 bayrak → skor 1.0 → çalışan base'i geçip 'accept'
     # alır (v5-sınıfı SAHTE-KABUL: eval adapter'ın gerçek kalitesini ölçmüyor). Boş cevabı
@@ -75,6 +89,111 @@ def _flags_for(answer: str, must_avoid: list[str]) -> list[str]:
     if _is_degenerate(answer):
         flags.append("degenerate_repetition")
     return flags
+
+
+def _flags_for(answer: str, must_avoid: list[str]) -> list[str]:
+    return check_flags(answer, must_avoid) + _collapse_flags(answer)
+
+
+# --------------------------------------------------------------------------- #
+# Genişletilmiş eval kalemleri (persona / format / RAG bağlamı)
+# --------------------------------------------------------------------------- #
+# Kademe-2 av bulgusu (2026-09-28): `load_eval_set` yalnız question+must_avoid tutuyordu;
+# auto_pipeline ve `lora-eval` trader_persona / format_compliance / rag_integration setlerini
+# BAĞLAMSIZ soruyor ve must_contain / persona_signals / required_sections / çekimserlik
+# kontrolünü HİÇ yapmıyordu → RAG setinde "bağlamı kullanıyor mu" ölçülmeden verdict çıkıyordu.
+
+# Bağlamı boş kalem (``empty_context``): retrieval'ın boş döndüğü eğitimdeki biçimle bildirilir.
+# Beklenen çekimserlik ifadesi ("kaynak bulunamadı") BİLEREK yazılmaz — cevabı prompt'tan
+# kopyalamak ölçümü boşa çıkarırdı.
+_EMPTY_CONTEXT_NOTE = "(boş — retrieval bu soru için hiçbir parça döndürmedi)"
+
+
+def _is_extended(item: TrainingEvalItem) -> bool:
+    """Kalem disiplin-ötesi (persona/format/bağlam) bir kontrol taşıyor mu?"""
+    return bool(
+        item.must_contain
+        or item.persona_signals
+        or item.required_sections
+        or item.must_contain_from_context
+        or item.context_mode
+        or item.context is not None
+    )
+
+
+def _prompt_for(item: TrainingEvalItem) -> str:
+    """Kalemin modele sorulacak metni — bağlam varsa eğitimdeki "BAĞLAM: … SORU: …" biçimi.
+
+    Biçim `lora_chat_service.build_user_content` / `synthetic_qa_builder` ile aynıdır.
+    """
+    if item.context is None and item.context_mode is None:
+        return item.question
+    context = (item.context or "").strip() or _EMPTY_CONTEXT_NOTE
+    return f"BAĞLAM:\n{context}\n\nSORU: {item.question}"
+
+
+def _item_flags(item: TrainingEvalItem, answer: str) -> list[str]:
+    """Kalemin bayrakları: disiplin seti → `_flags_for` (eski davranış birebir);
+    genişletilmiş kalem → `evaluate_answer` (check_flags + persona/format/terim/bağlam)."""
+    if not _is_extended(item):
+        return _flags_for(answer, item.must_avoid)
+    return list(evaluate_answer(item, answer).flags) + _collapse_flags(answer)
+
+
+def _load_items(eval_set: str | Path) -> list[TrainingEvalItem]:
+    """Eval setini genişletilmiş kalemlere yükle (YAML disiplin setleri de desteklenir)."""
+    path = Path(eval_set)
+    if path.suffix in (".yaml", ".yml"):
+        return [
+            TrainingEvalItem(question=it.question, must_avoid=list(it.must_avoid))
+            for it in load_eval_set(path)
+        ]
+    return load_training_eval_set(path)
+
+
+# --------------------------------------------------------------------------- #
+# Cevaplar-arası çöküş (canned answer) dedektörü
+# --------------------------------------------------------------------------- #
+# Kademe-2 av bulgusu (2026-09-28): `_is_degenerate` TEK cevap içindeki tekrarı ölçer; her
+# soruya AYNI hazır feragatnameyi ("Bu yatırım tavsiyesi değildir, backtest gerekir...")
+# veren adapter 0 bayrak alıp 'accept' alabiliyordu — soruyu hiç okumadan disiplin setini
+# "geçiyor". Cevaplar birbirine göre ölçülür: normalize edilmiş farklı cevap oranı yarının
+# altındaysa ya da cevapların çoğunluğu (≥3) kelime-3'lü Jaccard'la neredeyse aynıysa çöküş.
+_COLLAPSE_MIN_ANSWERS = 3
+_COLLAPSE_DISTINCT_RATIO = 0.5
+_COLLAPSE_JACCARD = 0.8
+_NON_WORD_RE = re.compile(r"[^\w\s]+")
+
+
+def _normalize_answer(answer: str) -> str:
+    return " ".join(_NON_WORD_RE.sub(" ", tr_fold(answer)).split())
+
+
+def _shingles(norm: str, n: int = 3) -> frozenset[tuple[str, ...]]:
+    toks = norm.split()
+    if len(toks) < n:
+        return frozenset([tuple(toks)])
+    return frozenset(tuple(toks[i : i + n]) for i in range(len(toks) - n + 1))
+
+
+def _jaccard(a: frozenset[tuple[str, ...]], b: frozenset[tuple[str, ...]]) -> float:
+    union = len(a | b)
+    return len(a & b) / union if union else 1.0
+
+
+def _answers_collapsed(answers: list[str]) -> bool:
+    """Cevaplar sorudan bağımsız tek kalıba çökmüş mü? (determinist, sıra-bağımsız)"""
+    n = len(answers)
+    if n < _COLLAPSE_MIN_ANSWERS:
+        return False
+    norms = [_normalize_answer(a) for a in answers]
+    if len(set(norms)) / n < _COLLAPSE_DISTINCT_RATIO:
+        return True
+    sh = [_shingles(x) for x in norms]
+    largest = max(
+        sum(1 for j in range(n) if _jaccard(sh[i], sh[j]) >= _COLLAPSE_JACCARD) for i in range(n)
+    )
+    return largest >= _COLLAPSE_MIN_ANSWERS and largest > n / 2
 
 
 @dataclass
@@ -90,6 +209,8 @@ class AdapterEvalResult:
     regression: bool
     verdict: str  # accept | reject | inconclusive
     rows: list[dict] = field(default_factory=list)
+    # Skordan BAĞIMSIZ kategorik vetolar (degenerate / collapse / guaranteed_profit).
+    vetoes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -103,6 +224,7 @@ class AdapterEvalResult:
             "adapter_flags": self.adapter_flags,
             "regression": self.regression,
             "verdict": self.verdict,
+            "vetoes": self.vetoes,
             "rows": self.rows,
         }
 
@@ -182,6 +304,8 @@ def _decide_verdict(
     n: int,
     min_n: int = _MIN_EVAL_N,
     adapter_degenerate: bool = False,
+    adapter_collapsed: bool = False,
+    adapter_guaranteed_profit: bool = False,
     min_flag_margin: int = _MIN_FLAG_MARGIN,
 ) -> str:
     """Eval verdict'i — küçük-n'de 'accept'i bloklar (v5 disiplin-regresyon dersi).
@@ -191,12 +315,16 @@ def _decide_verdict(
       * adapter_degenerate → 'reject' (tekrar döngüsü/çöküş KATEGORİK başarısızlık; v5 adapter
         dejenere tekrar yapmıştı ama eski kod bunu yalnız skora ekliyordu → base de kötüyse
         'accept' kaçabiliyordu. Degenerasyon skordan BAĞIMSIZ veto).
+      * adapter_collapsed → 'reject' (her soruya aynı hazır cevap: soruyu okumayan adapter
+        bayrak almadan disiplin setini "geçer" — cevaplar-arası çöküş, Kademe-2 av bulgusu).
+      * adapter_guaranteed_profit → 'reject' (herhangi bir cevapta garanti-kâr vaadi Kural 1
+        ihlalidir; toplam bayrak sayısında base'in diğer bayraklarıyla takas EDİLEMEZ).
       * adapter < base  → 'reject' (regresyon, HER n'de — güvenli yön).
       * n < min_n        → 'inconclusive' (az örnek; accept'e güvenme).
       * adapter base'den ≥ min_flag_margin bayrak iyi → 'accept'.
       * daha küçük fark / eşitlik → 'inconclusive'.
     """
-    if adapter_degenerate:
+    if adapter_degenerate or adapter_collapsed or adapter_guaranteed_profit:
         return "reject"
     if adapter_score < base_score:
         return "reject"
@@ -206,6 +334,77 @@ def _decide_verdict(
     if round((adapter_score - base_score) * n) >= min_flag_margin:
         return "accept"
     return "inconclusive"
+
+
+def _score_answers(
+    items: list[TrainingEvalItem],
+    base_ans: list[str],
+    adapt_ans: list[str],
+    *,
+    eval_set: str,
+    base_model: str,
+    adapter: str,
+    min_n: int = _MIN_EVAL_N,
+) -> AdapterEvalResult:
+    """Üretilmiş base/adapter cevaplarını puanla + verdict ver (saf; model yüklemez)."""
+    base_flag_total = 0
+    adapt_flag_total = 0
+    rows: list[dict] = []
+    for it, b, a in zip(items, base_ans, adapt_ans, strict=True):
+        bf = _item_flags(it, b)
+        af = _item_flags(it, a)
+        base_flag_total += len(bf)
+        adapt_flag_total += len(af)
+        rows.append(
+            {"q": it.question, "base": b, "adapter": a, "base_flags": bf, "adapter_flags": af}
+        )
+
+    denom = max(1, len(items))
+    base_score = round(1.0 - base_flag_total / denom, 4)
+    adapter_score = round(1.0 - adapt_flag_total / denom, 4)
+    regression = adapter_score < base_score
+    # Çöküş (tekrar döngüsü VEYA boş çıktı) skordan BAĞIMSIZ veto — v5 adapter dejenere
+    # tekrar yaptı ama eski kod bunu yalnız flag/skora ekliyordu, base de kötüyse 'accept'
+    # kaçabiliyordu. Boş çıktı da aynı sınıf çöküştür (kısmi boş kalırsa skor yine base'i
+    # geçebilir). Adapter herhangi bir soruda dejenere/boş olduysa kategorik reddet.
+    adapter_degenerate = any(
+        "degenerate_repetition" in r["adapter_flags"] or "empty_answer" in r["adapter_flags"]
+        for r in rows
+    )
+    adapter_collapsed = _answers_collapsed(adapt_ans)
+    adapter_guaranteed_profit = any("guaranteed_profit" in r["adapter_flags"] for r in rows)
+    vetoes = [
+        name
+        for name, hit in (
+            ("degenerate", adapter_degenerate),
+            ("collapse", adapter_collapsed),
+            ("guaranteed_profit", adapter_guaranteed_profit),
+        )
+        if hit
+    ]
+    verdict = _decide_verdict(
+        base_score,
+        adapter_score,
+        n=len(items),
+        min_n=min_n,
+        adapter_degenerate=adapter_degenerate,
+        adapter_collapsed=adapter_collapsed,
+        adapter_guaranteed_profit=adapter_guaranteed_profit,
+    )
+    return AdapterEvalResult(
+        eval_set=eval_set,
+        base_model=base_model,
+        adapter=adapter,
+        n=len(items),
+        base_score=base_score,
+        adapter_score=adapter_score,
+        base_flags=base_flag_total,
+        adapter_flags=adapt_flag_total,
+        regression=regression,
+        verdict=verdict,
+        rows=rows,
+        vetoes=vetoes,
+    )
 
 
 def evaluate_adapter(
@@ -226,64 +425,29 @@ def evaluate_adapter(
     # Base önceliği: açık argüman → adapter'ın kendi config'i → settings (4B). Küçük-model
     # adapter'ını 4B base ile yüklememek için config'ten okumak ŞART (boyut uyuşmazlığı).
     base_model = base_model or _resolve_base_model(adapter_dir) or s.peft_base_model
-    items = load_eval_set(eval_set)
+    items = _load_items(eval_set)
     if n:
         items = items[:n]
+    prompts = [_prompt_for(it) for it in items]
 
     # 1) BASE (adapter yok) — tek tek üret, sonra belleği boşalt
     tok, model = _load_model(base_model, None)
-    base_ans = [_generate(tok, model, it.question) for it in items]
+    base_ans = [_generate(tok, model, p) for p in prompts]
     del model
 
     # 2) ADAPTER (base + PEFT)
     tok, model = _load_model(base_model, str(adapter_dir))
-    adapt_ans = [_generate(tok, model, it.question) for it in items]
+    adapt_ans = [_generate(tok, model, p) for p in prompts]
     del model
 
-    base_flag_total = 0
-    adapt_flag_total = 0
-    rows: list[dict] = []
-    for it, b, a in zip(items, base_ans, adapt_ans, strict=True):
-        bf = _flags_for(b, it.must_avoid)
-        af = _flags_for(a, it.must_avoid)
-        base_flag_total += len(bf)
-        adapt_flag_total += len(af)
-        rows.append(
-            {"q": it.question, "base": b, "adapter": a, "base_flags": bf, "adapter_flags": af}
-        )
-
-    denom = max(1, len(items))
-    base_score = round(1.0 - base_flag_total / denom, 4)
-    adapter_score = round(1.0 - adapt_flag_total / denom, 4)
-    regression = adapter_score < base_score
-    # Çöküş (tekrar döngüsü VEYA boş çıktı) skordan BAĞIMSIZ veto — v5 adapter dejenere
-    # tekrar yaptı ama eski kod bunu yalnız flag/skora ekliyordu, base de kötüyse 'accept'
-    # kaçabiliyordu. Boş çıktı da aynı sınıf çöküştür (kısmi boş kalırsa skor yine base'i
-    # geçebilir). Adapter herhangi bir soruda dejenere/boş olduysa kategorik reddet.
-    adapter_degenerate = any(
-        "degenerate_repetition" in r["adapter_flags"] or "empty_answer" in r["adapter_flags"]
-        for r in rows
-    )
-    verdict = _decide_verdict(
-        base_score,
-        adapter_score,
-        n=len(items),
-        min_n=min_n,
-        adapter_degenerate=adapter_degenerate,
-    )
-
-    result = AdapterEvalResult(
+    result = _score_answers(
+        items,
+        base_ans,
+        adapt_ans,
         eval_set=Path(eval_set).stem,
         base_model=base_model,
         adapter=str(adapter_dir),
-        n=len(items),
-        base_score=base_score,
-        adapter_score=adapter_score,
-        base_flags=base_flag_total,
-        adapter_flags=adapt_flag_total,
-        regression=regression,
-        verdict=verdict,
-        rows=rows,
+        min_n=min_n,
     )
     out = s.reports_dir / "evals" / f"adapter_eval_{Path(adapter_dir).name}_{result.eval_set}.json"
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -104,6 +104,9 @@ def run_discipline_exam(
                 )
                 continue
             flags = check_flags(answer, item.must_avoid)
+            # Boş cevapta red-flag deseni olmaz → sahte "passed" (adapter_eval ile aynı sözleşme).
+            if not (answer or "").strip():
+                flags.append("empty_answer")
             passed = not flags
             results.append(
                 ExamResult(
