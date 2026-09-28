@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -125,6 +127,9 @@ def assemble_sft_lines(
     try:
         from app.memory.sqlite_store import SqliteStore
 
+        # `build_dataset` yalnız approved + lora_eligible=1 kartı örneğe çevirir; lora-audit
+        # TÜM approved kartları denetler (üst küme) → eğitime giren her kart denetlenmiş olur.
+        # Bağın ZAMAN boyutu (dosya eski DB'den mi) `check_assembly_freshness`'tadır.
         card_lines = [
             ex.to_jsonl_line() for ex in build_dataset(SqliteStore().list_approved_cards())
         ]
@@ -149,6 +154,126 @@ def assemble_sft_lines(
         discipline=disc_stats,
         low_value_dropped=low_value_dropped,
     )
+
+
+# `scripts/assemble_sft.py` varsayılanları — tazelik denetimi AYNI parametrelerle kurar.
+CANONICAL_DISCIPLINE_RATIO = 0.25
+CANONICAL_SEED = 0
+_REASSEMBLE_HINT = "`uv run python scripts/assemble_sft.py` ile yeniden birleştir"
+
+
+@dataclass
+class FreshnessResult:
+    """Eğitim dosyası ↔ kanonik birleştirme bağı (pretrain-gate tazelik denetimi)."""
+
+    status: str  # "güncel" | "BAYAT" | "doğrulanamadı"
+    deterministic: bool = True
+    scope: str = "tüm satırlar"  # birleştirme determinist değilse "kart satırları"
+    extra: int = 0  # dosyada olup güncel birleştirmede olmayan satır
+    missing: int = 0  # güncel birleştirmede olup dosyada olmayan satır
+    card_extra: int = 0
+    card_missing: int = 0
+    order_only: bool = False  # aynı satırlar, farklı sıra
+    blockers: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def fresh(self) -> bool:
+        return self.status == "güncel"
+
+
+def _card_line_ids(lines: list[str]) -> Counter[str]:
+    """Kart kaynaklı satırlar (metadata.card_id taşıyan) — kimlik: satırın tam metni."""
+    out: Counter[str] = Counter()
+    for ln in lines:
+        try:
+            meta = json.loads(ln).get("metadata") or {}
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            continue
+        if isinstance(meta, dict) and meta.get("card_id"):
+            out[ln] += 1
+    return out
+
+
+def check_assembly_freshness(
+    file_lines: list[str],
+    settings: Any,
+    *,
+    assemble: Callable[..., AssemblyResult] | None = None,
+) -> FreshnessResult:
+    """Eğitilecek dosya, ŞU ANKİ DB + sentetik QA'dan kanonik birleştirmeyle aynı mı?
+
+    Kademe 2 B1 (2026-09-28): lora-audit GÜNCEL DB kartlarını, pretrain-gate ise diskteki
+    `lora_sft.jsonl`'i denetliyordu; ikisini hiçbir şey bağlamıyordu → dosya eski bir DB
+    durumundan (sonradan reddedilen/düzeltilen kartlarla) kurulmuşsa denetimden geçen kart
+    kümesi eğitilen küme DEĞİLDİ. Burada kanonik `assemble_sft_lines` (assemble_sft.py
+    varsayılanları: disiplin %25, seed 0) bellekte İKİ KEZ kurulur: çıktı aynıysa (determinist)
+    tüm satırlar, değilse yalnız kart satırları dosyayla karşılaştırılır. Uyuşmazlık → NO-GO.
+    Hiçbir şey yazmaz; eğitim başlatmaz.
+    """
+    build = assemble or assemble_sft_lines
+
+    def _once() -> AssemblyResult:
+        return build(
+            settings,
+            discipline=True,
+            discipline_ratio=CANONICAL_DISCIPLINE_RATIO,
+            seed=CANONICAL_SEED,
+        )
+
+    try:
+        first = _once()
+        second = _once()
+    except Exception as exc:  # kurulamadıysa bağ kanıtlanamaz → kapalı kal (fail-closed)
+        return FreshnessResult(
+            status="doğrulanamadı",
+            blockers=[
+                f"tazelik doğrulanamadı: kanonik birleştirme kurulamadı ({exc}) — "
+                "eğitim verisinin denetlenen DB ile bağı kanıtlanamıyor"
+            ],
+        )
+
+    result = FreshnessResult(status="güncel", deterministic=first.lines == second.lines)
+    file_cards = _card_line_ids(file_lines)
+    expected_cards = _card_line_ids(first.lines)
+    result.card_extra = sum((file_cards - expected_cards).values())
+    result.card_missing = sum((expected_cards - file_cards).values())
+
+    if result.deterministic:
+        file_count, expected_count = Counter(file_lines), Counter(first.lines)
+        result.extra = sum((file_count - expected_count).values())
+        result.missing = sum((expected_count - file_count).values())
+        stale = bool(result.extra or result.missing)
+        result.order_only = not stale and file_lines != first.lines
+        if result.order_only:
+            result.warnings.append(
+                "eğitim dosyası güncel birleştirmeyle aynı satırları farklı sırada taşıyor "
+                f"(içerik aynı) — sırayı sabitlemek için {_REASSEMBLE_HINT}"
+            )
+    else:
+        result.scope = "kart satırları"
+        stale = bool(result.card_extra or result.card_missing)
+        result.warnings.append(
+            "kanonik birleştirme iki kurulumda farklı çıktı verdi (determinist değil) — "
+            "tazelik yalnız KART satırları üzerinden karşılaştırıldı"
+        )
+
+    if stale:
+        result.status = "BAYAT"
+        detail = (
+            f"{result.extra} fazla / {result.missing} eksik satır; " if result.deterministic else ""
+        ) + f"kart satırı: {result.card_extra} fazla / {result.card_missing} eksik"
+        db_hint = (
+            " (birleştirmede hiç kart yok — DB okunamamış olabilir)"
+            if first.card_n == 0 and file_cards
+            else ""
+        )
+        result.blockers.append(
+            "eğitim verisi BAYAT: lora_sft.jsonl şu anki DB + sentetik QA'dan kurulan kanonik "
+            f"birleştirmeyle uyuşmuyor ({detail}){db_hint} — lora-audit'in denetlediği kart "
+            f"kümesi eğitilecek küme değil; {_REASSEMBLE_HINT}"
+        )
+    return result
 
 
 def _is_low_value_line(line: str) -> bool:

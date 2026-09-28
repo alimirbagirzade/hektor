@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 
 from app.lora.dataset_splitter import DatasetSplit, check_leakage, split_dataset
 from app.lora.domain_classifier import classify_domains
-from app.lora.math_verifier import is_negated, verify_math_content
+from app.lora.math_verifier import verify_math_content
+from app.lora.negation import is_negated
 from app.lora.quality_filter import QualityFilter
 from app.lora.safety_scanner import scan_for_secrets
 
@@ -43,7 +44,13 @@ CAUSALITY_MARKERS: list[str] = [
 ADVICE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "doğrudan-uygulama tavsiyesi",
-        re.compile(r"can be directly applied|directly applicable|dogrudan uygulan\w*"),
+        # Türkçe olumsuz fiil ekleri ("uygulanmaz", "uygulanamaz", "uygulanamayan",
+        # "uygulanmadı", "uygulanmamalı", "uygulanamıyor", "uygulanmasın") tavsiye DEĞİL,
+        # tersidir (Kademe 2 B4). Olumlu "uygulanması"/"uygulanmış"/"uygulanabilir" eşleşir.
+        re.compile(
+            r"can be directly applied|directly applicable"
+            r"|dogrudan uygulan(?!a?ma[zyd]|a?mam|a?miy|a?masin\b)\w*"
+        ),
     ),
     (
         "yönlendirme dili (… should)",
@@ -162,7 +169,7 @@ def gate_0_source(cards: list[dict], valid_paper_ids: set[str] | None = None) ->
         name="source",
         passed=rejected == 0,
         rejected_count=rejected,
-        details=details[:20],
+        details=details,
     )
 
 
@@ -189,7 +196,7 @@ def gate_1_schema(examples: list[dict]) -> GateResult:
         name="schema",
         passed=rejected == 0,
         rejected_count=rejected,
-        details=details[:20],
+        details=details,
     )
 
 
@@ -207,7 +214,7 @@ def gate_2_curriculum(cards: list[dict]) -> GateResult:
         name="curriculum",
         passed=rejected == 0,
         rejected_count=rejected,
-        details=details[:20],
+        details=details,
     )
 
 
@@ -224,7 +231,7 @@ def gate_3_domain(cards: list[dict]) -> GateResult:
         name="domain",
         passed=rejected == 0,
         rejected_count=rejected,
-        details=details[:20],
+        details=details,
     )
 
 
@@ -257,7 +264,7 @@ def gate_4_quality(cards: list[dict]) -> tuple[GateResult, list[dict]]:
         name="quality",
         passed=len(rejected) == 0,
         rejected_count=len(rejected),
-        details=details[:20],
+        details=details,
     )
     return result, clean
 
@@ -291,7 +298,7 @@ def gate_5_math(
         passed=rejected == 0,
         rejected_count=rejected,
         review_count=review,
-        details=details[:20],
+        details=details,
     )
 
 
@@ -354,7 +361,7 @@ def gate_6_philosophy(
         name="philosophy",
         passed=passed,
         review_count=review,
-        details=details[:20],
+        details=details,
     )
 
 
@@ -372,7 +379,7 @@ def gate_7_safety(cards: list[dict]) -> GateResult:
         name="safety",
         passed=rejected == 0,
         rejected_count=rejected,
-        details=details[:20],
+        details=details,
     )
 
 
@@ -398,6 +405,6 @@ def gate_8_split(examples: list[dict]) -> tuple[GateResult, DatasetSplit]:
         name="split",
         passed=len(leaks) == 0 and not empty_issues,
         rejected_count=len(leaks) + len(empty_issues),
-        details=details[:20],
+        details=details,
     )
     return result, split

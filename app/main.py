@@ -3616,20 +3616,30 @@ def pretrain_gate_cmd(
         help="Disiplin havuzunu da kapsam uyum denetiminden geçir.",
     ),
     as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir JSON çıktı."),
+    check_freshness: bool = typer.Option(
+        True,
+        "--check-freshness/--no-check-freshness",
+        help="Kanonik dosyanın şu anki DB + sentetik QA birleştirmesiyle aynı olduğunu doğrula.",
+    ),
 ) -> None:
     """LLM'siz GO / NO-GO ön eğitim kalite kapısı (kural 7 doğrulama, v5 fix'i).
 
-    Veriyi birleştirmeden, eğitim başlatmadan çalışır; salt denetim aracıdır.
+    Veriyi YAZMADAN, eğitim başlatmadan çalışır; salt denetim aracıdır.
     Hard-block: garanti-vaadi regex, açılış-ezberi (>%40 tek bigram), şablon tekrarı (aynı
-    8-kelimelik ifade cevapların >%2'sinde).
+    8-kelimelik ifade cevapların >%2'sinde), her satırda lora-audit Gate 7 (sır/PII/finansal
+    yönlendirme) + olumsuzlanmamış Gate 5 garanti vaadi, ve kanonik dosya için TAZELİK:
+    dosya şu anki DB + sentetik QA'dan bellekte kurulan kanonik birleştirmeyle uyuşmalı
+    (aksi halde lora-audit'in denetlediği kartlar eğitilen kartlar değildir).
     Uyarılar: sızıntı ön-eki, maliyet-token eksikliği, disiplin kapsam açığı, şablon tekrarı
-    %1-%2 bandı, minimum boyut.
+    %1-%2 bandı, minimum boyut, kesinlik dili, Gate 5 inceleme işaretleri.
     """
     from app.training.dataset_quality import audit_dataset
     from app.training.discipline_dataset import discipline_jsonl_lines
+    from app.training.sft_assembly import check_assembly_freshness
 
+    settings = get_settings()
     if not jsonl.is_absolute():
-        jsonl = get_settings().root / jsonl
+        jsonl = settings.root / jsonl
     if not jsonl.exists():
         console.print(f"[red]Dosya bulunamadı:[/red] {jsonl}")
         raise typer.Exit(1)
@@ -3637,6 +3647,20 @@ def pretrain_gate_cmd(
     lines = [ln for ln in jsonl.read_text(encoding="utf-8").splitlines() if ln.strip()]
     disc_lines = discipline_jsonl_lines() if check_discipline else None
     report = audit_dataset(lines, discipline_lines=disc_lines)
+
+    # Tazelik bağı yalnız KANONİK dosyada anlamlıdır (aday/özel dosya başka yoldan kurulur).
+    canonical = settings.root / "data" / "lora_sft" / "lora_sft.jsonl"
+    if not check_freshness:
+        report.freshness = "atlandı (--no-check-freshness)"
+        report.warnings.append("tazelik denetimi atlandı (--no-check-freshness)")
+    elif jsonl.resolve() != canonical.resolve():
+        report.freshness = "atlandı (kanonik dosya değil)"
+    else:
+        fresh = check_assembly_freshness(lines, settings)
+        report.freshness = fresh.status
+        report.blockers.extend(fresh.blockers)
+        report.warnings.extend(fresh.warnings)
+    report.verdict = "NO-GO" if report.blockers else "GO"
 
     if as_json:
         console.print_json(json.dumps(report.to_dict(), ensure_ascii=False))
@@ -3663,6 +3687,7 @@ def pretrain_gate_cmd(
             f"[bold {color}]{report.verdict}[/bold {color}]\n"
             f"Toplam örnek: {report.total}\n"
             f"Öneri: {report.recommended_epochs} epoch\n"
+            f"Tazelik (DB ↔ dosya): {report.freshness}\n"
             + opening
             + template
             + (

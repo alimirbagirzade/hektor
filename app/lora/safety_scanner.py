@@ -29,6 +29,8 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from app.lora.negation import NEG_AFTER_RE, NEG_WINDOW, is_negated
+
 
 def tr_fold(text: str) -> str:
     """Türkçe-bilinçli normalize: büyük/küçük harf + aksan farklarını eşitle.
@@ -285,18 +287,56 @@ FORBIDDEN_DETECTORS: list[tuple[str, Callable[[str], bool]]] = [
     ("national_id", _detect_national_id),
 ]
 
-# Kesin al/sat / garanti kâr yönlendirmesi (küçük harf eşleşme).
-FINANCIAL_DIRECTIVES: list[str] = [
-    "buy now",
-    "sell now",
-    "şimdi al",
-    "şimdi sat",
-    "garanti kar",
-    "garanti kâr",
-    "guaranteed profit",
-    "risk yok",
-    "no risk",
-]
+# "no risk" risk KAVRAMININ bileşik adlarında vaat değildir: "no risk-free arbitrage",
+# "no risk premium", "no risk management", "no risk of look-ahead" (Kademe 2 B6, 2026-09-28 —
+# çıplak alt-dize bunları BLOCKER'a düşürüyordu). Math_verifier (Gate 5) de aynı deseni kullanır.
+NO_RISK_RE: re.Pattern[str] = re.compile(
+    r"\bno\s+risk\b(?![\s\-]*(?:free|premi|management|manage|of\b|adjust|aversion|averse"
+    r"|factor|model|measure|parit|neutral|appetite|limit|control|budget|assess|toleran"
+    r"|metric|weight|exposure|capital|contribution|decomposition|estimat))"
+)
+RISK_YOK_RE: re.Pattern[str] = re.compile(r"\brisk\s+yok(?:tur)?\b")
+
+# Kesin al/sat / garanti kâr yönlendirmesi: etiket → (tr_fold'lanmış metin deseni,
+# olumsuzlama-öncesi bakılır mı). Kelime sınırlı (eski çıplak alt-dize "garanti karşılığı"
+# içinde "garanti kar" buluyordu) ve olumsuzlama-bilinçli: "There is no guaranteed profit",
+# "Do not buy now" ihtiyatlı dildir (B6). "no risk"/"risk yok" kendisi olumsuz yapıdır —
+# öncesindeki olumsuzlayıcı iddiayı pekiştirir ("hiçbir risk yok"), bu yüzden yalnız sonrası
+# (Türkçe "… değil") bakılır.
+FINANCIAL_DIRECTIVE_PATTERNS: dict[str, tuple[re.Pattern[str], bool]] = {
+    "buy now": (re.compile(r"\bbuy\s+now\b"), True),
+    "sell now": (re.compile(r"\bsell\s+now\b"), True),
+    "şimdi al": (re.compile(r"\bsimdi\s+al(?:in|iniz)?\b"), True),
+    "şimdi sat": (re.compile(r"\bsimdi\s+sat(?:in|iniz)?\b"), True),
+    "garanti kâr": (re.compile(r"\bgaranti(?:li)?\s+kar(?:i|in|ini|dir)?\b"), True),
+    "garanti kazanç": (re.compile(r"\bgaranti(?:li)?\s+kazanc\w*"), True),
+    "garanti getiri": (re.compile(r"\bgaranti(?:li)?\s+getiri\w*"), True),
+    "guaranteed profit": (re.compile(r"\bguaranteed\s+profits?\b"), True),
+    "guaranteed returns": (re.compile(r"\bguaranteed\s+returns?\b"), True),
+    "guarantees profit": (re.compile(r"\bguarantees?\s+(?:a\s+)?profits?\b"), True),
+    "risk-free profit": (re.compile(r"\brisk[\s\-]?free\s+profits?\b"), True),
+    "risk yok": (RISK_YOK_RE, False),
+    "no risk": (NO_RISK_RE, False),
+}
+# Geriye uyum: etiket listesi (eski tüketiciler/testler için).
+FINANCIAL_DIRECTIVES: list[str] = list(FINANCIAL_DIRECTIVE_PATTERNS)
+
+
+def financial_directive_hits(text: str) -> list[str]:
+    """Metindeki OLUMSUZLANMAMIŞ finansal yönlendirme etiketleri (sırayla, tekil)."""
+    folded = tr_fold(text)
+    hits: list[str] = []
+    for label, (pattern, check_before) in FINANCIAL_DIRECTIVE_PATTERNS.items():
+        for match in pattern.finditer(folded):
+            start, end = match.start(), match.end()
+            if check_before:
+                if is_negated(folded, start, end):
+                    continue
+            elif NEG_AFTER_RE.search(folded[end : end + NEG_WINDOW]):
+                continue
+            hits.append(label)
+            break
+    return hits
 
 
 @dataclass
@@ -321,12 +361,6 @@ def scan_for_secrets(text: str) -> SafetyResult:
         if detect(text):
             violations.append(f"yasak desen: {label}")
 
-    folded = tr_fold(text)
-    seen_directives: set[str] = set()
-    for directive in FINANCIAL_DIRECTIVES:
-        folded_directive = tr_fold(directive)
-        if folded_directive in folded and folded_directive not in seen_directives:
-            seen_directives.add(folded_directive)
-            violations.append(f"finansal yönlendirme: '{directive}'")
+    violations.extend(f"finansal yönlendirme: '{d}'" for d in financial_directive_hits(text))
 
     return SafetyResult(passed=not violations, violations=violations)
