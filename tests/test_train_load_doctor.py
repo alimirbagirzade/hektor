@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 from typer.testing import CliRunner
 
 import app.main as m
@@ -24,6 +25,16 @@ from app.training.train_load_doctor import run_train_doctor
 
 runner = CliRunner()
 _ENV = {"COLUMNS": "200"}
+_REAL_DETECT = td.detect_training_device
+
+
+@pytest.fixture(autouse=True)
+def _gpu_training_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Varsayılan: eğitim GPU'da (eski sözleşme). CPU davranışı ayrı testlerde açıkça sınanır.
+
+    Gerçek torch sorgusu makineye bağlıdır (bu makinede torch CPU-only) → hermetik değil.
+    """
+    monkeypatch.setattr(td, "detect_training_device", lambda: "cuda")
 
 
 def _transport(models: list[dict], *, status: int = 200) -> httpx.MockTransport:
@@ -111,6 +122,66 @@ def test_min_free_vram_gb_override_wins_over_settings() -> None:
     assert report.verdict == "NO-GO"
 
 
+# --- Kademe-2 A1: eğitim CPU'da koşacaksa dolu GPU NO-GO değildir ------------------
+
+
+def test_cpu_training_low_vram_is_warn_not_no_go() -> None:
+    """torch CUDA görmüyor → trainer CPU'da koşar; Ollama GPU'yu doldursa da NO-GO olmaz."""
+    models = [{"name": "qwen3:30b", "size": 19_000_000_000, "size_vram": 19_000_000_000}]
+    report = run_train_doctor(
+        transport=_transport(models),
+        nvidia_smi=(19.0, 20.0),
+        min_free_vram_gb=3.0,
+        training_device="cpu",
+    )
+    assert report.training_device == "cpu"
+    assert report.verdict == "WARN"
+    assert any("CPU'da koşacak" in r for r in report.reasons)
+    # Yüklü model CPU/RAM ile yarışabilir → uyarı düşülür.
+    assert any("yarışabilir" in r for r in report.reasons)
+
+
+def test_cpu_training_low_vram_without_models_is_still_only_warn() -> None:
+    report = run_train_doctor(
+        transport=_transport([]), nvidia_smi=(7.5, 8.0), min_free_vram_gb=3.0, training_device="cpu"
+    )
+    assert report.verdict == "WARN"
+
+
+def test_unknown_device_keeps_strict_no_go() -> None:
+    """Cihaz belirlenemezse (torch yok) temkinli: eski NO-GO davranışı korunur."""
+    report = run_train_doctor(
+        transport=_transport([]),
+        nvidia_smi=(7.5, 8.0),
+        min_free_vram_gb=3.0,
+        training_device="unknown",
+    )
+    assert report.verdict == "NO-GO"
+
+
+def test_auto_device_uses_detector(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(td, "detect_training_device", lambda: "cpu")
+    report = run_train_doctor(transport=_transport([]), nvidia_smi=(7.5, 8.0), min_free_vram_gb=3.0)
+    assert report.training_device == "cpu"
+    assert report.verdict == "WARN"
+
+
+def test_detect_training_device_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """torch import edilemezse 'unknown' döner, fırlatmaz."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _no_torch(name, *a, **k):
+        if name == "torch":
+            raise ImportError("torch yok")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _no_torch)
+    # autouse fikstürü modül özniteliğini sahteledi; import anında saklanan gerçeği çağır.
+    assert _REAL_DETECT() == "unknown"
+
+
 # --- CLI: `hektor train-load-doctor` ------------------------------------------------
 
 
@@ -192,6 +263,11 @@ def test_train_run_skip_load_check_bypasses_doctor(monkeypatch) -> None:
         return SimpleNamespace(authorized=False, approval_id="apr_test")
 
     monkeypatch.setattr(unattended_policy, "authorize_training_action", _fake_authorize)
+    # Kademe-2 A6: bölme + sızıntı kapısı artık onaydan ÖNCE — veri varmış gibi sahtele.
+    monkeypatch.setattr("app.training.detached_launch.ensure_train_split", lambda s=None: (5, 1))
+    monkeypatch.setattr(
+        "app.lora.mix_cli.run_leakage_check", lambda p: {"clean": True, "counts": {}}
+    )
 
     result = runner.invoke(
         app, ["train", "--run", "--skip-load-check", "--mix-profile", "balanced_v1"], env=_ENV

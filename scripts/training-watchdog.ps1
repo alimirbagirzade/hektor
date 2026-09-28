@@ -28,6 +28,16 @@ try {
     $bm = if ($prop -contains "base_model") { [string]$status.base_model } else { "" }
     $prof = if ($prop -contains "profile" -and "$($status.profile)".Trim() -ne "") { [string]$status.profile } else { "discipline_safe_local" }
     $mx = if ($prop -contains "max_examples") { [int]$status.max_examples } else { 0 }
+    # Kademe-2 A2: ilk kosunun TUKETTIGI karisim agirligi. Gecilmezse etkilesimsiz alt surec
+    # ya 5 ile cikar ya da bir SONRAKI egitim icin kaydedilmis bekleyen karari tuketirdi.
+    $mw = if ($prop -contains "mix_weights") { "$($status.mix_weights)".Trim() } else { "" }
+    $mp = if ($prop -contains "mix_profile") { "$($status.mix_profile)".Trim() } else { "" }
+    if ($mp -eq "custom") { $mp = "" }
+    if (-not $mw -and -not $mp) {
+        # Agirlik kaydi olmayan (eski) durum dosyasi: kurtarma ayni receteyi garanti edemez.
+        Write-Host "  [NOBETCI] Durum dosyasinda karisim agirligi yok -- kurtarma YAPILMADI (yeni egitim yeni karar ister)."
+        exit 0
+    }
     # KURTARMA YETKI KAPISI (fail-closed) -- 2026-09-16: web'den baslayip 0. adimda olen,
     # kimsenin onaylamadigi bir kosunun durum dosyasi diskte kaldi; nobetci onu diriltti ve
     # 5,5 saat onaysiz egitim kostu. Durum dosyasi KALICI YETKI DEGILDIR: asagidaki kontrol
@@ -57,7 +67,7 @@ try {
     # TUKETILDI (tek kullanimlik); ikinci kez onay istenirse coken egitim sessizce beklemede
     # kalirdi. Yeni bir egitim baslatmak icin bu yol KULLANILMAZ -- yalniz durum dosyasi
     # birakmis, onaylanmis ve cokmus bir kosu dirilir.
-    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -ApprovalId $recoveryApprovalId -Resume -Supervised
+    & $startScript -Adapter $status.adapter -Iterations ([int]$status.iterations) -Dtype $status.dtype -Profile $prof -BaseModel $bm -MaxExamples $mx -ApprovalId $recoveryApprovalId -MixWeights $mw -MixProfile $mp -Resume -Supervised
 } finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()

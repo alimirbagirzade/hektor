@@ -31,6 +31,23 @@ from pydantic import BaseModel, Field
 from app.config import get_settings
 
 Verdict = Literal["GO", "WARN", "NO-GO"]
+# Eğitimin koşacağı cihaz. "unknown": torch yok/sorgulanamadı → temkinli (GPU varsay).
+TrainingDevice = Literal["cuda", "cpu", "unknown"]
+
+
+def detect_training_device() -> TrainingDevice:
+    """Trainer'ın seçeceği cihazı tahmin et (``peft_lora_train.train`` ile AYNI kural).
+
+    Trainer ``cuda if torch.cuda.is_available() else cpu`` seçer; burada da aynısı
+    TEMBEL import ile sorulur. torch kurulu değilse/sorgu patlarsa ``"unknown"`` —
+    asla fırlatmaz.
+    """
+    try:
+        import torch
+
+        return "cuda" if bool(torch.cuda.is_available()) else "cpu"
+    except Exception:
+        return "unknown"
 
 
 class LoadedModel(BaseModel):
@@ -49,6 +66,7 @@ class TrainDoctorReport(BaseModel):
     gpu_used_vram_gb: float | None = None
     free_vram_gb: float | None = None
     min_free_vram_gb: float = 0.0
+    training_device: TrainingDevice = "unknown"
     verdict: Verdict = "GO"
     reasons: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
@@ -109,8 +127,14 @@ def run_train_doctor(
     min_free_vram_gb: float | None = None,
     transport: httpx.BaseTransport | None = None,
     nvidia_smi: tuple[float, float] | None | Literal["auto"] = "auto",
+    training_device: TrainingDevice | Literal["auto"] = "auto",
 ) -> TrainDoctorReport:
-    """Rakip LLM/GPU yükünü tara, GO/WARN/NO-GO kararı üret. Asla fırlatmaz."""
+    """Rakip LLM/GPU yükünü tara, GO/WARN/NO-GO kararı üret. Asla fırlatmaz.
+
+    ``training_device``: eğitim CPU'da koşacaksa (torch CUDA görmüyor) düşük boş VRAM
+    eğitimi ETKİLEMEZ → NO-GO değil, en çok WARN. ``"auto"`` → :func:`detect_training_device`.
+    Cihaz bilinmiyorsa (``"unknown"``) eski temkinli davranış (GPU varsay) korunur.
+    """
     settings = get_settings()
     ollama_host = (host or settings.ollama_host).rstrip("/")
     min_free = (
@@ -119,7 +143,10 @@ def run_train_doctor(
         else settings.train_load_doctor_min_free_vram_gb
     )
 
-    report = TrainDoctorReport(min_free_vram_gb=min_free)
+    device: TrainingDevice = (
+        detect_training_device() if training_device == "auto" else training_device
+    )
+    report = TrainDoctorReport(min_free_vram_gb=min_free, training_device=device)
 
     raw = _fetch_ollama_ps(ollama_host, transport=transport)
     if raw is None:
@@ -144,7 +171,22 @@ def run_train_doctor(
         report.reasons.append(f"Ollama'da halen belleğe yüklü model: {names}.")
 
     if report.free_vram_gb is not None:
-        if report.free_vram_gb < min_free:
+        if report.free_vram_gb < min_free and device == "cpu":
+            # Eğitim CPU'da koşar (torch CUDA görmüyor): GPU'nun dolu olması eğitimi
+            # engellemez. Yüklü Ollama modeli yine de uyarı: GPU'ya sığmayan kısmı CPU/RAM'e
+            # taşar ve eğitimle aynı çekirdek/belleği paylaşır.
+            report.verdict = "WARN"
+            report.reasons.append(
+                f"Ölçülen boş VRAM {report.free_vram_gb:.1f}GB < eşik {min_free:.1f}GB, "
+                "ama eğitim CPU'da koşacak (torch CUDA görmüyor) — VRAM eksikliği NO-GO "
+                "sayılmadı."
+            )
+            if report.loaded_models:
+                report.reasons.append(
+                    "Yüklü Ollama modelleri CPU/RAM ile yarışabilir (kısmen CPU'ya taşmışsa); "
+                    "gerekirse `ollama stop <model>`."
+                )
+        elif report.free_vram_gb < min_free:
             report.verdict = "NO-GO"
             report.reasons.append(
                 f"Ölçülen boş VRAM {report.free_vram_gb:.1f}GB < eşik {min_free:.1f}GB "

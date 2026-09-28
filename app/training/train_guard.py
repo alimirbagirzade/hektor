@@ -17,9 +17,19 @@ gerçek süreç/onay gerekmez. Eğitim BAŞLATMAZ, DURDURMAZ, hiçbir şey yazma
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+# Eğitim yetkisi taşıyan onay aksiyonları. Kimlik (approval_id) TAM eşleştiğinde bunlardan
+# herhangi biri kabul edilir: web/CLI `train_run` tüketir, Auto-LoRA ise
+# `auto_lora_start_training` (bkz. app/lora/auto_pipeline.py). Eskiden kimlik eşleşse bile
+# yalnız `train_run` kabul ediliyordu → Auto-LoRA koşusu hiçbir zaman onaya bağlanamıyordu.
+TRAINING_ACTIONS: frozenset[str] = frozenset({"train_run", "auto_lora_start_training"})
+# Kanonik eğitim kaynağı (kök-göreli). Kurtarma bunu YENİDEN böler; `train.jsonl` her
+# bölmede yeniden yazıldığından mtime'ı veri kayması için güvenilmez — içerik hash'i esas.
+SOURCE_DATA_REL = Path("data") / "lora_sft" / "lora_sft.jsonl"
 
 # Durum dosyası bundan eskiyse "bayat" sayılır: o kadar süre önce başlamış bir koşuyu
 # diriltmek, aradaki veri/kod değişikliklerini görmezden gelmek demektir.
@@ -50,6 +60,37 @@ def _parse_iso(value: Any) -> dt.datetime | None:
     return parsed.replace(tzinfo=dt.UTC) if parsed.tzinfo is None else parsed
 
 
+def sha256_file(path: Path) -> str | None:
+    """Dosyanın sha256 hex özeti (küçük harf). Okunamazsa ``None``."""
+    try:
+        h = hashlib.sha256()
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def _data_hash_problem(status: dict[str, Any], data_sha256: str | None) -> str | None:
+    """Durumdaki kaynak-veri hash'i ile güncel hash'i kıyasla; sorun varsa açıklama döndür.
+
+    Durumda hash YOKSA ``None`` (çağıran eski mtime kontrolüne düşer). Hash varsa ama güncel
+    kaynak okunamıyorsa bu da sorundur (kurtarma yeniden bölerken veri bulamaz).
+    """
+    recorded = str(status.get("data_sha256") or "").strip().lower()
+    if not recorded:
+        return None
+    if not data_sha256:
+        return "kanonik eğitim kaynağı (lora_sft.jsonl) okunamadı — koşunun verisi doğrulanamıyor"
+    if data_sha256.strip().lower() != recorded:
+        return (
+            "eğitim verisi (lora_sft.jsonl içerik hash'i) koşu başladıktan SONRA değişti — "
+            "diriltilen koşu onaylanan veriyi eğitmez"
+        )
+    return None
+
+
 def find_run_approval(
     approvals: list[dict[str, Any]],
     started_at: dt.datetime,
@@ -68,12 +109,16 @@ def find_run_approval(
     ör. `mac-loop.sh`'nin yazdığı sade dosya) devreye girer — eşleşme ölçütü: aksiyon
     ``train_run``, durum ``approved`` ve ``consumed_at`` koşunun başlangıcına
     ``window_minutes`` içinde.
+
+    Kimlik TAM eşleştiğinde aksiyon :data:`TRAINING_ACTIONS` kümesinden herhangi biri
+    olabilir (Auto-LoRA `auto_lora_start_training` tüketir); zaman penceresi yedeği ise
+    yalnız ``action`` ile sınırlı kalır (zayıf sezgi, dar tutulur).
     """
     if approval_id:
         for row in approvals:
             if row.get("approval_id") != approval_id:
                 continue
-            if row.get("action") != action or row.get("status") != "approved":
+            if row.get("action") not in TRAINING_ACTIONS or row.get("status") != "approved":
                 return None
             if _parse_iso(row.get("consumed_at")) is None:
                 return None
@@ -110,11 +155,17 @@ def recovery_allowed(
     *,
     now: dt.datetime,
     data_mtime: dt.datetime | None = None,
+    data_sha256: str | None = None,
 ) -> RecoveryVerdict:
     """Çöken bir eğitimi yeniden başlatmak YETKİLİ mi? FAIL-CLOSED.
 
     Nöbetçi kurtarması Kural 8'den muaftır ("onay zaten tüketilmişti") — ama bu muafiyet
     yalnız o cümle DOĞRUYSA geçerlidir. Burada doğrulanır; doğrulanamıyorsa dirilme YOK.
+
+    Veri kayması: durum dosyası ``data_sha256`` (başlangıçtaki ``lora_sft.jsonl`` hash'i)
+    taşıyorsa güncel hash (``data_sha256`` parametresi) ile KIYASLANIR ve ``data_mtime``
+    yok sayılır — kurtarma `train.jsonl`'i yeniden yazdığından onun mtime'ı yanıltır.
+    Hash alanı olmayan eski durum dosyalarında mtime kontrolü geçerli kalır.
     """
     if not status:
         return RecoveryVerdict(False, "durum dosyası yok/boş — diriltilecek koşu kaydı yok")
@@ -145,7 +196,18 @@ def recovery_allowed(
             {"started_at": started_at.isoformat()},
         )
 
-    if data_mtime is not None:
+    hash_problem = _data_hash_problem(status, data_sha256)
+    if hash_problem is not None:
+        return RecoveryVerdict(
+            False,
+            hash_problem,
+            {
+                "recorded_sha256": str(status.get("data_sha256") or ""),
+                "current_sha256": data_sha256 or "",
+            },
+        )
+
+    if data_mtime is not None and not status.get("data_sha256"):
         drift = data_mtime - started_at
         if drift > dt.timedelta(minutes=DATA_DRIFT_GRACE_MINUTES):
             return RecoveryVerdict(
@@ -183,8 +245,13 @@ def diagnose(
     cpu_percent: float | None = None,
     data_mtime: dt.datetime | None = None,
     approvals: list[dict[str, Any]] | None = None,
+    data_sha256: str | None = None,
 ) -> TrainingDiagnosis:
-    """Eğitim sağlığını değerlendir (saf). Hiçbir şey başlatmaz/durdurmaz."""
+    """Eğitim sağlığını değerlendir (saf). Hiçbir şey başlatmaz/durdurmaz.
+
+    ``data_sha256``: güncel ``lora_sft.jsonl`` hash'i; durum dosyası başlangıç hash'ini
+    taşıyorsa veri kayması mtime yerine bununla ölçülür (bkz. :func:`recovery_allowed`).
+    """
     problems: list[str] = []
     info: dict[str, Any] = {
         "running": running,
@@ -218,6 +285,14 @@ def diagnose(
                 "eğitim koşuyor ama durum kaydı (train_status.json) YOK — bu koşu insan "
                 "onayına bağlanamıyor ve reçetesi doğrulanamıyor"
             )
+        elif started_at is None:
+            # Durum kaydı VAR ama okunabilir `started_at` yok (ör. eski start-train.ps1
+            # yazımı): onay ve veri-kayması kontrolleri sessizce atlanırdı ve koşu "OK"
+            # görünürdü. Doğrulanamayan şeye "tamam" denmez (Kural 2/8).
+            problems.append(
+                "durum kaydında okunabilir 'started_at' yok — koşu insan onayına bağlanamıyor "
+                "ve veri kayması denetlenemiyor"
+            )
         if (
             approvals is not None
             and started_at is not None
@@ -230,8 +305,12 @@ def diagnose(
                 "koşan eğitime bağlı TÜKETİLMİŞ insan onayı yok (Kural 8) — "
                 "bu koşu yetkisiz başlatılmış olabilir"
             )
-        if (
+        hash_problem = _data_hash_problem(status, data_sha256) if status else None
+        if hash_problem is not None:
+            problems.append(hash_problem)
+        elif (
             data_mtime is not None
+            and not status.get("data_sha256")
             and started_at is not None
             and data_mtime - started_at > dt.timedelta(minutes=DATA_DRIFT_GRACE_MINUTES)
         ):
@@ -338,6 +417,7 @@ def collect_diagnosis(
         cpu_percent=_busiest_cpu_percent(procs) if running else None,
         data_mtime=_file_mtime(root / "data" / "training" / "jsonl" / "train.jsonl"),
         approvals=approvals,
+        data_sha256=sha256_file(root / SOURCE_DATA_REL),
     )
     diagnosis.info["log_file"] = str(log_path) if log_path else ""
     diagnosis.info["trainer_pids"] = [p["pid"] for p in procs]

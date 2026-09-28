@@ -65,6 +65,12 @@ def test_train_run_blocked_without_approval(monkeypatch) -> None:
     monkeypatch.delenv("HEKTOR_TRAIN_SUPERVISED", raising=False)
     # STOP_ALL etkisini ayır: bu test onay kapısını sınar
     monkeypatch.setattr("app.agents.runtime.supervisor.is_stop_all_active", lambda root=None: False)
+    # Kademe-2 A6: bölme + sızıntı kapısı onaydan ÖNCE koşar → veri varmış gibi sahtele ki
+    # akış onay kapısına ulaşsın (bu test onay kapısını sınar).
+    monkeypatch.setattr("app.training.detached_launch.ensure_train_split", lambda s=None: (5, 1))
+    monkeypatch.setattr(
+        "app.lora.mix_cli.run_leakage_check", lambda p: {"clean": True, "counts": {}}
+    )
     r = runner.invoke(
         app,
         [

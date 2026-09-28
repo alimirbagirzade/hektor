@@ -28,6 +28,30 @@ _PAYLOAD = {"adapter_name": "test_adapter", "iterations": 3}
 _SUP = "app.agents.runtime.supervisor.is_stop_all_active"
 _REQ = "app.agents.runtime.approvals.require_fresh_approval"
 _LAUNCH = "app.training.detached_launch.launch"
+_PRE = "app.training.detached_launch.preflight_launch"
+
+
+@pytest.fixture(autouse=True)
+def _preflight_ok():
+    """Ön-kontroller (bölme/kapı/ağırlık) bu modülün konusu değil → geçti say."""
+    with patch(_PRE, return_value={"ok": True, "message": "ok", "n_train": 5}):
+        yield
+
+
+def test_preflight_failure_does_not_consume_approval() -> None:
+    """Kademe-2 A6: ön-kontrol düşerse onay kapısına HİÇ gelinmez (onay yanmaz)."""
+    with (
+        patch(_SUP, return_value=False),
+        patch(_PRE, return_value={"ok": False, "message": "Zaten eğitim çalışıyor."}),
+        patch(_REQ) as m_req,
+        patch(_LAUNCH) as m_launch,
+    ):
+        r = client.post("/api/training/run", json=_PAYLOAD)
+    body = r.json()
+    assert body["ok"] is False and body["status"] == "error"
+    assert "Zaten" in body["message"]
+    m_req.assert_not_called()  # tek kullanımlık onay TÜKETİLMEDİ
+    m_launch.assert_not_called()
 
 
 def test_run_blocked_when_stop_all_active() -> None:

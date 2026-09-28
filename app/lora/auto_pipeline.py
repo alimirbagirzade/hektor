@@ -228,7 +228,13 @@ class AutoLoRAPipeline:
                     ),
                 }
 
+        from app.training import detached_launch
         from app.training.unattended_policy import authorize_training_action
+
+        # Kademe-2 A6: ucuz ön-kontroller onay TÜKETİLMEDEN önce (onay boşa yanmasın).
+        pre = await asyncio.to_thread(detached_launch.preflight_launch, adapter_name)
+        if not pre.get("ok"):
+            return {"ok": False, "reason": pre.get("message", "Ön-kontrol başarısız.")}
 
         decision = authorize_training_action(
             "auto_lora_start_training",
@@ -248,9 +254,9 @@ class AutoLoRAPipeline:
                 ),
             }
 
-        from app.training.detached_launch import launch
-
-        res = await asyncio.to_thread(launch, adapter_name, iters, approval_id=decision.approval_id)
+        res = await asyncio.to_thread(
+            detached_launch.launch, adapter_name, iters, approval_id=decision.approval_id
+        )
         if not res.get("ok"):
             return {"ok": False, "reason": res.get("message", "Eğitim başlatılamadı")}
 

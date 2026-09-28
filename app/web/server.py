@@ -1409,11 +1409,32 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
     Detached süreç; ilerleme /api/training/live ile (log'dan) izlenir. Veri
     `lora_sft.jsonl`'den yeniden bölünür. iterations<=0 → 1 epoch.
     """
+    from app.agents.runtime import supervisor
+    from app.training import detached_launch
     from app.training.unattended_policy import authorize_training_action
+
+    if supervisor.is_stop_all_active():
+        return TrainingStartResponse(
+            ok=False,
+            status="blocked",
+            message="STOP_ALL aktif — gerçek eğitim bloklandı.",
+        )
+
+    # Kademe-2 A6: ucuz, deterministik ön-kontroller (koşan eğitim, ağırlık kararı, boş
+    # bölme, kalite kapısı, sızıntı, yük doktoru) TEK KULLANIMLIK onay tüketilmeden ÖNCE.
+    # Eskiden onay önce yanıyor, sonra launch() bu kontrollerde düşüyordu.
+    adapter = req.adapter_name or "hektor_lora"
+    pre = detached_launch.preflight_launch(adapter)
+    if not pre.get("ok"):
+        return TrainingStartResponse(
+            ok=False,
+            status="error",
+            message=str(pre.get("message", "Ön-kontrol başarısız.")),
+        )
 
     decision = authorize_training_action(
         "train_run",
-        (f"Gerçek LoRA eğitimi (web): {req.adapter_name or 'hektor_lora'} ({req.iterations} adım)"),
+        (f"Gerçek LoRA eğitimi (web): {adapter} ({req.iterations} adım)"),
         agent_id="lora-trainer",
     )
     if decision.mode == "stop_all":
@@ -1436,10 +1457,8 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
         )
 
     # 3) Onay tüketildi → detached eğitimi başlat.
-    from app.training.detached_launch import launch
-
-    res = launch(
-        adapter_name=req.adapter_name or "hektor_lora",
+    res = detached_launch.launch(
+        adapter_name=adapter,
         iterations=req.iterations,
         base_model=req.base_model or None,
         approval_id=decision.approval_id,

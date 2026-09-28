@@ -205,6 +205,20 @@ def format_weights(weights: Mapping[str, float]) -> str:
     return ", ".join(f"{d}={weights.get(d, 0.0):.2f}" for d in DOMAINS)
 
 
+def weights_to_arg(weights: Mapping[str, float]) -> str:
+    """Ağırlıkları ``--mix-weights`` bayrağına KAYIPSIZ geri verilebilir biçime çevir.
+
+    ``format_weights`` 2 haneye yuvarlar (görüntü içindir); bu ise ``parse_weights`` ile
+    birebir aynı sözlüğü geri üretir (``validate_weights`` 6 haneye yuvarlar) ve boşluk
+    içermez → PowerShell/komut satırı argümanı olarak güvenle taşınır.
+    """
+
+    def _num(v: float) -> str:
+        return f"{float(v):.6f}".rstrip("0").rstrip(".") or "0"
+
+    return ",".join(f"{d}={_num(weights.get(d, 0.0))}" for d in DOMAINS)
+
+
 # ---------------------------------------------------------------- config
 
 
