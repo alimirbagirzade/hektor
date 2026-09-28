@@ -918,6 +918,7 @@ def lora_eval(
             f"adapter skor: {res.adapter_score}  (flags {res.adapter_flags})\n"
             f"[{color}]VERDICT: {res.verdict.upper()}"
             + ("  — GERİLEME (terfi etme)" if res.regression else "")
+            + (f"  — VETO: {', '.join(res.vetoes)}" if res.vetoes else "")
             + "[/]",
             title="adapter eval (base vs adapter)",
         )
