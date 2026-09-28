@@ -103,6 +103,44 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-28 (3): v10 → GGUF → Ollama `hektor-v10` + RAG testi + 30 soru PDF
+
+**GGUF yolu (yerel, bulut yok).** Ollama 0.34.4 çalışma-anı `ADAPTER` desteğini KALDIRDI
+("LoRA adapters are no longer supported"). Uygulanan yol: PEFT `merge_and_unload` ile base'in
+AYRI kopyası (`models/merged/hektor_lora_v10_4b`; HF önbelleğindeki base DEĞİŞMEDİ) →
+llama.cpp `convert_hf_to_gguf.py` → f16 → `llama-quantize` Q4_K_M (llama.cpp b11228, resmi
+Windows CPU sürümü, `C:\HP	ools\`) → `ollama create hektor-v10` (şablon/parametreler
+`qwen3:4b-instruct-2507-q4_K_M`'den). Dosyalar `models/gguf/` (git dışı): ayrıca yalnız-adapter
+GGUF (`hektor_lora_v10_4b-f16.gguf`, 66 MB). Not: dönüştürücü `sentencepiece` import ediyor ama
+Qwen BPE; proje venv'i kirletilmeden stub modülle aşıldı. Ollama modelleri: `hektor-v10`
+(digest `fcbdbec4e502`), base `qwen3:4b-instruct-2507-q4_K_M` (`0edcdef34593`).
+
+**RAG testi** (`scripts/rag_model_run.py`, gerçek `RagAnswerer` + RerankingRetriever,
+temperature 0.2 · seed 42 · max_tokens 2048; `reports/evals/rag_test_v10_vs_base.json`):
+6 korpus sorusu + kullanıcının 30 sorusu (`C:\HP\LLM_Sorulari_30.pdf`).
+
+| | base | hektor-v10 |
+|---|---|---|
+| Satır-içi atıflı cevap (30 soru) | 23/30 | **0/30** |
+| Ort. uzunluk | ~4.100 krk | ~490 krk |
+| 9-bölüm RAG formatı | çoğunlukla var | yok |
+| Süre/soru | ~20–28 sn | ~6–8 sn |
+
+**Bulgu (önemli):** adapter RAG sistem prompt'unu (format + atıf zorunluluğu) EZİYOR; kısa,
+atıfsız cevap veriyor → Kural 7 açısından RAG hattında KULLANILAMAZ. Cevap kalitesi de sığ ve
+yer yer YANLIŞ (EMA'yı "doğrusal olmayan" filtre dedi; Q30 totoloji tekrarı; Q1'de "opsiyon"
+sütunu). Olası kök neden: eğitim verisinin çoğu atıfsız kısa cevap (synth-QA + kart + disiplin)
+ve RAG sistem prompt'u ile eğitilmemiş olması. Sonraki eğitim için: RAG-formatlı, atıflı
+örnek payı + sistem prompt'lu örnekler; eval'e "atıf var mı" metriği.
+
+**Teslim:** `C:\HP\LLM_Sorulari_30_hektor-v10_Cevaplar.pdf` — model kimlik kanıtı (digest,
+GGUF SHA256, base/adapter/eğitim), her cevapta "Cevaplayan: hektor-v10 · Ollama'da yüklü: …",
+retrieval kaynakları; Ek A aynı retrieval ile base cevapları. Üretici:
+`reports/evals/make_answers_pdf.py` (Edge headless). Test sırasında web arka plan döngüleri
+kapatıldı, sonra geri açıldı.
+
+---
+
 ## Son seans — 2026-09-28 (2): `hektor_lora_v10_4b` eğitildi + eval (ADAY, terfi YOK)
 
 **Koşu.** Kullanıcı onayı `apr_df69af0fdd14` (sohbette açık onay, `approval-approve` Claude
