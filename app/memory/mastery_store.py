@@ -13,7 +13,18 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Float, Integer, String, Text, create_engine, event, select
+from sqlalchemy import (
+    Float,
+    Integer,
+    String,
+    Text,
+    case,
+    create_engine,
+    event,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from app.config import get_settings
@@ -37,6 +48,13 @@ def _sqlite_pragmas(dbapi_conn: object, _record: object) -> None:
 
 def _utcnow() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
+
+
+# 'running' kalmış bir kuyruk kaydı bu süreden uzun güncellenmediyse süreç öldü/kilitlendi
+# sayılır ve yeniden seçilebilir (deneme hakkından düşer). Tek makalelik mastery testi
+# yavaş CPU'da bile bu sürenin çok altında biter; canlı bir süreçteki kayıt eşik dolmadan
+# asla çalınmaz.
+STALE_RUNNING_AFTER = dt.timedelta(hours=6)
 
 
 def _new_id(prefix: str = "") -> str:
@@ -182,19 +200,69 @@ class MasteryStore:
             rows = s.scalars(q).all()
             return [_queue_to_dict(r) for r in rows]
 
-    def get_next_queued(self) -> dict[str, Any] | None:
+    def get_next_queued(
+        self, stale_after: dt.timedelta = STALE_RUNNING_AFTER
+    ) -> dict[str, Any] | None:
+        """Sıradaki işlenecek kuyruk kaydı (değiştirmeden bakar).
+
+        Seçilebilir: 'pending', 'failed' ve ``stale_after``'dan uzun süredir güncellenmemiş
+        (bayat) 'running' kayıtlar — hepsi ``attempts < max_attempts`` koşuluyla. 'failed'
+        yeniden denenir (eskiden yalnız 'pending' seçildiğinden retry ölü koddu); bayat
+        'running' ise çöken/öldürülen sürecin bıraktığı kayıttır (sonsuza dek 'running'
+        kalmasın). Önce 'pending' kayıtlar işlenir; yeniden denemeler sona kalır ve en eski
+        güncellenen önce gelir — böylece başarısız kayıt tüm haklarını art arda yakmaz.
+        """
+        cutoff = (dt.datetime.now(dt.UTC) - stale_after).isoformat()
+        q = PaperLearningQueue
+        is_retry = case((q.status == "pending", 0), else_=1)
+        sort_ts = case((q.status == "pending", q.created_at), else_=q.updated_at)
         with self.session() as s:
-            # 'failed' de dahil: başarısız ama attempts<max_attempts olan kayıtlar
-            # yeniden denenmeli (eskiden yalnız 'pending' seçildiğinden retry ölü koddu —
-            # geçici hata = kalıcı atlama). max_attempts kapağı sonsuz döngüyü önler.
             row = s.scalar(
-                select(PaperLearningQueue)
-                .where(PaperLearningQueue.status.in_(["pending", "failed"]))
-                .where(PaperLearningQueue.attempts < PaperLearningQueue.max_attempts)
-                .order_by(PaperLearningQueue.priority.desc(), PaperLearningQueue.created_at)
+                select(q)
+                .where(
+                    or_(
+                        q.status.in_(["pending", "failed"]),
+                        (q.status == "running") & (q.updated_at < cutoff),
+                    )
+                )
+                .where(q.attempts < q.max_attempts)
+                .order_by(is_retry, q.priority.desc(), sort_ts, q.created_at)
                 .limit(1)
             )
             return _queue_to_dict(row) if row else None
+
+    def claim_next_queued(
+        self, stale_after: dt.timedelta = STALE_RUNNING_AFTER, max_tries: int = 5
+    ) -> dict[str, Any] | None:
+        """Sıradaki kaydı seç ve koşullu olarak 'running'e çek (attempts += 1).
+
+        Seçim ile işaretleme arasında başka bir süreç aynı kaydı almışsa koşullu UPDATE
+        (durum + updated_at değişmemiş olmalı) 0 satır etkiler ve bir sonraki aday denenir;
+        böylece iki süreç aynı makaleyi aynı anda işlemez.
+        """
+        q = PaperLearningQueue
+        for _ in range(max_tries):
+            item = self.get_next_queued(stale_after=stale_after)
+            if item is None:
+                return None
+            now = _utcnow()
+            with self.session() as s:
+                res = s.execute(
+                    update(q)
+                    .where(q.queue_id == item["queue_id"])
+                    .where(q.status == item["status"])
+                    .where(q.updated_at == item["updated_at"])
+                    .values(status="running", attempts=q.attempts + 1, updated_at=now)
+                )
+                claimed = getattr(res, "rowcount", 0) == 1
+            if claimed:
+                return {
+                    **item,
+                    "status": "running",
+                    "attempts": item["attempts"] + 1,
+                    "updated_at": now,
+                }
+        return None
 
     def update_queue_status(self, queue_id: str, status: str, error: str | None = None) -> None:
         with self.session() as s:
@@ -206,6 +274,9 @@ class MasteryStore:
                     row.attempts += 1
                 if error:
                     row.last_error = error
+                elif status == "done":
+                    # Başarıyla biten kayıtta önceki denemenin hatası kalmasın.
+                    row.last_error = None
 
     # ── Mastery Tests ────────────────────────────────────────────────────────
 
@@ -215,12 +286,14 @@ class MasteryStore:
             s.add(PaperMasteryTest(test_id=test_id, paper_id=paper_id))
         return test_id
 
-    def finish_test(self, test_id: str, passed: int, failed: int) -> None:
+    def finish_test(self, test_id: str, passed: int, failed: int, status: str = "done") -> None:
+        """Testi kapat. Başarısız koşular ``status='failed'`` ile kapatılmalı — aksi halde
+        'done' sayılıp rapor yeniden üretiminde geçerli eski skorlu testi gölgeler."""
         with self.session() as s:
             row = s.get(PaperMasteryTest, test_id)
             if row:
                 row.finished_at = _utcnow()
-                row.status = "done"
+                row.status = status
                 row.passed_count = passed
                 row.failed_count = failed
                 row.question_count = passed + failed

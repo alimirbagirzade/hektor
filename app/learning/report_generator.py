@@ -152,25 +152,32 @@ def rebuild_reports(
 
     Rapor yazımı best-effort olduğundan (bkz. PaperMasteryAgent) test/skor DB'de sağlam
     kalıp rapor dosyası kaybolabilir — ör. Windows'ta UTF-8'siz yazım 0 baytlık dosya
-    bırakıyordu. Makale başına EN SON biten test kullanılır. Geçerli raporu olan makaleye
-    dokunulmaz (``force=True`` hariç). Bileşenlerden hesaplanan toplam, DB'deki kayıtlı
-    toplamla uyuşmazsa rapor YAZILMAZ (tutarsız veriyle rapor üretme).
+    bırakıyordu. Makale başına SKOR KAYDI OLAN en son biten test kullanılır — skorsuz daha
+    yeni bir koşu (ör. eski sürümde 'done' kapatılmış başarısız tekrar) geçerli eski skoru
+    gölgelemez. Geçerli raporu olan makaleye dokunulmaz (``force=True`` hariç).
+    Bileşenlerden hesaplanan toplam, DB'deki kayıtlı toplamla uyuşmazsa rapor YAZILMAZ
+    (tutarsız veriyle rapor üretme).
     """
     st = store or MasteryStore()
     gen = ReportGenerator(store=st, report_dir=report_dir)
-    latest: dict[str, dict[str, Any]] = {}
-    for t in st.list_finished_tests():  # eskiden yeniye → son kazanır
-        if paper_id is None or t["paper_id"] == paper_id:
-            latest[t["paper_id"]] = t
+    papers: dict[str, None] = {}  # sıralı küme (ilk bitiş sırası korunur)
+    latest: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for t in st.list_finished_tests():  # eskiden yeniye → skorlu son test kazanır
+        if paper_id is not None and t["paper_id"] != paper_id:
+            continue
+        papers[t["paper_id"]] = None
+        rec = st.get_score_for_test(t["test_id"])
+        if rec is not None:
+            latest[t["paper_id"]] = (t, rec)
 
-    result = RebuildResult(finished_papers=len(latest), dry_run=dry_run)
-    for pid, test in latest.items():
+    result = RebuildResult(finished_papers=len(papers), dry_run=dry_run)
+    for pid in papers:
         if not force and has_valid_report(pid, report_dir):
             continue
-        record = st.get_score_for_test(test["test_id"])
-        if record is None:
+        if pid not in latest:
             result.skipped.append(f"{pid}: skor kaydı yok")
             continue
+        test, record = latest[pid]
         score = score_from_record(record)
         stored_total = float(record.get("total_score") or 0.0)
         if abs(score.total_score - stored_total) > 0.011:

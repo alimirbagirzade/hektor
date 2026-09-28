@@ -65,13 +65,17 @@ class PaperMasteryAgent:
 
     def run(self, paper_id: str, question_count: int = 20) -> MasteryRunResult:
         """paper_id için tam mastery testini çalıştır."""
+        # create_test hata verirse (ör. 'database is locked') test kaydı yoktur; istisna
+        # çağırana (LearningQueue.run_next) gider ve kuyruk kaydı orada 'failed' yapılır.
         test_id = self._ms.create_test(paper_id)
         logger.info("Mastery testi başladı: %s (test=%s)", paper_id, test_id)
+        test_finished = False
 
         try:
             inspection = self._inspector.inspect(paper_id)
             if "paper_not_found" in inspection.missing_steps:
-                self._ms.finish_test(test_id, 0, 0)
+                self._ms.finish_test(test_id, 0, 0, status="failed")
+                test_finished = True
                 self._status_mgr.update(paper_id, "failed", "Makale bulunamadı")
                 return self._error_result(paper_id, test_id, "Makale bulunamadı")
 
@@ -89,6 +93,7 @@ class PaperMasteryAgent:
             passed = sum(1 for a in answers if a.passed)
             failed = len(answers) - passed
             self._ms.finish_test(test_id, passed, failed)
+            test_finished = True
 
             new_status = self._status_mgr.status_from_score(score.total_score)
             self._status_mgr.update(paper_id, new_status, f"Mastery skor: {score.total_score:.1f}")
@@ -118,8 +123,14 @@ class PaperMasteryAgent:
 
         except Exception as exc:
             logger.exception("Mastery testi başarısız: %s", exc)
-            self._ms.finish_test(test_id, 0, 0)
-            self._status_mgr.update(paper_id, "failed", str(exc))
+            # Temizlik de DB'ye yazar; o da düşerse (kilit vb.) asıl hatayı gölgelemesin.
+            # Skoru kaydedilip 'done' kapanmış test sonradan 'failed'e çevrilmez.
+            try:
+                if not test_finished:
+                    self._ms.finish_test(test_id, 0, 0, status="failed")
+                self._status_mgr.update(paper_id, "failed", str(exc))
+            except Exception as cleanup_exc:
+                logger.warning("Başarısız testin durumu kaydedilemedi: %s", cleanup_exc)
             return self._error_result(paper_id, test_id, str(exc))
 
     @staticmethod
@@ -164,14 +175,37 @@ class LearningQueue:
         return len(papers)
 
     def run_next(self, question_count: int = 20) -> MasteryRunResult | None:
-        item = self._ms.get_next_queued()
+        """Sıradaki kaydı al, işle ve kuyruk durumunu kapat.
+
+        Ajan istisna fırlatırsa kayıt 'running'de asılı kalmaz: 'failed' + hata yazılır ve
+        hatalı sonuç döner (``run_all`` devam eder). KeyboardInterrupt/SystemExit gibi
+        kesintilerde kayıt 'failed' yapılıp istisna yeniden fırlatılır.
+        """
+        item = self._ms.claim_next_queued()
         if not item:
             return None
-        self._ms.update_queue_status(item["queue_id"], "running")
-        result = self._agent.run(item["paper_id"], question_count=question_count)
+        queue_id, paper_id = item["queue_id"], item["paper_id"]
+        try:
+            result = self._agent.run(paper_id, question_count=question_count)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            logger.exception("Kuyruk kaydı işlenemedi (%s): %s", paper_id, error)
+            self._close_queue_item(queue_id, "failed", error)
+            return PaperMasteryAgent._error_result(paper_id, "", error)
+        except BaseException as exc:
+            self._close_queue_item(queue_id, "failed", f"kesildi: {type(exc).__name__}")
+            raise
         final = "done" if not result.error else "failed"
-        self._ms.update_queue_status(item["queue_id"], final, result.error)
+        self._close_queue_item(queue_id, final, result.error)
         return result
+
+    def _close_queue_item(self, queue_id: str, status: str, error: str | None) -> None:
+        """Kuyruk durumunu yaz; yazım da düşerse logla (kayıt bayat-'running' olarak
+        ``STALE_RUNNING_AFTER`` sonra yeniden seçilir)."""
+        try:
+            self._ms.update_queue_status(queue_id, status, error)
+        except Exception as exc:
+            logger.warning("Kuyruk durumu '%s' yazılamadı (%s): %s", status, queue_id, exc)
 
     def run_all(self, limit: int = 100, question_count: int = 20) -> list[MasteryRunResult]:
         results = []

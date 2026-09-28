@@ -57,7 +57,8 @@ def compute_rag_mastery(store: SqliteStore | None = None) -> dict:
         "pending": counts["pending"],
         "running": counts["running"],
         "failed": counts["failed"],
-        "processed_percent": round(100 * counts["done"] / len(queue)) if queue else 0,
+        # Taban (floor): 299/300 "%100" görünmesin — 100 yalnız hepsi bittiğinde.
+        "processed_percent": (100 * counts["done"]) // len(queue) if queue else 0,
         "current_papers": [row["paper_id"] for row in queue if row["status"] == "running"],
         "last_updated": max((row["updated_at"] for row in queue), default=None),
     }

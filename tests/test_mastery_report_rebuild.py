@@ -139,6 +139,29 @@ def test_missing_score_is_skipped(store: MasteryStore, tmp_path: Path) -> None:
     assert res.skipped == ["p_noscore: skor kaydı yok"]
 
 
+def test_newer_unscored_test_does_not_shadow_scored_one(
+    store: MasteryStore, tmp_path: Path
+) -> None:
+    # E3: skorlu testten sonra skorsuz 'done' (eski sürümde başarısız tekrar böyle
+    # kapatılıyordu) ya da 'failed' koşu, geçerli eski skorun raporunu engellememeli.
+    scored = _seed(store, "p1")
+    legacy = store.create_test("p1")
+    store.finish_test(legacy, 0, 0)  # eski davranış: başarısız ama 'done'
+    failed = store.create_test("p1")
+    store.finish_test(failed, 0, 0, status="failed")
+    res = rebuild_reports(store, tmp_path)
+    assert res.finished_papers == 1 and res.rebuilt == ["p1"] and res.skipped == []
+    data = json.loads((tmp_path / "p1_mastery_report.json").read_text(encoding="utf-8"))
+    assert data["test_id"] == scored
+
+
+def test_failed_test_not_listed_as_finished(store: MasteryStore) -> None:
+    t = store.create_test("p1")
+    store.finish_test(t, 0, 0, status="failed")
+    assert store.list_finished_tests() == []
+    assert store.list_tests("p1")[0]["status"] == "failed"
+
+
 def test_paper_filter_and_unfinished_ignored(store: MasteryStore, tmp_path: Path) -> None:
     _seed(store, "p1")
     _seed(store, "p2")
