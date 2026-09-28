@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-28 (v10 öncesi Kademe 2: 5 alt-sistem, 39 bulgu, onaylananlar düzeltildi · bekçi mastery bitince v10 eğitimini hazırlıyor, insan onayı bekliyor · bu makinede LLM `qwen3:30b` [Thinking] → `qwen3:30b-a3b-instruct-2507-q4_K_M`, gerekçe ölçüldü · LoRA karışım profilleri + profil eval altyapısı — eğitim ÖNCESİ ağırlık sorusu zorunlu · yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-28 (**v10 eğitimi TAMAMLANDI** — 6/6 eval set base'e göre accept, veto yok; ADAY, terfi YOK · v10 öncesi Kademe 2: 5 alt-sistem, 39 bulgu, onaylananlar düzeltildi · bu makinede LLM `qwen3:30b` [Thinking] → `qwen3:30b-a3b-instruct-2507-q4_K_M`, gerekçe ölçüldü · LoRA karışım profilleri + profil eval altyapısı — eğitim ÖNCESİ ağırlık sorusu zorunlu · yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -36,7 +36,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 |---|---|
 | Kapı (`make ci`) | **CI (Linux):** ✅ main'de yeşil — `1ceb867`, `e99a3bb`, `5841f7c` ve `4f32768` push koşuları success. 2026-09-07 ile 2026-09-13 arası kırmızıydı (`test_sentinel_autostart_probe` ×2; bkz. 2026-09-13 kaydı). **Yerel (Windows):** ✅ ruff format --check (429 dosya, app+tests) + ruff check + mypy (219 dosya) + pytest **2179 passed, 5 skipped, 4 deselected** (2026-09-16, `-m "not ollama"`, `4db170d` + Kademe 2 düzeltmeleri). **Yerel ✅ tek başına kapı sayılmaz.** |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Kilit = kurulu ortam (birebir). Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
-| Son adapter | **`hektor_lora_v9_4b` — eğitim TAMAMLANDI** (600/600 adım, 2026-09-17 10:16, checkpoint-600). `discipline_core` eval: **verdict=accept**, adapter 0.625 vs base 0.0 (bayrak 6/16 vs 16/16 — base dejenere). İnsan incelemesi: 6 bayraktan 5'i `ignores_costs` regex'inin dar kelime listesinden kaynaklı **yanlış pozitif**; tek gerçek eksik Q4. **Terfi ETMEDİ** — `accept` tek başına terfi gerekçesi değildir (Kural 2) ve `overfit_awareness` + `risk_management` v9 için HİÇ koşulmadı. Önceki `hektor_lora_v8_4b` (2026-09-10) → REJECT (2026-09-11 seansı) |
+| Son adapter | **`hektor_lora_v10_4b` — eğitim TAMAMLANDI** (2026-09-28 08:49→13:19, 1702/1702 adım, CPU, `discipline_safe_local`, tüm havuz, `train_loss` 0.897, karışım `trading_analysis_v1`). Kayıt: `adapter_a39ea4d6dc2e` **candidate**. Eval (Kademe-2 düzeltilmiş) 6/6 set base'e göre **accept**, veto yok — ama mutlak skor format/persona/rag'da negatif; **terfi ETMEDİ** (Kural 2, insan incelemesi gerekli; bkz. 2026-09-28 (2) kaydı). Önceki: v9 (candidate, terfi yok), v8 REJECT |
 | LLM | Yalnız yerel Ollama (`qwen3:4b-instruct-2507-q4_K_M` kod varsayılanı, 2026-09-13'ten beri; önceki `qwen3:4b` = Thinking-2507). **Bu makinenin `.env`'i: `qwen3:30b-a3b-instruct-2507-q4_K_M`** (2026-09-27; `qwen3:30b` etiketi de Thinking-2507'dir — bkz. 2026-09-27 (3) kaydı). Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır (testlerde kapalı). **Bu makinede `.env` şu an `false`** — 2026-09-06 sunucu yeniden başlatmasında döngüler kapalı açıldı; açmak bilinçli karar ister |
@@ -100,6 +100,42 @@ production terfisi ayrı insan onayı ister.
 
 > **v8 örneği (2026-09-11):** eval **REJECT** verdi — skor base'i açık ara geçmesine
 > rağmen tek bir dejenere cevap kategorik veto. "Skor iyi" terfi gerekçesi değildir.
+
+---
+
+## Son seans — 2026-09-28 (2): `hektor_lora_v10_4b` eğitildi + eval (ADAY, terfi YOK)
+
+**Koşu.** Kullanıcı onayı `apr_df69af0fdd14` (sohbette açık onay, `approval-approve` Claude
+tarafından kullanıcı talimatıyla), karar `wd_a03273ef8c` tüketildi. `start-train.ps1
+-MaxExamples 1791` (kullanıcı: "max examples") → plan 1702 adım × 1 epoch; `train --run`
+yeniden bölünce train=1682, 4 satır maskelenemedi → **1678 örnek, 1702 adım** (~24 örnek 2.
+kez görüldü; A8 kırpması yakalamadı — planlı epoch'u maskeleme ÖNCESİ satırdan hesaplıyor).
+`lora-split` (1702) ile `ensure_train_split` (1682) farklı bölüyor → AÇIK. Eğitim sırasında
+web arka plan döngüleri kapatıldı (21/22 çekirdek eğitime), sonra geri açıldı.
+Süre 4 sa 30 dk (~9,5 sn/adım). `train_loss` 0.897.
+
+**Eval** (`logs/lora-eval-all.ps1`, `reports/evals/adapter_eval_hektor_lora_v10_4b_*.json`):
+
+| Set | n | base | adapter | verdict |
+|---|---|---|---|---|
+| discipline_core | 16 | −0.06 (17 bayrak) | **0.94** (1) | accept |
+| risk_management | 12 | 0.00 (12) | **0.67** (4) | accept |
+| overfit_awareness | 12 | −0.17 (14) | **0.83** (2) | accept |
+| format_compliance | 12 | −1.42 (29) | −0.25 (15) | accept |
+| trader_persona | 16 | −2.63 (58) | −1.56 (41) | accept |
+| rag_integration | 12 | −1.08 (25) | −0.83 (22) | accept |
+
+Veto yok (çökme / garanti-kâr / boş / dejenere). **İnsan incelemesi (Claude, 8 bayraklı cevap):**
+- `contains:` bayraklarının hepsi YANLIŞ POZİTİF — adapter ifadeyi ÇÜRÜTÜYOR ("Tek backtest
+  yetersiz" → `tek backtest yeter` alt-dizesi; "Her seferinde kâr … bilinemez bir iddiadır").
+  Eval `_token_hit` kelime sınırı/çürütme bağlamı görmüyor → yeni bulgu (adapter aleyhine,
+  muhafazakâr).
+- GERÇEK sorunlar: bozuk Türkçe ("düşüktüktür"), Çince token sızıntısı ("后的"), kısa
+  cevaplar → persona/format bölümleri eksik; rag_integration'da bağlam terimlerini (yazar,
+  GARCH, Dupire…) base'ten AZ kullanıyor; bir cevapta şüpheli yönlendirme ("sonuç pasif
+  çıkarsa işlemi tersine çevir").
+- Sonuç: disiplin/risk/overfit belirgin iyileşme; RAG-bağlam kullanımı ve dil kalitesi zayıf.
+  **ADAY** — terfi için insan kararı + GGUF→Ollama + gerçek RAG ile uçtan uca deneme gerekir.
 
 ---
 
