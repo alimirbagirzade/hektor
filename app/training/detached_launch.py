@@ -214,10 +214,23 @@ def ensure_train_split(settings=None) -> tuple[int, int]:
 
     jd = s.jsonl_dir
     jd.mkdir(parents=True, exist_ok=True)
-    (jd / "train.jsonl").write_text("\n".join(train) + ("\n" if train else ""), encoding="utf-8")
-    (jd / "valid.jsonl").write_text("\n".join(valid) + ("\n" if valid else ""), encoding="utf-8")
+    _write_if_changed(jd / "train.jsonl", "\n".join(train) + ("\n" if train else ""))
+    _write_if_changed(jd / "valid.jsonl", "\n".join(valid) + ("\n" if valid else ""))
     log.info("Eğitim verisi bölündü: train=%d valid=%d → %s", len(train), len(valid), jd)
     return len(train), len(valid)
+
+
+def _write_if_changed(path: Path, text: str) -> None:
+    """İçerik AYNIYSA dosyaya dokunma (mtime korunur).
+
+    Her başlatma/kurtarma yeniden böler; aynı içerik yeniden yazılınca `train.jsonl`
+    mtime'ı ilerler ve nöbetçinin mtime tabanlı veri-kayması kontrolü yanlış alarm verirdi
+    (Kademe-2 A5). Belirlenimci bölme → aynı kaynak = aynı bayt.
+    """
+    with contextlib.suppress(OSError, UnicodeDecodeError):
+        if path.exists() and path.read_text(encoding="utf-8") == text:
+            return
+    path.write_text(text, encoding="utf-8")
 
 
 @dataclass
@@ -460,6 +473,11 @@ def _status_payload(
     max_examples: int,
     pid: int,
     approval_id: str = "",
+    *,
+    mix_weights: str = "",
+    mix_profile: str = "",
+    mix_decision_id: str = "",
+    data_sha256: str = "",
 ) -> dict:
     """``storage/train_status.json`` içeriği — reçetenin TAMAMI (saf, test edilebilir).
 
@@ -476,6 +494,14 @@ def _status_payload(
     saatte başladı" gibi) yerine gerçek onay kaydını doğrulamak için kullanır — dosyanın
     varlığı ya da tazeliği tek başına kalıcı yetki SAYILMAZ (bkz. HANDOFF §4: nöbetçi
     2026-09-15'te onaysız bir koşuyu tam bu yüzden diriltti).
+
+    ``mix_weights``/``mix_profile``/``mix_decision_id``: bu koşunun tükettiği karışım
+    ağırlık kararı (``weights_to_arg`` biçimi). Nöbetçi kurtarmada bunları `--mix-weights`
+    ile geri verir; yoksa etkileşimsiz alt süreç bir SONRAKİ eğitimin bekleyen kararını
+    tüketir ya da 5 ile çıkardı (Kademe-2 A2).
+
+    ``data_sha256``: başlangıçtaki kanonik kaynak (`lora_sft.jsonl`) hash'i — veri kayması
+    mtime yerine içerikle ölçülür (Kademe-2 A5; bkz. ``train_guard.recovery_allowed``).
     """
     return {
         "adapter": adapter_name,
@@ -487,6 +513,10 @@ def _status_payload(
         "pid": pid,
         "approval_id": approval_id or "",
         "started_at": _utcnow_iso(),
+        "mix_weights": mix_weights or "",
+        "mix_profile": mix_profile or "",
+        "mix_decision_id": mix_decision_id or "",
+        "data_sha256": data_sha256 or "",
     }
 
 
@@ -544,6 +574,102 @@ def plan_iterations(n_train: int, max_examples: int, profile: str | None) -> tup
     return steps_per_epoch * epochs, n_effective, epochs
 
 
+# Spawn sonrası alt sürecin HEMEN çıkıp çıkmadığını izleme süresi (sn). `train --run`
+# ağırlık/sızıntı/yük kapılarında birkaç saniyede 3/4/5/6 ile çıkar; bunu görmeden "başladı"
+# demek ölü bir durum kaydı bırakır. Testler 0 geçer (tek yoklama, beklemesiz).
+_EARLY_EXIT_WAIT_S = 8.0
+_EARLY_EXIT_HINTS = {
+    3: "taze insan onayı gerekiyor (Kural 8)",
+    4: "train-load-doctor NO-GO (rakip GPU/LLM yükü) — ayrıntı logs/train-full.log",
+    5: "karışım ağırlığı kararı yok — `uv run hektor mix weights`",
+    6: "eğitim verisinde eval sızıntısı — `uv run hektor mix leakage`",
+}
+
+
+def _fail(message: str) -> dict:
+    return {"ok": False, "message": message, "adapter": ""}
+
+
+def preflight_launch(adapter_name: str = "hektor_lora", *, run_load_doctor: bool = True) -> dict:
+    """Başlatma öncesi UCUZ, deterministik kontroller — onay TÜKETİLMEDEN önce çağrılır.
+
+    Kademe-2 A6: web/Auto-LoRA yolu tek kullanımlık onayı `launch()`'tan ÖNCE tüketiyordu;
+    ardından "zaten çalışıyor", "ağırlık kararı yok", boş bölme ya da kalite kapısı NO-GO
+    çıkınca onay boşa yanıyordu. Bu fonksiyon HİÇBİR ŞEY tüketmez/başlatmaz; yalnız
+    ``train.jsonl``'i (içerik aynıysa dokunmadan) yeniden böler.
+
+    Sıra: adapter adı → koşan eğitim → bekleyen ağırlık kararı → bölme (boş değil) →
+    pretrain-gate → eval sızıntısı → train-load-doctor. ``{ok, message, n_train}`` döner.
+    """
+    if not _ADAPTER_RE.match(adapter_name or ""):
+        return _fail("Geçersiz adapter adı — yalnız harf, rakam, _ ve - (en çok 64).")
+
+    if is_running():
+        return _fail("Zaten eğitim çalışıyor.")
+
+    # Her eğitimden önce karışım ağırlığı sorulur (kullanıcı kuralı). Alt süreç etkileşimsiz
+    # olduğundan kararın ÖNCEDEN kaydedilmiş olması gerekir; yoksa alt süreç exit 5 ile
+    # log'a gömülü düşerdi — burada açık mesajla erken dön.
+    from app.lora.weight_decision import WeightDecisionStore
+
+    if WeightDecisionStore().pending() is None:
+        return _fail(
+            "Eğitim öncesi karışım ağırlığı kararı yok. Önce: `uv run hektor mix weights` "
+            "(profil seç ya da math/statistics/reasoning/trading/coding ağırlıklarını gir)."
+        )
+
+    s = get_settings()
+    n_train, _n_valid = ensure_train_split(s)
+    if n_train <= 0:
+        return _fail(
+            "Eğitim verisi yok (lora_sft.jsonl boş). "
+            "Önce sentetik veri üret (synth-qa / lora-cloud-prep)."
+        )
+
+    # Kalite kapısı TÜM başlatma yollarında — eskiden yalnız scripts/start-train.ps1
+    # içindeydi; web butonu ve auto_pipeline denetlenmemiş veriyi eğitebiliyordu.
+    gate_blockers = _pretrain_gate_blockers(s)
+    if gate_blockers:
+        return _fail("Kalite kapısı NO-GO — eğitim başlatılmadı: " + " | ".join(gate_blockers[:3]))
+
+    # Sızıntı kapısı (alt süreç de uygular, 6 ile çıkar) — onay yanmadan önce burada.
+    try:
+        from app.lora.mix_cli import run_leakage_check
+
+        leak = run_leakage_check(s.jsonl_dir / "train.jsonl")
+    except Exception as exc:
+        return _fail(f"Sızıntı kapısı çalıştırılamadı — eğitim başlatılmadı (Kural 2): {exc}")
+    if not leak.get("clean"):
+        return _fail(
+            f"Eğitim verisinde eval sızıntısı: {leak.get('counts')} — "
+            "ayrıntı: `uv run hektor mix leakage`."
+        )
+
+    if run_load_doctor:
+        from app.training.train_load_doctor import run_train_doctor
+
+        doctor = run_train_doctor()
+        if doctor.verdict == "NO-GO":
+            return _fail(
+                "train-load-doctor NO-GO — "
+                + (" ".join(doctor.reasons) or "rakip GPU/LLM yükü, boş VRAM eşiğin altında.")
+            )
+
+    return {"ok": True, "message": "Ön-kontroller geçti.", "n_train": n_train}
+
+
+def _early_exit_code(proc: subprocess.Popen, wait_s: float) -> int | None:
+    """Alt süreç ``wait_s`` içinde çıktıysa çıkış kodunu, hâlâ yaşıyorsa ``None`` döndür."""
+    deadline = time.monotonic() + max(0.0, wait_s)
+    while True:
+        rc = proc.poll()
+        if rc is not None:
+            return int(rc)
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.25)
+
+
 def launch(
     adapter_name: str = "hektor_lora",
     iterations: int = 0,
@@ -552,6 +678,7 @@ def launch(
     profile: str | None = "discipline_safe_local",
     max_examples: int = 0,
     approval_id: str = "",
+    early_exit_wait_s: float | None = None,
 ) -> dict:
     """Eğitimi DETACHED başlat (web/terminal kapansa da sürer).
 
@@ -570,70 +697,29 @@ def launch(
     - approval_id: çağıranın (web endpoint / auto_pipeline) bu koşu için TÜKETTİĞİ taze
       onayın kimliği. `train_status.json`'a yazılır ki kurtarma/nöbetçi yolu bir ZAMAN
       PENCERESİ yerine gerçek onay kaydını doğrulayabilsin (bkz. `_status_payload`).
+    - early_exit_wait_s: spawn sonrası alt sürecin erken çıkışını izleme süresi (None →
+      ``_EARLY_EXIT_WAIT_S``). Alt süreç bu sürede çıkarsa durum dosyası SİLİNİR ve
+      ``ok=False`` + çıkış kodu döner (ölü koşu kaydı bırakılmaz; Kademe-2 A6).
     - {ok, message, adapter} döndürür. Eğitimi GERÇEKTEN başlatır (Kural 8: bu
       çağrı yalnızca açık kullanıcı eylemiyle — buton/onay — tetiklenir).
     """
     s = get_settings()
     root = s.root
 
-    # Adapter adı güvenliği (path traversal / CLI argüman): yalnız [A-Za-z0-9_-].
-    if not _ADAPTER_RE.match(adapter_name or ""):
-        return {
-            "ok": False,
-            "message": "Geçersiz adapter adı — yalnız harf, rakam, _ ve - (en çok 64).",
-            "adapter": "",
-        }
-
-    if is_running():
-        return {"ok": False, "message": "Zaten eğitim çalışıyor.", "adapter": ""}
-
-    # Her eğitimden önce karışım ağırlığı sorulur (kullanıcı kuralı). Alt süreç etkileşimsiz
-    # olduğundan kararın ÖNCEDEN kaydedilmiş olması gerekir; yoksa alt süreç exit 5 ile
-    # log'a gömülü düşerdi — burada açık mesajla erken dön.
-    from app.lora.weight_decision import WeightDecisionStore
-
-    if WeightDecisionStore().pending() is None:
-        return {
-            "ok": False,
-            "message": (
-                "Eğitim öncesi karışım ağırlığı kararı yok. Önce: `uv run hektor mix weights` "
-                "(profil seç ya da math/statistics/reasoning/trading/coding ağırlıklarını gir)."
-            ),
-            "adapter": "",
-        }
+    # Ucuz ön-kontroller (adapter adı, koşan eğitim, ağırlık kararı, bölme, kapı, sızıntı,
+    # yük doktoru). Çağıran (web/Auto-LoRA) bunları onayı tüketmeden ÖNCE de çağırır;
+    # burada durum değişmiş olabileceği için TEKRAR denetlenir.
+    pre = preflight_launch(adapter_name)
+    if not pre.get("ok"):
+        return _fail(str(pre.get("message", "Ön-kontrol başarısız.")))
+    n_train = int(pre.get("n_train", 0))
 
     # Atomik kilit: iki eş-zamanlı istek (çift-tık/retry) çift süreç başlatmasın.
     if not _acquire_launch_lock(root):
-        return {
-            "ok": False,
-            "message": "Eğitim şu an başlatılıyor — lütfen birkaç saniye bekle.",
-            "adapter": "",
-        }
+        return _fail("Eğitim şu an başlatılıyor — lütfen birkaç saniye bekle.")
 
     spawned = False
     try:
-        n_train, _n_valid = ensure_train_split(s)
-        if n_train <= 0:
-            return {
-                "ok": False,
-                "message": (
-                    "Eğitim verisi yok (lora_sft.jsonl boş). "
-                    "Önce sentetik veri üret (synth-qa / lora-cloud-prep)."
-                ),
-                "adapter": "",
-            }
-
-        # Kalite kapısı TÜM başlatma yollarında — eskiden yalnız scripts/start-train.ps1
-        # içindeydi; web butonu ve auto_pipeline denetlenmemiş veriyi eğitebiliyordu.
-        gate_blockers = _pretrain_gate_blockers(s)
-        if gate_blockers:
-            return {
-                "ok": False,
-                "message": "Kalite kapısı NO-GO — eğitim başlatılmadı: "
-                + " | ".join(gate_blockers[:3]),
-                "adapter": "",
-            }
-
         # Adım sayısı FİİLEN eğitilecek örnek sayısından (profil kırpması UYGULANDIKTAN
         # sonra) hesaplanır; profildeki `epochs` gerçekten karşılanır (bkz. plan_iterations).
         planned, n_effective, epochs = plan_iterations(n_train, max_examples, profile)
@@ -656,6 +742,17 @@ def launch(
         # `hektor train --run` iç onay kapısını atlasın (çift onay olmasın). STOP_ALL
         # iç komutta yine de geçerlidir. Manuel `hektor train --run` bu env'i ALMAZ.
         env["HEKTOR_TRAIN_SUPERVISED"] = "1"
+        # Bu yol hiçbir zaman nöbetçi kurtarması değildir (o start-train.ps1 -Supervised).
+        env.pop("HEKTOR_TRAIN_RECOVERY", None)
+
+        # Alt süreç (etkileşimsiz) BU bekleyen kararı tüketecek; ağırlıklar durum dosyasına
+        # yazılır ki kurtarma aynı ağırlıkları bayrakla geri verebilsin (Kademe-2 A2).
+        from app.lora.mix_common import weights_to_arg
+        from app.lora.weight_decision import WeightDecisionStore
+        from app.training.train_guard import sha256_file
+
+        pending = WeightDecisionStore().pending()
+        data_sha256 = sha256_file(_combined_source(s)) or ""
 
         popen_kwargs: dict = {"cwd": str(root), "env": env, "close_fds": True}
         if os.name == "nt":
@@ -685,7 +782,8 @@ def launch(
         # pid kaydı (Phase 2): /api/training/stop detached koşuyu pid ile durdurabilsin.
         # Reçetenin tamamı yazılır — nöbetçi yeniden başlatırken profil/örnek tavanını
         # unutmasın (bkz. _status_payload).
-        (root / "storage" / "train_status.json").write_text(
+        status_file = root / "storage" / "train_status.json"
+        status_file.write_text(
             json.dumps(
                 _status_payload(
                     adapter_name,
@@ -696,10 +794,25 @@ def launch(
                     max_examples,
                     proc.pid,
                     approval_id,
+                    mix_weights=weights_to_arg(pending.weights) if pending else "",
+                    mix_profile=pending.profile_name if pending else "",
+                    mix_decision_id=pending.decision_id if pending else "",
+                    data_sha256=data_sha256,
                 )
             ),
             encoding="utf-8",
         )
+
+        # Erken çıkış: alt süreç kapılarda (3/4/5/6) hemen düşerse "başlatıldı" deme ve
+        # ölü durum kaydı bırakma (nöbetçi onu diriltmeye çalışırdı).
+        wait_s = _EARLY_EXIT_WAIT_S if early_exit_wait_s is None else early_exit_wait_s
+        rc = _early_exit_code(proc, wait_s)
+        if rc is not None:
+            with contextlib.suppress(OSError):
+                status_file.unlink()
+            hint = _EARLY_EXIT_HINTS.get(rc, "ayrıntı: logs/train-full-err.log")
+            log.warning("Detached eğitim hemen çıktı (çıkış kodu %d): %s", rc, hint)
+            return _fail(f"Eğitim BAŞLAMADI — alt süreç hemen çıktı (çıkış kodu {rc}): {hint}.")
         spawned = True
         log.info(
             "Detached eğitim başlatıldı: %s (%d adım = %d örnek × %d epoch, dtype=%s)",

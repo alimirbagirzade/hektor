@@ -326,6 +326,10 @@ def test_training_run_requires_fresh_approval(client: TestClient, monkeypatch) -
     monkeypatch.setattr(
         "app.training.detached_launch.launch", lambda *a, **k: calls.append((a, k)) or {}
     )
+    # Ön-kontroller (A6: onaydan ÖNCE) bu testin konusu değil → geçti say.
+    monkeypatch.setattr(
+        "app.training.detached_launch.preflight_launch", lambda *a, **k: {"ok": True, "n_train": 5}
+    )
     r = client.post("/api/training/run", json={"adapter_name": "needs_approval", "iterations": 10})
     assert r.status_code == 200
     body = r.json()
@@ -350,6 +354,9 @@ def test_training_run_with_fresh_approval_consumes_and_launches(
         return {"ok": True, "message": "Eğitim başlatıldı (test mock)", "adapter": "ok"}
 
     monkeypatch.setattr("app.training.detached_launch.launch", _fake_launch)
+    monkeypatch.setattr(
+        "app.training.detached_launch.preflight_launch", lambda *a, **k: {"ok": True, "n_train": 5}
+    )
 
     # CLI/endpoint ile aynı (agent_id, action) → bir onay yalnız bir gerçek eğitimi yetkiler.
     st = SqliteStore()

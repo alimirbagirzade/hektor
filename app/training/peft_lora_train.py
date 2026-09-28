@@ -389,6 +389,28 @@ def find_last_checkpoint(output_dir: Path | str) -> tuple[str | None, int]:
     return str(path), step
 
 
+def clamp_steps_to_dataset(max_steps: int, n_planned_rows: int, n_ds: int, batch_size: int) -> int:
+    """Adım hedefini tokenize SONRASI örnek sayısına göre kıs (saf → offline test).
+
+    Kademe-2 A8: adım planı (``plan_iterations``) maskeleme/tokenize ÖNCESİ satır sayısından
+    yapılır. ``assistant_only_loss`` maskelenemeyen satırları ATTIĞINDA ``max_steps``
+    ``len(train_ds)``'i aşar → HF Trainer sessizce KISMİ bir 2. epoch koşar (profilin
+    epoch vaadi ihlal; v5 aşırı-uyum sınıfı).
+
+    Planlanan epoch sayısı, planın gerçekten dayandığı satır sayısından geri çıkarılır:
+    ``epochs = ceil(max_steps / ceil(n_planned_rows / batch))`` (plan tam N×epoch ise bu
+    profil epoch'udur; bilinçli çok-epoch istenmişse o da korunur). Tavan:
+    ``ceil(n_ds / batch) × epochs``. Hedef tavanı AŞMIYORSA dokunulmaz — plan asla büyütülmez.
+    """
+    bs = max(1, int(batch_size))
+    if max_steps <= 0 or n_ds <= 0:
+        return max_steps
+    planned_per_epoch = max(1, -(-max(1, int(n_planned_rows)) // bs))
+    epochs = max(1, -(-int(max_steps) // planned_per_epoch))
+    cap = max(1, -(-int(n_ds) // bs)) * epochs
+    return min(int(max_steps), cap)
+
+
 def zero_step_error(checkpoint: str, last_step: int, max_steps: int) -> str:
     """Devam edilecek checkpoint hedefi zaten karşılıyorsa gösterilecek HATA metni.
 
@@ -826,6 +848,19 @@ def train(cfg: PeftTrainConfig) -> dict:
     # "iterations=200" gerçekte 1 tam epoch (ör. 1919 adım) koşuyor, eğitim hiç bitmiyordu.
     # Artık max_steps adım sayısını TAM kapar; num_epochs yalnız tavan (max_steps onu keser).
     max_steps = cfg.iterations if cfg.iterations > 0 else steps_per_epoch
+    # Maskeleme/tokenize örnek attıysa plan (satır sayısından) veri setini aşar → kısmi
+    # ek epoch. Plan edilen epoch sayısını koruyacak şekilde kıs (asla büyütme).
+    clamped = clamp_steps_to_dataset(max_steps, len(train_rows), len(train_ds), cfg.batch_size)
+    if clamped < max_steps:
+        logger.warning(
+            "Adım hedefi %d → %d'e düşürüldü: tokenize/maskeleme sonrası %d/%d örnek kaldı; "
+            "eski hedef sessizce kısmi ek bir epoch koşturacaktı (plan epoch'u aşılmaz).",
+            max_steps,
+            clamped,
+            len(train_ds),
+            len(train_rows),
+        )
+        max_steps = clamped
     num_epochs = max(1, -(-max_steps // steps_per_epoch))  # ceil(max_steps/steps_per_epoch)
 
     output_dir = str(cfg.adapter_output_path)

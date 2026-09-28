@@ -510,6 +510,7 @@ def train_load_doctor_cmd(
         if report.free_vram_gb is not None:
             t.add_row("Boş VRAM (tahmini)", f"{report.free_vram_gb:.1f} GB")
         t.add_row("Eşik", f"{report.min_free_vram_gb:.1f} GB")
+        t.add_row("Eğitim cihazı", report.training_device)
         verdict_style = {"GO": "green", "WARN": "yellow", "NO-GO": "red"}[report.verdict]
         t.add_row("Karar", f"[{verdict_style}]{report.verdict}[/{verdict_style}]")
         console.print(t)
@@ -591,12 +592,28 @@ def train(
         # Karar burada yalnız ÇÖZÜLÜR; eğitim gerçekten başlarken tüketilir.
         import sys as _sys
 
-        from app.lora.mix_common import MixConfigError, format_weights
+        from app.lora.mix_common import MixConfigError, format_weights, weights_to_arg
         from app.lora.weight_decision import (
             WeightDecisionRequired,
             finalize_decision,
             resolve_training_weights,
         )
+
+        # Nöbetçi KURTARMASI (start-train.ps1 -Supervised → HEKTOR_TRAIN_RECOVERY=1): diriltilen
+        # koşunun ağırlıkları durum dosyasından BAYRAKLA geri verilmeli. Bayrak yoksa bekleyen
+        # (bir SONRAKİ eğitim için kaydedilmiş) karar sessizce tüketilirdi → reddet.
+        recovery = supervised and _os.environ.get("HEKTOR_TRAIN_RECOVERY") == "1"
+        if recovery and not (mix_profile or mix_weights):
+            console.print(
+                Panel.fit(
+                    "Kurtarma koşusu karışım ağırlığını durum dosyasından (--mix-weights / "
+                    "--mix-profile) almalı; bekleyen bir karar BAŞKA bir eğitime aittir ve "
+                    "burada tüketilmez. Durum dosyasında ağırlık yoksa yeni eğitim başlat.",
+                    title="⛔ Kurtarmada ağırlık kaydı yok",
+                    border_style="red",
+                )
+            )
+            raise typer.Exit(5)
 
         try:
             weight_decision = resolve_training_weights(
@@ -646,8 +663,42 @@ def train(
                     "devam ediliyor.[/yellow]"
                 )
 
+        # Eğitim verisi tazeliği (S1): lora_sft.jsonl → jsonl_dir/{train,valid}.jsonl SENKRONLA.
+        # CLI `train` doğrudan train.jsonl okur; lora-cloud-prep/assemble_sft lora_sft.jsonl yazar
+        # ama split'i güncellemez → bayat/boş veride saatlerce eğitim riski (CLI↔web drift).
+        # ensure_train_split kaynak doluysa yeniden böler (clobber onarımı), boşsa dokunmaz.
+        # Bölme + sızıntı kapısı TAZE ONAY TÜKETİLMEDEN ÖNCE çalışır (Kademe-2 A6): ucuz,
+        # deterministik kontroller başarısızsa tek kullanımlık onay boşa yanmasın.
+        from app.training.detached_launch import ensure_train_split
+
+        n_train, _n_valid = ensure_train_split(settings)
+        if n_train <= 0:
+            console.print(
+                "[red]Eğitim verisi yok (train.jsonl boş).[/red] Önce veri kur: "
+                "[cyan]uv run python scripts/assemble_sft.py && uv run hektor lora-split[/cyan] "
+                "ya da [cyan]uv run hektor lora-cloud-prep[/cyan]."
+            )
+            raise typer.Exit(1)
+        console.print(f"[dim]Eğitim verisi tazelendi: train={n_train}, valid={_n_valid}.[/dim]")
+
+        # Sızıntı kapısı: eval (validation/golden) soruları/cevapları eğitim verisinde olamaz.
+        from app.lora.mix_cli import run_leakage_check
+
+        leak = run_leakage_check(settings.jsonl_dir / "train.jsonl")
+        if not leak["clean"]:
+            console.print(
+                Panel.fit(
+                    f"Eğitim verisinde eval sızıntısı: {leak['counts']}\n"
+                    "Ayrıntı: [cyan]uv run hektor mix leakage[/cyan]",
+                    title="⛔ Golden/validation sızıntısı — eğitim başlamaz",
+                    border_style="red",
+                )
+            )
+            raise typer.Exit(6)
+
         # auto_pipeline/launch zaten kendi onayını aldıysa (supervised) iç kapı atlanır
-        # — çift onay olmasın; ama STOP_ALL her zaman geçerli.
+        # — çift onay olmasın; ama STOP_ALL her zaman geçerli. Onay, yukarıdaki TÜM ucuz
+        # ön-kontroller geçtikten SONRA tüketilir.
         if not supervised:
             decision = authorize_training_action(
                 "train_run",
@@ -678,39 +729,20 @@ def train(
         else:
             console.print("[dim]Denetimli (supervised) eğitim — üst katman onayı kullanıldı.[/dim]")
 
-        # Eğitim verisi tazeliği (S1): lora_sft.jsonl → jsonl_dir/{train,valid}.jsonl SENKRONLA.
-        # CLI `train` doğrudan train.jsonl okur; lora-cloud-prep/assemble_sft lora_sft.jsonl yazar
-        # ama split'i güncellemez → bayat/boş veride saatlerce eğitim riski (CLI↔web drift).
-        # ensure_train_split kaynak doluysa yeniden böler (clobber onarımı), boşsa dokunmaz.
-        from app.training.detached_launch import ensure_train_split
-
-        n_train, _n_valid = ensure_train_split(settings)
-        if n_train <= 0:
-            console.print(
-                "[red]Eğitim verisi yok (train.jsonl boş).[/red] Önce veri kur: "
-                "[cyan]uv run python scripts/assemble_sft.py && uv run hektor lora-split[/cyan] "
-                "ya da [cyan]uv run hektor lora-cloud-prep[/cyan]."
-            )
-            raise typer.Exit(1)
-        console.print(f"[dim]Eğitim verisi tazelendi: train={n_train}, valid={_n_valid}.[/dim]")
-
-        # Sızıntı kapısı: eval (validation/golden) soruları/cevapları eğitim verisinde olamaz.
-        from app.lora.mix_cli import run_leakage_check
-
-        leak = run_leakage_check(settings.jsonl_dir / "train.jsonl")
-        if not leak["clean"]:
-            console.print(
-                Panel.fit(
-                    f"Eğitim verisinde eval sızıntısı: {leak['counts']}\n"
-                    "Ayrıntı: [cyan]uv run hektor mix leakage[/cyan]",
-                    title="⛔ Golden/validation sızıntısı — eğitim başlamaz",
-                    border_style="red",
-                )
-            )
-            raise typer.Exit(6)
-
-        weight_decision = finalize_decision(weight_decision, consumed_by=f"train:{adapter_name}")
+        weight_decision = finalize_decision(
+            weight_decision,
+            consumed_by=f"{'train-recovery' if recovery else 'train'}:{adapter_name}",
+        )
         console.print(f"[dim]Ağırlık kararı tüketildi: {weight_decision.decision_id}[/dim]")
+        # Makine-okunur satır (Rich SARMADAN, düz print): start-train.ps1 bunu log'dan okuyup
+        # train_status.json'a işler → nöbetçi kurtarmada AYNI ağırlıkları `--mix-weights` ile
+        # geri verir, bir sonraki eğitimin bekleyen kararını tüketmez.
+        print(
+            f"MIX_DECISION id={weight_decision.decision_id} "
+            f"profile={weight_decision.profile_name} "
+            f"weights={weights_to_arg(weight_decision.weights)}",
+            flush=True,
+        )
 
     if resolved == "mlx":
         from app.training.mlx_lora_train import TrainConfig
@@ -4644,7 +4676,7 @@ def train_recovery_check(
 
     from app.memory.sqlite_store import SqliteStore
     from app.training.detached_launch import read_detached_training_status
-    from app.training.train_guard import recovery_allowed
+    from app.training.train_guard import SOURCE_DATA_REL, recovery_allowed, sha256_file
 
     settings = get_settings()
     status = read_detached_training_status(settings.root)
@@ -4658,8 +4690,14 @@ def train_recovery_check(
     if train_jsonl.exists():
         data_mtime = _dt.datetime.fromtimestamp(train_jsonl.stat().st_mtime, tz=_dt.UTC)
 
+    # Kurtarma `lora_sft.jsonl`'i YENİDEN böler ve train.jsonl'i yeniden yazar → mtime
+    # tek başına yanıltır; durum dosyası başlangıç hash'ini taşıyorsa içerik kıyaslanır.
     verdict = recovery_allowed(
-        status, approvals, now=_dt.datetime.now(_dt.UTC), data_mtime=data_mtime
+        status,
+        approvals,
+        now=_dt.datetime.now(_dt.UTC),
+        data_mtime=data_mtime,
+        data_sha256=sha256_file(settings.root / SOURCE_DATA_REL),
     )
     if as_json:
         console.print_json(json.dumps(verdict.to_dict(), ensure_ascii=False))
