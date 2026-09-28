@@ -1404,16 +1404,31 @@
       });
   }
 
+  // MoE base (adında A3B/MoE geçen) yazılınca yalnız-attention profilini öner: diğer profillerin
+  // gate/up/down hedefleri birleşik-uzman MoE'de yok → sunucu eğitimi açık hatayla durdurur.
+  var drBaseModelEl = document.getElementById("drBaseModel");
+  var trProfileEl = document.getElementById("trProfile");
+  if (drBaseModelEl && trProfileEl) {
+    drBaseModelEl.addEventListener("change", function () {
+      if (/a3b|moe/i.test(drBaseModelEl.value || "")) trProfileEl.value = "moe30b_attn_local";
+    });
+  }
+
   var startTrainBtn = document.getElementById("startTrainBtn");
   if (startTrainBtn) {
     startTrainBtn.addEventListener("click", function () {
       // Phase 4D-1: gerçek eğitim tehlikeli → tek-tık yok, önce confirm.
       if (!window.confirm("Bu işlem gerçek LoRA training başlatabilir. Fresh manual "
           + "approval olmadan başlamamalıdır. Devam etmek istiyor musunuz?")) return;
+      var itersRaw = parseInt((document.getElementById("drIterations") || {}).value, 10);
+      var maxExRaw = parseInt((document.getElementById("trMaxExamples") || {}).value, 10);
       var payload = {
         base_model: (document.getElementById("drBaseModel") || {}).value || "",
         adapter_name: (document.getElementById("trAdapterName") || {}).value || "hektor_lora",
-        iterations: parseInt((document.getElementById("drIterations") || {}).value, 10) || 500,
+        // 0 = profil planından hesapla (sunucu: örnek × epoch). NaN → eski varsayılan 500.
+        iterations: isNaN(itersRaw) ? 500 : Math.max(0, itersRaw),
+        profile: (document.getElementById("trProfile") || {}).value || "",
+        max_examples: isNaN(maxExRaw) ? 0 : Math.max(0, maxExRaw),
         // batch_size / num_layers BILEREK gonderilmiyor: gercek egitim yolu
         // (launch -> train --run) bunlari HIC kullanmiyor ve dry-run'da yalniz MLX
         // (macOS) dalinda gecerliler. Windows/Linux PEFT'te deger girmek kullaniciyi
@@ -1427,7 +1442,10 @@
       if (!window.confirm(
         "GERÇEK LoRA eğitimi başlatılacak:\n" +
         "Adapter: " + payload.adapter_name + "\n" +
-        "İterasyon: " + payload.iterations + "\n\n" +
+        "Temel model: " + (payload.base_model || "(varsayılan)") + "\n" +
+        "Profil: " + (payload.profile || "discipline_safe_local") + "\n" +
+        "Örnek tavanı: " + (payload.max_examples || "profil") + "\n" +
+        "İterasyon: " + (payload.iterations || "plandan (örnek × epoch)") + "\n\n" +
         "Saatler sürebilir; bilgisayar açık kalmalı. Sunucu TAZE manuel onay ister " +
         "(ilk tık onay isteği oluşturur → ONAYLAR sekmesinden onayla → tekrar başlat).\n\n" +
         "Devam edilsin mi?"

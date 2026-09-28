@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -137,6 +138,18 @@ def find_run_approval(
     return None
 
 
+def last_checkpoint_step(adapter_dir: Path) -> int | None:
+    """Adapter klasöründeki en büyük ``checkpoint-N`` adımı (yoksa None). Salt-okuma."""
+    if not adapter_dir.is_dir():
+        return None
+    steps = [
+        int(m.group(1))
+        for p in adapter_dir.iterdir()
+        if p.is_dir() and (m := re.match(r"^checkpoint-(\d+)$", p.name))
+    ]
+    return max(steps) if steps else None
+
+
 @dataclass
 class RecoveryVerdict:
     """Nöbetçi bu koşuyu diriltebilir mi?"""
@@ -156,8 +169,14 @@ def recovery_allowed(
     now: dt.datetime,
     data_mtime: dt.datetime | None = None,
     data_sha256: str | None = None,
+    last_checkpoint_step: int | None = None,
 ) -> RecoveryVerdict:
     """Çöken bir eğitimi yeniden başlatmak YETKİLİ mi? FAIL-CLOSED.
+
+    ``last_checkpoint_step``: adapter klasöründeki en büyük ``checkpoint-N``. Planlanan
+    adıma (``status.iterations``) ulaşmışsa koşu ÇÖKMEMİŞ, BİTMİŞTİR → dirilme yok
+    (2026-09-28: v10 bittikten sonra durum dosyası diskte kaldı ve kontrol "kurtarma
+    yetkili" diyordu; nöbetçi açıkken bitmiş koşuyu her 5 dakikada yeniden başlatırdı).
 
     Nöbetçi kurtarması Kural 8'den muaftır ("onay zaten tüketilmişti") — ama bu muafiyet
     yalnız o cümle DOĞRUYSA geçerlidir. Burada doğrulanır; doğrulanamıyorsa dirilme YOK.
@@ -174,6 +193,18 @@ def recovery_allowed(
     if started_at is None:
         return RecoveryVerdict(
             False, "durum dosyasında okunabilir 'started_at' yok — koşu onaya bağlanamıyor"
+        )
+
+    try:
+        planned = int(status.get("iterations") or 0)
+    except (TypeError, ValueError):
+        planned = 0
+    if last_checkpoint_step is not None and planned > 0 and last_checkpoint_step >= planned:
+        return RecoveryVerdict(
+            False,
+            f"koşu TAMAMLANMIŞ (checkpoint-{last_checkpoint_step} ≥ plan {planned}) — "
+            "diriltilecek çöküş yok; yeni eğitim yeni onay ister",
+            {"last_checkpoint_step": last_checkpoint_step, "planned_steps": planned},
         )
 
     age_h = (now - started_at).total_seconds() / 3600.0

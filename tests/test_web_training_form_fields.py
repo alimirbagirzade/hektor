@@ -60,3 +60,11 @@ def test_hiperparametrelerin_kaynagi_yaziyor(html: str) -> None:
     """Kullanıcı 'neden burada ayar yok' diye sormasın: reçete profili işaret edilmeli."""
     assert "lora_profiles.yaml" in html
     assert "discipline_safe_local" in html
+
+
+@pytest.mark.parametrize("alan_id", ["trProfile", "trMaxExamples"])
+def test_profil_ve_ornek_tavani_formda(html: str, js: str, alan_id: str) -> None:
+    """30B MoE: profil ve örnek tavanı web'den seçilebilmeli ve isteğe girmeli."""
+    assert f'id="{alan_id}"' in html
+    assert alan_id in js
+    assert 'value="moe30b_attn_local"' in html

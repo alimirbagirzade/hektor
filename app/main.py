@@ -802,7 +802,6 @@ def train(
             )
     else:
         from app.training.peft_lora_train import (
-            TARGET_MODULES,
             PeftTrainConfig,
             dry_run,
             load_lora_profile,
@@ -813,7 +812,7 @@ def train(
         if profile:
             try:
                 prof = load_lora_profile(profile)
-            except (KeyError, FileNotFoundError) as exc:
+            except (KeyError, FileNotFoundError, ValueError) as exc:
                 console.print(f"[red]Profil hatası: {exc}[/red]")
                 raise typer.Exit(1) from exc
             # epochs PeftTrainConfig alanı değil — ayıkla (epoch ≠ iterasyon). max_examples
@@ -852,7 +851,7 @@ def train(
                     lora_alpha=cfg.lora_alpha,  # type: ignore[attr-defined]
                     lora_dropout=cfg.lora_dropout,  # type: ignore[attr-defined]
                     learning_rate=cfg.learning_rate,
-                    target_modules=list(TARGET_MODULES),
+                    target_modules=list(cfg.target_modules),  # type: ignore[attr-defined]
                     notes=(
                         f"manuel train --run --backend peft "
                         f"(iterations={iterations}, profile={profile or '-'}) "
@@ -4715,7 +4714,12 @@ def train_recovery_check(
 
     from app.memory.sqlite_store import SqliteStore
     from app.training.detached_launch import read_detached_training_status
-    from app.training.train_guard import SOURCE_DATA_REL, recovery_allowed, sha256_file
+    from app.training.train_guard import (
+        SOURCE_DATA_REL,
+        last_checkpoint_step,
+        recovery_allowed,
+        sha256_file,
+    )
 
     settings = get_settings()
     status = read_detached_training_status(settings.root)
@@ -4737,6 +4741,11 @@ def train_recovery_check(
         now=_dt.datetime.now(_dt.UTC),
         data_mtime=data_mtime,
         data_sha256=sha256_file(settings.root / SOURCE_DATA_REL),
+        last_checkpoint_step=(
+            last_checkpoint_step(settings.adapters_dir / str(status.get("adapter") or ""))
+            if status.get("adapter")
+            else None
+        ),
     )
     if as_json:
         console.print_json(json.dumps(verdict.to_dict(), ensure_ascii=False))

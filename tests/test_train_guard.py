@@ -232,3 +232,27 @@ def test_find_run_approval_kimlikle_dogrudan_bulur() -> None:
     row = _approval(started - dt.timedelta(hours=10), aid="apr_x")
     assert find_run_approval([row], started, approval_id="apr_x") is not None
     assert find_run_approval([row], started, approval_id="apr_yok") is None
+
+
+# --- 2026-09-28: bitmiş koşu "çökmüş" sanılmamalı ------------------------------
+def test_tamamlanmis_kosu_diriltilemez() -> None:
+    """v10 bittikten sonra durum dosyası kaldı; kontrol 'yetkili' diyordu (nöbetçi tuzağı)."""
+    started = _NOW - dt.timedelta(hours=2)
+    ok = [_approval(started - dt.timedelta(minutes=2))]
+    v = recovery_allowed(_status(started), ok, now=_NOW, last_checkpoint_step=600)
+    assert not v.allowed
+    assert "TAMAMLANMIŞ" in v.reason
+    # Yarıda kalmış koşu hâlâ diriltilebilir.
+    assert recovery_allowed(_status(started), ok, now=_NOW, last_checkpoint_step=575).allowed
+    assert recovery_allowed(_status(started), ok, now=_NOW, last_checkpoint_step=None).allowed
+
+
+def test_last_checkpoint_step(tmp_path) -> None:
+    from app.training.train_guard import last_checkpoint_step
+
+    assert last_checkpoint_step(tmp_path / "yok") is None
+    assert last_checkpoint_step(tmp_path) is None
+    for n in (1675, 1702, 1700):
+        (tmp_path / f"checkpoint-{n}").mkdir()
+    (tmp_path / "checkpoint-x").mkdir()
+    assert last_checkpoint_step(tmp_path) == 1702

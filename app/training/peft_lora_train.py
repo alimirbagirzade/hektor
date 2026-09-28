@@ -8,11 +8,13 @@ Baslatma: yalnizca --run parametresiyle gercek egitim yapilir (dry-run varsayila
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import re
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,13 @@ TARGET_MODULES: tuple[str, ...] = (
     "up_proj",
     "down_proj",
 )
+
+# MoE (ör. Qwen3-30B-A3B) için: transformers 5.x uzmanları birleşik 3B parametre
+# (`experts.gate_up_proj`/`experts.down_proj`) olarak tutar → gate/up/down_proj MODÜL değildir
+# ve PEFT onları sessizce ATLAR (yalnız attention eğitilir). Bu yüzden MoE profilleri hedefi
+# açıkça attention'a daraltır; train() eşleşmeyen hedefte HATA verir (bkz.
+# unmatched_target_modules).
+ATTENTION_TARGET_MODULES: tuple[str, ...] = ("q_proj", "k_proj", "v_proj", "o_proj")
 
 # PEFT init_lora_weights için geçerli string stratejileri (bool dışında).
 # Kaynak: peft 0.19 LoraConfig — gaussian/pissa/olora/eva/loftq/corda/orthogonal.
@@ -146,6 +155,151 @@ class PeftTrainConfig:
     # kaldıraç — 4B/1.5B'de tam set (~2000) tek epoch'ta bile saatlerce sürer; bu yüzden
     # yerel eğitim temsilî bir alt-kümeyle yapılır. Determinist örnekleme (seed).
     max_examples: int = 0
+    # LoRA hedef modülleri — YALNIZ TARGET_MODULES'ın alt kümesi (GGUF uyumu; lm_head/embed
+    # yasak). Profil `target_modules` ile daraltabilir (MoE → ATTENTION_TARGET_MODULES).
+    target_modules: tuple[str, ...] = TARGET_MODULES
+    # Gradient checkpointing: aktivasyonları saklamak yerine geri yayılımda yeniden hesaplar →
+    # bellek düşer, adım ~%20-30 yavaşlar. 30B gibi büyük base'lerde CPU RAM'i için açılır.
+    gradient_checkpointing: bool = False
+
+
+def normalize_target_modules(value: object) -> tuple[str, ...]:
+    """Profildeki ``target_modules``'ı doğrula: boş olmayan, TARGET_MODULES alt kümesi.
+
+    lm_head/embed_tokens gibi hedefler GGUF dönüşümünde sessizce düşer (tied-embeddings) →
+    erken ValueError. Sıra TARGET_MODULES sırasına normalize edilir (determinizm).
+    """
+    if isinstance(value, str) or not isinstance(value, list | tuple):
+        raise ValueError(f"target_modules liste olmalı: {value!r}")
+    names = {str(v).strip() for v in value}
+    if not names:
+        raise ValueError("target_modules boş olamaz.")
+    bad = sorted(names - set(TARGET_MODULES))
+    if bad:
+        raise ValueError(
+            f"Desteklenmeyen target_modules: {bad}. İzin verilen: {list(TARGET_MODULES)} "
+            "(lm_head/embed GGUF dönüşümünde sessizce düşer)."
+        )
+    return tuple(t for t in TARGET_MODULES if t in names)
+
+
+def unmatched_target_modules(module_names: list[str], targets: tuple[str, ...]) -> list[str]:
+    """Modelde HİÇBİR modülle eşleşmeyen hedefleri döndür (PEFT'in sonek eşleşmesiyle aynı).
+
+    PEFT, en az bir hedef eşleştiği sürece eşleşmeyenleri SESSİZCE yok sayar: MoE
+    modelinde (birleşik uzmanlar) gate/up/down_proj istenir ama yalnız attention eğitilir.
+    Reçetenin sessizce değişmesi Kural 2 ihlalidir → train() bu listeyi boş görmek ister.
+    """
+    missing: list[str] = []
+    for t in targets:
+        suffix = "." + t
+        if not any(n == t or n.endswith(suffix) for n in module_names):
+            missing.append(t)
+    return missing
+
+
+# CPU eğitiminde base ağırlıklarının üstüne tahmini ek bellek payı (aktivasyon, LoRA
+# optimizer durumu, tokenizer, Python). Ölçüm değil, muhafazakâr tahmin.
+_RAM_OVERHEAD_FRAC = 0.15
+_RAM_OVERHEAD_GB = 6.0
+
+
+def estimate_cpu_train_ram_gb(checkpoint_bytes: int, *, src_bytes: int, dst_bytes: int) -> float:
+    """Checkpoint boyutundan (src dtype) hedef dtype'ta CPU eğitim RAM'i tahmini (GB).
+
+    Ör. 30B bf16 checkpoint ≈ 61 GB → bf16 eğitim ≈ 76 GB, fp32 ≈ 146 GB (128 GB'a sığmaz).
+    """
+    weights_gb = checkpoint_bytes * (dst_bytes / src_bytes) / 1024**3
+    return round(weights_gb * (1 + _RAM_OVERHEAD_FRAC) + _RAM_OVERHEAD_GB, 1)
+
+
+def _checkpoint_total_bytes(base_model: str) -> int | None:
+    """Base checkpoint'in safetensors toplam boyutu (bayt) — yalnız YEREL okuma, ağ yok.
+
+    Yerel klasör ya da HF önbelleğindeki ``model.safetensors.index.json`` → ``metadata.
+    total_size``; tek dosyalı modelde ``model.safetensors`` boyutu. Bulunamazsa None.
+    """
+    p = Path(base_model)
+    index: Path | None = None
+    single: Path | None = None
+    if p.is_dir():
+        index, single = p / "model.safetensors.index.json", p / "model.safetensors"
+    else:
+        try:
+            from huggingface_hub import try_to_load_from_cache
+
+            hit = try_to_load_from_cache(base_model, "model.safetensors.index.json")
+            if isinstance(hit, str):
+                index = Path(hit)
+            hit1 = try_to_load_from_cache(base_model, "model.safetensors")
+            if isinstance(hit1, str):
+                single = Path(hit1)
+        except Exception:
+            return None
+    try:
+        if index is not None and index.is_file():
+            meta = json.loads(index.read_text(encoding="utf-8")).get("metadata") or {}
+            total = int(meta.get("total_size") or 0)
+            return total or None
+        if single is not None and single.is_file():
+            return single.stat().st_size
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def check_cpu_ram(base_model: str, dst_bytes: int) -> tuple[bool, str]:
+    """CPU eğitimi için RAM yeterli mi? (ok, mesaj). Belirlenemezse ok=True + uyarı mesajı.
+
+    Yetersiz RAM'de 30B yüklemesi saatlerce swap'lar ya da OOM ile düşer; nöbetçi onu
+    tekrar tekrar diriltirdi. Bu yüzden model yüklenmeden ÖNCE açık hata verilir.
+    """
+    total = _checkpoint_total_bytes(base_model)
+    if not total:
+        return True, f"RAM ön-kontrolü atlandı: {base_model} checkpoint boyutu yerelde bulunamadı."
+    try:
+        import psutil
+
+        avail_gb = psutil.virtual_memory().available / 1024**3
+    except Exception:
+        return True, "RAM ön-kontrolü atlandı: psutil yok."
+    # Hub checkpoint'leri bf16/fp16 yayımlanır (2 bayt); fp32 hedef RAM'i ikiye katlar.
+    need_gb = estimate_cpu_train_ram_gb(total, src_bytes=2, dst_bytes=dst_bytes)
+    msg = f"RAM: gereken ≈{need_gb} GB, kullanılabilir {avail_gb:.1f} GB ({base_model})."
+    if need_gb > avail_gb:
+        hint = " HEKTOR_TRAIN_DTYPE=bf16 kullan;" if dst_bytes > 2 else ""
+        return False, (
+            f"Yetersiz RAM — {msg}{hint} Ollama modellerini boşalt / arka plan döngülerini "
+            "kapat ya da daha küçük base seç."
+        )
+    return True, msg
+
+
+@contextlib.contextmanager
+def _keep_awake() -> Iterator[None]:
+    """Eğitim boyunca Windows'un UYKUYA geçmesini engelle (kalıcı güç ayarı DEĞİŞMEZ).
+
+    SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) yalnız bu iş parçacığı
+    yaşarken geçerlidir; süreç biterse/çökerse Windows kendiliğinden bırakır. Ekranın
+    kapanmasına izin verilir. Windows dışı sistemlerde no-op.
+    """
+    if os.name != "nt":
+        yield
+        return
+    import ctypes
+
+    es_continuous, es_system_required = 0x80000000, 0x00000001
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined,unused-ignore]
+    try:
+        kernel32.SetThreadExecutionState(es_continuous | es_system_required)
+        logger.info("Uyku engeli AKTİF (eğitim süresince).")
+    except Exception:
+        logger.warning("Uyku engeli ayarlanamadı; güç ayarlarını kontrol et.")
+    try:
+        yield
+    finally:
+        with contextlib.suppress(Exception):
+            kernel32.SetThreadExecutionState(es_continuous)
 
 
 def _check_deps() -> list[str]:
@@ -170,7 +324,7 @@ def build_lora_kwargs(cfg: PeftTrainConfig) -> dict:
         "lora_alpha": cfg.lora_alpha,
         "lora_dropout": cfg.lora_dropout,
         "bias": "none",
-        "target_modules": list(TARGET_MODULES),
+        "target_modules": list(normalize_target_modules(list(cfg.target_modules))),
         "use_rslora": cfg.use_rslora,
         "use_dora": cfg.use_dora,
         "init_lora_weights": normalize_init_lora_weights(cfg.init_lora_weights),
@@ -212,6 +366,10 @@ def build_training_kwargs(
     }
     if cfg.neftune_noise_alpha and cfg.neftune_noise_alpha > 0:
         kwargs["neftune_noise_alpha"] = cfg.neftune_noise_alpha
+    if cfg.gradient_checkpointing:
+        kwargs["gradient_checkpointing"] = True
+        # Reentrant olmayan yol PEFT'te (donuk base + LoRA) input grad hilesi olmadan çalışır.
+        kwargs["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
     if max_steps and max_steps > 0:
         kwargs["max_steps"] = max_steps
     return _adapt_warmup(kwargs, max_steps=max_steps, num_epochs=num_epochs)
@@ -282,7 +440,10 @@ def recipe_summary(cfg: PeftTrainConfig) -> dict:
         techniques.append("assistant_only_loss (yalnız asistan token kaybı — yerelde aktif)")
     if cfg.kl_reg_beta and cfg.kl_reg_beta > 0:
         techniques.append(f"kl_reg (β={cfg.kl_reg_beta}, base'e KL cezası — forgetting azaltma)")
+    if cfg.gradient_checkpointing:
+        techniques.append("gradient_checkpointing (bellek ↓, adım yavaş)")
     return {
+        "target_modules": list(cfg.target_modules),
         "r": cfg.lora_r,
         "alpha": cfg.lora_alpha,
         "dropout": cfg.lora_dropout,
@@ -335,7 +496,13 @@ def load_lora_profile(name: str, profiles_path: Path | None = None) -> dict:
     for yaml_key, cfg_field in field_map.items():
         if yaml_key in prof and prof[yaml_key] is not None:
             out[cfg_field] = prof[yaml_key]
-    # epochs/target_modules/max_examples/note çağırana ayrı bilgi olarak verilebilir.
+    # target_modules ARTIK uygulanır (eskiden YAML'da yazıp sessizce yok sayılıyordu); geçersiz
+    # hedef (lm_head/embed/bilinmeyen) → ValueError, profil yüklenmez.
+    if prof.get("target_modules") is not None:
+        out["target_modules"] = normalize_target_modules(prof["target_modules"])
+    if prof.get("gradient_checkpointing") is not None:
+        out["gradient_checkpointing"] = bool(prof["gradient_checkpointing"])
+    # epochs/max_examples/note çağırana ayrı bilgi olarak verilebilir.
     for extra in ("epochs", "max_examples"):
         if extra in prof:
             out[extra] = prof[extra]
@@ -500,6 +667,9 @@ def dry_run(cfg: PeftTrainConfig) -> dict:
         "iterations": cfg.iterations,
         "max_examples": cfg.max_examples,
         "recipe": recipe_summary(cfg),
+        "ram_check": check_cpu_ram(
+            cfg.base_model, 2 if os.environ.get("HEKTOR_TRAIN_DTYPE", "fp32") == "bf16" else 4
+        )[1],
         "missing_packages": missing,
         "install_cmd": f"uv pip install {' '.join(missing)}" if missing else None,
     }
@@ -727,6 +897,15 @@ def train(cfg: PeftTrainConfig) -> dict:
     dtype = torch.float16 if device == "cuda" else cpu_dtype
     logger.info("PEFT LoRA egitimi basladi. Cihaz: %s, dtype: %s", device, dtype)
 
+    # 30B gibi büyük base'lerde yetersiz RAM'le yükleme saatlerce swap'lar/OOM ile düşer ve
+    # nöbetçi onu sonsuza dek diriltir → model yüklenmeden ÖNCE açık hata (Kural 2).
+    if device == "cpu":
+        ram_ok, ram_msg = check_cpu_ram(cfg.base_model, 2 if _want_bf16 else 4)
+        if not ram_ok:
+            logger.error("%s", ram_msg)
+            return {"ok": False, "error": ram_msg}
+        logger.info("%s", ram_msg)
+
     tokenizer = AutoTokenizer.from_pretrained(cfg.base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -750,6 +929,21 @@ def train(cfg: PeftTrainConfig) -> dict:
             cfg.init_lora_weights,
         )
     logger.info("LoRA reçetesi: %s", recipe_summary(cfg))
+    missing_targets = unmatched_target_modules(
+        [n for n, _ in model.named_modules()], tuple(cfg.target_modules)
+    )
+    if missing_targets:
+        err = (
+            f"LoRA hedefleri modelde YOK: {missing_targets} ({cfg.base_model}). PEFT bunları "
+            "sessizce atlayıp reçeteyi değiştirirdi. MoE modelde (birleşik uzmanlar) yalnız "
+            "attention hedefleyen profil kullan (ör. moe30b_attn_local)."
+        )
+        logger.error("%s", err)
+        return {"ok": False, "error": err}
+    if cfg.gradient_checkpointing:
+        # KV-önbellek checkpointing ile uyumsuz (her adımda uyarı + boşa bellek).
+        model.config.use_cache = False
+        logger.info("Gradient checkpointing AKTİF (bellek ↓, adım ~%20-30 yavaş).")
     peft_config = LoraConfig(**build_lora_kwargs(cfg))
     model = get_peft_model(model, peft_config)
     model.print_trainable_parameters()
@@ -917,7 +1111,8 @@ def train(cfg: PeftTrainConfig) -> dict:
         err = zero_step_error(resume_plan.checkpoint, resume_plan.last_step, max_steps)
         logger.error("%s", err)
         return {"ok": False, "error": err}
-    trainer.train(resume_from_checkpoint=resume_plan.checkpoint)
+    with _keep_awake():
+        trainer.train(resume_from_checkpoint=resume_plan.checkpoint)
     finished_at = _dt.datetime.now().isoformat(timespec="seconds")
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)

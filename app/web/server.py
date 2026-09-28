@@ -1424,6 +1424,15 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
     # bölme, kalite kapısı, sızıntı, yük doktoru) TEK KULLANIMLIK onay tüketilmeden ÖNCE.
     # Eskiden onay önce yanıyor, sonra launch() bu kontrollerde düşüyordu.
     adapter = req.adapter_name or "hektor_lora"
+    profile = (req.profile or "").strip() or "discipline_safe_local"
+    # Profil adı/hedefleri onay tüketilmeden ÖNCE doğrulanır (bilinmeyen profil / geçersiz
+    # target_modules → onay yanmadan net hata).
+    from app.training.peft_lora_train import load_lora_profile
+
+    try:
+        load_lora_profile(profile)
+    except (KeyError, ValueError, FileNotFoundError) as exc:
+        return TrainingStartResponse(ok=False, status="error", message=f"Profil hatası: {exc}")
     pre = detached_launch.preflight_launch(adapter)
     if not pre.get("ok"):
         return TrainingStartResponse(
@@ -1434,7 +1443,10 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
 
     decision = authorize_training_action(
         "train_run",
-        (f"Gerçek LoRA eğitimi (web): {adapter} ({req.iterations} adım)"),
+        (
+            f"Gerçek LoRA eğitimi (web): {adapter} ({req.iterations} adım, profil={profile}, "
+            f"base={req.base_model or 'varsayılan'}, max_examples={req.max_examples or 'profil'})"
+        ),
         agent_id="lora-trainer",
     )
     if decision.mode == "stop_all":
@@ -1461,6 +1473,8 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
         adapter_name=adapter,
         iterations=req.iterations,
         base_model=req.base_model or None,
+        profile=profile,
+        max_examples=req.max_examples,
         approval_id=decision.approval_id,
     )
     return TrainingStartResponse(

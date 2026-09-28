@@ -256,6 +256,12 @@ class TrainingStartRequest(BaseModel):
     base_model: str = ""  # boş → sunucu backend'e göre seçer (PEFT: 4B brain, MLX: mlx_base_model)
     adapter_name: str = "hektor_lora"
     iterations: int = 500
+    # LoRA reçete profili (configs/lora/lora_profiles.yaml). Boş → discipline_safe_local.
+    # MoE base (Qwen3-30B-A3B) için moe30b_attn_local şart — aksi halde eğitim hedef-eşleşme
+    # kontrolünde (unmatched_target_modules) açık hatayla durur.
+    profile: str = ""
+    # Örnek tavanı (0 = profildeki max_examples).
+    max_examples: int = Field(default=0, ge=0)
     batch_size: int = 2
     learning_rate: float = 1e-4
     num_layers: int = 8

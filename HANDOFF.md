@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-28 (**v10 eğitimi TAMAMLANDI** — 6/6 eval set base'e göre accept, veto yok; ADAY, terfi YOK · v10 öncesi Kademe 2: 5 alt-sistem, 39 bulgu, onaylananlar düzeltildi · bu makinede LLM `qwen3:30b` [Thinking] → `qwen3:30b-a3b-instruct-2507-q4_K_M`, gerekçe ölçüldü · LoRA karışım profilleri + profil eval altyapısı — eğitim ÖNCESİ ağırlık sorusu zorunlu · yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-28 (**Qwen3-30B-A3B LoRA hazırlığı** — MoE hedef-modül tuzağı kapatıldı, `moe30b_attn_local` profili, web'den profil/örnek seçimi, RAM ön-kontrolü, nöbetçi Görev Zamanlayıcı'da; eğitim BAŞLATILMADI · **v10 eğitimi TAMAMLANDI** — 6/6 eval set base'e göre accept, veto yok; ADAY, terfi YOK · v10 öncesi Kademe 2: 5 alt-sistem, 39 bulgu, onaylananlar düzeltildi · bu makinede LLM `qwen3:30b` [Thinking] → `qwen3:30b-a3b-instruct-2507-q4_K_M`, gerekçe ölçüldü · LoRA karışım profilleri + profil eval altyapısı — eğitim ÖNCESİ ağırlık sorusu zorunlu · yeni makinede Stage 1 veri üretimi + mastery kuyruğu sürüyor · Windows'ta 0 bayt mastery raporu düzeltildi · 2026-09-21: v9 eğitimi TAMAMLANDI + `discipline_core` accept, terfi bekliyor · eğitim-sonrası persona/format/RAG eval kapısı eklendi · 2026-09-17: kurtarma yetkisi approval_id ile)_
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
 **Canlı bot değil, yatırım tavsiyesi değil.**
@@ -138,6 +138,60 @@ GGUF SHA256, base/adapter/eğitim), her cevapta "Cevaplayan: hektor-v10 · Ollam
 retrieval kaynakları; Ek A aynı retrieval ile base cevapları. Üretici:
 `reports/evals/make_answers_pdf.py` (Edge headless). Test sırasında web arka plan döngüleri
 kapatıldı, sonra geri açıldı.
+
+---
+
+## Son seans — 2026-09-28 (3): Qwen3-30B-A3B-Instruct-2507 LoRA hazırlığı (eğitim YOK)
+
+Dal `claude/lora-30b-a3b-prep`. **Kullanıcı kararları:** base `Qwen/Qwen3-30B-A3B-Instruct-2507`
+indirilsin · LoRA **yalnız attention** (router + uzmanlar donuk) · karışım
+**`trading_analysis_v1`** (`wd_d310e37d9a`, 24 saat taze; bayatlarsa yeniden sor) ·
+eğitim web arayüzüne bağlı olsun ve düşmesin → nöbetçi zamanlayıcıya + uyku engeli.
+
+**Makine:** 128 GB RAM, Xeon w7-2575X 22 çekirdek, torch CPU, RTX 4000 Ada 20 GB (eğitimde
+kullanılmıyor). 30B bf16 ≈ 61 GB → CPU'da **bf16 zorunlu** (fp32 ≈ 146 GB, sığmaz).
+
+**Bulgular / düzeltmeler:**
+1. **MoE hedef tuzağı (ölçüldü, meta cihazda).** transformers 5.16 `Qwen3MoeExperts` uzmanları
+   birleşik 3B parametre tutar → `gate_proj/up_proj/down_proj` MODÜL değil. 7'li
+   `TARGET_MODULES` PEFT'te **sessizce yalnız attention**'a düşerdi. Artık `train()` model
+   yüklendikten sonra `unmatched_target_modules` ile kontrol eder; eşleşmeyen hedef → açık hata.
+   Gerçek config: 48 katman · 128 uzman · top-8 · hidden 2048 · 30.53B; attention-only r=16 →
+   13.37M eğitilebilir (%0.044).
+2. **Profildeki `target_modules` hiç uygulanmıyordu** (YAML'da yazılı, `load_lora_profile`
+   atlıyordu). Artık uygulanır + doğrulanır (yalnız TARGET_MODULES alt kümesi; lm_head/embed
+   yasak). Yan etki: `small_smoke_test` artık gerçekten yalnız attention eğitir (YAML niyeti).
+3. Yeni profil **`moe30b_attn_local`** (attention, r16/α32, lr 1e-4, NEFTune 5, maskeli,
+   `gradient_checkpointing: true`, `max_examples: 600` — adım süresi ÖLÇÜLMEDİ).
+4. **RAM ön-kontrolü** (`check_cpu_ram`): checkpoint boyutu yerel index'ten; yetmezse model
+   yüklenmeden hata (nöbetçinin OOM'u sonsuz diriltmesi önlenir). `dry_run` çıktısında `ram_check`.
+5. **Uyku engeli**: `trainer.train()` süresince `SetThreadExecutionState` (kalıcı ayar değil).
+6. **Web**: `/api/training/run` artık `profile` + `max_examples` alır (profil onay yakılmadan
+   doğrulanır); formda profil seçimi + örnek tavanı; A3B yazınca MoE profili seçilir;
+   iterasyon 0 = plandan.
+7. **Nöbetçi tuzağı (canlı):** v10 BİTMİŞ ama `train_status.json` diskte kalmıştı ve
+   `train-recovery-check` "kurtarma yetkili" diyordu → nöbetçi açılsaydı bitmiş koşuyu her 5
+   dk diriltmeye çalışırdı. Artık son `checkpoint-N ≥ iterations` ise **YETKİSİZ (tamamlanmış)**.
+8. **`HektorTrainingWatchdog` Görev Zamanlayıcı'ya kaydedildi** (kullanıcı onayı; 5 dk,
+   gizli pencere, `start-server.ps1`'deki tanımın aynısı). Önceden bu makinede YOKTU.
+
+**Kapı (Windows):** ruff format/check ✅ · mypy 256 ✅ · pytest **2720 passed, 4 deselected**
+(`-m "not ollama"`; ilk koşuda statik arayüzde sabit model adı testi yakaladı → metin düzeltildi).
+Commit/push YOK (kullanıcı istemedi). Çalışan web sunucusu yeni `/api/training/run` alanları
+için **yeniden başlatılmalı** (statik dosyalar hemen, Python ucu yeniden başlatmada).
+
+**Sıradaki (sırayla):**
+1. İndirme bitsin: `logs/hf-download-qwen3-30b.log` (~3 MB/s ölçüldü → saatler).
+   Yarıda kalırsa: `.venv/Scripts/hf.exe download Qwen/Qwen3-30B-A3B-Instruct-2507` kaldığı yerden sürer.
+2. **Kademe 2** — CLAUDE.md gereği eğitimden ÖNCE zorunlu; bu daldaki diff'e odaklı av.
+3. Ollama modelini boşalt (30B q4 GGUF RAM/VRAM tutar), arka plan döngülerini kapat.
+4. **Kısa ölçüm koşusu** (Kural 8 onayıyla, ör. `max_examples` 20) → s/adım ölç, sonra
+   `max_examples`'ı süreye göre seç. Web: Temel model `Qwen/Qwen3-30B-A3B-Instruct-2507`,
+   profil `moe30b_attn_local`, iterasyon 0. CLI eşdeğeri:
+   `.\scripts\start-train.ps1 -Adapter hektor_lora_v11_30b -BaseModel Qwen/Qwen3-30B-A3B-Instruct-2507 -Profile moe30b_attn_local -MaxExamples <N>`
+5. Eğitim sonrası: eval HF/PEFT ile CPU'da 30B → yavaş; merge (bf16 ≈ 61 GB) →
+   llama.cpp `convert_hf_to_gguf` (qwen3moe destekli) → Q4_K_M → Ollama yolu 4B'dekiyle aynı.
+   ADAY; terfi ayrı insan kararı.
 
 ---
 
