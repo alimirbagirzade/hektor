@@ -109,7 +109,7 @@ production terfisi ayrı insan onayı ister.
 ("LoRA adapters are no longer supported"). Uygulanan yol: PEFT `merge_and_unload` ile base'in
 AYRI kopyası (`models/merged/hektor_lora_v10_4b`; HF önbelleğindeki base DEĞİŞMEDİ) →
 llama.cpp `convert_hf_to_gguf.py` → f16 → `llama-quantize` Q4_K_M (llama.cpp b11228, resmi
-Windows CPU sürümü, `C:\HP	ools\`) → `ollama create hektor-v10` (şablon/parametreler
+Windows CPU sürümü, `C:\HP\tools\`) → `ollama create hektor-v10` (şablon/parametreler
 `qwen3:4b-instruct-2507-q4_K_M`'den). Dosyalar `models/gguf/` (git dışı): ayrıca yalnız-adapter
 GGUF (`hektor_lora_v10_4b-f16.gguf`, 66 MB). Not: dönüştürücü `sentencepiece` import ediyor ama
 Qwen BPE; proje venv'i kirletilmeden stub modülle aşıldı. Ollama modelleri: `hektor-v10`

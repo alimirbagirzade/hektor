@@ -36,6 +36,8 @@ storage/sqlite/*.db
 storage/sqlite/*.db-*
 models/adapters/*
 models/evals/*
+models/gguf/*
+models/merged/*
 reports/papers/*
 reports/papers/mastery/*
 reports/training/*
