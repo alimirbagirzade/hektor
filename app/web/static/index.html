@@ -433,8 +433,8 @@
               <p class="setting-desc">Eğitim sonucunun kaydedileceği klasör adı (<code>models/adapters/&lt;ad&gt;</code>). Her yeni eğitim için farklı isim kullan (ör. <code>hektor_lora_v2</code>) — aynı adı kullanırsan öncekinin üzerine yazılır.</p>
             </div>
             <div class="setting-group">
-              <label>İterasyon<input type="number" id="drIterations" min="0" max="5000" value="500" /></label>
-              <p class="setting-desc"><strong>0:</strong> profil planından hesapla (örnek × epoch; önerilen). Modelin kaç güncelleme adımı yapacağı. <strong>100–200:</strong> hızlı ama yetersiz. <strong>300–500:</strong> çoğu kullanım için yeterli (önerilen). <strong>1000+:</strong> güçlü ama yavaş ve aşırı öğrenme riski taşır.</p>
+              <label>İterasyon<input type="number" id="drIterations" min="0" max="5000" value="0" /></label>
+              <p class="setting-desc"><strong>0 (önerilen):</strong> profil planından hesapla (örnek × epoch). Elle girilen değer planı aşarsa sunucu reddeder (aynı örnekler üzerinde fazladan epoch = ezber). Plandan <em>az</em> değer yalnız kısa ölçüm koşusu içindir. Daha çok veri için iterasyonu değil örnek tavanını büyüt.</p>
             </div>
           </div>
         </div>

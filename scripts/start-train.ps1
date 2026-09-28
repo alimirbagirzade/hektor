@@ -244,6 +244,22 @@ if (Test-Path $srcData) {
 # Kademe-2 A3: started_at (UTC ISO 8601, detached_launch ile ayni bicim). Yoksa train_guard
 # onay/veri-kaymasi kontrollerini atlar ve kurtarma HER ZAMAN reddedilir.
 $startedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.ffffff", [Globalization.CultureInfo]::InvariantCulture) + "+00:00"
+# Kademe-2 N1 (2026-09-28): nobetci KURTARMASINDA ilk kosunun started_at'i KORUNUR ve deneme
+# sayaci artar. Eskiden her kurtarma started_at'i yeniliyordu -> 72 saat bayatlik siniri hic
+# devreye girmiyor, yukleme-sonrasi dusen kosu SONSUZA dek (her turda 61 GB) diriltiliyordu.
+# train_guard.recovery_allowed recovery_attempts >= 3 ise reddeder.
+$recoveryAttempts = 0
+if ($Supervised -and (Test-Path $StatusFile)) {
+    try {
+        $prev = Get-Content $StatusFile -Raw | ConvertFrom-Json
+        if ($prev.adapter -eq $Adapter) {
+            $pp = $prev.PSObject.Properties.Name
+            if ($pp -contains "started_at" -and "$($prev.started_at)".Trim() -ne "") { $startedAt = [string]$prev.started_at }
+            if ($pp -contains "recovery_attempts") { $recoveryAttempts = [int]$prev.recovery_attempts }
+        }
+    } catch { }
+    $recoveryAttempts += 1
+}
 # Alt surece ORTAMLA gecenler yalniz Start-Process ANINDA ayarlanir, hemen geri alinir.
 # $env: surec-geneldir: kalici kalirsa ayni kabukta sonradan elle calistirilan
 # `hektor train --run` taze onay kapisini ATLAR ve eski -BaseModel ile egitir (Kademe-2 av).
@@ -297,6 +313,7 @@ $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
     # gercek kimlik; bkz. app/training/train_guard.py: find_run_approval).
     approval_id  = $ApprovalId
     started_at   = $startedAt
+    recovery_attempts = $recoveryAttempts
     # Kurtarmada param'dan; taze baslatmada asagida log'daki MIX_DECISION satirindan islenir.
     mix_weights  = $MixWeights
     mix_profile  = $MixProfile

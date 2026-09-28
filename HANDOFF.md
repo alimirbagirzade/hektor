@@ -180,10 +180,37 @@ kullanılmıyor). 30B bf16 ≈ 61 GB → CPU'da **bf16 zorunlu** (fp32 ≈ 146 G
 Commit/push YOK (kullanıcı istemedi). Çalışan web sunucusu yeni `/api/training/run` alanları
 için **yeniden başlatılmalı** (statik dosyalar hemen, Python ucu yeniden başlatmada).
 
+### Kademe 2 (30B öncesi) — 3 finder + her gruba 2 bağımsız şüpheci doğrulayıcı
+
+Alt sistemler: **A** eğitici · **B** başlatma/kurtarma/web · **C** eğitim-sonrası (eval/kayıt/
+sohbet/merge). 33 bulgu; iki oyda da "eğitimden ÖNCE EVET" alanlar düzeltildi:
+
+| ID | Sorun (gerçek veriyle ölçüldü) | Düzeltme |
+|---|---|---|
+| A1=B2 | 600 örnekte 2 satır maskelenemiyor → hedef 598'e kırpılıyor, son checkpoint 598, durum `iterations=600` → BAŞARILI koşu "çökmüş" sanılıp her ~15 dk 61 GB yükleyen sonsuz diriltme | trainer `run_plan.json` (fiili max_steps) + `run_complete.json` yazar; `recovery_allowed` bunları kullanır; `train` bitişte durum kaydına `finished_at` |
+| A2=B3 | hedef uyuşmazlığı 61 GB yüklemeden SONRA; `train` hata → exit 0 → sonsuz döngü | `precheck_target_modules` (meta cihaz, yükleme öncesi; web ön-kontrolünde de); hata → `failed_at` + exit 7 |
+| N1 | start-train kurtarmada `started_at`'i yeniliyordu → 72 sa sınırı hiç işlemiyordu | kurtarmada `started_at` korunur + `recovery_attempts` (≥3 → dirilme yok) |
+| B1 | web "Durdur" edilen koşu ~10 dk sonra onaysız diriliyordu | `stop_requested_at` → kurtarma YETKİSİZ |
+| C3(+C5) | web/nöbetçi koşusu kayıt defterine HİÇ girmiyordu | supervised koşu da CANDIDATE kaydedilir (auto_pipeline hariç: `skip_register`); fiili örnek sayısı |
+| B4/B5/B6/B12 (ucuz) | aynı adlı eski checkpoint · plandan fazla iterasyon · RAM kontrolü onaydan sonra · RESUME env sızıntısı | ön-kontrolde red · launch reddeder, form varsayılanı 0 · web ön-kontrolünde RAM · launch `RESUME=0` |
+
+**Eğitim-SONRASI açık (düzeltilmedi, eval/sohbetten ÖNCE yapılmalı):** C1 web LoRA sohbeti
+eski modeli boşaltmadan yenisini yükler (2×61 GB) → eğitim sürerken web sohbeti KULLANMA ·
+C2 `peft_llm_shim` fp32 + None'da merdiven işaretsiz atlanır (auto_pipeline; 30B'ye erişilmez)
+· C6 `lora-eval` adapter/base uyumunu base üretiminden SONRA doğrular, `--base-model` sessizce
+ezer → 30B'de `--base-model` VERME · C7 sohbette "base" = 4B · C8 eval'de RAM ön-kontrolü yok
+· C9 merge/GGUF kodda yok, `docs/RAG_LORA_ENTEGRASYON.md` eski · C10/C11 küçük. Ayrıca A3
+(CLI'da onay profil doğrulamasından önce), A5, A6, A8 (uyku engeli dönüşü), A9 (KL yorum
+yönü), A10, B7–B11 düşük önem. DB'de bayat pending onaylar var (`apr_98e76bb03dfa`,
+`apr_da7a846b5bdc`) — onaylanmamalı.
+
+**Kapı (Windows, Kademe 2 düzeltmeleri sonrası):** ruff ✅ · mypy 256 ✅ · pytest **2731 passed**.
+
 **Sıradaki (sırayla):**
-1. İndirme bitsin: `logs/hf-download-qwen3-30b.log` (~3 MB/s ölçüldü → saatler).
+1. İndirme bitsin (ilk koşu 19:34'te 55 GB'ta TAKILDI; 20:31'de yeniden başlatıldı →
+   `logs/hf-download-qwen3-30b-2.log`).
    Yarıda kalırsa: `.venv/Scripts/hf.exe download Qwen/Qwen3-30B-A3B-Instruct-2507` kaldığı yerden sürer.
-2. **Kademe 2** — CLAUDE.md gereği eğitimden ÖNCE zorunlu; bu daldaki diff'e odaklı av.
+2. ~~Kademe 2~~ — YAPILDI (yukarıda).
 3. Ollama modelini boşalt (30B q4 GGUF RAM/VRAM tutar), arka plan döngülerini kapat.
 4. **Kısa ölçüm koşusu** (Kural 8 onayıyla, ör. `max_examples` 20) → s/adım ölç, sonra
    `max_examples`'ı süreye göre seç. Web: Temel model `Qwen/Qwen3-30B-A3B-Instruct-2507`,

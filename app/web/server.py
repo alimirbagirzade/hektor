@@ -1433,7 +1433,10 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
         load_lora_profile(profile)
     except (KeyError, ValueError, FileNotFoundError) as exc:
         return TrainingStartResponse(ok=False, status="error", message=f"Profil hatası: {exc}")
-    pre = detached_launch.preflight_launch(adapter)
+    # Reçete (profil hedefleri ↔ base mimarisi, CPU RAM) de onay yanmadan ÖNCE (Kademe-2 B3/B6).
+    pre = detached_launch.preflight_launch(
+        adapter, base_model=req.base_model or None, profile=profile, check_recipe=True
+    )
     if not pre.get("ok"):
         return TrainingStartResponse(
             ok=False,

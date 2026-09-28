@@ -255,7 +255,12 @@ class AutoLoRAPipeline:
             }
 
         res = await asyncio.to_thread(
-            detached_launch.launch, adapter_name, iters, approval_id=decision.approval_id
+            detached_launch.launch,
+            adapter_name,
+            iters,
+            approval_id=decision.approval_id,
+            # auto_pipeline eval sonrası KENDİ kaydını açar (_register_adapter) → çift kayıt yok.
+            skip_register=True,
         )
         if not res.get("ok"):
             return {"ok": False, "reason": res.get("message", "Eğitim başlatılamadı")}

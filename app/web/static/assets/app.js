@@ -1425,8 +1425,8 @@
       var payload = {
         base_model: (document.getElementById("drBaseModel") || {}).value || "",
         adapter_name: (document.getElementById("trAdapterName") || {}).value || "hektor_lora",
-        // 0 = profil planından hesapla (sunucu: örnek × epoch). NaN → eski varsayılan 500.
-        iterations: isNaN(itersRaw) ? 500 : Math.max(0, itersRaw),
+        // 0 = profil planından hesapla (sunucu: örnek × epoch). Plandan fazlası sunucuda reddedilir.
+        iterations: isNaN(itersRaw) ? 0 : Math.max(0, itersRaw),
         profile: (document.getElementById("trProfile") || {}).value || "",
         max_examples: isNaN(maxExRaw) ? 0 : Math.max(0, maxExRaw),
         // batch_size / num_layers BILEREK gonderilmiyor: gercek egitim yolu

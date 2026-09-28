@@ -198,6 +198,53 @@ def unmatched_target_modules(module_names: list[str], targets: tuple[str, ...]) 
     return missing
 
 
+def precheck_target_modules(base_model: str, targets: tuple[str, ...]) -> str | None:
+    """Hedef modülleri AĞIRLIK YÜKLEMEDEN (meta cihaz) doğrula → hata mesajı ya da None.
+
+    Kademe-2 (2026-09-28) A2/B3: kontrol 61 GB'lık yüklemeden SONRA çalışıyordu; hatalı
+    profil (ör. MoE base + 7'li dense hedef) her diriltmede modeli yeniden yüklüyordu. Meta
+    cihazda yapı ~saniyede kurulur. Config okunamazsa/kurulamazsa None (kontrol yapılamadı —
+    train() yükleme sonrası kontrolü yine uygular).
+    """
+    try:
+        import torch
+        from transformers import AutoConfig, AutoModelForCausalLM
+
+        config = AutoConfig.from_pretrained(base_model, trust_remote_code=True)
+        with torch.device("meta"):
+            meta_model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+        names = [n for n, _ in meta_model.named_modules()]
+        del meta_model
+    except Exception as exc:  # config yok / ağ yok / mimari tanınmıyor
+        logger.warning("Hedef ön-kontrolü yapılamadı (%s): %s", base_model, exc)
+        return None
+    missing = unmatched_target_modules(names, targets)
+    if not missing:
+        return None
+    return (
+        f"LoRA hedefleri modelde YOK: {missing} ({base_model}). PEFT bunları sessizce "
+        "atlayıp reçeteyi değiştirirdi. MoE modelde (birleşik uzmanlar) yalnız attention "
+        "hedefleyen profil kullan (ör. moe30b_attn_local)."
+    )
+
+
+# Adapter klasöründeki koşu işaretleri (nöbetçi/kurtarma bunları okur; bkz. train_guard).
+# run_plan.json: trainer'ın FİİLİ adım hedefi (maskeleme kırpması SONRASI) — durum
+# dosyasındaki `iterations` kırpılmamış plandır; 600 → 598 olunca son checkpoint 598'de
+# kalır ve "tamamlanmış" kontrolü tutmazdı (Kademe-2 A1/B2). run_complete.json: başarıyla
+# biten koşunun işareti.
+RUN_PLAN_FILE = "run_plan.json"
+RUN_COMPLETE_FILE = "run_complete.json"
+
+
+def _write_run_marker(adapter_dir: Path, name: str, payload: dict) -> None:
+    try:
+        adapter_dir.mkdir(parents=True, exist_ok=True)
+        (adapter_dir / name).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Koşu işareti yazılamadı (%s): %s", name, exc)
+
+
 # CPU eğitiminde base ağırlıklarının üstüne tahmini ek bellek payı (aktivasyon, LoRA
 # optimizer durumu, tokenizer, Python). Ölçüm değil, muhafazakâr tahmin.
 _RAM_OVERHEAD_FRAC = 0.15
@@ -906,6 +953,12 @@ def train(cfg: PeftTrainConfig) -> dict:
             return {"ok": False, "error": ram_msg}
         logger.info("%s", ram_msg)
 
+    # Hedef uyumu YÜKLEMEDEN önce (meta cihaz) — aşağıdaki yükleme-sonrası kontrol yedektir.
+    target_err = precheck_target_modules(cfg.base_model, tuple(cfg.target_modules))
+    if target_err:
+        logger.error("%s", target_err)
+        return {"ok": False, "error": target_err}
+
     tokenizer = AutoTokenizer.from_pretrained(cfg.base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -1111,18 +1164,44 @@ def train(cfg: PeftTrainConfig) -> dict:
         err = zero_step_error(resume_plan.checkpoint, resume_plan.last_step, max_steps)
         logger.error("%s", err)
         return {"ok": False, "error": err}
+    adapter_dir = Path(output_dir)
+    if not resume_plan.checkpoint:
+        # Sıfırdan koşu: aynı klasördeki ESKİ koşunun tamamlanma işareti bu koşuya ait değil.
+        with contextlib.suppress(OSError):
+            (adapter_dir / RUN_COMPLETE_FILE).unlink()
+    _write_run_marker(
+        adapter_dir,
+        RUN_PLAN_FILE,
+        {"max_steps": max_steps, "planned_iterations": cfg.iterations, "started_at": started_at},
+    )
     with _keep_awake():
         trainer.train(resume_from_checkpoint=resume_plan.checkpoint)
     finished_at = _dt.datetime.now().isoformat(timespec="seconds")
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
+    _write_run_marker(
+        adapter_dir,
+        RUN_COMPLETE_FILE,
+        {
+            "global_step": int(trainer.state.global_step),
+            "max_steps": max_steps,
+            "finished_at": finished_at,
+        },
+    )
 
     # Loss eğrisini reports/training/<adapter>_loss.json'a yaz → web "Eğitim grafiği"
     # bu dosyaları okur (/api/learning/training-runs). CLI eğitimi de artık kaydeder.
     _write_loss_curve(cfg, trainer.state.log_history, started_at, finished_at)
 
     logger.info("Adapter kaydedildi: %s", output_dir)
-    return {"ok": True, "adapter_path": output_dir, "device": device}
+    return {
+        "ok": True,
+        "adapter_path": output_dir,
+        "device": device,
+        # Kayıt defteri FİİLİ eğitilen örnek sayısını yazsın (C5: tam train.jsonl değil).
+        "train_examples": len(train_ds),
+        "max_steps": max_steps,
+    }
 
 
 def _write_loss_curve(

@@ -162,15 +162,16 @@ def test_train_run_manual_registers_candidate(
     assert records[0].status is AdapterStatus.CANDIDATE
 
 
-def test_train_run_supervised_does_not_double_register(
+def test_train_run_auto_pipeline_does_not_double_register(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Denetimli (web/auto_pipeline) koşu bu komuttan CANDIDATE kaydı AÇMAMALI.
+    """auto_pipeline koşusu (launch skip_register=True) bu komuttan kayıt AÇMAMALI.
 
     auto_pipeline kendi kaydını gerçek eval sonrası açar (SMOKE_PASSED/EVAL_PASSED);
     burada da eklenirse aynı koşu için çift kayıt oluşur.
     """
     monkeypatch.setenv("HEKTOR_TRAIN_SUPERVISED", "1")
+    monkeypatch.setenv("HEKTOR_TRAIN_SKIP_REGISTER", "1")
     _install_cli_mocks(monkeypatch, tmp_path)
 
     result = CliRunner().invoke(
@@ -188,3 +189,34 @@ def test_train_run_supervised_does_not_double_register(
     )
     assert result.exit_code == 0, result.output
     assert AdapterRegistry().list_adapters() == []
+
+
+def test_train_run_supervised_web_registers_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kademe-2 C3: web/nöbetçi (supervised, skip_register YOK) koşusu CANDIDATE kaydedilir.
+
+    Eskiden supervised her koşu kayıtsız kalıyordu → web'den eğitilen 30B adapter kayıt
+    defterinde hiç görünmez, terfi zinciri kopardı.
+    """
+    monkeypatch.setenv("HEKTOR_TRAIN_SUPERVISED", "1")
+    monkeypatch.delenv("HEKTOR_TRAIN_SKIP_REGISTER", raising=False)
+    _install_cli_mocks(monkeypatch, tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "train",
+            "--run",
+            "--backend",
+            "peft",
+            "--adapter-name",
+            "web_smoke",
+            "--mix-profile",
+            "balanced_v1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    records = AdapterRegistry().list_adapters()
+    assert [r.adapter_name for r in records] == ["web_smoke"]
+    assert records[0].status is AdapterStatus.CANDIDATE

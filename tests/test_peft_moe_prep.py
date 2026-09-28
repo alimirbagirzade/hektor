@@ -150,3 +150,46 @@ def test_check_cpu_ram_unknown_model_skips(tmp_path: Path) -> None:
 def test_keep_awake_is_noop_safe() -> None:
     with peft_lora_train._keep_awake():
         pass
+
+
+# --- Kademe-2: hedef kontrolü YÜKLEMEDEN önce (meta cihaz), yerel minik config ile -------
+def _tiny_config_dir(tmp_path: Path, model_type: str) -> Path:
+    d = tmp_path / model_type
+    d.mkdir()
+    cfg: dict = {
+        "model_type": model_type,
+        "architectures": [
+            "Qwen3MoeForCausalLM" if model_type == "qwen3_moe" else "Qwen3ForCausalLM"
+        ],
+        "vocab_size": 128,
+        "hidden_size": 32,
+        "intermediate_size": 64,
+        "num_hidden_layers": 2,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 2,
+        "head_dim": 8,
+        "max_position_embeddings": 64,
+    }
+    if model_type == "qwen3_moe":
+        cfg.update({"num_experts": 4, "num_experts_per_tok": 2, "moe_intermediate_size": 16})
+    (d / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+    return d
+
+
+def test_precheck_targets_moe_vs_dense(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+    from app.training.peft_lora_train import precheck_target_modules
+
+    moe = _tiny_config_dir(tmp_path, "qwen3_moe")
+    dense = _tiny_config_dir(tmp_path, "qwen3")
+    err = precheck_target_modules(str(moe), TARGET_MODULES)
+    assert err and "gate_proj" in err and "moe30b_attn_local" in err
+    assert precheck_target_modules(str(moe), ATTENTION_TARGET_MODULES) is None
+    assert precheck_target_modules(str(dense), TARGET_MODULES) is None
+
+
+def test_precheck_targets_unknown_model_is_skipped(tmp_path: Path) -> None:
+    from app.training.peft_lora_train import precheck_target_modules
+
+    assert precheck_target_modules(str(tmp_path / "yok"), TARGET_MODULES) is None

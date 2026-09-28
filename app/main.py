@@ -439,6 +439,7 @@ def _register_manual_adapter(
     lora_dropout: float = 0.05,
     learning_rate: float = 2e-4,
     target_modules: list[str] | None = None,
+    train_examples: int | None = None,
     notes: str,
 ) -> str:
     """Manuel `train --run` sonrası adapter'ı CANDIDATE olarak kayıt defterine ekle.
@@ -456,7 +457,11 @@ def _register_manual_adapter(
         lora_dropout=lora_dropout,
         target_modules=target_modules or [],
         learning_rate=learning_rate,
-        train_examples=_count_jsonl_examples(train_jsonl),
+        # FİİLİ eğitilen örnek (max_examples kırpması + maskeleme sonrası) verildiyse o;
+        # tam train.jsonl sayısı kırpılmış koşuyu olduğundan büyük gösterirdi (Kademe-2 C5).
+        train_examples=(
+            train_examples if train_examples is not None else _count_jsonl_examples(train_jsonl)
+        ),
         valid_examples=_count_jsonl_examples(valid_jsonl),
         status=AdapterStatus.CANDIDATE,
         notes=notes,
@@ -565,11 +570,10 @@ def train(
     settings = get_settings()
 
     resolved = detect_lora_backend() if backend == "auto" else backend
-    # Denetimli (web buton/auto_pipeline) koşular `launch()` üzerinden BU AYNI komutu
-    # subprocess olarak çağırır ve eğitim bitince auto_pipeline KENDİ kayıt defteri
-    # girişini (gerçek eval sonrası SMOKE_PASSED/EVAL_PASSED) açar — burada da CANDIDATE
-    # eklenirse aynı koşu için çift kayıt oluşur. Yalnız SAF manuel çağrı (env yok)
-    # kendi CANDIDATE kaydını açar.
+    # Denetimli (web buton/nöbetçi/auto_pipeline) koşular `launch()`/start-train üzerinden BU
+    # AYNI komutu subprocess olarak çağırır. Kayıt: yalnız auto_pipeline KENDİ girişini açar
+    # (launch skip_register=True → HEKTOR_TRAIN_SKIP_REGISTER=1); web ve nöbetçi koşuları
+    # burada CANDIDATE olarak kaydedilir (Kademe-2 C3: eskiden hiç kaydedilmiyordu).
     supervised = False
 
     if run:
@@ -833,7 +837,13 @@ def train(
             **prof,
         )
         if run:
+            import datetime as _dt_run
+            import os as _os_run
+
+            from app.training.detached_launch import mark_detached_status
+
             result = peft_train(cfg)  # type: ignore[arg-type]
+            _now_iso = _dt_run.datetime.now(_dt_run.UTC).isoformat()
             if not result.get("ok"):
                 console.print(f"[red]Hata: {result.get('error')}[/red]")
                 if "Eksik paketler" in str(result.get("error", "")):
@@ -841,7 +851,18 @@ def train(
                         "[yellow]Kur: uv pip install torch transformers "
                         "peft datasets accelerate[/yellow]"
                     )
-            elif not supervised:
+                # Kademe-2 A2/B3: train() ok=False yalnız DETERMİNİSTİK hatalarda döner (RAM,
+                # hedef, sıfır adım, boş veri) → durum kaydına işle ki nöbetçi diriltmesin;
+                # ve 0 ile ÇIKMA (eskiden hata = exit 0 → "başladı" sanılıyordu).
+                mark_detached_status(
+                    adapter_name, failed_at=_now_iso, error=str(result.get("error", ""))[:500]
+                )
+                raise typer.Exit(7)
+            # Başarı: durum kaydı "bitti" → nöbetçi bunu çöküş sanıp diriltmez (A1/B2).
+            mark_detached_status(adapter_name, finished_at=_now_iso)
+            # Kademe-2 C3: denetimli (web/nöbetçi) koşular da kayıt defterine girer; yalnız
+            # kendi kaydını açan auto_pipeline (launch skip_register=True) hariç.
+            if _os_run.environ.get("HEKTOR_TRAIN_SKIP_REGISTER") != "1":
                 _register_manual_adapter(
                     adapter_name=adapter_name,
                     base_model=cfg.base_model,
@@ -852,9 +873,10 @@ def train(
                     lora_dropout=cfg.lora_dropout,  # type: ignore[attr-defined]
                     learning_rate=cfg.learning_rate,
                     target_modules=list(cfg.target_modules),  # type: ignore[attr-defined]
+                    train_examples=result.get("train_examples"),
                     notes=(
-                        f"manuel train --run --backend peft "
-                        f"(iterations={iterations}, profile={profile or '-'}) "
+                        f"{'denetimli' if supervised else 'manuel'} train --run --backend peft "
+                        f"(max_steps={result.get('max_steps')}, profile={profile or '-'}) "
                         f"mix[{weight_decision.decision_id}]={weight_decision.profile_name}"
                     ),
                 )
@@ -4717,6 +4739,7 @@ def train_recovery_check(
     from app.training.train_guard import (
         SOURCE_DATA_REL,
         last_checkpoint_step,
+        read_run_markers,
         recovery_allowed,
         sha256_file,
     )
@@ -4733,6 +4756,12 @@ def train_recovery_check(
     if train_jsonl.exists():
         data_mtime = _dt.datetime.fromtimestamp(train_jsonl.stat().st_mtime, tz=_dt.UTC)
 
+    adapter_dir = settings.adapters_dir / str(status.get("adapter") or "")
+    markers = (
+        read_run_markers(adapter_dir)
+        if status.get("adapter")
+        else {"max_steps": None, "completed": False}
+    )
     # Kurtarma `lora_sft.jsonl`'i YENİDEN böler ve train.jsonl'i yeniden yazar → mtime
     # tek başına yanıltır; durum dosyası başlangıç hash'ini taşıyorsa içerik kıyaslanır.
     verdict = recovery_allowed(
@@ -4741,11 +4770,9 @@ def train_recovery_check(
         now=_dt.datetime.now(_dt.UTC),
         data_mtime=data_mtime,
         data_sha256=sha256_file(settings.root / SOURCE_DATA_REL),
-        last_checkpoint_step=(
-            last_checkpoint_step(settings.adapters_dir / str(status.get("adapter") or ""))
-            if status.get("adapter")
-            else None
-        ),
+        last_checkpoint_step=last_checkpoint_step(adapter_dir) if status.get("adapter") else None,
+        effective_max_steps=markers["max_steps"],
+        run_completed=bool(markers["completed"]),
     )
     if as_json:
         console.print_json(json.dumps(verdict.to_dict(), ensure_ascii=False))

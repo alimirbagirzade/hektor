@@ -590,7 +590,71 @@ def _fail(message: str) -> dict:
     return {"ok": False, "message": message, "adapter": ""}
 
 
-def preflight_launch(adapter_name: str = "hektor_lora", *, run_load_doctor: bool = True) -> dict:
+def _adapter_dir_blocker(adapter_dir: Path) -> str | None:
+    """Sıfırdan koşu için adapter klasörü temiz mi? (Kademe-2 B4)
+
+    Aynı adla kalan ``checkpoint-*`` klasörleri kurtarmayı bozar: HF döndürmesi adım
+    numarasına göre sildiğinden eski koşunun büyük numaralı checkpoint'i kalır → çöken yeni
+    koşu "tamamlanmış" sayılır ya da ESKİ ağırlıklardan devam edilir.
+    """
+    if not adapter_dir.is_dir():
+        return None
+    stale = sorted(p.name for p in adapter_dir.glob("checkpoint-*") if p.is_dir())
+    if stale or (adapter_dir / "run_complete.json").is_file():
+        return (
+            f"Adapter klasörü dolu ({adapter_dir.name}: {', '.join(stale[:3]) or 'bitmiş koşu'})"
+            " — sıfırdan eğitim için YENİ bir adapter adı seç (eski checkpoint'ler kurtarmayı "
+            "bozar)."
+        )
+    return None
+
+
+def _recipe_blockers(base_model: str | None, profile: str | None) -> list[str]:
+    """Reçete ↔ makine uyumu: profil hedefleri base'te var mı + CPU RAM yeter mi.
+
+    Onay TÜKETİLMEDEN önce (Kademe-2 B3/B6): eskiden ikisi de alt süreçte, 8 sn erken-çıkış
+    penceresinden SONRA düşüyordu → onay yanıyor, ölü durum kaydı kalıyordu.
+    """
+    from app.training.peft_lora_train import (
+        TARGET_MODULES,
+        check_cpu_ram,
+        load_lora_profile,
+        precheck_target_modules,
+    )
+
+    base = base_model or get_settings().peft_base_model
+    targets: tuple[str, ...] = TARGET_MODULES
+    if profile:
+        try:
+            targets = tuple(load_lora_profile(profile).get("target_modules") or TARGET_MODULES)
+        except (KeyError, ValueError, FileNotFoundError) as exc:
+            return [f"Profil hatası: {exc}"]
+    out: list[str] = []
+    target_err = precheck_target_modules(base, targets)
+    if target_err:
+        out.append(target_err)
+    try:
+        import torch
+
+        on_cuda = bool(torch.cuda.is_available())
+    except Exception:
+        on_cuda = False
+    if not on_cuda:
+        # launch() eğitimi bf16 başlatır (dtype varsayılanı) → 2 bayt.
+        ram_ok, ram_msg = check_cpu_ram(base, 2)
+        if not ram_ok:
+            out.append(ram_msg)
+    return out
+
+
+def preflight_launch(
+    adapter_name: str = "hektor_lora",
+    *,
+    run_load_doctor: bool = True,
+    base_model: str | None = None,
+    profile: str | None = None,
+    check_recipe: bool = False,
+) -> dict:
     """Başlatma öncesi UCUZ, deterministik kontroller — onay TÜKETİLMEDEN önce çağrılır.
 
     Kademe-2 A6: web/Auto-LoRA yolu tek kullanımlık onayı `launch()`'tan ÖNCE tüketiyordu;
@@ -606,6 +670,10 @@ def preflight_launch(adapter_name: str = "hektor_lora", *, run_load_doctor: bool
 
     if is_running():
         return _fail("Zaten eğitim çalışıyor.")
+
+    dir_blocker = _adapter_dir_blocker(get_settings().adapters_dir / adapter_name)
+    if dir_blocker:
+        return _fail(dir_blocker)
 
     # Her eğitimden önce karışım ağırlığı sorulur (kullanıcı kuralı). Alt süreç etkileşimsiz
     # olduğundan kararın ÖNCEDEN kaydedilmiş olması gerekir; yoksa alt süreç exit 5 ile
@@ -645,6 +713,11 @@ def preflight_launch(adapter_name: str = "hektor_lora", *, run_load_doctor: bool
             "ayrıntı: `uv run hektor mix leakage`."
         )
 
+    if check_recipe:
+        blockers = _recipe_blockers(base_model, profile)
+        if blockers:
+            return _fail("Reçete ön-kontrolü başarısız — " + " | ".join(blockers))
+
     if run_load_doctor:
         from app.training.train_load_doctor import run_train_doctor
 
@@ -679,6 +752,7 @@ def launch(
     max_examples: int = 0,
     approval_id: str = "",
     early_exit_wait_s: float | None = None,
+    skip_register: bool = False,
 ) -> dict:
     """Eğitimi DETACHED başlat (web/terminal kapansa da sürer).
 
@@ -723,6 +797,14 @@ def launch(
         # Adım sayısı FİİLEN eğitilecek örnek sayısından (profil kırpması UYGULANDIKTAN
         # sonra) hesaplanır; profildeki `epochs` gerçekten karşılanır (bkz. plan_iterations).
         planned, n_effective, epochs = plan_iterations(n_train, max_examples, profile)
+        # Kademe-2 B5: plandan fazla adım = aynı alt-küme üzerinde sessizce çok-epoch (ezber).
+        # start-train.ps1 bunu uyarıyordu, web/launch sessizce kabul ediyordu.
+        if iterations > planned > 0:
+            return _fail(
+                f"İstenen {iterations} adım planı ({planned} = {n_effective} örnek × {epochs} "
+                "epoch) aşıyor → aynı örnekler üzerinde fazladan epoch (ezber riski). "
+                "İterasyonu 0 bırak (plandan) ya da daha çok VERİ için örnek tavanını büyüt."
+            )
         iters = iterations if iterations > 0 else planned
         base = _find_hektor(root)
         if not base:
@@ -744,6 +826,15 @@ def launch(
         env["HEKTOR_TRAIN_SUPERVISED"] = "1"
         # Bu yol hiçbir zaman nöbetçi kurtarması değildir (o start-train.ps1 -Supervised).
         env.pop("HEKTOR_TRAIN_RECOVERY", None)
+        # Taze başlatma ASLA checkpoint'ten devam etmez (Kademe-2 B12): sunucu, önceden
+        # `start-train.ps1 -Resume` koşmuş bir kabuktan açıldıysa RESUME=1 miras kalırdı.
+        env["HEKTOR_TRAIN_RESUME"] = "0"
+        # Kayıt defteri (Kademe-2 C3): alt süreç biten adapter'ı CANDIDATE kaydeder; yalnız
+        # kendi kaydını açan auto_pipeline çift kaydı önlemek için bunu kapatır.
+        if skip_register:
+            env["HEKTOR_TRAIN_SKIP_REGISTER"] = "1"
+        else:
+            env.pop("HEKTOR_TRAIN_SKIP_REGISTER", None)
 
         # Alt süreç (etkileşimsiz) BU bekleyen kararı tüketecek; ağırlıklar durum dosyasına
         # yazılır ki kurtarma aynı ağırlıkları bayrakla geri verebilsin (Kademe-2 A2).
@@ -941,6 +1032,27 @@ def _stop_event(detail: str, terminated: bool) -> None:
         )
     except Exception:
         log.debug("stop event yazılamadı", exc_info=True)
+
+
+def mark_detached_status(adapter_name: str, root: Path | None = None, **fields: object) -> bool:
+    """Durum dosyasına sonuç alanları işle (``finished_at`` / ``failed_at`` + ``error``).
+
+    Yalnız dosya AYNI adapter'a aitse yazar (başka koşunun kaydı ezilmez). Alt süreç
+    (`train --run`) bitişte çağırır: başarılı ya da deterministik hatayla biten koşu artık
+    "çökmüş" sayılıp diriltilmez (Kademe-2 A1/A2/B2/B3). True → yazıldı.
+    """
+    r = root or get_settings().root
+    st = r / "storage" / "train_status.json"
+    info = read_detached_training_status(r)
+    if not info or info.get("adapter") != adapter_name:
+        return False
+    info.update(fields)
+    try:
+        st.write_text(json.dumps(info), encoding="utf-8")
+    except OSError:
+        log.warning("Durum dosyasına sonuç işlenemedi: %s", st)
+        return False
+    return True
 
 
 def request_stop_detached_training(root: Path | None = None) -> dict:
