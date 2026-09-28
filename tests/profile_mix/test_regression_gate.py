@@ -148,3 +148,112 @@ def test_only_one_production_profile(tmp_path: Path) -> None:
         reg.transition(pid, ProfileStatus.PRODUCTION, gate_passed=True, user_approved=True)
     st = {r.profile_id: r.status for r in reg.records()}
     assert st == {"a": ProfileStatus.DEPRECATED, "b": ProfileStatus.PRODUCTION}
+
+
+def test_same_hash_upsert_keeps_eval_history_and_serving_model(tmp_path: Path) -> None:
+    """Aynı içerikle yeniden kayıt (ör. build --run tekrarı) validated profili boşaltmamalı."""
+    reg = ProfileRegistry(tmp_path / "p.jsonl")
+    reg.upsert(_rec("a"))
+    reg.transition("a", ProfileStatus.EVALUATING)
+    reg.record_eval(
+        "a",
+        run_id="run1",
+        eval_dataset_version="golden_test@x",
+        eval_score=0.8,
+        domain_scores={"math": 0.9},
+        grounding_score=0.9,
+        hallucination_score=0.05,
+    )
+    reg.transition("a", ProfileStatus.VALIDATED, note="ilk eval")
+    rows = reg.records()
+    rows[0].serving_model = "hektor-a:latest"
+    from app.lora.mix_common import write_jsonl
+
+    write_jsonl(reg.path, (r.to_dict() for r in rows))
+
+    again = _rec("a")  # builder'ın ürettiği gibi: eval alanları/servis modeli boş
+    again.merged_adapter_path = "models/profiles/a_yeni"
+    reg.upsert(again)
+    rec = reg.get("a")
+    assert rec is not None
+    assert rec.status is ProfileStatus.VALIDATED
+    assert rec.last_eval_run_id == "run1" and rec.eval_score == 0.8
+    assert rec.domain_scores == {"math": 0.9} and rec.grounding_score == 0.9
+    assert rec.eval_dataset_version == "golden_test@x"
+    assert rec.serving_model == "hektor-a:latest"
+    assert rec.merged_adapter_path == "models/profiles/a_yeni"
+    assert "ilk eval" in rec.notes
+    # Durum makinesi tutarlı kalır: validated → evaluating → validated yine mümkün.
+    reg.transition("a", ProfileStatus.EVALUATING)
+    reg.transition("a", ProfileStatus.VALIDATED)
+
+
+# ------------------------------------------------ production referansı karşılaştırılabilirliği
+
+_MANIFEST = {
+    "eval_dataset": "golden_test@x",
+    "eval_dataset_hash": "ds" * 8,
+    "rag_version": "rag" * 5,
+    "base_model_hash": "base" * 4,
+    "eval_config_hash": "cfg" * 5,
+}
+
+
+def _gate_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cand_over: dict) -> dict:
+    from app.config import get_settings
+    from app.evals.profile.eval_registry import EvalRegistry
+    from app.lora.mix_cli import compute_gate
+
+    monkeypatch.setenv("HEKTOR_ROOT_PATH", str(tmp_path))
+    get_settings.cache_clear()
+    preg = ProfileRegistry()
+    for pid in ("p", "c"):
+        preg.upsert(_rec(pid))
+    preg.transition("p", ProfileStatus.EVALUATING)
+    preg.record_eval(
+        "p",
+        run_id="run_p",
+        eval_dataset_version="golden_test@x",
+        eval_score=0.8,
+        domain_scores={},
+        grounding_score=0.9,
+        hallucination_score=0.05,
+    )
+    preg.transition("p", ProfileStatus.VALIDATED)
+    preg.transition("p", ProfileStatus.PRODUCTION, gate_passed=True, user_approved=True)
+    ereg = EvalRegistry()
+    old = metrics(0.90, 0.70, 0.90, 0.85, 0.80)
+    new = metrics(0.90, 0.75, 0.90, 0.86, 0.80, grounding=0.92, hallucination_rate=0.04)
+    ereg.save({**_MANIFEST, "run_id": "run_p", "profile": "p"}, {"D_rag+p": old}, [])
+    ereg.save({**_MANIFEST, **cand_over, "run_id": "run_c", "profile": "c"}, {"D_rag+c": new}, [])
+    return compute_gate("c")
+
+
+def test_gate_passes_when_production_run_is_comparable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    res = _gate_setup(tmp_path, monkeypatch, {})
+    assert res["passed"] is True, res
+    assert res["reference_run_id"] == "run_p" and res["candidate_run_id"] == "run_c"
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"eval_dataset_hash": "baska"},
+        {"rag_version": "baska"},
+        {"base_model_hash": "baska"},
+        {"eval_config_hash": "baska"},
+        {"base_model_hash": "unknown"},
+        {"rag_version": ""},
+    ],
+)
+def test_gate_fails_closed_on_incomparable_production_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, over: dict
+) -> None:
+    """Farklı eval seti/RAG/base/config ile koşulmuş production referansı kıyaslanamaz."""
+    res = _gate_setup(tmp_path, monkeypatch, over)
+    assert res["passed"] is False
+    (key,) = over
+    assert any(b.startswith(key) for b in res["blockers"]), res
+    assert "karşılaştırılamaz" in res["error"]

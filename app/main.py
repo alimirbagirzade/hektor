@@ -709,7 +709,22 @@ def train(
             )
             raise typer.Exit(6)
 
-        weight_decision = finalize_decision(weight_decision, consumed_by=f"train:{adapter_name}")
+        try:
+            weight_decision = finalize_decision(
+                weight_decision, consumed_by=f"train:{adapter_name}"
+            )
+        except (KeyError, ValueError, TimeoutError) as exc:
+            # Ör. karar çözüldükten sonra daha yeni bir karar kaydedildi (superseded) ya da
+            # başka bir eğitim aynı kararı tüketti → eski kararla eğitim BAŞLAMAZ.
+            console.print(
+                Panel.fit(
+                    f"Ağırlık kararı tüketilemedi: {exc}\n"
+                    "Kontrol: [cyan]uv run hektor mix weights --show[/cyan]",
+                    title="⛔ Karışım ağırlığı kararı geçersiz",
+                    border_style="red",
+                )
+            )
+            raise typer.Exit(5) from exc
         console.print(f"[dim]Ağırlık kararı tüketildi: {weight_decision.decision_id}[/dim]")
 
     if resolved == "mlx":

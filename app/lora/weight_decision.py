@@ -9,6 +9,9 @@ Kullanıcı isteği (2026-09-27): "her lora eğitiminin başında ağırlık ort
 3. etkileşimli terminalde doğrudan soru.
 
 Karar tek kullanımlıktır (onay kapısı gibi): bir eğitim tüketir, sonraki eğitim yeniden sorar.
+Aynı anda en fazla BİR açık karar vardır: yeni karar kaydı ya da herhangi bir kararın tüketimi,
+diğer açık kararları ``superseded_at/superseded_by`` ile geçersiz kılar (satır silinmez). Oku-
+değiştir-yaz döngüsü ``file_lock`` ile korunur (eşzamanlı kayıt/tüketimde kayıp güncelleme yok).
 Ağırlıklar semantik yüzde DEĞİLDİR; adapter ölçek katsayısıdır — eğitimi DEĞİŞTİRMEZ, eğitim
 kaydına (hangi karışım hedefiyle eğitildiği) iliştirilir ve profil kurulumunda kullanılır.
 """
@@ -25,6 +28,7 @@ from typing import Any
 from app.lora.mix_common import (
     DOMAINS,
     MixConfigError,
+    file_lock,
     format_weights,
     load_mix_config,
     parse_weights,
@@ -51,9 +55,24 @@ class WeightDecision:
     created_at: str = field(default_factory=lambda: _utcnow().isoformat())
     consumed_at: str | None = None
     consumed_by: str | None = None
+    # Daha yeni bir karar kaydedildiğinde ya da başka bir karar tüketildiğinde eski bekleyen
+    # karar SİLİNMEZ, "geçersiz kılındı" olarak işaretlenir (denetlenebilir kayıt).
+    superseded_at: str | None = None
+    superseded_by: str | None = None
+
+    @property
+    def is_open(self) -> bool:
+        """Tüketilmemiş ve geçersiz kılınmamış."""
+        return not self.consumed_at and not self.superseded_at
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WeightDecision:
+        """Eski biçimli (superseded_* alanı olmayan) satırları da okur; bilinmeyen alanı atar."""
+        known = set(cls.__dataclass_fields__)
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 def new_decision(weights: dict[str, float], profile_name: str, source: str) -> WeightDecision:
@@ -74,44 +93,65 @@ class WeightDecisionStore:
         out = []
         for row in read_jsonl(self.path):
             try:
-                out.append(WeightDecision(**row))
+                out.append(WeightDecision.from_dict(row))
             except TypeError:
                 continue
         return out
 
+    @staticmethod
+    def _supersede_others(rows: list[WeightDecision], keep_id: str, when: str) -> None:
+        for r in rows:
+            if r.decision_id != keep_id and r.is_open:
+                r.superseded_at = when
+                r.superseded_by = keep_id
+
     def record(self, weights: dict[str, float], profile_name: str, source: str) -> WeightDecision:
+        """Yeni kararı kaydet; bekleyen eski kararlar ``superseded`` işaretlenir (silinmez)."""
         dec = new_decision(weights, profile_name, source)
         dec.decision_id = "wd_" + uuid.uuid4().hex[:10]
-        rows = self.records()
-        rows.append(dec)
-        write_jsonl(self.path, (r.to_dict() for r in rows))
+        with file_lock(self.path):
+            rows = self.records()
+            self._supersede_others(rows, dec.decision_id, dec.created_at)
+            rows.append(dec)
+            write_jsonl(self.path, (r.to_dict() for r in rows))
         return dec
 
     def pending(self, now: dt.datetime | None = None) -> WeightDecision | None:
-        """En son tüketilmemiş ve taze karar."""
+        """En yeni açık (tüketilmemiş + geçersiz kılınmamış) karar — taze ise.
+
+        Yalnız EN YENİ açık karar dikkate alınır: o bayatsa daha eski bir karara geri
+        düşülmez (eski biçimli dosyada birden çok açık satır kalmış olsa bile).
+        """
         now = now or _utcnow()
         limit = now - dt.timedelta(hours=FRESH_HOURS)
-        for dec in reversed(self.records()):
-            if dec.consumed_at:
-                continue
-            try:
-                created = dt.datetime.fromisoformat(dec.created_at)
-            except ValueError:
-                continue
-            if created >= limit:
-                return dec
-        return None
+        newest = next((d for d in reversed(self.records()) if d.is_open), None)
+        if newest is None:
+            return None
+        try:
+            created = dt.datetime.fromisoformat(newest.created_at)
+        except ValueError:
+            return None
+        return newest if created >= limit else None
 
     def consume(self, decision_id: str, consumed_by: str) -> WeightDecision:
-        rows = self.records()
-        target = next((r for r in rows if r.decision_id == decision_id), None)
-        if target is None:
-            raise KeyError(decision_id)
-        if target.consumed_at:
-            raise ValueError(f"{decision_id} zaten tüketilmiş ({target.consumed_by})")
-        target.consumed_at = _utcnow().isoformat()
-        target.consumed_by = consumed_by
-        write_jsonl(self.path, (r.to_dict() for r in rows))
+        """Kararı tek kullanımlık tüket; diğer açık kararlar ``superseded`` işaretlenir."""
+        with file_lock(self.path):
+            rows = self.records()
+            target = next((r for r in rows if r.decision_id == decision_id), None)
+            if target is None:
+                raise KeyError(decision_id)
+            if target.consumed_at:
+                raise ValueError(f"{decision_id} zaten tüketilmiş ({target.consumed_by})")
+            if target.superseded_at:
+                raise ValueError(
+                    f"{decision_id} daha yeni bir kararla geçersiz kılınmış "
+                    f"({target.superseded_by}); `hektor mix weights --show` ile kontrol edin"
+                )
+            now = _utcnow().isoformat()
+            target.consumed_at = now
+            target.consumed_by = consumed_by
+            self._supersede_others(rows, decision_id, now)
+            write_jsonl(self.path, (r.to_dict() for r in rows))
         return target
 
 

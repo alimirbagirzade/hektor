@@ -11,9 +11,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
-from collections.abc import Iterable, Mapping
+import time
+import uuid
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -152,12 +156,74 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
-    """Tüm satırları geçici dosyaya yaz, sonra atomik değiştir."""
+    """Tüm satırları yazıcıya özgü geçici dosyaya yaz, sonra atomik değiştir.
+
+    Geçici dosya adı her yazımda benzersizdir (pid + rastgele ek): eşzamanlı iki yazıcı aynı
+    ``.tmp`` dosyasını ezmez. Windows'ta hedef o an bir okuyucu tarafından açıksa
+    ``replace`` kısa süre ``PermissionError`` verebilir → birkaç kez yeniden denenir.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     text = "".join(json.dumps(dict(r), ensure_ascii=False) + "\n" for r in rows)
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        for attempt in range(10):
+            try:
+                tmp.replace(path)
+                break
+            except PermissionError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.05)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+LOCK_STALE_SECONDS = 60.0
+
+
+@contextmanager
+def file_lock(path: Path, *, timeout: float = 10.0, poll: float = 0.05) -> Iterator[None]:
+    """``<path>.lock`` ile basit süreçler-arası kilit (O_CREAT|O_EXCL; Windows uyumlu).
+
+    Oku-değiştir-yaz döngüsünü (ör. karar kaydı/tüketimi) kayıp güncellemeye karşı korur.
+    Çöken bir süreçten kalan ``LOCK_STALE_SECONDS``'tan eski kilit kırılır. Süre dolarsa
+    ``TimeoutError``.
+    """
+    lock = path.with_name(path.name + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:
+                    lock.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"kilit alınamadı: {lock} (başka bir süreç yazıyor olabilir)"
+                ) from None
+            time.sleep(poll)
+            continue
+        except PermissionError:
+            # Windows: silinmekte olan kilit dosyası kısa süre erişilemez olabilir.
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"kilit alınamadı: {lock}") from None
+            time.sleep(poll)
+            continue
+        break
+    try:
+        try:
+            os.write(fd, str(os.getpid()).encode("ascii"))
+        finally:
+            os.close(fd)
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 def append_jsonl(path: Path, row: Mapping[str, Any]) -> None:

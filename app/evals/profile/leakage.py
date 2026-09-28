@@ -1,13 +1,21 @@
 """Eğitim ↔ eval sızıntı denetimi (zorunlu).
 
-Eval sorularının/cevaplarının LoRA eğitim verisine girmemesi için dört kontrol:
+Eval sorularının/cevaplarının LoRA eğitim verisine girmemesi için beş kontrol:
 
 1. exact duplicate       — metin birebir aynı
 2. normalized duplicate  — küçük harf + noktalama/boşluk/aksan normalize edildikten sonra aynı
-3. near-duplicate        — kelime 3-gram Jaccard ≥ eşik (çevrimdışı, deterministik) ve
+3. contained             — normalize eval metni (≥ ``_MIN_CONTAIN_LEN`` karakter) daha uzun bir
+                           eğitim metninin İÇİNDE birebir geçiyor (ör. ``BAĞLAM: … SORU: <soru>``
+                           biçimli kullanıcı mesajı ya da cevaba gömülmüş referans cevap)
+4. near-duplicate        — kelime 3-gram Jaccard ≥ eşik (çevrimdışı, deterministik) ve
                            opsiyonel olarak enjekte edilen embedding kosinüsü ≥ eşik ("semantik")
-4. source-id overlap     — eval kaydının kaynak kimliği (expected_document_ids /
+5. source-id overlap     — eval kaydının kaynak kimliği (expected_document_ids /
                            source_provenance'taki paper id) eğitim örneğinin source_id'si ile aynı
+
+Kullanıcı mesajlarındaki ``SORU:`` bölümü ayrıca AYRI bir eğitim metni olarak çıkarılır; böylece
+bağlam pasajıyla paketlenmiş bir soru exact/normalized/near-dup denetimlerinden kaçamaz.
+Kısa metinler (< ``_MIN_TEXT_LEN``) bilinçli olarak yalnız exact/normalized ile denetlenir
+("Evet." gibi ifadeler her yerde geçer; bulanık/içerme eşleşmesi yanlış pozitif üretir).
 
 Eğitim örneği biçimi: ``{"messages": [...], "metadata": {"source_id": ...}}`` (LoRAExample)
 veya ``{"question"/"prompt"/"instruction", "answer"/"output"/"response"}``.
@@ -15,6 +23,7 @@ veya ``{"question"/"prompt"/"instruction", "answer"/"output"/"response"}``.
 
 from __future__ import annotations
 
+import bisect
 import json
 import math
 import re
@@ -31,14 +40,20 @@ EmbedFn = Callable[[Sequence[str]], list[list[float]]]
 DEFAULT_JACCARD = 0.8
 DEFAULT_COSINE = 0.95
 _MIN_TEXT_LEN = 20  # çok kısa metinler (ör. "Evet.") near-dup için anlamsız
+# İçerme (substring) denetimi için normalize eval metninin en kısa uzunluğu: daha kısa ifadeler
+# (ör. "standart sapma nedir") uzun pasajlarda doğal olarak geçer → yanlış pozitif.
+_MIN_CONTAIN_LEN = 30
+# ``BAĞLAM: …\n\nSORU: <soru>`` biçimli kullanıcı mesajında soru bölümünün işareti.
+_QUESTION_MARKER = re.compile(r"(?:^|\n)[ \t]*(?:SORU|QUESTION)[ \t]*:[ \t]*", re.IGNORECASE)
 
 
 @dataclass
 class LeakageHit:
-    kind: str  # exact | normalized | near_duplicate | semantic | source_id
+    kind: str  # exact | normalized | contained | near_duplicate | semantic | source_id
     eval_id: str
     train_index: int
     detail: str
+    split: str = "train"  # isabetin bulunduğu eğitim dosyası (train | valid)
 
 
 @dataclass
@@ -103,11 +118,24 @@ class TrainText:
     source_id: str
 
 
+def question_segment(text: str) -> str:
+    """``… SORU: <soru>`` biçimli mesajda son ``SORU:`` işaretinden sonraki bölüm (yoksa "")."""
+    last: re.Match[str] | None = None
+    for m in _QUESTION_MARKER.finditer(text):
+        last = m
+    return text[last.end() :].strip() if last is not None else ""
+
+
 def extract_train_texts(example: dict[str, Any], index: int) -> TrainText:
     texts: list[str] = []
     for msg in example.get("messages") or []:
         if isinstance(msg, dict) and msg.get("role") in ("user", "assistant"):
-            texts.append(str(msg.get("content") or ""))
+            content = str(msg.get("content") or "")
+            texts.append(content)
+            if msg.get("role") == "user":
+                q = question_segment(content)
+                if q and q != content.strip():
+                    texts.append(q)
     for key in ("question", "prompt", "instruction", "input", "answer", "output", "response"):
         if example.get(key):
             texts.append(str(example[key]))
@@ -164,12 +192,24 @@ def check_leakage(
     source_idx: dict[str, int] = {}
     flat_train: list[tuple[int, str]] = []
     shingle_owner: list[int] = []
+    # İçerme denetimi: normalize eğitim metinleri "\n" ile tek dizede birleşir (normalize metin
+    # satır sonu içermez → bir eşleşme iki metni aşamaz); ofset → eğitim satırı ikili aramayla.
+    corpus_parts: list[str] = []
+    corpus_starts: list[int] = []
+    corpus_owner: list[int] = []
+    corpus_len = 0
     for tt in train:
         if tt.source_id:
             source_idx.setdefault(tt.source_id, tt.index)
         for t in tt.texts:
             exact_idx.setdefault(t.strip(), tt.index)
-            norm_idx.setdefault(normalize_text(t), tt.index)
+            nt = normalize_text(t)
+            norm_idx.setdefault(nt, tt.index)
+            if len(nt) >= _MIN_CONTAIN_LEN:
+                corpus_parts.append(nt)
+                corpus_starts.append(corpus_len)
+                corpus_owner.append(tt.index)
+                corpus_len += len(nt) + 1
             if len(t) >= _MIN_TEXT_LEN:
                 key = len(shingle_sets)
                 shingle_sets[key] = _shingles(t)
@@ -177,6 +217,13 @@ def check_leakage(
                 for gram in shingle_sets[key]:
                     shingle_inv.setdefault(gram, []).append(key)
                 flat_train.append((tt.index, t))
+    corpus = "\n".join(corpus_parts)
+
+    def contained_in(n_text: str) -> int | None:
+        pos = corpus.find(n_text)
+        if pos < 0:
+            return None
+        return corpus_owner[bisect.bisect_right(corpus_starts, pos) - 1]
 
     for item in items:
         flagged: set[tuple[str, int]] = set()  # (tür, eğitim satırı) kayıt başına bir kez
@@ -200,6 +247,11 @@ def check_leakage(
             if n and n in norm_idx:
                 hit("normalized", norm_idx[n], text[:80])
                 continue
+            if len(n) >= _MIN_CONTAIN_LEN:
+                owner = contained_in(n)
+                if owner is not None:
+                    hit("contained", owner, f"eğitim metni içinde: {text[:60]}")
+                    continue
             if len(text) < _MIN_TEXT_LEN:
                 continue
             sh = _shingles(text)

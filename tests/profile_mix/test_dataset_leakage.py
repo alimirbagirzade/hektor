@@ -53,13 +53,24 @@ def test_normalized_duplicate() -> None:
     assert rep.counts() == {"normalized": 1}
 
 
+NEAR_Q = (
+    "Örneklem standart sapması 10, örneklem büyüklüğü 25 ise ortalamanın standart hatası nedir?"
+)
+
+
 def test_near_duplicate() -> None:
+    rep = check_leakage([ITEM], [_msg(NEAR_Q)])
+    assert rep.counts() == {"near_duplicate": 1}
+
+
+def test_superset_of_question_is_contained() -> None:
+    """Eval sorusunu birebir içeren daha uzun metin (önceden near-dup) artık 'contained'."""
     q = (
         "Örneklem standart sapması 10, örneklem büyüklüğü 25 ise ortalamanın standart hatası "
         "kaçtır? Kısaca açıkla."
     )
     rep = check_leakage([ITEM], [_msg(q)])
-    assert rep.counts() == {"near_duplicate": 1}
+    assert rep.counts() == {"contained": 1}
 
 
 def test_semantic_near_duplicate_with_injected_embedding() -> None:
@@ -81,6 +92,46 @@ def test_source_id_overlap() -> None:
 def test_answer_leak_detected_too() -> None:
     rep = check_leakage([ITEM], [_msg("farklı soru", a="10/sqrt(25) = 2")])
     assert rep.counts() == {"exact": 1}
+
+
+PASSAGE = (
+    "BAĞLAM:\nMerkezi limit teoremi, bağımsız ve özdeş dağılımlı gözlemlerin ortalamasının "
+    "örneklem büyüdükçe normal dağılıma yaklaştığını söyler; varyans sonlu olmalıdır.\n\n"
+)
+
+
+def test_question_packed_with_context_is_flagged() -> None:
+    """Gerçek eğitim biçimi: ``BAĞLAM: <pasaj>\\n\\nSORU: <soru>`` — soru bağlamla paketli."""
+    rep = check_leakage([ITEM], [_msg(PASSAGE + "SORU: " + ITEM.question)])
+    assert not rep.clean
+    assert rep.counts() == {"exact": 1}  # SORU bölümü ayrı metin olarak eşleşir
+
+
+def test_near_duplicate_question_packed_with_context_is_flagged() -> None:
+    rep = check_leakage([ITEM], [_msg(PASSAGE + "Soru: " + NEAR_Q)])
+    assert rep.counts() == {"near_duplicate": 1}
+
+
+def test_question_embedded_verbatim_in_longer_text_is_contained() -> None:
+    long_text = "Aşağıdaki problemi çöz. " + ITEM.question + " Cevabını gerekçelendir."
+    rep = check_leakage([ITEM], [_msg(long_text)])
+    assert rep.counts() == {"contained": 1} and rep.hits[0].train_index == 0
+
+
+def test_reference_answer_embedded_in_training_answer_is_contained() -> None:
+    item = ITEM.model_copy(
+        update={"reference_answer": "Standart hata sigma bölü karekök n formülüyle bulunur."}
+    )
+    answer = "Adım adım: " + item.reference_answer + " Burada sigma=10, n=25 → 2."
+    rep = check_leakage([item], [_msg("tamamen alakasız bir soru metni", a=answer)])
+    assert rep.counts() == {"contained": 1}
+
+
+def test_short_text_is_not_containment_checked() -> None:
+    """Kısa metin bilinçli olarak yalnız exact/normalized — uzun pasajda geçmesi sızıntı değil."""
+    item = ITEM.model_copy(update={"reference_answer": "Sonuç 2 olur."})
+    rep = check_leakage([item], [_msg("alakasız", a="Hesap yapınca sonuç 2 olur. Bitti.")])
+    assert rep.clean
 
 
 def test_clean_training_data() -> None:
