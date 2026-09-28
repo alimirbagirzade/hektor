@@ -169,7 +169,12 @@ class LoRAControlPlane:
             except Exception:  # okunamayan makale → o kart için kontrol atlanır, kapı çökmez
                 log.warning("Gate 5 kaynak sayıları okunamadı: %s", pid)
                 continue
-            out[pid] = source_numbers(" ".join(str(getattr(c, "text", "") or "") for c in chunks))
+            text = " ".join(str(getattr(c, "text", "") or "") for c in chunks)
+            # Metni olmayan makale (chunk yok/boş) → doğrulanamaz → sözlüğe GİRMEZ (None =
+            # kontrol atlanır). Boş küme "metin var ama sayı yok" anlamına gelir ve karttaki
+            # her yüzdeyi incelemeye düşürür (Kademe 2 B2) — ikisi karışmasın.
+            if text.strip():
+                out[pid] = source_numbers(text)
         return out
 
     @staticmethod

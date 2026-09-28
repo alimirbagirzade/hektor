@@ -18,6 +18,9 @@ Yakalanan v5 başarısızlık modları:
   yerini — son cümlesi çeşitlendirilmiş ama gövdesi 16 kopya olan şablonu da yakalar.
 - **Boş / okunamayan veri** ve **sır / kişisel veri** → NO-GO (eğitilen dosyanın kendisi
   taranır; lora-audit yalnız kartları görür).
+- **Kart kapıları her satırda** (Kademe 2 B1) → lora-audit Gate 7 (sır/PII/finansal yönlendirme)
+  ve olumsuzlanmamış Gate 5 garanti vaadi HER satırın cevabında → NO-GO. Tazelik (dosya ↔ şu
+  anki DB) `sft_assembly.check_assembly_freshness` ile `pretrain-gate` komutunda denetlenir.
 Uyarı (bloklamaz ama raporlanır): sızıntı öneki payı, maliyet-token eksiği, disiplin kapsamı,
 şablon tekrarı %1-%2 bandı, toplam < 1000 (overfit riski).
 
@@ -97,6 +100,12 @@ class DatasetQualityReport:
     top_template_ngram_share: float = 0.0
     template_ngrams_over_block: int = 0
     recommended_epochs: int = 2
+    # Satır bazlı lora-audit kapı taraması (Gate 7 + Gate 5) ve tazelik bağı (pretrain-gate).
+    gate7_line_hits: int = 0
+    guarantee_line_hits: int = 0
+    certainty_line_hits: int = 0
+    gate5_review_line_hits: int = 0
+    freshness: str = "kontrol edilmedi"  # "güncel" | "BAYAT" | "doğrulanamadı" | …
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -172,7 +181,8 @@ def audit_dataset(
         lines: Birleşik (eğitilecek) JSONL satırları.
         discipline_lines: Disiplin havuzu (verilirse kapsam = havuz ∩ set raporlanır).
     """
-    answers = [a for ln in lines if (a := _assistant_answer(ln)) is not None]
+    parsed = [(no, a) for no, ln in enumerate(lines, 1) if (a := _assistant_answer(ln)) is not None]
+    answers = [a for _, a in parsed]
     total = len(lines)
 
     blockers: list[str] = []
@@ -315,6 +325,33 @@ def audit_dataset(
             "veri eğitime giremez"
         )
 
+    # 9) Kart kapılarının içerik taraması HER satırda (Kademe 2 B1, 2026-09-28): lora-audit
+    # Gate 5/7 yalnız DB kartlarını görür; sentetik QA + disiplin satırları eğitilen dosyada
+    # bu taramalardan HİÇ geçmiyordu. Gate 7 (sır/PII/finansal yönlendirme) → NO-GO;
+    # olumsuzlanmamış garanti/risksizlik vaadi (Gate 5) → NO-GO; kesinlik dili ve Gate 5
+    # inceleme işaretleri (performans iddiası, yüzde tutarsızlığı) → uyarı.
+    content = _scan_card_gates(parsed)
+    if content.gate7_lines:
+        blockers.append(
+            f"{len(content.gate7_lines)} satır Gate 7 güvenlik taramasına takıldı (sır/kişisel "
+            f"veri/finansal yönlendirme; {_examples(content.gate7_lines)}) — veri eğitime giremez"
+        )
+    if content.guarantee_lines:
+        blockers.append(
+            f"{len(content.guarantee_lines)} satır olumsuzlanmamış garanti/risksizlik vaadi "
+            f"içeriyor (Gate 5; {_examples(content.guarantee_lines)}) — Kural 1 zehiri"
+        )
+    if content.certainty_lines:
+        warnings.append(
+            f"{len(content.certainty_lines)} satırda kesinlik dili "
+            f"({_examples(content.certainty_lines)}) — incele"
+        )
+    if content.review_lines:
+        warnings.append(
+            f"{len(content.review_lines)} satırda Gate 5 inceleme işareti (doğrulanmamış "
+            f"performans iddiası / yüzde tutarsızlığı; {_examples(content.review_lines)})"
+        )
+
     verdict = "NO-GO" if blockers else "GO"
     return DatasetQualityReport(
         total=total,
@@ -338,4 +375,62 @@ def audit_dataset(
         top_template_ngram_share=round(template_share, 4),
         template_ngrams_over_block=over_block,
         recommended_epochs=recommend_epochs(total),
+        gate7_line_hits=len(content.gate7_lines),
+        guarantee_line_hits=len(content.guarantee_lines),
+        certainty_line_hits=len(content.certainty_lines),
+        gate5_review_line_hits=len(content.review_lines),
     )
+
+
+@dataclass
+class _CardGateScan:
+    """Satır bazlı Gate 5/7 taraması: (satır no, etiket) listeleri."""
+
+    gate7_lines: list[tuple[int, str]] = field(default_factory=list)
+    guarantee_lines: list[tuple[int, str]] = field(default_factory=list)
+    certainty_lines: list[tuple[int, str]] = field(default_factory=list)
+    review_lines: list[tuple[int, str]] = field(default_factory=list)
+
+
+# Gate 5 inceleme işaretlerinden satır taramasında UYARI sayılanlar. "istatistiksel risk
+# işareti" (look-ahead/survivorship KAVRAMINI anlatan cevap) gürültüdür → sayılmaz.
+_GATE5_REVIEW_PREFIXES = ("doğrulanmamış performans iddiası", "şüpheli yüksek", "risk yüzdesi")
+_EXAMPLE_LIMIT = 5
+
+
+def _examples(hits: list[tuple[int, str]]) -> str:
+    shown = ", ".join(f"satır {no}: {label}" for no, label in hits[:_EXAMPLE_LIMIT])
+    more = len(hits) - _EXAMPLE_LIMIT
+    return shown + (f" … +{more} daha" if more > 0 else "")
+
+
+def _scan_card_gates(parsed: list[tuple[int, str]]) -> _CardGateScan:
+    """Her assistant cevabını lora-audit Gate 7 + Gate 5 tarayıcılarından geçir."""
+    from app.lora.math_verifier import (
+        CERTAINTY_ONLY_PHRASES,
+        overconfident_hits,
+        verify_math_content,
+    )
+    from app.lora.safety_scanner import scan_for_secrets, tr_fold
+
+    out = _CardGateScan()
+    for no, answer in parsed:
+        if not answer.strip():
+            continue
+        safety = scan_for_secrets(answer)
+        if not safety.passed:
+            out.gate7_lines.append((no, "; ".join(safety.violations)))
+        hits = overconfident_hits(tr_fold(answer))
+        guarantees = [h for h in hits if h not in CERTAINTY_ONLY_PHRASES]
+        if guarantees:
+            out.guarantee_lines.append((no, ", ".join(f"'{h}'" for h in guarantees)))
+        elif hits:
+            out.certainty_lines.append((no, ", ".join(f"'{h}'" for h in hits)))
+        review = [
+            issue
+            for issue in verify_math_content(answer).issues
+            if issue.startswith(_GATE5_REVIEW_PREFIXES)
+        ]
+        if review:
+            out.review_lines.append((no, review[0][:60]))
+    return out

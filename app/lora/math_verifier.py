@@ -11,7 +11,19 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from app.lora.safety_scanner import tr_fold
+from app.lora.negation import NEG_AFTER_RE, NEG_BEFORE_RE, NEG_WINDOW, is_negated
+from app.lora.safety_scanner import NO_RISK_RE, RISK_YOK_RE, tr_fold
+
+__all__ = [
+    "NEG_AFTER_RE",
+    "NEG_BEFORE_RE",
+    "NEG_WINDOW",
+    "MathVerifyResult",
+    "is_negated",
+    "overconfident_hits",
+    "source_numbers",
+    "verify_math_content",
+]
 
 # İstatistiksel kırmızı bayraklar — varlığı uyarı doğurur.
 STATISTICAL_FLAGS: list[str] = [
@@ -40,26 +52,98 @@ OVERCONFIDENT_PHRASES: list[str] = [
     "100% profit",
 ]
 
-# Olumsuzlama tespiti — Gate 5 (aşırı-emin ifade) ve Gate 6 (tavsiye dili) ORTAK kullanır.
-# Olumsuzlanmış ifade ihtiyatlı dildir: "…without guaranteed performance gains" (2026-09-27
-# lora-audit, card_d489175087d1) Gate 5'te, "may not be directly applicable"
-# (card_8aad7e24a61e) Gate 6'da yanlış işaretleniyordu. Desenler tr_fold'lanmış metne karşı
-# çalışır. ÖNCE: olumsuzlayıcı + en fazla bir ara kelime ("is not necessarily …"); ara kelime
-# "only" OLAMAZ — "not only superior performance but…" olumsuzlama değildir. SONRA: Türkçe
-# yüklem olumsuzlaması ("garantisi yoktur", "uygulanabilir değildir").
-NEG_BEFORE_RE = re.compile(
-    r"\b(?:not|no|non|without|never|cannot|can't|isn't|aren't|hardly|neither|nor|hic|hicbir)"
-    r"\b(?:\s+(?!only\b)\w+)?[\s\-]*$"
+# Kesinlik (certainty) dili — garanti vaadi DEĞİL. pretrain-gate satır taramasında bunlar
+# uyarıdır; geri kalan OVERCONFIDENT_PHRASES (garanti/risksizlik vaadi) blocker'dır.
+CERTAINTY_ONLY_PHRASES: frozenset[str] = frozenset({"kesinlikle"})
+
+# Her ifadenin tr_fold'lanmış metindeki kelime-sınırlı deseni. Eskiden çıplak alt-dize
+# aranıyordu (Kademe 2 B6, 2026-09-28): "no risk" → "no risk-free arbitrage"/"no risk
+# premium", "guaranteed" → "The estimator is guaranteed to converge." BLOCKER'a düşüyordu.
+# (desen, olumsuzlama-öncesi-bakılır-mı, finansal-nesne-gerekir-mi)
+_OVERCONFIDENT_RULES: dict[str, tuple[re.Pattern[str], bool, bool]] = {
+    "kesinlikle": (re.compile(r"\bkesinlikle\b"), True, False),
+    # Çıplak "garanti"/"guaranteed" yalnız YAKININDA finansal nesne (kâr/getiri/kazanç/
+    # profit/return/gain/win…) varsa vaattir; "yakınsama garantisi", "guaranteed to
+    # converge" matematik dilidir. "garanti kâr"/"guaranteed profit" nesneyi taşıdığı için
+    # yakalanmaya devam eder.
+    "garanti": (re.compile(r"\bgaranti\w*"), True, True),
+    "her zaman kazanır": (re.compile(r"\bher zaman kazanir\w*"), True, False),
+    # "risk yok"/"no risk" zaten olumsuz yapıdır: öncesindeki olumsuzlayıcı ("hiçbir risk
+    # yok") iddiayı PEKİŞTİRİR, olumsuzlamaz → yalnız sonrası (Türkçe "… değil") bakılır.
+    "risk yok": (RISK_YOK_RE, False, False),
+    "asla kaybetmez": (re.compile(r"\basla kaybetmez\w*"), True, False),
+    "guaranteed": (re.compile(r"\bguaranteed\b"), True, True),
+    "always wins": (re.compile(r"\balways wins?\b"), True, False),
+    "no risk": (NO_RISK_RE, False, False),
+    "%100 kazanç": (re.compile(r"%\s*100\s*kazanc\w*"), True, False),
+    "100% profit": (re.compile(r"\b100\s*%\s*profit\w*"), True, False),
+}
+
+# Çıplak garanti kelimesinin vaat sayılması için gereken finansal nesne (tr_fold'lanmış).
+# "loss" BİLEREK yok (ML'de "loss function" her yerde); "lose/losing" var ("never lose,
+# guaranteed"). "risk-free/risksiz" de nesne sayılır ("guaranteed … risk-free").
+_FINANCIAL_OBJECT_RE = re.compile(
+    r"\b(?:profit\w*|returns?|gains?|win|wins|winning|income|earnings?|payoffs?|payouts?"
+    r"|lose|loses|losing|risk[\s\-]?free|risksiz\w*"
+    r"|kar|kari|karin|karini|karli\w*|karlar\w*|kazan\w*|getiri\w*)\b"
 )
-NEG_AFTER_RE = re.compile(r"^\w*\s*(?:degil|yok|edilmez|olmaz|olmad)")
-NEG_WINDOW: int = 30
+# "guaranteed to return the optimum" — fiil 'return' getiri değildir.
+_VERB_RETURN_RE = re.compile(r"\bto\s+$")
+_FIN_OBJECT_WINDOW: int = 40
+_CLAUSE_BREAK_RE = re.compile(r"[.!?;\n]")
 
 
-def is_negated(folded: str, start: int, end: int) -> bool:
-    """`folded[start:end]` eşleşmesi olumsuzlanmış mı (öncesinde ya da sonrasında)?"""
-    before = folded[max(0, start - NEG_WINDOW) : start]
-    after = folded[end : end + NEG_WINDOW]
-    return bool(NEG_BEFORE_RE.search(before) or NEG_AFTER_RE.search(after))
+def _has_financial_object(folded: str, start: int, end: int) -> bool:
+    """Eşleşmenin yakınında (aynı cümle, ±40 karakter) finansal nesne var mı?"""
+    left = folded[max(0, start - _FIN_OBJECT_WINDOW) : start]
+    right = folded[end : end + _FIN_OBJECT_WINDOW]
+    # Cümle sınırının ötesine taşma (ondalık "2.5" nokta sayılmasın diye rakam arası hariç).
+    left_breaks = [m.end() for m in _CLAUSE_BREAK_RE.finditer(left) if not _is_decimal(left, m)]
+    if left_breaks:
+        left = left[left_breaks[-1] :]
+    right_break = next(
+        (m.start() for m in _CLAUSE_BREAK_RE.finditer(right) if not _is_decimal(right, m)), None
+    )
+    if right_break is not None:
+        right = right[:right_break]
+    for segment in (left, right):
+        for obj in _FINANCIAL_OBJECT_RE.finditer(segment):
+            if obj.group(0) == "return" and _VERB_RETURN_RE.search(segment[: obj.start()]):
+                continue  # "guaranteed to return …" fiildir
+            return True
+    return False
+
+
+def _is_decimal(text: str, match: re.Match[str]) -> bool:
+    i = match.start()
+    return (
+        match.group(0) == "."
+        and 0 < i < len(text) - 1
+        and text[i - 1].isdigit()
+        and text[i + 1].isdigit()
+    )
+
+
+def overconfident_hits(folded: str) -> list[str]:
+    """`folded` (tr_fold'lanmış) metindeki OLUMSUZLANMAMIŞ aşırı-emin ifade etiketleri.
+
+    Tek bir olumsuzlanmamış geçiş yeterlidir → "not guaranteed … but guaranteed profit"
+    yine yakalanır; olumsuzlama yalnız kendi geçişini muaf tutar.
+    """
+    hits: list[str] = []
+    for label, (pattern, check_before, needs_object) in _OVERCONFIDENT_RULES.items():
+        for match in pattern.finditer(folded):
+            start, end = match.start(), match.end()
+            if check_before:
+                if is_negated(folded, start, end):
+                    continue
+            elif NEG_AFTER_RE.search(folded[end : end + NEG_WINDOW]):
+                continue
+            if needs_object and not _has_financial_object(folded, start, end):
+                continue
+            hits.append(label)
+            break
+    return hits
 
 
 # "%<sayı>" desenini yakalar.
@@ -124,29 +208,65 @@ _EVIDENCE_WINDOW: int = 70
 # performans-iddiası kalıpları yalnız bir kısmını yakalıyordu. Karttaki her yüzde, kartın
 # dayandığı makalenin chunk metninde aranır; yoksa inceleme işareti (Kural 7). Büyük
 # kitaplarda "var" zayıf kanıt olduğundan BLOK değil, insan incelemesi.
-_SRC_PCT_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*(?:%|percent\b|per cent\b)")
+#
+# Aralıklar İKİ ucuyla okunur ("10-15%", "10–15%", "10 to 15%", "10%-15%"): eskiden yalnız
+# üst uç (15) alınıyordu → karttaki uydurma alt uç (10) hiç denetlenmiyordu (Kademe 2 B2).
+# Türkçe ön-ek biçimi ("%15", "%10-15", "%10 ile %15") da yüzdedir.
+_NUM = r"\d+(?:[.,]\d+)?"
+_RANGE_SEP = r"\s*(?:-|–|—|\bto\b|\bile\b|\bila\b)\s*"
+_SRC_PCT_RE = re.compile(
+    rf"(?<![\w.,])({_NUM})(?:\s*%?{_RANGE_SEP}({_NUM}))?\s*(?:%|percent\b|per cent\b)"
+)
+_SRC_PCT_PREFIX_RE = re.compile(rf"(?<![\w%])%\s*({_NUM})(?:{_RANGE_SEP}%?\s*({_NUM}))?")
 # Ondalıklı sayı yeterince ayırt edicidir → kaynakta % işaretsiz de kabul ("accuracies of
 # 63.707" tablosu). Tam sayı ise % bağlamı ister ("15" her metinde sayfa no. olarak geçer).
 _SRC_DECIMAL_RE = re.compile(r"(?<![\w.,])(\d+[.,]\d+)(?!\d)")
 # Cümle sınırı — sayı İÇİNDEKİ nokta bölmez ("63.707%" tek parça kalır).
 _SENTENCE_SPLIT_RE = re.compile(r"(?<!\d)[.;](?!\d)|\n")
-# Bu cümlelerdeki yüzde iddia DEĞİL: önerilen test eşiği ("Test if … above 70%") ya da
-# açıkça örnek parametre ("e.g., 2% below current price").
-_NOT_A_CLAIM_RE = re.compile(
-    r"\b(?:test|evaluate|measure|assess|examine)\s+(?:if|whether)\b|\be\.?g\b"
+# Açıkça örnek parametre ("e.g., 2% below current price") → cümledeki yüzdeler iddia DEĞİL.
+_EXAMPLE_RE = re.compile(r"\be\.?g\b")
+# Önerilen test cümlesi ("Test if … above 70%"). Muafiyet YALNIZ eşik ifadesine uygulanır;
+# aynı cümledeki etki büyüklüğü ("by 15%", "%15 daha") iddia olarak kalır (inceleme).
+_TEST_IF_RE = re.compile(r"\b(?:test|evaluate|measure|assess|examine)\s+(?:if|whether)\b")
+_THRESHOLD_BEFORE_RE = re.compile(
+    r"(?:\babove|\bbelow|\bexceeds?|\bexceeding|\bover|\bunder|\bbeyond|\bgreater than"
+    r"|\bless than|\bmore than|\bhigher than|\blower than|\bat least|\bat most"
+    r"|\bthreshold(?: of)?|[<>≤≥]=?)\s*$"
 )
+_THRESHOLD_AFTER_RE = re.compile(
+    r"^['’]?\w*\s+(?:uzerin\w*|ustun\w*|altin\w*|asar\w*|asiyor\w*|gecer\w*|esig\w*)"
+)
+_THRESHOLD_WINDOW: int = 30
 
 
 def _norm_number(raw: str) -> str:
     return f"{float(raw.replace(',', '.')):g}"
 
 
+def _iter_percentages(folded: str) -> list[tuple[str, int, int]]:
+    """Yüzde değerleri (normalize) + eşleşme aralığı; aralıklarda her iki uç ayrı değer."""
+    out: list[tuple[str, int, int]] = []
+    for pattern in (_SRC_PCT_RE, _SRC_PCT_PREFIX_RE):
+        for m in pattern.finditer(folded):
+            for raw in (m.group(1), m.group(2)):
+                if raw:
+                    out.append((_norm_number(raw), m.start(), m.end()))
+    return out
+
+
 def source_numbers(source_text: str) -> frozenset[str]:
     """Kaynak metindeki yüzdeler + ondalıklı sayılar (normalize: "15.0" → "15")."""
     folded = tr_fold(source_text)
-    nums = {_norm_number(m.group(1)) for m in _SRC_PCT_RE.finditer(folded)}
+    nums = {value for value, _, _ in _iter_percentages(folded)}
     nums |= {_norm_number(m.group(1)) for m in _SRC_DECIMAL_RE.finditer(folded)}
     return frozenset(nums)
+
+
+def _is_threshold(sentence: str, start: int, end: int) -> bool:
+    """Yüzde eşik ifadesi mi ("above 70%", "%70'in üzerinde")?"""
+    before = sentence[max(0, start - _THRESHOLD_WINDOW) : start]
+    after = sentence[end : end + _THRESHOLD_WINDOW]
+    return bool(_THRESHOLD_BEFORE_RE.search(before) or _THRESHOLD_AFTER_RE.search(after))
 
 
 def _numbers_missing_from_source(folded: str, source_nums: frozenset[str]) -> list[str]:
@@ -155,9 +275,13 @@ def _numbers_missing_from_source(folded: str, source_nums: frozenset[str]) -> li
     # "e.g." kısaltmasının noktaları cümleyi bölmesin (örnek parametre muafiyeti kaybolurdu).
     folded = re.sub(r"\be\.g\.", "eg", folded)
     for sentence in _SENTENCE_SPLIT_RE.split(folded):
-        if _NOT_A_CLAIM_RE.search(sentence):
+        if _EXAMPLE_RE.search(sentence):
             continue
-        claims |= {_norm_number(m.group(1)) for m in _SRC_PCT_RE.finditer(sentence)}
+        is_test = bool(_TEST_IF_RE.search(sentence))
+        for value, start, end in _iter_percentages(sentence):
+            if is_test and _is_threshold(sentence, start, end):
+                continue  # önerilen test eşiği — iddia değil
+            claims.add(value)
     return sorted(claims - source_nums, key=float)
 
 
@@ -242,21 +366,6 @@ def _check_performance_claims(folded: str) -> list[str]:
     return issues
 
 
-def _has_unnegated(folded: str, phrase: str) -> bool:
-    """`phrase`'in en az bir OLUMSUZLANMAMIŞ geçişi var mı (`folded`: tr_fold'lanmış)?
-
-    Tek bir olumsuzlanmamış geçiş yeterlidir → "not guaranteed … but guaranteed profit"
-    yine yakalanır; olumsuzlama yalnız kendi geçişini muaf tutar.
-    """
-    start = 0
-    while (i := folded.find(phrase, start)) >= 0:
-        end = i + len(phrase)
-        if not is_negated(folded, i, end):
-            return True
-        start = end
-    return False
-
-
 def verify_math_content(text: str, source_nums: frozenset[str] | None = None) -> MathVerifyResult:
     """Bir metni matematik/istatistik açısından doğrula.
 
@@ -266,8 +375,10 @@ def verify_math_content(text: str, source_nums: frozenset[str] | None = None) ->
       - `passed`: aşırı emin yatırım ifadesi yoksa True (bunlar blocker)
 
     `source_nums` (``source_numbers(kaynak_metin)``) verilirse, karttaki yüzdelerden kaynakta
-    OLMAYANLAR inceleme işareti alır. ``None`` ya da boş küme (kaynak metni yok) → kontrol
-    atlanır; doğrulanamayan kart yanlışlıkla işaretlenmez.
+    OLMAYANLAR inceleme işareti alır. ``None`` (kaynak metni yok) → kontrol atlanır;
+    doğrulanamayan kart yanlışlıkla işaretlenmez. BOŞ küme ise kaynağın metni var ama hiç
+    sayı içermiyor demektir → karttaki her yüzde kaynakta YOK (inceleme; Kademe 2 B2 — eskiden
+    boş küme de "kontrol yok" sayılıp uydurma yüzde sessizce geçiyordu).
     """
     if not text:
         return MathVerifyResult(passed=True)
@@ -281,16 +392,14 @@ def verify_math_content(text: str, source_nums: frozenset[str] | None = None) ->
         if tr_fold(flag) in folded:
             issues.append(f"istatistiksel risk işareti: '{flag}'")
 
-    overconfident_found = False
-    for phrase in OVERCONFIDENT_PHRASES:
-        if _has_unnegated(folded, tr_fold(phrase)):
-            issues.append(f"aşırı emin yatırım ifadesi: '{phrase}'")
-            overconfident_found = True
+    hits = overconfident_hits(folded)
+    issues.extend(f"aşırı emin yatırım ifadesi: '{phrase}'" for phrase in hits)
+    overconfident_found = bool(hits)
 
     issues.extend(_check_percentage_sanity(text))
     # Doğrulanmamış sayısal performans iddiaları (requires_review, BLOK DEĞİL).
     issues.extend(_check_performance_claims(folded))
-    if source_nums:
+    if source_nums is not None:
         missing = _numbers_missing_from_source(folded, source_nums)
         if missing:
             listed = ", ".join(f"%{n}" for n in missing)
