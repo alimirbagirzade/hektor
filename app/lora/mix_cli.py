@@ -277,17 +277,24 @@ def leakage_cmd(
     else:
         console.print(
             f"{'[green]TEMİZ[/green]' if report['clean'] else '[red]SIZINTI[/red]'} "
-            f"— eğitim={report['n_train']} eval={report['n_eval']} {report['counts']}"
+            f"— eğitim={report['n_train']} valid={report['n_valid']} eval={report['n_eval']} "
+            f"{report['counts']}"
         )
         for h in report["hits"][:20]:
             console.print(
-                f"  {h['kind']:<15} {h['eval_id']:<12} train#{h['train_index']} {h['detail']}"
+                f"  {h['kind']:<15} {h['eval_id']:<12} {h['split']}#{h['train_index']} "
+                f"{h['detail']}"
             )
     if not report["clean"]:
         raise typer.Exit(1)
 
 
 def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
+    """train.jsonl (+ yanındaki valid.jsonl varsa) ↔ validation/golden sızıntı denetimi.
+
+    valid.jsonl de taranır: ``ensure_train_split`` her eğitimde yeniden böldüğü için bugün
+    valid'de olan bir satır sonraki bölmede train'e düşebilir.
+    """
     from app.config import get_settings
     from app.evals.profile.dataset_loader import load_split
     from app.evals.profile.leakage import check_leakage, load_train_jsonl
@@ -299,8 +306,20 @@ def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
         *load_split(Split.VALIDATION, purpose="leakage_check"),
         *load_split(Split.GOLDEN_TEST, purpose="leakage_check"),
     ]
-    report = check_leakage(items, train).to_dict()
+    rep = check_leakage(items, train)
+    valid_path = path.with_name("valid.jsonl")
+    n_valid = 0
+    if valid_path.exists() and valid_path != path:
+        valid = load_train_jsonl(valid_path)
+        n_valid = len(valid)
+        vrep = check_leakage(items, valid)
+        for h in vrep.hits:
+            h.split = "valid"
+        rep.hits.extend(vrep.hits)
+    report = rep.to_dict()
     report["train_path"] = str(path)
+    report["valid_path"] = str(valid_path) if n_valid else ""
+    report["n_valid"] = n_valid
     return report
 
 
@@ -313,11 +332,39 @@ def gate_cmd(profile_id: str) -> None:
         raise typer.Exit(1)
 
 
+#: Aday ve production referans koşusunun karşılaştırılabilir olması için manifestlerde
+#: BİREBİR eşleşmesi gereken alanlar (RunManifest). rag_version, indeks hash'ini de kapsar.
+COMPARABILITY_KEYS: tuple[str, ...] = (
+    "eval_dataset_hash",
+    "rag_version",
+    "base_model_hash",
+    "eval_config_hash",
+)
+
+
+def manifest_mismatches(candidate: dict[str, Any], reference: dict[str, Any]) -> list[str]:
+    """İki koşu manifesti arasında karşılaştırılabilirliği bozan alanlar (boşsa uyumlu).
+
+    Eksik / boş / ``unknown`` değer de uyumsuz sayılır (fail-closed): doğrulanamayan eşitlik
+    eşitlik değildir.
+    """
+    out: list[str] = []
+    for key in COMPARABILITY_KEYS:
+        c, r = str(candidate.get(key) or ""), str(reference.get(key) or "")
+        if not c or not r or "unknown" in (c, r):
+            out.append(f"{key}: doğrulanamadı (aday={c or '—'}, referans={r or '—'})")
+        elif c != r:
+            out.append(f"{key}: farklı (aday={c[:16]}, referans={r[:16]})")
+    return out
+
+
 def compute_gate(profile_id: str) -> dict[str, Any]:
     """Aday = profilin son golden koşusundaki D (RAG+profil) metrikleri.
 
     Referans = production profilinin son golden D metrikleri; production yoksa adayın aynı
-    koşusundaki B (base+RAG) baseline'ı.
+    koşusundaki B (base+RAG) baseline'ı. Production referansı ayrı bir koşudan geldiği için
+    iki manifestin eval veri seti / RAG sürümü / base model / eval config hash'leri
+    eşleşmelidir; eşleşmezse kapı KAPALI kalır (farklı koşulların metrikleri kıyaslanamaz).
     """
     from app.evals.profile.eval_registry import EvalRegistry
     from app.evals.profile.eval_runner import load_eval_config
@@ -340,12 +387,27 @@ def compute_gate(profile_id: str) -> dict[str, Any]:
     prod = preg.production()
     ref_metrics: dict[str, Any] | None = None
     label = "baseline B_base_rag (production yok)"
+    ref_run_id = run.run_id
     if prod is not None and prod.profile_id != profile_id:
         prun = reg.latest_for_profile(prod.profile_name, "golden_test")
         ref_metrics = (prun.metrics.get(f"D_rag+{prod.profile_id}") if prun else None) or None
         label = f"production {prod.profile_id}"
-        if ref_metrics is None:
+        if ref_metrics is None or prun is None:
             return {"passed": False, "error": f"production {prod.profile_id} golden koşusu yok"}
+        mismatches = manifest_mismatches(run.manifest, prun.manifest)
+        if mismatches:
+            return {
+                "passed": False,
+                "reference_label": label,
+                "error": (
+                    "aday ve production koşuları karşılaştırılamaz (aynı eval seti, RAG, base "
+                    "model ve eval config ile yeniden koşun)"
+                ),
+                "blockers": mismatches,
+                "candidate_run_id": run.run_id,
+                "reference_run_id": prun.run_id,
+            }
+        ref_run_id = prun.run_id
     else:
         ref_metrics = run.metrics.get("B_base_rag")
         if not ref_metrics:
@@ -361,6 +423,7 @@ def compute_gate(profile_id: str) -> dict[str, Any]:
     )
     out = res.to_dict()
     out["candidate_run_id"] = run.run_id
+    out["reference_run_id"] = ref_run_id
     return out
 
 

@@ -61,7 +61,13 @@ evals/profile_mix/                  validation.jsonl · golden_test.jsonl · man
   farklı içerikle yeniden kaydedilemez (eval geçmişi sessizce ezilmez).
 - **router_decisions.jsonl** — query_id, detected_domains, selected_profile,
   router_confidence, fallback_profile, created_at.
-- **weight_decisions.jsonl** — eğitim-başı ağırlık kararları (kim tüketti, ne zaman).
+- **weight_decisions.jsonl** — eğitim-başı ağırlık kararları (kim tüketti, ne zaman). En fazla
+  bir açık karar: yeni kayıt ya da bir tüketim diğer açık kararları `superseded_at/_by` ile
+  geçersiz kılar (silinmez); oku-yaz döngüsü `.lock` dosyasıyla korunur.
+- Aynı profile_id + aynı profile_hash ile yeniden kayıt durumu, eval alanlarını, notları ve
+  servis modelini korur (içerik değişmedi → eval kanıtı geçerli).
+- Production'a karşı regression gate, iki koşunun manifestinde `eval_dataset_hash`,
+  `rag_version`, `base_model_hash`, `eval_config_hash` eşleşmezse **kapalı** kalır.
 
 ## 5. Eval sistemi
 
@@ -96,8 +102,11 @@ Bayrakla verilen karar, eğitim bloklanırsa kayıt bırakmaz.
 
 ## 7. Sızıntı koruması
 
-- exact / normalized (harf, noktalama, aksan) / near-duplicate (kelime 3-gram Jaccard ≥ 0.8) /
+- exact / normalized (harf, noktalama, aksan) / contained (normalize eval metni ≥ 30 karakter
+  daha uzun bir eğitim metninin içinde) / near-duplicate (kelime 3-gram Jaccard ≥ 0.8) /
   semantik (enjekte embedding kosinüsü ≥ 0.95, opsiyonel) / source-id örtüşmesi.
+- `BAĞLAM: … SORU: <soru>` biçimli kullanıcı mesajının SORU bölümü ayrı metin olarak da
+  denetlenir. `train.jsonl` yanında `valid.jsonl` varsa o da taranır.
 - Golden `purpose="selection"` ile okunamaz; `--split golden_test` yalnız `--final` + profil
   validated/production iken. Manifest hash'i tutmazsa yükleme reddedilir.
 - Statik test: `app/training`, `app/lora`, `scripts` golden/validation yolunu referans etmez.

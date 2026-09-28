@@ -98,6 +98,36 @@ class ProfileRecord:
         return cls(**payload)
 
 
+#: Yalnız ``record_eval`` ile yazılan eval alanları — upsert bunları ASLA değiştirmez.
+_EVAL_FIELDS: tuple[str, ...] = (
+    "eval_dataset_version",
+    "eval_score",
+    "domain_scores",
+    "grounding_score",
+    "hallucination_score",
+    "regression_score",
+    "last_eval_run_id",
+)
+#: Hash'e girmeyen tanımlayıcı alanlar: yeni kayıtta doluysa o, boşsa mevcut değer korunur.
+_KEEP_IF_EMPTY: tuple[str, ...] = ("serving_model", "merged_adapter_path", "rag_version")
+
+
+def _merge_same_hash(record: ProfileRecord, existing: ProfileRecord) -> None:
+    """Aynı profile_hash ile yeniden kayıt: içerik aynı → eval geçmişi ve servis modeli korunur.
+
+    Durum (validated/production) zaten korunuyor; eval alanlarını silmek, ``last_eval_run_id``
+    olmadan validated/production görünen tutarsız bir kayıt üretir ve router/gate'in dayandığı
+    kanıtı yok eder. Profil içeriği (hash) değişmediği için önceki eval sonuçları hâlâ geçerlidir.
+    """
+    for name in _EVAL_FIELDS:
+        setattr(record, name, getattr(existing, name))
+    for name in _KEEP_IF_EMPTY:
+        if not getattr(record, name):
+            setattr(record, name, getattr(existing, name))
+    if existing.notes and record.notes != existing.notes:
+        record.notes = " | ".join(n for n in (existing.notes, record.notes) if n)
+
+
 class ProfileRegistry:
     """JSONL tabanlı profil kayıt defteri (profile_id benzersiz)."""
 
@@ -127,6 +157,8 @@ class ProfileRegistry:
 
         Aynı profile_id farklı hash ile gelirse (ağırlık/adapter değişti) reddedilir —
         yeni sürüm yeni profile_version/profile_id ister; eval geçmişi sessizce ezilmez.
+        Aynı hash ile gelirse durum, eval alanları, notlar ve (boş gelirse) servis modeli
+        korunur (bkz. ``_merge_same_hash``).
         """
         rows = self.records()
         existing = next((r for r in rows if r.profile_id == record.profile_id), None)
@@ -139,6 +171,7 @@ class ProfileRegistry:
                 )
             record.status = existing.status  # durum, upsert ile atlanamaz
             record.created_at = existing.created_at
+            _merge_same_hash(record, existing)
             rows = [record if r.profile_id == record.profile_id else r for r in rows]
         else:
             if record.status not in (ProfileStatus.EXPERIMENTAL,):
