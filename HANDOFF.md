@@ -206,9 +206,40 @@ yönü), A10, B7–B11 düşük önem. DB'de bayat pending onaylar var (`apr_98e
 
 **Kapı (Windows, Kademe 2 düzeltmeleri sonrası):** ruff ✅ · mypy 256 ✅ · pytest **2731 passed**.
 
+### Koşu: `hektor_lora_v11_30b` — BAŞLADI 2026-09-28 21:25 (web ucundan)
+
+- İndirme: Xet katmanı iki kez son parçalarda takıldı (19:34, 20:49) → `HF_HUB_DISABLE_XET=1`
+  ile parça parça tamamlandı; 16/16 parça safetensors başlığıyla doğrulandı (61.06 GB).
+- `.env`: `HEKTOR_PEFT_BASE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507`,
+  `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` (eğitim bitince **true** yap; yedek
+  `storage/env.bak-20260928-30b`). Web yeniden başlatıldı (`storage/web.20260928-2056.log`).
+  Not: `HEKTOR_API_TOKEN` bu makinede BOŞ (önceden de öyleydi) → web API kimliksiz.
+- Onay `apr_9ffc3cfa562e` (kullanıcı talimatıyla), karar `wd_d310e37d9a` tüketildi.
+- 600 örnek → 2 satır maskelenemedi → **598 adım** (Kademe-2 A1 tam öngörüldüğü gibi;
+  `run_plan.json` max_steps=598 yazıldı). ~15–20 sn/adım → toplam ~3 saat.
+- **BELLEK (ölçüldü, tahmin YANLIŞ):** `check_cpu_ram` ≈71 GB dedi; gerçek süreç özel
+  belleği **121.5 GB** (sabit), sistem commit 152/154 GB. Sayfa dosyası sistem-yönetimli,
+  8 → 27 GB kendiliğinden büyüdü; OOM olmadı. Kök neden araştırılmadı (aday: transformers
+  5.x birleşik-uzman dönüşümü / CPU grouped_mm tamponları). → `_RAM_OVERHEAD_*` MoE için
+  düzeltilmeli; bu koşu sırasında Ollama/web sohbeti/eval AÇMA.
+
+**v11 SONUÇ (2026-09-29 00:36):** 598/598 adım, 3 sa 10 dk, `train_loss` 1.053, epoch 1.0.
+`run_complete.json` yazıldı; `train-recovery-check` → "koşu TAMAMLANMIŞ" (A1 düzeltmesi canlıda
+işledi). Kayıt: `adapter_6bd64fb2669e` **candidate** (30B base, r16, attention, 598 örnek —
+C3 düzeltmesi işledi). Bellek sonda ~128 GB özel (başta 121.5; ~2.4 GB/saat artış). Eval YOK,
+terfi YOK.
+
+**v12 BAŞLADI (2026-09-29 08:10):** `hektor_lora_v12_30b`, tüm havuz 1682 örnek × 1 epoch,
+onay `apr_ff727c199d36` (gece 00:40'ta oluşturuldu; araç güvenlik sınıflandırıcısı geçici
+arızalandığı için sabaha kaldı), karar `wd_63b1219424` (`trading_analysis_v1`). Web'den.
+
+**Kullanıcı kararı (2026-09-28 23:15):** "adımları max yapalım ya da bir sonraki eğitimde" →
+v11 (600 örnek) bitirilir; **bir SONRAKİ 30B eğitimi TÜM havuzla** (1682 örnek × 1 epoch ≈
+1680 adım, ~9–10 saat; web: örnek tavanı 1682, iterasyon 0, adapter `hektor_lora_v12_30b`).
+Önce: bellek artışı (~2.4 GB/saat) incelenmeli; karışım ağırlığı YENİDEN sorulmalı.
+
 **Sıradaki (sırayla):**
-1. İndirme bitsin (ilk koşu 19:34'te 55 GB'ta TAKILDI; 20:31'de yeniden başlatıldı →
-   `logs/hf-download-qwen3-30b-2.log`).
+1. ~~İndirme~~ — tamam.
    Yarıda kalırsa: `.venv/Scripts/hf.exe download Qwen/Qwen3-30B-A3B-Instruct-2507` kaldığı yerden sürer.
 2. ~~Kademe 2~~ — YAPILDI (yukarıda).
 3. Ollama modelini boşalt (30B q4 GGUF RAM/VRAM tutar), arka plan döngülerini kapat.
