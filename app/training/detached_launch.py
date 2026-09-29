@@ -42,7 +42,9 @@ MIN_READY_EXAMPLES = 200
 _SPLIT_SEED = 42
 _VALID_RATIO = 0.05
 # `hektor train` PeftTrainConfig'i batch_size GEÇMEDEN kurar (app/main.py) → dataclass
-# varsayılanı 1 kullanılır. Adım sayısı hesabı bununla hizalı: 1 örnek = 1 optimizasyon adımı.
+# varsayılanı 1 kullanılır. Adım sayısı hesabı bununla hizalı: 1 örnek = 1 örnek-adımı
+# (mikro-batch). Profilde gradient_accumulation_steps>1 ise trainer bunu optimizer adımına
+# kendisi çevirir (peft_lora_train.optimizer_steps); plan/durum/nöbetçi mikro-adımda kalır.
 _TRAIN_BATCH_SIZE = 1
 # Log'a son yazımdan bu kadar dakika geçmediyse eğitim "canlı" sayılır.
 # Yavaş CPU eğitiminde adım ~dakikalar sürer + log seyrek yazılabilir → 45 dk

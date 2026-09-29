@@ -193,3 +193,97 @@ def test_precheck_targets_unknown_model_is_skipped(tmp_path: Path) -> None:
     from app.training.peft_lora_train import precheck_target_modules
 
     assert precheck_target_modules(str(tmp_path / "yok"), TARGET_MODULES) is None
+
+
+# --- Gradient accumulation + held-out eval (v12 sonrası; öneri 1 ve 2) ---
+
+
+def test_optimizer_steps_ceil_matches_hf_partial_accumulation() -> None:
+    from app.training.peft_lora_train import optimizer_steps
+
+    # HF: len_dataloader // GA + (kalan > 0) → 1678 örnek, GA 8 = 210 güncelleme (1 epoch).
+    assert optimizer_steps(1678, 8) == 210
+    assert optimizer_steps(1680, 8) == 210
+    assert optimizer_steps(598, 1) == 598
+    assert optimizer_steps(0, 8) == 0
+    assert optimizer_steps(5, 0) == 5  # geçersiz birikim → 1
+
+
+def test_accumulation_scales_save_and_log_intervals() -> None:
+    base = build_training_kwargs(_cfg(), num_epochs=1, output_dir="o", on_cuda=False)
+    assert base["gradient_accumulation_steps"] == 1
+    assert base["save_steps"] == 25 and base["logging_steps"] == 5  # eski davranış birebir
+    assert base["eval_strategy"] == "no"
+    kw = build_training_kwargs(
+        _cfg(gradient_accumulation_steps=8), num_epochs=1, output_dir="o", on_cuda=False
+    )
+    assert kw["gradient_accumulation_steps"] == 8
+    assert kw["save_steps"] == 3 and kw["logging_steps"] == 1  # ~aynı ÖRNEK aralığı
+
+
+def test_eval_steps_for_converts_examples_to_optimizer_steps() -> None:
+    from app.training.peft_lora_train import eval_steps_for
+
+    assert eval_steps_for(_cfg()) == 0
+    assert eval_steps_for(_cfg(eval_every_examples=200, gradient_accumulation_steps=8)) == 25
+    assert eval_steps_for(_cfg(eval_every_examples=3, gradient_accumulation_steps=8)) == 1
+
+
+def test_eval_kwargs_and_load_best_align_save_steps() -> None:
+    cfg = _cfg(gradient_accumulation_steps=8, eval_every_examples=200)
+    kw = build_training_kwargs(cfg, num_epochs=1, output_dir="o", on_cuda=False, eval_steps=25)
+    assert kw["eval_strategy"] == "steps" and kw["eval_steps"] == 25
+    assert kw["prediction_loss_only"] is True  # 30B'de logit biriktirme yok
+    assert "load_best_model_at_end" not in kw
+    assert kw["save_steps"] == 3
+    best = build_training_kwargs(
+        _cfg(gradient_accumulation_steps=8, eval_every_examples=200, load_best_model_at_end=True),
+        num_epochs=1,
+        output_dir="o",
+        on_cuda=False,
+        eval_steps=25,
+    )
+    assert best["load_best_model_at_end"] is True
+    assert best["metric_for_best_model"] == "eval_loss" and best["greater_is_better"] is False
+    assert best["save_steps"] % best["eval_steps"] == 0  # HF şartı
+
+
+def test_eval_off_ignores_load_best() -> None:
+    kw = build_training_kwargs(
+        _cfg(load_best_model_at_end=True), num_epochs=1, output_dir="o", on_cuda=False
+    )
+    assert kw["eval_strategy"] == "no" and "load_best_model_at_end" not in kw
+
+
+def test_moe_profile_enables_accumulation_and_eval() -> None:
+    prof = load_lora_profile("moe30b_attn_local")
+    assert prof["gradient_accumulation_steps"] == 8
+    assert prof["eval_every_examples"] == 200
+    assert prof["eval_max_examples"] == 64
+    assert prof["load_best_model_at_end"] is True
+    prof.pop("epochs", None)
+    summary = recipe_summary(_cfg(**prof))
+    assert any("gradient_accumulation=8" in t for t in summary["advanced_techniques"])
+    assert any("held-out eval" in t for t in summary["advanced_techniques"])
+
+
+@pytest.mark.parametrize("bad", ["8", 0, -1, True, 1.5])
+def test_profile_rejects_bad_accumulation(tmp_path: Path, bad: object) -> None:
+    p = tmp_path / "p.yaml"
+    p.write_text(f"bad:\n  gradient_accumulation_steps: {json.dumps(bad)}\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_lora_profile("bad", profiles_path=p)
+
+
+def test_loss_curve_attaches_separate_eval_entries() -> None:
+    from app.training.peft_lora_train import build_loss_curve
+
+    history = [
+        {"step": 1, "loss": 2.0},
+        {"step": 2, "loss": 1.5},
+        {"step": 2, "eval_loss": 1.7},  # HF eval'i AYRI girdi olarak yazar
+        {"step": 3, "loss": 1.2},
+        {"step": 4, "eval_loss": 1.4},
+    ]
+    curve = build_loss_curve(history)
+    assert [p["val_loss"] for p in curve] == [None, 1.7, 1.4]

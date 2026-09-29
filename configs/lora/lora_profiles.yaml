@@ -150,7 +150,8 @@ moe30b_attn_local:
   dropout: 0.1
   epochs: 1
   max_seq_length: 1024
-  learning_rate: 0.0001
+  # Efektif batch 8 → optimizer adımı 8× azalır; lr 1e-4 (batch 1'de ayarlıydı) → 2e-4.
+  learning_rate: 0.0002
   use_rslora: false
   neftune_noise_alpha: 5
   weight_decay: 0.01
@@ -161,4 +162,10 @@ moe30b_attn_local:
   gradient_checkpointing: true
   max_examples: 600
   target_modules: [q_proj, k_proj, v_proj, o_proj]
-  note: "YEREL CPU, Qwen3-30B-A3B-Instruct-2507 (MoE) — yalnız attention LoRA, bf16 zorunlu, gradient checkpointing. Adım süresi ölçülmeden max_examples büyütülmez."
+  # v12 (batch 1, birikim yok): kayıp ~100. adımdan sonra düz + gürültülü (0.28↔1.46).
+  gradient_accumulation_steps: 8
+  # Held-out eval: her 200 örnekte ≤64 valid örnek (v12 hızıyla ~7 dk/eval, ≈ +%10 süre).
+  eval_every_examples: 200
+  eval_max_examples: 64
+  load_best_model_at_end: true
+  note: "YEREL CPU, Qwen3-30B-A3B-Instruct-2507 (MoE) — yalnız attention LoRA, bf16 zorunlu, gradient checkpointing, birikim 8 + held-out eval. Checkpoint aralığı eval'e eşit (200 örnek ≈ 1 sa) → çökmede en çok ~1 sa kayıp."

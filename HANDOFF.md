@@ -103,6 +103,42 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-30: v13 reçetesi — gradient accumulation + held-out eval (eğitim YOK)
+
+**Neden (v12 ölçümü):** batch 1, birikim yok → kayıp ~100. adımdan sonra düz + gürültülü
+(0.28↔1.46, grad_norm ≤7.6); `eval_strategy: no` → validation loss yok, en iyi checkpoint
+seçilemiyordu. v12 eval'i (başka oturum): 5/6 accept, **discipline_core REJECT —
+`degenerate` vetosu gerçek** (survivorship cevabı cümle döngüsüne giriyor).
+
+**Değişiklik (`peft_lora_train.py`, profil `moe30b_attn_local`):**
+- `gradient_accumulation_steps` (profil: 8) · `eval_every_examples` (200) ·
+  `eval_max_examples` (64, `valid.jsonl`'den seed'li) · `load_best_model_at_end` (true).
+  Profilde lr 1e-4 → **2e-4** (efektif batch 8).
+- `iterations` üst katmanlarda (web/start-train/nöbetçi/`plan_iterations`) **mikro-adım**
+  olarak KALIR; optimizer adımına çeviri yalnız `train()`'de (`optimizer_steps` = ceil,
+  HF'nin kısmi-birikim sayımıyla aynı → 1678 örnek / 8 = 210 adım = 1 epoch).
+  `run_plan.json` fiili optimizer hedefini + `micro_steps` yazar → kurtarma kıyası doğru.
+- save/log aralığı örnek cinsinden sabit (25/5 örnek); load_best açıkken checkpoint = eval
+  aralığı (HF şartı) → çökmede en çok ~200 örnek (~1 sa) kayıp.
+- Eval tqdm çubuğu kapatıldı: web/nöbetçi ilerlemeyi log'daki SON `x/y [..<..]`
+  satırından okuyor; eval çubuğu (`64/64`) "koşu bitti" sandırırdı.
+- `run_complete.json` artık `best_checkpoint` + `best_eval_loss` yazar; loss grafiğinde
+  `val_loss` (eskiden HF'nin ayrı eval girdisi yüzünden hep None) dolar.
+- Doğrulama: rastgele küçük Qwen3 (4B tokenizer) ile GERÇEK `train()` uçtan uca: 40 mikro →
+  10 optimizer adımı, 5 eval, best checkpoint kaydı ✅. 30B'de eval süresi **ÖLÇÜLMEDİ**
+  (tahmin ~7 dk/eval, tam havuzda +~1 sa).
+
+**Kapı (Windows):** ruff format/check ✅ · mypy 256 ✅ · pytest **2743 passed, 4 deselected**.
+
+**Açık bulgular (öneri sırası devamı, henüz yapılmadı):**
+- Öneri 3 veri: kısa cevaplar neredeyse tamamen **sentetik QA**'dan (1051 satır, medyan 166
+  kr, 726'sı <200); disiplin ~230, diğer ~850. → sentetik ağırlığını düşür / açıklamalı yeniden
+  üret (karar kullanıcıda; veri değiştirilmedi).
+- Öneri 7: `Modelfile.hektor-v12-30b` `repeat_penalty 1` (KAPALI) — dejenere vetoyla uyumlu.
+  Değiştirilmedi (model başka oturumda yeni oluşturulmuştu).
+
+---
+
 ## Son seans — 2026-09-28 (3): v10 → GGUF → Ollama `hektor-v10` + RAG testi + 30 soru PDF
 
 **GGUF yolu (yerel, bulut yok).** Ollama 0.34.4 çalışma-anı `ADAPTER` desteğini KALDIRDI

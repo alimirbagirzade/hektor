@@ -161,6 +161,20 @@ class PeftTrainConfig:
     # Gradient checkpointing: aktivasyonları saklamak yerine geri yayılımda yeniden hesaplar →
     # bellek düşer, adım ~%20-30 yavaşlar. 30B gibi büyük base'lerde CPU RAM'i için açılır.
     gradient_checkpointing: bool = False
+    # Gradient accumulation: N mikro-batch'in gradyanı toplanıp TEK optimizer adımı atılır →
+    # efektif batch = batch_size × N. v12 (batch 1, birikim yok) kayıp eğrisi ilk ~100
+    # adımdan sonra düz ve çok gürültülüydü (0.28↔1.46, grad_norm 7.6'ya kadar). ÖNEMLİ:
+    # `iterations` üst katmanlarda (web/start-train/nöbetçi) "örnek-adımı" (mikro-batch)
+    # olarak kalır; optimizer adımına çeviri YALNIZ train()'de yapılır (optimizer_steps).
+    gradient_accumulation_steps: int = 1
+    # Held-out doğrulama: `valid_jsonl`'den (kaynak-gruplu split, train ile ayrık) her
+    # `eval_every_examples` örnekte bir eval_loss. 0 = kapalı (eski davranış). CPU'da 30B
+    # eval pahalı → `eval_max_examples` ile determinist alt-küme (seed).
+    eval_every_examples: int = 0
+    eval_max_examples: int = 64
+    # En düşük eval_loss'lu checkpoint'i sonda yükle (HF load_best_model_at_end). Yalnız
+    # eval açıkken anlamlı; açıkken checkpoint aralığı eval aralığına eşitlenir (HF şartı).
+    load_best_model_at_end: bool = False
 
 
 def normalize_target_modules(value: object) -> tuple[str, ...]:
@@ -378,8 +392,41 @@ def build_lora_kwargs(cfg: PeftTrainConfig) -> dict:
     }
 
 
+# Checkpoint ve log aralıkları ÖRNEK cinsinden sabit tutulur; gradient accumulation açılınca
+# optimizer adımına ölçeklenir (birikim 8 iken 25 adım = 200 örnek → çökmede ~1 saat kayıp).
+_SAVE_EVERY_EXAMPLES = 25
+_LOG_EVERY_EXAMPLES = 5
+
+
+def optimizer_steps(micro_steps: int, grad_accum: int) -> int:
+    """Mikro-batch (örnek-adımı) sayısını optimizer adımına çevir: ``ceil(micro / birikim)``.
+
+    HF Trainer epoch sonundaki KISMİ birikimi de ayrı bir güncelleme sayar
+    (``len_dataloader // GA + (kalan > 0)``); bu yüzden tavan bölme 1 epoch'u tam kapar,
+    fazladan bir epoch'a taşmaz. ``micro_steps<=0`` → 0 (hedef henüz bilinmiyor).
+    """
+    if micro_steps <= 0:
+        return 0
+    ga = max(1, int(grad_accum))
+    return -(-int(micro_steps) // ga)
+
+
+def eval_steps_for(cfg: PeftTrainConfig) -> int:
+    """``eval_every_examples``'ı optimizer adımına çevir (0 = eval kapalı)."""
+    if cfg.eval_every_examples <= 0:
+        return 0
+    per_step = max(1, cfg.batch_size) * max(1, cfg.gradient_accumulation_steps)
+    return max(1, round(cfg.eval_every_examples / per_step))
+
+
 def build_training_kwargs(
-    cfg: PeftTrainConfig, *, num_epochs: int, output_dir: str, on_cuda: bool, max_steps: int = 0
+    cfg: PeftTrainConfig,
+    *,
+    num_epochs: int,
+    output_dir: str,
+    on_cuda: bool,
+    max_steps: int = 0,
+    eval_steps: int = 0,
 ) -> dict:
     """transformers ``TrainingArguments`` için kwargs sözlüğü kur (saf → offline test).
 
@@ -389,22 +436,29 @@ def build_training_kwargs(
     ``max_steps>0`` ise adım sayısını TAM kapar (HF Trainer bunu ``num_train_epochs``'un
     önüne alır). ``cfg.iterations`` gerçekte ADIM sayısıdır; epoch'a çevirmek küçük
     değerlerde (iterations<steps_per_epoch) tüm-epoch'a kaçırıyordu (kök bug).
+
+    ``max_steps`` ve ``eval_steps`` OPTIMIZER adımıdır (birikim sonrası). ``eval_steps>0``
+    held-out eval'i açar; eval kapalıysa (0) eski davranış birebir korunur.
     """
+    ga = max(1, int(cfg.gradient_accumulation_steps))
+    per_step = max(1, cfg.batch_size) * ga
+    save_steps = max(1, round(_SAVE_EVERY_EXAMPLES / per_step))
     kwargs: dict = {
         "output_dir": output_dir,
         "num_train_epochs": num_epochs,
         "per_device_train_batch_size": cfg.batch_size,
+        "gradient_accumulation_steps": ga,
         "learning_rate": cfg.learning_rate,
         "weight_decay": cfg.weight_decay,
         "warmup_ratio": cfg.warmup_ratio,
         "lr_scheduler_type": cfg.lr_scheduler_type,
         "max_grad_norm": cfg.max_grad_norm,
         "fp16": on_cuda,
-        "logging_steps": 5,
+        "logging_steps": max(1, round(_LOG_EVERY_EXAMPLES / per_step)),
         # CPU eğitimleri saatler sürer; web/Windows çökmesinde sıfırdan başlamamak için
         # sık ve dönen checkpoint tut.
         "save_strategy": "steps",
-        "save_steps": 25,
+        "save_steps": save_steps,
         "save_total_limit": 3,
         "eval_strategy": "no",
         "report_to": "none",
@@ -417,6 +471,19 @@ def build_training_kwargs(
         kwargs["gradient_checkpointing"] = True
         # Reentrant olmayan yol PEFT'te (donuk base + LoRA) input grad hilesi olmadan çalışır.
         kwargs["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
+    if eval_steps and eval_steps > 0:
+        kwargs["eval_strategy"] = "steps"
+        kwargs["eval_steps"] = int(eval_steps)
+        kwargs["per_device_eval_batch_size"] = 1
+        # Yalnız kayıp: 30B'de logit (seq × 151k vocab) biriktirmek RAM'i patlatır.
+        kwargs["prediction_loss_only"] = True
+        if cfg.load_best_model_at_end:
+            # HF şartı: save_steps, eval_steps'in tam katı olmalı → eşitle. Best checkpoint
+            # döndürmede korunur (save_total_limit'e rağmen).
+            kwargs["save_steps"] = int(eval_steps)
+            kwargs["load_best_model_at_end"] = True
+            kwargs["metric_for_best_model"] = "eval_loss"
+            kwargs["greater_is_better"] = False
     if max_steps and max_steps > 0:
         kwargs["max_steps"] = max_steps
     return _adapt_warmup(kwargs, max_steps=max_steps, num_epochs=num_epochs)
@@ -489,6 +556,17 @@ def recipe_summary(cfg: PeftTrainConfig) -> dict:
         techniques.append(f"kl_reg (β={cfg.kl_reg_beta}, base'e KL cezası — forgetting azaltma)")
     if cfg.gradient_checkpointing:
         techniques.append("gradient_checkpointing (bellek ↓, adım yavaş)")
+    if cfg.gradient_accumulation_steps > 1:
+        techniques.append(
+            f"gradient_accumulation={cfg.gradient_accumulation_steps} "
+            f"(efektif batch {max(1, cfg.batch_size) * cfg.gradient_accumulation_steps})"
+        )
+    if cfg.eval_every_examples > 0:
+        best = ", en iyi checkpoint yüklenir" if cfg.load_best_model_at_end else ""
+        techniques.append(
+            f"held-out eval (her {cfg.eval_every_examples} örnekte, "
+            f"≤{cfg.eval_max_examples} valid örnek{best})"
+        )
     return {
         "target_modules": list(cfg.target_modules),
         "r": cfg.lora_r,
@@ -549,6 +627,20 @@ def load_lora_profile(name: str, profiles_path: Path | None = None) -> dict:
         out["target_modules"] = normalize_target_modules(prof["target_modules"])
     if prof.get("gradient_checkpointing") is not None:
         out["gradient_checkpointing"] = bool(prof["gradient_checkpointing"])
+    if prof.get("load_best_model_at_end") is not None:
+        out["load_best_model_at_end"] = bool(prof["load_best_model_at_end"])
+    # Tamsayı alanlar: YAML'da yanlış tip/negatif değer sessizce kabul edilmez.
+    for key, minimum in (
+        ("gradient_accumulation_steps", 1),
+        ("eval_every_examples", 0),
+        ("eval_max_examples", 1),
+    ):
+        if prof.get(key) is None:
+            continue
+        val = prof[key]
+        if isinstance(val, bool) or not isinstance(val, int) or val < minimum:
+            raise ValueError(f"Profil {name!r}: {key} ≥{minimum} tamsayı olmalı: {val!r}")
+        out[key] = val
     # epochs/max_examples/note çağırana ayrı bilgi olarak verilebilir.
     for extra in ("epochs", "max_examples"):
         if extra in prof:
@@ -907,6 +999,23 @@ def _make_trainer_cls(kl_reg_beta: float) -> type:
     return trainer_cls
 
 
+def _silence_eval_progress_bar(trainer: Any) -> None:
+    """Eval'in tqdm çubuğunu kapat; eğitim çubuğu AYNEN kalır.
+
+    Web/nöbetçi ilerlemeyi ``logs/train-full-err.log``'daki SON ``x/y [..<..]`` satırından
+    okur (``detached_launch._detached_status``). Eval çubuğu (ör. ``64/64``) son satır
+    olunca ``step>=total`` → koşu "bitti/koşmuyor" sanılırdı (çift başlatma kapısı dahil).
+    """
+    from transformers.trainer_callback import ProgressCallback
+
+    class _TrainOnlyProgress(ProgressCallback):
+        def on_prediction_step(self, args, state, control, eval_dataloader=None, **kwargs):
+            return None
+
+    if trainer.pop_callback(ProgressCallback) is not None:
+        trainer.add_callback(_TrainOnlyProgress())
+
+
 def train(cfg: PeftTrainConfig) -> dict:
     missing = _check_deps()
     if missing:
@@ -917,8 +1026,12 @@ def train(cfg: PeftTrainConfig) -> dict:
 
     # Devam (resume) kararı EN BAŞTA verilir: hatalıysa GB'lık model yüklenmeden dönülür.
     # Varsayılan KAPALI → mevcut checkpoint sessizce kullanılmaz (bkz. PeftTrainConfig).
+    # Checkpoint numaraları OPTIMIZER adımıdır; iterations mikro-adım → aynı birime çevir.
+    ga = max(1, int(cfg.gradient_accumulation_steps))
     resume_plan = resolve_resume_checkpoint(
-        cfg.adapter_output_path, resume=resume_requested(cfg), max_steps=cfg.iterations
+        cfg.adapter_output_path,
+        resume=resume_requested(cfg),
+        max_steps=optimizer_steps(cfg.iterations, ga),
     )
     for _msg in resume_plan.warnings:
         logger.warning("%s", _msg)
@@ -1094,21 +1207,59 @@ def train(cfg: PeftTrainConfig) -> dict:
     # ile epoch'a çeviriyordu → iterations < steps_per_epoch olunca 0→1 epoch (TÜM veri) kaçağı:
     # "iterations=200" gerçekte 1 tam epoch (ör. 1919 adım) koşuyor, eğitim hiç bitmiyordu.
     # Artık max_steps adım sayısını TAM kapar; num_epochs yalnız tavan (max_steps onu keser).
-    max_steps = cfg.iterations if cfg.iterations > 0 else steps_per_epoch
+    # Bu hesap MİKRO-adım (örnek) biriminde yapılır; optimizer'a çeviri aşağıda.
+    micro_steps = cfg.iterations if cfg.iterations > 0 else steps_per_epoch
     # Maskeleme/tokenize örnek attıysa plan (satır sayısından) veri setini aşar → kısmi
     # ek epoch. Plan edilen epoch sayısını koruyacak şekilde kıs (asla büyütme).
-    clamped = clamp_steps_to_dataset(max_steps, len(train_rows), len(train_ds), cfg.batch_size)
-    if clamped < max_steps:
+    clamped = clamp_steps_to_dataset(micro_steps, len(train_rows), len(train_ds), cfg.batch_size)
+    if clamped < micro_steps:
         logger.warning(
             "Adım hedefi %d → %d'e düşürüldü: tokenize/maskeleme sonrası %d/%d örnek kaldı; "
             "eski hedef sessizce kısmi ek bir epoch koşturacaktı (plan epoch'u aşılmaz).",
-            max_steps,
+            micro_steps,
             clamped,
             len(train_ds),
             len(train_rows),
         )
-        max_steps = clamped
-    num_epochs = max(1, -(-max_steps // steps_per_epoch))  # ceil(max_steps/steps_per_epoch)
+        micro_steps = clamped
+    # Gradient accumulation: HF max_steps OPTIMIZER adımı sayar. ceil bölme, epoch sonundaki
+    # kısmi birikimi HF ile aynı sayar → 1 epoch planı 1 epoch kalır.
+    max_steps = optimizer_steps(micro_steps, ga)
+    opt_steps_per_epoch = optimizer_steps(steps_per_epoch, ga)
+    num_epochs = max(1, -(-max_steps // opt_steps_per_epoch))  # ceil(max/epoch başı)
+    if ga > 1:
+        logger.info(
+            "Gradient accumulation=%d → %d mikro-adım = %d optimizer adımı (efektif batch %d).",
+            ga,
+            micro_steps,
+            max_steps,
+            max(1, cfg.batch_size) * ga,
+        )
+
+    # Held-out eval: valid_jsonl (kaynak-gruplu, train ile ayrık) — train ile AYNI render/
+    # maskeleme yolu. Dosya yok/boşsa eval kapatılır ve bu GÖRÜNÜR loglanır.
+    eval_ds: list[dict] = []
+    eval_steps = eval_steps_for(cfg)
+    if eval_steps > 0:
+        valid_rows = _load_jsonl(cfg.valid_jsonl) if Path(cfg.valid_jsonl).is_file() else []
+        valid_rows = sample_rows(valid_rows, cfg.eval_max_examples, cfg.seed)
+        eval_ds = _tokenize_masked(valid_rows) if use_mask else _tokenize(valid_rows)
+        if eval_ds:
+            logger.info(
+                "Held-out eval AKTİF: %d valid örnek, her %d optimizer adımında (%s).",
+                len(eval_ds),
+                eval_steps,
+                "en iyi checkpoint sonda yüklenir"
+                if cfg.load_best_model_at_end
+                else "yalnız ölçüm",
+            )
+        else:
+            logger.warning(
+                "Held-out eval istendi ama %s boş/yok → eval KAPALI (en iyi checkpoint "
+                "seçimi de yok).",
+                cfg.valid_jsonl,
+            )
+            eval_steps = 0
 
     output_dir = str(cfg.adapter_output_path)
     # HIZ ayarları (CPU): eval kapalı, tek checkpoint, pin_memory kapalı, dinamik padding.
@@ -1120,6 +1271,7 @@ def train(cfg: PeftTrainConfig) -> dict:
             output_dir=output_dir,
             on_cuda=(device == "cuda"),
             max_steps=max_steps,
+            eval_steps=eval_steps,
         )
     )
 
@@ -1149,9 +1301,12 @@ def train(cfg: PeftTrainConfig) -> dict:
         model=model,
         args=args,
         train_dataset=train_ds,
+        eval_dataset=eval_ds or None,
         data_collator=collator,
         optimizers=optimizers,
     )
+    if eval_ds:
+        _silence_eval_progress_bar(trainer)
 
     import datetime as _dt
 
@@ -1172,7 +1327,13 @@ def train(cfg: PeftTrainConfig) -> dict:
     _write_run_marker(
         adapter_dir,
         RUN_PLAN_FILE,
-        {"max_steps": max_steps, "planned_iterations": cfg.iterations, "started_at": started_at},
+        {
+            "max_steps": max_steps,
+            "planned_iterations": cfg.iterations,
+            "micro_steps": micro_steps,
+            "gradient_accumulation_steps": ga,
+            "started_at": started_at,
+        },
     )
     with _keep_awake():
         trainer.train(resume_from_checkpoint=resume_plan.checkpoint)
@@ -1186,6 +1347,10 @@ def train(cfg: PeftTrainConfig) -> dict:
             "global_step": int(trainer.state.global_step),
             "max_steps": max_steps,
             "finished_at": finished_at,
+            "gradient_accumulation_steps": ga,
+            # load_best açıksa kaydedilen adapter BU checkpoint'tir (son adım değil).
+            "best_checkpoint": trainer.state.best_model_checkpoint,
+            "best_eval_loss": trainer.state.best_metric,
         },
     )
 
@@ -1208,6 +1373,28 @@ def _write_loss_curve(
     cfg: PeftTrainConfig, log_history: list[dict], started_at: str, finished_at: str
 ) -> None:
     """Trainer log_history'den loss eğrisi çıkar; web grafiğinin okuduğu JSON'u yaz."""
+    report = {
+        "adapter_name": cfg.adapter_output_path.name,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "total_iters": cfg.iterations,
+        "base_model": cfg.base_model,
+        "curve": build_loss_curve(log_history),
+    }
+    out_dir = Path("reports/training")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"{cfg.adapter_output_path.name}_loss.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def build_loss_curve(log_history: list[dict]) -> list[dict]:
+    """log_history → [{step, train_loss, val_loss}] (saf → offline test).
+
+    HF eval kaybını AYRI bir log girdisine yazar (``eval_loss``, ``loss`` yok); eskiden
+    yalnız ``loss``lu girdilere bakıldığından ``val_loss`` hep None kalıyordu. Her eval,
+    adımı ≤ eval adımı olan SON eğitim noktasına iliştirilir.
+    """
     curve: list[dict] = []
     for entry in log_history:
         if "loss" in entry:  # eğitim loss'u (logging_steps'te)
@@ -1220,19 +1407,14 @@ def _write_loss_curve(
                     ),
                 }
             )
-    report = {
-        "adapter_name": cfg.adapter_output_path.name,
-        "started_at": started_at,
-        "finished_at": finished_at,
-        "total_iters": cfg.iterations,
-        "base_model": cfg.base_model,
-        "curve": curve,
-    }
-    out_dir = Path("reports/training")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f"{cfg.adapter_output_path.name}_loss.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    for entry in log_history:
+        if "eval_loss" not in entry or "loss" in entry:
+            continue
+        step = int(entry.get("step", 0))
+        target = [p for p in curve if p["step"] <= step]
+        if target:
+            target[-1]["val_loss"] = round(float(entry["eval_loss"]), 4)
+    return curve
 
 
 def generate_colab_notebook(
