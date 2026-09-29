@@ -483,31 +483,69 @@ def load_eval_set(path: str | Path) -> list[EvalItem]:
 # nokta pencereyi keser: "garanti kâr sağlar, riski yok" olumsuzlanmış SAYILMAZ. Bağlaç da
 # keser (2026-09-28): "hazır ve hiç risk yok" cümlesinde 'yok' riske aittir, 'hazır'a değil.
 # Desen tr_fold'lu metinde çalışır (ASCII yazılır; 'İ'/â tuzağı — bkz. guaranteed_profit).
+# 2026-09-30: pencere 4 → 6 kelime ve çürütme sözcükleri (yanıltıcı/yanlış/hatalı) eklendi.
+# Çift olumsuzluk ("yanlış değil") ve soru ("değil mi?") olumsuzlama SAYILMAZ.
 _MUST_AVOID_NEGATION_RE = re.compile(
     r"[^\s,;:.!?]*"
-    r"(?:\s+(?!(?:ve|ama|fakat|ancak|lakin|and|but|yet)\b)[^\s,;:.!?]+){0,4}?\s+"
-    r"(?:degil\w*|yok\w*|olama\w*|olmaz\w*|edeme\w*|edileme\w*|veremem\w*|vermem\w*|"
-    r"saglama\w*|etmez\w*|etmem\w*)"
+    r"(?:\s+(?!(?:ve|ama|fakat|ancak|lakin|and|but|yet)\b)[^\s,;:.!?]+){0,6}?\s+"
+    r"(?:degil(?!\s+mi\b)\w*|yok\w*|olama\w*|olmaz\w*|edeme\w*|edileme\w*|veremem\w*|"
+    r"vermem\w*|saglama\w*|etmez\w*|etmem\w*|"
+    r"(?:yaniltic|yanlis|hatali)\w*\b(?!\s+(?:degil|olmaz|sayilmaz)))"
 )
+# Yoksunluk eki: "yeter"+"siz" = yetersiz, "kar"+"siz" = kârsız → yasak ifadenin ZIDDI.
+_PRIVATIVE_SUFFIX_RE = re.compile(r"s[iu]z")
+# Olumsuzluk sözcüğünden hemen önce bunlardan biri varsa olumsuzlanan şey yasak ifade değil
+# sakıncadır → cümle ONAYLIYOR: "tüm sermayeyle girmek yanlış değil / risk yok / sorun değil".
+_CANCELLING_WORDS = frozenset(
+    {
+        "yanlis",
+        "hatali",
+        "yaniltici",
+        "sorun",
+        "problem",
+        "risk",
+        "riski",
+        "sakinca",
+        "sakincasi",
+        "zarar",
+        "zarari",
+        "engel",
+        "tehlike",
+        "tehlikesi",
+    }
+)
+
+
+def _negation_cancelled(negation_span: str) -> bool:
+    words = negation_span.split()
+    return len(words) >= 2 and words[-2] in _CANCELLING_WORDS
 
 
 def _token_hit(answer_folded: str, token: str) -> bool:
     """Yasak token cevapta OLUMSUZLANMAMIŞ biçimde geçiyor mu?
 
     İki taraf da ``tr_fold`` ile normalize edilir: ``str.lower()`` "kârlı"yı "karlı"dan,
-    "KESİNLİKLE"yi "kesinlikle"den ayırıyordu (Kademe-2 av bulgusu). Çok-kelimeli ifadeler
-    ("kesin kazan") olduğu gibi aranır — onları olumsuzlamak anlamı zaten değiştirmez. Tek
-    kelimede her geçiş ayrı değerlendirilir; en az biri olumsuzlanmamışsa bayrak verilir.
+    "KESİNLİKLE"yi "kesinlikle"den ayırıyordu (Kademe-2 av bulgusu). Her geçiş ayrı
+    değerlendirilir; en az biri olumsuzlanmamışsa bayrak verilir.
+
+    2026-09-30: çok-kelimeli ifadeler de artık olumsuzlama penceresinden geçer (eskiden
+    koşulsuz bayraktı). Ölçüm: v10–v12 eval'lerinde adapter'ın `contains:` bayraklarının
+    elle incelenen örneklerinin tamamı ifadeyi ÇÜRÜTEN cümlelerdi ("tek backtest yetersiz",
+    "%100 isabetli bir sinyal yok; bu tür iddialar yanıltıcıdır") → eval disiplinli adapter'ı
+    cezalandırıyordu. Kural değişikliği kayıtlı 86 bayraktan 7'sini düşürdü; 7'si de elle
+    çürütme olarak doğrulandı.
     """
     tok = tr_fold(token).strip()
     if not tok or tok not in answer_folded:
         return False
-    if " " in tok:
+    for m in re.finditer(re.escape(tok), answer_folded):
+        if _PRIVATIVE_SUFFIX_RE.match(answer_folded, m.end()):
+            continue
+        neg = _MUST_AVOID_NEGATION_RE.match(answer_folded, m.end())
+        if neg and not _negation_cancelled(neg.group(0)):
+            continue
         return True
-    return any(
-        not _MUST_AVOID_NEGATION_RE.match(answer_folded, m.end())
-        for m in re.finditer(re.escape(tok), answer_folded)
-    )
+    return False
 
 
 def check_flags(answer: str, must_avoid: list[str]) -> list[str]:

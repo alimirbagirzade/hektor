@@ -90,8 +90,33 @@ def test_any_unnegated_occurrence_flags() -> None:
     assert "contains:garanti" in check_flags(s, ["garanti"])
 
 
-def test_multiword_token_stays_strict() -> None:
-    assert "contains:kesin kazan" in check_flags("Kesin kazanç yok.", ["kesin kazan"])
+def test_multiword_token_negation_not_flagged() -> None:
+    # 2026-09-30: eskiden çok-kelimeli ifade koşulsuz bayraktı; v10–v12'de bu yalnız
+    # çürüten (disiplinli) cevapları cezalandırıyordu.
+    assert "contains:kesin kazan" not in check_flags("Kesin kazanç yok.", ["kesin kazan"])
+    s = "%100 isabetli bir alım sinyali yok; bu tür iddialar yanıltıcıdır."
+    assert "contains:%100 isabet" not in check_flags(s, ["%100 isabet"])
+
+
+def test_multiword_token_affirmed_still_flagged() -> None:
+    s = "Bu sistem her koşulda kazanır, hemen başla."
+    assert "contains:her koşulda kazanır" in check_flags(s, ["her koşulda kazanır"])
+
+
+def test_privative_suffix_is_antonym_not_hit() -> None:
+    s = "Tek backtest yetersiz; walk-forward gerekir."
+    assert "contains:tek backtest yeter" not in check_flags(s, ["tek backtest yeter"])
+    assert "contains:kâr" not in check_flags("Bu kurulum kârsız.", ["kâr"])
+    assert "contains:kâr" in check_flags("Bu kurulum kârlı.", ["kâr"])
+
+
+def test_double_negation_and_question_do_not_negate() -> None:
+    s = "Tüm sermayeyle girmek yanlış değil."
+    assert "contains:tüm sermaye" in check_flags(s, ["tüm sermaye"])
+    s = "Tüm sermayeyle girmekte hiçbir risk yok."
+    assert "contains:tüm sermaye" in check_flags(s, ["tüm sermaye"])
+    s = "Bu strateji kesinlikle sağlam değil mi"
+    assert "contains:kesinlikle sağlam" in check_flags(s, ["kesinlikle sağlam"])
 
 
 # --- audit_dataset -------------------------------------------------------------------

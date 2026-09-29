@@ -169,8 +169,19 @@ seçilemiyordu. v12 eval'i (başka oturum): 5/6 accept, **discipline_core REJECT
 - Öneri 3 veri: kısa cevaplar neredeyse tamamen **sentetik QA**'dan (1051 satır, medyan 166
   kr, 726'sı <200); disiplin ~230, diğer ~850. → sentetik ağırlığını düşür / açıklamalı yeniden
   üret (karar kullanıcıda; veri değiştirilmedi).
-- Öneri 7: `Modelfile.hektor-v12-30b` `repeat_penalty 1` (KAPALI) — dejenere vetoyla uyumlu.
-  Değiştirilmedi (model başka oturumda yeni oluşturulmuştu).
+- Öneri 7 — **ÖLÇÜLDÜ, değişiklik gereksiz:** Ollama `hektor-v12-30b` (GGUF, temp 0.7, seed 42)
+  discipline_core 16 soruda `repeat_penalty` 1.0 / 1.1 / `presence_penalty` 1.5 → dejenere
+  **0/16 her üçünde**, CJK sızıntısı 0. Yani eval'deki `degenerate` vetosu HF/PEFT greedy
+  çözümlemeye ait; Modelfile'a dokunulmadı. İçerik hatası: survivorship bias'ı
+  "look-ahead bias" diye adlandırıyor (veri/eğitim konusu).
+- Öneri 8 — **YAPILDI:** `_token_hit` (eval `contains:` bayrağı) çok-kelimeli ifadeleri
+  koşulsuz bayraklıyordu ve yoksunluk ekini görmüyordu ("tek backtest yeter" ⊂ "yetersiz").
+  Artık: yoksunluk eki (-sız/-suz) = zıt anlam; çok-kelimeli ifade de olumsuzlama
+  penceresinden geçer (6 kelime + yanıltıcı/yanlış/hatalı); "değil mi?", "yanlış değil",
+  "risk yok / sorun değil" olumsuzlama SAYILMAZ. Kayıtlı 86 bayrak yeniden hesaplandı →
+  7'si düştü, 7'si de elle çürütme. Eski `test_multiword_token_stays_strict` bilinçli
+  olarak ters çevrildi (veri gerekçesi docstring'de). Mevcut rapor JSON'ları yeniden
+  yazılmadı; yeni eval'ler yeni kuralla hesaplanır.
 
 ---
 
