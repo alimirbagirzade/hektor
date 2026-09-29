@@ -103,6 +103,41 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-30 (2): v11/v12 eval + `hektor-v12-30b` Ollama'da + RAG testi
+
+**Eval** (`logs/lora-eval-v12-v11.ps1` → `logs/lora-eval-adapter.ps1`; CPU, bf16, 80 soru,
+~1 sa 35 dk/adapter; base puanları iki koşuda BİREBİR aynı → ölçüm tekrarlanabilir):
+
+| Set | n | base 30B | v11 (600) | **v12 (tüm havuz)** | v10 4B (ref.) |
+|---|---|---|---|---|---|
+| discipline_core | 16 | +0.19 (13) | +0.38 (10) reject* | **+0.69 (5) reject*** | +0.94 (1) |
+| risk_management | 12 | −0.17 (14) | +0.00 (12) reject* | **+0.33 (8)** | +0.67 (4) |
+| overfit_awareness | 12 | +0.25 (9) | +0.67 (4) | **+0.67 (4)** | +0.83 (2) |
+| format_compliance | 12 | −1.08 (25) | −0.75 (21) | **−0.33 (16)** | −0.25 (15) |
+| trader_persona | 16 | −3.19 (67) | −2.06 (49) reject** | **−1.25 (36)** | −1.56 (41) |
+| rag_integration | 12 | −1.17 (26) | −1.00 (24) | **−0.92 (23)** | −0.83 (22) |
+| ağırlıklı ort. | 80 | −0.93 | −0.50 | **−0.15** | — |
+
+\* `degenerate` vetosu (gerçek: cümle döngüsü). \*\* v11 `guaranteed_profit` vetosu YANLIŞ
+POZİTİF ("%5 kazanç garantisi olmaz" reddi). v12: 1 CJK sızıntısı ("期权"), ort. cevap ~250
+krk. Kayıt: v11 `adapter_6bd64fb2669e`, v12 `adapter_d012a940f94d` — ikisi de **candidate**,
+terfi YOK.
+
+**Ollama:** `scripts/adapter_to_ollama.ps1` (yeni; C9 kapandı) + `scripts/merge_adapter.py`
+(yeni) → `hektor-v12-30b` (Q4_K_M 18.6 GB, sha256 `d91a25d231bbc660…`, şablon
+`qwen3:30b-a3b-instruct-2507-q4_K_M`'den). Birleştirme doğrulaması: |fark|max 0.42 / adapter
+etkisi 13.75 (%3), KL 0.0016, top-10 9/10. İlk sürümün mutlak 0.25 eşiği yanlış alarm
+verdi → ölçüt adapter etkisine göre oran + KL + top-10 yapıldı. GPU'da ~90 tok/s. Diskte
+`models/merged/hektor_lora_v12_30b` (61 GB) + `…-bf16.gguf` (61 GB) duruyor — silinebilir.
+
+**RAG testi** (`reports/evals/rag_test_v12_vs_base.json`, 6 soru, gerçek RAG hattı):
+atıflı cevap base 6/6 · **v12 5/6** (v10 0/30 idi) · ort. uzunluk 2.800 vs **~1.000 krk**
+(4 soruda 1–2 cümle) · format bölümleri 6/6 vs 2/6 · Kelly sorusunda retrieval boşken v12
+atıfsız kendi bilgisiyle cevapladı (Kural 7). **Kullanıcı kararı: web RAG modeli BASE kalır**
+(`HEKTOR_LLM_MODEL` değişmedi); `hektor-v12-30b` doğrudan sohbet için (`ollama run`).
+
+---
+
 ## Son seans — 2026-09-30: v13 reçetesi — gradient accumulation + held-out eval (eğitim YOK)
 
 **Neden (v12 ölçümü):** batch 1, birikim yok → kayıp ~100. adımdan sonra düz + gürültülü
