@@ -156,7 +156,12 @@ _NEGATION_AFTER_RE: re.Pattern[str] = re.compile(
     r"|\bver(?:mem|mez|emem|emeyiz|ilemez|ilmez)\b"
     r"|\bed(?:emem|emez|emeyiz|ilemez|ilmez)\b"
     r"|\bet(?:mem|mez|meyiz)\b"
-    r"|\bsun(?:mam|amam)\b"
+    r"|\bsun(?:mam|amam|maz)\b"
+    # Kademe-2 B5 (2026-09-30): "…garantisi olmaz / olamaz / bulunmaz", "…olmadığını unutma",
+    # "…bir yöntem bilmiyorum" disiplinli cümlelerdi ama kategorik vetoyla REDDEDİLİYORDU.
+    r"|\bol(?:maz|amaz|madig\w*|mayan)\b"
+    r"|\bbulun(?:maz|mamaktadir|muyor)\b"
+    r"|\bbilmiyorum\b"
     r"|\bsagla(?:maz|mam|yamaz|namaz)\b"
     r"|\bsoyle(?:mem|yemem|yemeyiz)\b"
 )
