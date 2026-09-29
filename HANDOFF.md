@@ -133,8 +133,21 @@ verdi → ölçüt adapter etkisine göre oran + KL + top-10 yapıldı. GPU'da ~
 **RAG testi** (`reports/evals/rag_test_v12_vs_base.json`, 6 soru, gerçek RAG hattı):
 atıflı cevap base 6/6 · **v12 5/6** (v10 0/30 idi) · ort. uzunluk 2.800 vs **~1.000 krk**
 (4 soruda 1–2 cümle) · format bölümleri 6/6 vs 2/6 · Kelly sorusunda retrieval boşken v12
-atıfsız kendi bilgisiyle cevapladı (Kural 7). **Kullanıcı kararı: web RAG modeli BASE kalır**
-(`HEKTOR_LLM_MODEL` değişmedi); `hektor-v12-30b` doğrudan sohbet için (`ollama run`).
+atıfsız kendi bilgisiyle cevapladı (Kural 7). İlk karar: web RAG base kalır.
+
+**Sonra (2026-09-30 ~01:05, kullanıcı kararı): v12 TAM ana model yapıldı.**
+- `repeat_penalty` 1 → **1.1** (`adapter_to_ollama.ps1 -RepeatPenalty`, eski Modelfile
+  `…rp1.bak`). Uygulama `repeat_penalty` göndermez → Modelfile geçerli. RAG testinde ETKİSİZ
+  (`rag_test_v12_rp11.json`: atıflı 5/6, ort. ~900 krk, S1 cümle tekrarı yine %33) → kısa
+  cevap/tekrar eğitim verisinden, örnekleme ayarından değil.
+- `.env`: `HEKTOR_LLM_MODEL=hektor-v12-30b` (yedek `storage/env.bak-20260930-v12web`;
+  geri dönüş: `qwen3:30b-a3b-instruct-2507-q4_K_M`). `HEKTOR_LLM_MODEL` TÜM LLM işlerini
+  belirler (kart, sentetik QA, mastery, RAG) → **arka plan döngüleri KAPALI** tutuldu ki
+  eğitim verisi v12 ile üretilmesin (kendini besleyen kalite kaybı). Döngüleri açmadan ya da
+  `synth-qa`/`card` CLI koşmadan ÖNCE modeli base'e döndür (ya da ayrı chat-model ayarı ekle).
+- Web uçtan uca ✅: `/api/ask` 6 kaynak, v12 Kelly sorusunda bu kez "kaynakta yok" diye
+  çekimser kaldı. Not: arka plan döngüleri base'i kullanırken RAG testi 70–117 sn/soru
+  sürdü (20 GB GPU'da iki 30B takası — 2026-09-27 olayıyla aynı).
 
 ---
 

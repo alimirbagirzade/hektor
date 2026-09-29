@@ -15,7 +15,11 @@ param(
     # Sablon/parametreler (TEMPLATE, stop, temperature...) base'in Ollama etiketinden alinir.
     [Parameter(Mandatory = $true)][string]$TemplateFrom,
     [string]$Quant = "Q4_K_M",
-    [string]$Tools = "C:\HP\tools"
+    [string]$Tools = "C:\HP\tools",
+    # Bos = base etiketindeki deger (Qwen3-2507: 1 = KAPALI). v12'de dejenere tekrar
+    # vetosu goruldu (2026-09-30) -> 1.1 ile yeniden olusturuldu. Uygulama (LocalLLM)
+    # repeat_penalty GONDERMEZ, yani Modelfile degeri gecerlidir.
+    [string]$RepeatPenalty = ""
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -77,8 +81,10 @@ foreach ($l in $base) {
     if ($inHeader -and ($l -match '^\s*#' -or $l -match '^\s*$')) { continue }
     $inHeader = $false
     if ($l -match '^FROM\s') { continue }
+    if ($RepeatPenalty -and $l -match '^PARAMETER\s+repeat_penalty\s') { continue }
     $lines += $l
 }
+if ($RepeatPenalty) { $lines += "PARAMETER repeat_penalty $RepeatPenalty" }
 # PowerShell 5.1 Set-Content UTF8 BOM ekler; Modelfile BOM'suz yazilir.
 [IO.File]::WriteAllLines($modelfile, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
 
