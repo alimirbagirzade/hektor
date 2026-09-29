@@ -19,7 +19,13 @@ param(
     # Bos = base etiketindeki deger (Qwen3-2507: 1 = KAPALI). v12'de dejenere tekrar
     # vetosu goruldu (2026-09-30) -> 1.1 ile yeniden olusturuldu. Uygulama (LocalLLM)
     # repeat_penalty GONDERMEZ, yani Modelfile degeri gecerlidir.
-    [string]$RepeatPenalty = ""
+    [string]$RepeatPenalty = "",
+    # Attention tensorlerinin nicemleme tipi. LoRA yalniz attention'i degistiriyor; Q4_K
+    # gurultusu bu farkin 3-7 kati olculdu (Kademe-2 D2, 2026-09-30) -> q8_0 (~+0.5 GB).
+    # Bos = hepsi $Quant (eski davranis).
+    [string]$AttnQuant = "q8_0",
+    # Ayni adda Ollama modeli varsa ya da ad .env HEKTOR_LLM_MODEL ise uzerine yazmak icin.
+    [switch]$Force
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -38,6 +44,19 @@ $null = New-Item -ItemType Directory -Force -Path $ggufDir
 function Step($m) { Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $m" -ForegroundColor Cyan }
 function Fail($m) { Write-Host "[HATA] $m" -ForegroundColor Red; exit 1 }
 
+# 0) Ad cakismasi (Kademe-2 D5): `ollama create` ayni adi SESSIZCE ezer; ad web'in canli
+# modeliyse (.env HEKTOR_LLM_MODEL) zincir onaysiz olarak canli modeli degistirirdi.
+$liveModel = ""
+if (Test-Path (Join-Path $root ".env")) {
+    $m = Select-String -Path (Join-Path $root ".env") -Pattern '^\s*HEKTOR_LLM_MODEL\s*=\s*(\S+)' |
+        Select-Object -First 1
+    if ($m) { $liveModel = $m.Matches[0].Groups[1].Value }
+}
+$existing = (& $ollama list 2>$null) -match ("^" + [regex]::Escape($OllamaName) + "(:latest)?\s")
+if (-not $Force -and ($existing -or $OllamaName -eq $liveModel -or "$OllamaName`:latest" -eq $liveModel)) {
+    Fail "Ollama adi '$OllamaName' zaten var ya da web'in canli modeli (.env) - uzerine yazmak icin -Force."
+}
+
 # 1) Birlestir (PEFT merge_and_unload + oncesi/sonrasi logit dogrulamasi)
 if (Test-Path (Join-Path $merged "merge_info.json")) {
     Step "1/5 birlesik model zaten var: $merged (atlaniyor)"
@@ -53,19 +72,30 @@ if (Test-Path $bf16) {
 } else {
     Step "2/5 GGUF donusumu -> $bf16"
     $env:PYTHONPATH = Join-Path $Tools "spstub"
-    & $py (Join-Path $Tools "llama.cpp\convert_hf_to_gguf.py") $merged --outfile $bf16 --outtype bf16
+    # Yarim kalan cikti "zaten var" sanilmasin (Kademe-2 D4): once .partial, basarida ad degistir.
+    $part = "$bf16.partial"
+    Remove-Item $part -ErrorAction SilentlyContinue
+    & $py (Join-Path $Tools "llama.cpp\convert_hf_to_gguf.py") $merged --outfile $part --outtype bf16
     $rc = $LASTEXITCODE
     Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-    if ($rc -ne 0 -or -not (Test-Path $bf16)) { Fail "GGUF donusumu basarisiz (cikis $rc)" }
+    if ($rc -ne 0 -or -not (Test-Path $part)) { Fail "GGUF donusumu basarisiz (cikis $rc)" }
+    Move-Item $part $bf16
 }
 
 # 3) Nicemleme
 if (Test-Path $quantOut) {
     Step "3/5 $Quant zaten var: $quantOut (atlaniyor)"
 } else {
-    Step "3/5 nicemleme $Quant -> $quantOut"
-    & (Join-Path $Tools "llama-bin\llama-quantize.exe") $bf16 $quantOut $Quant
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $quantOut)) { Fail "nicemleme basarisiz" }
+    Step "3/5 nicemleme $Quant (attention: $(if ($AttnQuant) { $AttnQuant } else { $Quant })) -> $quantOut"
+    $part = "$quantOut.partial"
+    Remove-Item $part -ErrorAction SilentlyContinue
+    $qargs = @()
+    if ($AttnQuant) {
+        foreach ($t in "attn_q", "attn_k", "attn_v", "attn_output") { $qargs += "--tensor-type"; $qargs += "$t=$AttnQuant" }
+    }
+    & (Join-Path $Tools "llama-bin\llama-quantize.exe") @qargs $bf16 $part $Quant
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $part)) { Fail "nicemleme basarisiz" }
+    Move-Item $part $quantOut
 }
 
 # 4) Modelfile: sablon/parametreler base etiketinden, FROM yeni GGUF
@@ -85,12 +115,17 @@ foreach ($l in $base) {
     $lines += $l
 }
 if ($RepeatPenalty) { $lines += "PARAMETER repeat_penalty $RepeatPenalty" }
-# PowerShell 5.1 Set-Content UTF8 BOM ekler; Modelfile BOM'suz yazilir.
-[IO.File]::WriteAllLines($modelfile, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
+# BOM'suz ve LF: WriteAllLines Windows'ta CRLF yazar; Ollama CR karakterini TEMPLATE'e
+# aynen alir ve Qwen'de CRLF (token 319) != LF (198) -> egitimde hic gorulmeyen istem
+# (Kademe-2 D1: hektor-v12-30b sablonunda 47 CR vardi).
+$text = (($lines | ForEach-Object { $_ -replace "`r", "" }) -join "`n") + "`n"
+[IO.File]::WriteAllText($modelfile, $text, (New-Object Text.UTF8Encoding($false)))
 
 # 5) Ollama modeli
 Step "5/5 ollama create $OllamaName"
 & $ollama create $OllamaName -f $modelfile
 if ($LASTEXITCODE -ne 0) { Fail "ollama create basarisiz" }
+$tpl = (& $ollama show $OllamaName --template) -join "`n"
+if ($tpl -match "`r") { Fail "olusturulan sablonda CR karakteri var - egitim sablonuyla uyusmaz" }
 $sha = (Get-FileHash -Algorithm SHA256 $quantOut).Hash.ToLowerInvariant()
 Step "TAMAM: $OllamaName hazir · GGUF sha256=$($sha.Substring(0,16))… · $quantOut"

@@ -289,6 +289,38 @@ def leakage_cmd(
         raise typer.Exit(1)
 
 
+def adapter_eval_items(eval_dir: Path | None = None) -> list[Any]:
+    """Adapter eval setleri (`evals/*.jsonl`: discipline_core, trader_persona …) → EvalItem.
+
+    Kademe-2 C6 (2026-09-30): sızıntı kapısı yalnız profil validation/golden setlerini
+    tarıyordu; v10–v12 terfi kararlarını veren bu 80 kalem hiç taranmıyordu. Soru + (varsa)
+    bağlam eğitim verisinde geçmemeli.
+    """
+    from app.config import get_settings
+    from app.evals.profile.schema import EvalItem
+
+    d = eval_dir or (get_settings().root / "evals")
+    out: list[Any] = []
+    for f in sorted(d.glob("*.jsonl")):
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines()):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            q = str(row.get("question") or "").strip()
+            if not q:
+                continue
+            out.append(
+                EvalItem(
+                    id=f"adapter_eval:{f.stem}:{i}",
+                    domain="trading",
+                    question=q,
+                    reference_answer=str(row.get("context") or ""),
+                    source_provenance=f"evals/{f.name}",
+                )
+            )
+    return out
+
+
 def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
     """train.jsonl (+ yanındaki valid.jsonl varsa) ↔ validation/golden sızıntı denetimi.
 
@@ -305,6 +337,7 @@ def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
     items = [
         *load_split(Split.VALIDATION, purpose="leakage_check"),
         *load_split(Split.GOLDEN_TEST, purpose="leakage_check"),
+        *adapter_eval_items(),
     ]
     rep = check_leakage(items, train)
     valid_path = path.with_name("valid.jsonl")

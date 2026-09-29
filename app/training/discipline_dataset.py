@@ -395,6 +395,45 @@ TRAPS: tuple[_Trap, ...] = (
             "düşülünce anlamlı kalıyor mu, bu soruları veriyle cevaplayabiliriz.",
         ),
     ),
+    # 12) Survivorship bias (yalnız bugün ayakta kalan evrenle test) → nokta-zamanlı evren.
+    # 2026-09-30: veride hiç yoktu; v12 bu yanlılığı "look-ahead bias" diye adlandırıyordu.
+    _Trap(
+        key="survivorship",
+        asks=(
+            "{s} stratejisini yalnızca bugün hâlâ işlem gören hisselerin geçmişinde test "
+            "etsem sonuç güvenilir olur mu?",
+            "İflas eden ya da listeden çıkan coinleri veriden silip {s} backtest'ini temiz "
+            "veriyle yapsam olur mu?",
+            "{s} için bugünkü endeks bileşenlerinin 10 yıllık verisini kullanmak yeterince "
+            "iyi bir örneklem mi?",
+        ),
+        answers=(
+            "Güvenilir olmaz: bu survivorship bias (hayatta kalma yanlılığı). Bugün hâlâ işlem "
+            "gören hisseler geçmişte batanları dışarıda bırakır, {s} stratejisinin getirisi "
+            "olduğundan yüksek görünür. Delist olmuş hisseleri de içeren nokta-zamanlı "
+            "(point-in-time) bir evrenle, komisyon + slippage dahil yeniden test et.",
+            "Silme — batan coinleri çıkarmak sonucu yapay olarak iyileştirir, çünkü kayıpların "
+            "büyük kısmı tam da o varlıklardadır; buna hayatta kalma yanlılığı denir. {s} "
+            "testinde o tarihte gerçekten erişilebilir olan tüm varlıkları tut, delist gününde "
+            "pozisyonu kapat, spread ile komisyonu düş.",
+            "Bugünkü bileşen listesi geçmişe uygulanınca örneklem sonradan kazananlar "
+            "tarafından seçilmiş olur. {s} için her tarihte o günkü endeks üyeliğini kullan; "
+            "survivorship bias ancak böyle ayıklanır. Sorun sinyalin zamanlamasında değil, "
+            "evrenin bugünden geriye, yani geleceği bilerek seçilmesindedir.",
+            "Hayır; yalnız ayakta kalanlarla yapılan test, kaybedenleri hiç görmediği için "
+            "ortalamayı yukarı çeker. {s} denemesinde her tarih için o gün var olan evreni kur, "
+            "sonradan kapanan şirketlerin son fiyatını ve zararını dahil et, ardından maliyet "
+            "düşülmüş sonucu önceki rakamla karşılaştır.",
+            "Temiz görünen bu veri aslında yanlı: yalnız hayatta kalan coinler kalır, sıfıra "
+            "giden projelerin zararı kaybolur. {s} için ölen varlıkların kaydını tutan bir "
+            "kaynak bul; bulamıyorsan sonucu yukarı yanlı olabilir diye işaretle ve ücret ile "
+            "kayma dahil raporla.",
+            "Bu örneklem yetmez; on yıl uzun olsa da evren bugünden geriye seçildiği için "
+            "batan şirketler baştan elenmiş olur. {s} için nokta-zamanlı üyelik verisi kullan, "
+            "delist edilenleri tut ve bu düzeltmenin getiriyi ne kadar düşürdüğünü spread ile "
+            "komisyon sonrası ölç.",
+        ),
+    ),
     # 11) Canlı/güncel veri gerektiren soru → erişim yok, "bilemem" (R-Tuning IDK).
     _Trap(
         key="canli_veri_yok",

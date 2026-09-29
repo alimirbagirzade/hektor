@@ -529,7 +529,10 @@ def train_load_doctor_cmd(
 def train(
     base_model: str = typer.Option(None),
     adapter_name: str = typer.Option("hektor_lora_v1"),
-    iterations: int = typer.Option(300, help="Eğitim iterasyon sayısı"),
+    iterations: int = typer.Option(
+        0,
+        help="Örnek-adımı sayısı; 0 = plandan (örnek × profil epoch). Planı aşan değer reddedilir.",
+    ),
     batch_size: int = typer.Option(2, help="Batch büyüklüğü (8GB için 2 önerilir)"),
     num_layers: int = typer.Option(8, help="LoRA adapter katman sayısı (sadece MLX)"),
     run: bool = typer.Option(False, help="Eğitimi gerçekten başlat"),
@@ -700,6 +703,27 @@ def train(
             )
             raise typer.Exit(6)
 
+        # Kademe-2 A1 (2026-09-30): plandan fazla adım = aynı alt-küme üzerinde sessizce
+        # çok-epoch (ör. `--iterations 1682` + profilin max_examples 600 → ~2.8 epoch). Web/
+        # launch bunu zaten reddediyordu (B5); CLI yolu yalnız uyarıyordu. Onaydan ÖNCE.
+        from app.training.detached_launch import _adapter_dir_blocker, plan_iterations
+
+        _planned, _n_eff, _epochs = plan_iterations(n_train, max_examples, profile)
+        if iterations > _planned > 0:
+            console.print(
+                f"[red]İstenen {iterations} adım planı ({_planned} = {_n_eff} örnek × {_epochs} "
+                "epoch) aşıyor → aynı örnekler üzerinde fazladan epoch (ezber riski).[/red] "
+                "--iterations 0 ver (plandan) ya da daha çok veri için --max-examples büyüt."
+            )
+            raise typer.Exit(1)
+        # Kademe-2 A7: sıfırdan koşu dolu klasöre yazmasın (eski checkpoint numaraları kurtarma/
+        # resume kararını bozar; birikimle yeni numaralar eskilerden KÜÇÜK kalır).
+        _resume = _os.environ.get("HEKTOR_TRAIN_RESUME", "").strip().lower() in {"1", "true"}
+        _blocker = None if _resume else _adapter_dir_blocker(settings.adapters_dir / adapter_name)
+        if _blocker:
+            console.print(f"[red]{_blocker}[/red]")
+            raise typer.Exit(1)
+
         # auto_pipeline/launch zaten kendi onayını aldıysa (supervised) iç kapı atlanır
         # — çift onay olmasın; ama STOP_ALL her zaman geçerli. Onay, yukarıdaki TÜM ucuz
         # ön-kontroller geçtikten SONRA tüketilir.
@@ -771,7 +795,8 @@ def train(
             train_jsonl=settings.jsonl_dir / "train.jsonl",
             valid_jsonl=settings.jsonl_dir / "valid.jsonl",
             adapter_output_path=settings.adapters_dir / adapter_name,
-            iterations=iterations,
+            # MLX 0 adımı kabul etmez: 0 = plandan → eski varsayılan (300).
+            iterations=iterations or 300,
             batch_size=batch_size,
             num_layers=num_layers,
         )
@@ -2627,6 +2652,78 @@ def lora_dataset(
     nv = export_jsonl(valid_ex, jsonl_dir / "valid.jsonl")
     console.print(f"[green]✓[/green] eğitim split → train={nt}, valid={nv}")
     console.print(f"  → [bold]{jsonl_dir}[/bold]")
+
+
+@app.command("synth-enrich")
+def synth_enrich(
+    below: int = typer.Option(200, "--below", help="Bu uzunluğun altındaki cevaplar ele alınır"),
+    limit: int = typer.Option(0, "--limit", help="Bu çağrıda en çok N satır işle (0=tümü)"),
+    seed: int = typer.Option(0, "--seed", help="Determinizm tabanı (satır başına seed+i)"),
+    apply: bool = typer.Option(
+        False, "--apply", help="Tamamlanan çalışmayı synthetic_qa.jsonl'e uygula (yedekli)"
+    ),
+    model: str = typer.Option(
+        "",
+        "--model",
+        help="Üretici Ollama modeli (boş=.env HEKTOR_LLM_MODEL). BASE model olmalı.",
+    ),
+    allow_adapter_model: bool = typer.Option(
+        False,
+        "--allow-adapter-model",
+        help="hektor-* (kendi eğittiğimiz adapter) ile üretime izin ver — önerilmez",
+    ),
+) -> None:
+    """Kısa sentetik QA cevaplarını aynı bağlamdan açıklamalı hâle getir (Ollama).
+
+    Soru ve bağlam korunur; yeni cevap üreticinin tüm kapılarından (grounding, uydurma
+    sayı, düşük-değer, tekrar, CJK) geçmezse ORİJİNAL satır kalır. Kesilirse kaldığı satırdan
+    sürer. `--apply` önce `storage/`'a yedek alır. Eğitim BAŞLATMAZ (Kural 8); ardından
+    `scripts/assemble_sft.py` ile yeniden birleştir.
+    """
+    from app.brain.local_llm import LocalLLM
+    from app.brain.synthetic_enrich import apply_enrichment, is_adapter_model, run_enrichment
+
+    settings = get_settings()
+    src = settings.root / "data" / "lora_sft" / "synthetic_qa.jsonl"
+    if not src.exists():
+        console.print(f"[red]{src} yok.[/red]")
+        raise typer.Exit(1)
+    try:
+        if apply:
+            res = apply_enrichment(src, settings.root / "storage")
+            console.print(
+                f"[green]✓[/green] {res['applied']} satır uygulandı · model {res['model']} · "
+                f"durumlar {res['counts']} · yedek: {res['backup']}"
+            )
+            return
+        llm = LocalLLM(model=model or None)
+        if is_adapter_model(llm.model) and not allow_adapter_model:
+            console.print(
+                f"[red]Üretici model {llm.model!r} bir Hektor adapter'ı.[/red] Eğitim verisini "
+                "önceki adapter'a ürettirmek hatalarını bir sonrakine taşır. Base model ver: "
+                "--model qwen3:30b-a3b-instruct-2507-q4_K_M"
+            )
+            raise typer.Exit(1)
+        if not llm.available():
+            console.print("[red]LLM kullanılamıyor (Ollama).[/red]")
+            raise typer.Exit(1)
+        console.print(f"[cyan]Üretici model:[/cyan] {llm.model}")
+
+        def _progress(i: int, n: int, status: str) -> None:
+            if i % 25 == 0 or i == n:
+                console.print(f"[dim]{i}/{n} · son: {status}[/dim]")
+
+        res = run_enrichment(
+            src, llm, seed=seed, below_chars=below, limit=limit, progress=_progress
+        )
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[cyan]Zenginleştirme:[/cyan] {res['done']}/{res['total']} satır · {res['counts']}"
+    )
+    if res["done"] >= res["total"]:
+        console.print("Bitti → incele, sonra: [bold]uv run hektor synth-enrich --apply[/bold]")
 
 
 @app.command("synth-qa")
