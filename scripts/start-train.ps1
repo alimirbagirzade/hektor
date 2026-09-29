@@ -195,14 +195,17 @@ if ($SkipGate) {
     Write-Host "  [OK] Kapi GECILDI -- $gateSummary" -ForegroundColor Green
 }
 
-# Egitim verisi: lora_sft.jsonl -> train/valid (clobber-proof; bos train.jsonl onarilir)
-& $uv run --project "$ProjectDir" hektor lora-split | Out-Null
+# Egitim verisi: lora_sft.jsonl -> train/valid. `train --run` ile AYNI bolucu
+# (ensure_train_split, kaynak-gruplu). Eskiden burada `lora-split` (satir-sirali) cagriliyordu;
+# iki bolucu farkli sayida satir uretiyordu (1702 vs 1680) ve plan fazla adim veriyordu ->
+# ~22 ornek ikinci kez goruluyordu (v10'da ~24). 2026-09-30: train --run artik plani asan
+# adimi REDDEDER, bu yuzden plan ayni bolmeden alinmali.
+$pySplit = "from app.training.detached_launch import ensure_train_split as s;print(s()[0])"
+$nTrain = 0
+try { $nTrain = [int](& $uv run --project "$ProjectDir" python -c $pySplit | Select-Object -Last 1) } catch { $nTrain = 0 }
 
 # Adim plani: hesabi burada TEKRARLAMA -- kanonik kaynak plan_iterations
 # (app/training/detached_launch.py). Plan = min(train_satiri, tavan) x profil epochs.
-$nTrain = 0
-$trainJsonl = Join-Path $ProjectDir "data\training\jsonl\train.jsonl"
-if (Test-Path $trainJsonl) { $nTrain = (Get-Content $trainJsonl | Measure-Object -Line).Lines }
 $profArg = if ($Profile -and $Profile.Trim() -ne "") { "'$Profile'" } else { "None" }
 $pyPlan = "import json;from app.training.detached_launch import plan_iterations as p;i,n,e=p($nTrain,$MaxExamples,$profArg);print(json.dumps({'iters':i,'n':n,'epochs':e}))"
 $plan = $null

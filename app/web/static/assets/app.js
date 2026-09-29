@@ -2921,15 +2921,15 @@
       return;
     }
     const W = 700, H = 220, padX = 48, padY = 20;
-    const iters = curve.map(d => d.iter);
+    const iters = curve.map(d => d.step ?? d.iter);  // dosyalar `step` yazar (Kademe-2 A5)
     const trains = curve.map(d => d.train_loss);
     const vals = curve.filter(d => d.val_loss != null).map(d => d.val_loss);
     const maxIter = Math.max(...iters) || 1;
     const maxLoss = Math.max(...trains, ...vals, 0.01);
     const xS = (W - padX * 2) / maxIter;
     const yS = (H - padY * 2) / maxLoss;
-    const trainPts = curve.map(d => ({ x: d.iter, y: d.train_loss }));
-    const valPts = curve.filter(d => d.val_loss != null).map(d => ({ x: d.iter, y: d.val_loss }));
+    const trainPts = curve.map(d => ({ x: d.step ?? d.iter, y: d.train_loss }));
+    const valPts = curve.filter(d => d.val_loss != null).map(d => ({ x: d.step ?? d.iter, y: d.val_loss }));
     const trainPath = _svgLinePath(trainPts, xS, yS, W, H, padX, padY);
     const valPath = _svgLinePath(valPts, xS, yS, W, H, padX, padY);
     // axis labels

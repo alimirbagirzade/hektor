@@ -1580,6 +1580,8 @@ def _detached_training_progress() -> dict | None:
     step = int(state.get("global_step") or 0)
     total = int(state.get("max_steps") or cfg.get("iterations") or 0)
     losses = [e for e in state.get("log_history", []) if "loss" in e]
+    # HF eval kaybını ayrı girdiye yazar (Kademe-2 A5: eskiden val_loss hep None dönüyordu).
+    evals = [e for e in state.get("log_history", []) if "eval_loss" in e]
     finished = (out_dir / "adapter_model.safetensors").is_file()
     return {
         "state": "finished" if finished else "running",
@@ -1587,7 +1589,7 @@ def _detached_training_progress() -> dict | None:
         "total_iters": total,
         "pct": round(100.0 * step / total, 1) if total else 0.0,
         "train_loss": float(losses[-1]["loss"]) if losses else None,
-        "val_loss": None,
+        "val_loss": float(evals[-1]["eval_loss"]) if evals else None,
         "adapter_name": adapter,
         "base_model": str(cfg.get("base_model") or ""),
         "started_at": "",

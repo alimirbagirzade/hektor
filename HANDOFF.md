@@ -103,6 +103,53 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-30 (3): Kademe 2 + veri zenginleştirme + **v13 EĞİTİMİ KOŞUYOR**
+
+**Koşu:** `hektor_lora_v13_30b` — başladı 02:14 (`start-train.ps1`, onay `apr_40a3e32f4aac`
+kullanıcı talimatıyla, mix `trading_analysis_v1` kullanıcı seçimi). Qwen3-30B-A3B, profil
+`moe30b_attn_local` (**GA 8, lr 2e-4, held-out eval her 25 adımda 64 valid, load_best**),
+1676 mikro-adım = **210 optimizer adımı**, ~160 sn/adım → **~10–10.5 sa, bitiş ≈12:45**.
+İlk adım doğrulandı. Eğitim sürerken Ollama/web LoRA sohbeti/eval AÇMA (RAM ~128 GB).
+Bitince: `run_complete.json`'da `best_checkpoint`/`best_eval_loss`; `reports/training/
+hektor_lora_v13_30b_loss.json`'da artık `val_loss` dolu.
+
+**Veri (v13):** `hektor synth-enrich` (yeni) kısa sentetik cevapları aynı bağlamdan 2-4
+cümleye genişletti: 726 adaydan **443** tüm kapılardan geçti (dil, kaynak-atfı, etiket,
+tekrar, tavsiye, cümle-düzeyi grounding, token bütçesi); kalanlar orijinal. Asistan medyanı
+214→**272** kr; <200 kr sentetik 726→283. Yedek: `storage/synthetic_qa.bak-20260930-020921.jsonl`.
+Claude örneklem incelemesi (8 satır): 5 sadık, 3'te hafif desteksiz cümle (~¼) — insan
+denetimi yapılmadı. + `survivorship` disiplin tuzağı (35 satır; veride hiç yoktu, v12
+"look-ahead" diyordu). pretrain-gate **GO**, lora-audit 292/292.
+⚠ İlk zenginleştirme koşusu **v12 adapter'ıyla** üretilmişti (başka oturum 01:05'te `.env`
+HEKTOR_LLM_MODEL=hektor-v12-30b yaptı) → çıktı ATILDI; artık `--model` + hektor-* reddi.
+
+**Kademe 2 (v13 öncesi, 4 bulucu; kullanım sınırı yüzünden 2-oylu ajan doğrulaması yerine
+kritikler elle yeniden koşturularak doğrulandı):**
+- A (eğitici): engelleyici yok. A1 CLI `--iterations` varsayılanı 0 + planı aşan ret; A7 dolu
+  adapter klasörü ret; A5 web kayıp grafiği (`step`) + ilerleme `val_loss`. `start-train.ps1`
+  artık planı `ensure_train_split`'ten alır (lora-split 1702 ↔ 1680 farkı → 22 örnek 2. kez).
+- B (eval): **B1 kritik — `max_new_tokens` 220'de base cevaplarının 80/80'i kesiliyordu →
+  v10/v11/v12 "accept" kararları GÜVENİLİR DEĞİL**; artık 1024 + `truncated` + >%20 kesikse
+  accept yok. B3 (1e2d5af gevşemesi gerçek ihlali kaçırıyordu) + B2/B4 contains: düzeltildi;
+  B5 garanti vetosu; B7 dejenere eşiği uzunlukla. AÇIK: B6 (terfi PEFT mi GGUF mi — eval
+  servis edilen GGUF'u ölçmüyor), B8 (disiplin/kalite bayrakları ayrı), B9 (rag_model_run
+  parametre kaydı), B10 (auto_pipeline fp32 30B).
+- C (veri): C1-C5, C6 (sızıntı kapısı artık evals/*.jsonl 80 kalem), C9, C10 düzeltildi.
+- D (merge/GGUF): D1 **canlı `hektor-v12-30b` şablonunda 47 CR** (Qwen'de \r\n ≠ \n →
+  eğitimde görülmemiş istem; v12'nin TÜM Ollama ölçümleri bununla) — betik düzeltildi
+  (LF + create sonrası CR denetimi); D2 attention q8_0; D3 no-op adapter kapısı; D4 .partial
+  + köken; D5 ad çakışması -Force. **Canlı model YENİDEN OLUŞTURULMADI** (otomatik izin
+  denetçisi reddetti) → kullanıcı: `tr -d '\r'` ile Modelfile'ı düzeltip
+  `ollama create hektor-v12-30b -f models/gguf/Modelfile.hektor-v12-30b`.
+
+**v13 sonrası sıra:** (1) eval (yeni B1 ayarlarıyla, ~daha uzun) · (2) B6 kararı: terfi
+edilecek yapıt GGUF ise eval Ollama üzerinden de koşulmalı · (3) merge → GGUF (attn q8_0) →
+Ollama (`adapter_to_ollama.ps1`, yeni ad `hektor-v13-30b`) · ADAY; terfi insan kararı.
+
+**Kapı:** ruff + mypy 257 + pytest **2794 passed** (Windows). Commit'ler: 1f1faaf, 01def42 + bu.
+
+---
+
 ## Son seans — 2026-09-30 (2): v11/v12 eval + `hektor-v12-30b` Ollama'da + RAG testi
 
 **Eval** (`logs/lora-eval-v12-v11.ps1` → `logs/lora-eval-adapter.ps1`; CPU, bf16, 80 soru,
