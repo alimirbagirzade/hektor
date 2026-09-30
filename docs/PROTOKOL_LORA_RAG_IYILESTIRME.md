@@ -104,6 +104,13 @@ bağımsızlık/homojenliği karıştırma · final testte parametre seçme · "
 - Adapter testinde korpus/snapshot sabit (`rag_version`); RAG iyileştirme testinde değişen
   unsurun retrieval olduğu açıkça işaretlenir.
 
+**Ölçülen (2026-09-30, LLM-30, havuzlu kör etiket — ayrıntı HANDOFF):** Türkçe sorgu ↔
+İngilizce korpus uyumsuzluğu; mevcut hat P@6 0.139, 23/30 soruda hiç ilgili parça yok.
+Retrieval sorgusunun İngilizceye çevrilmesi (`HEKTOR_RAG_QUERY_TRANSLATE=en`) P@6 0.711,
+nDCG@6 0.771, 1/30. Amaç filtresi tek başına küçük etki (0.167). Ölçüm araçları:
+`app.evals.llm30_rag_probe` (aşama aşama yanlılık), `app.evals.llm30_rag_experiment`
+(varyantlar + puanlama). Etiketler `evals/rag_relevance/` (retrieval indeksine ve eğitime GİRMEZ).
+
 ## 5. LoRA verisi ve pilot
 
 - Eski model cevabı doğrulanmadan "doğru cevap" olmaz; makale de kusursuz değildir —

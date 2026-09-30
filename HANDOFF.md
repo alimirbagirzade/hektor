@@ -103,6 +103,57 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-30 (5): v13 sonucu + GGUF + LLM-30 2×2 (KOŞUYOR) + RAG deneyi
+
+**v13 eğitimi TAMAMLANDI** (210/210 optimizer adımı, 30.09 11:44; kayıt `adapter_ee06d5a4dfa8`
+**candidate**, terfi YOK). 07:43'te checkpoint-125'ten sürdürüldü (`recovery_attempts: 1`;
+kesinti nedeni eski log üzerine yazıldığı için bilinmiyor). val_loss 0.733 → **0.5769**
+(adım 175, en iyi) → 0.578; 125'ten sonra düz. Son adapter = checkpoint-175 (sha eşleşti,
+`load_best` çalıştı). Train loss son 25 adım ort. 0.82 (dropout açık) — overfit işareti yok.
+
+**GGUF (eşit tarif):** `hektor-v13-30b` (Q4_K_M + attn q8_0, sha `d8cf8964…`) ve aynı tarifle
+**`hektor-base-30b-q4a8`** (`adapter_to_ollama.ps1 -BaseRepo`, sha `3e687b34…`) — 2×2'de base
+ile LoRA'nın nicemlemesi/şablonu birebir aynı olsun diye. v13 birleştirme kapısı KL 0.0201
+> 0.01 ile durdu (diğer ölçütler geçti); **kullanıcı kararıyla** bu koşu için `-MaxKL 0.025`
+(`merge_info.json`: `kl_gate_override=true`). Varsayılan 0.01 değişmedi.
+
+**LLM-30 2×2** (`app/evals/llm30_run.py`, run `llm30_v13_2x2_20260930`, 30 soru × A/B/C/D × 3
+tekrar, temperature 0, num_predict 4096, num_ctx 16384): **KOŞUYOR** (22:51'de 114/360,
+~35 sn/cevap). İlk koşu 108'de Ollama "token repeat limit" iptalinde durdu → koşucu artık
+iptali kısmi ham cevapla `iptal:tekrar_limiti` olarak kaydediyor. Bulgular:
+- **Ollama bu kurulumda deterministik DEĞİL:** aynı model+seed+temp 0'da cevaplar 149. karakterde
+  (RAG'lı ilk token'da) ayrışıyor; tekrar 2-3 genelde aynı (önek önbelleği), tekrar 1 farklı.
+  Tekrarlar bağımsız örneklem değil, önbellek-durumu ölçüsü → tek cevaptan sonuç çıkarma.
+- `uzun_tekrar` bayrağı ilk sürümde YANLIŞ POZİTİFTİ (istenen alt-madde başlıkları 3× geçiyor);
+  düzeltildi, `summary.json` bayrakları ham cevaptan yeniden hesaplar.
+- Canlı `hektor-v12-30b` şablonu base'den FARKLI (D1: CR'ler; yeniden oluşturulmadı) →
+  koşucu v12 ile başlamayı reddediyor.
+
+**RAG deneyi (sorgu çevirisi × amaç filtresi)** — kök neden ölçüldü: Türkçe sorgu, ~%89
+İngilizce korpusta tek Türkçe metin olan iki proje kılavuzuna çekiliyor (BM25 top-24'ün %82'si).
+Yeni: `configs/rag/doc_purposes.yaml` + `HEKTOR_RAG_EXCLUDE_PURPOSES`, `HEKTOR_RAG_QUERY_TRANSLATE`
+(off|en|bilingual; çeviri modeli ayrı, `hektor-*` reddedilir) — **ikisi de varsayılan KAPALI**.
+Havuzlu kör etiket (407 çift, `evals/rag_relevance/llm30_pooled_v1.jsonl`, Claude etiketledi,
+`human_verified=false`), `reports/evals/llm30/rag_exp_20260930T193022/score.json`:
+
+| | P@6 | nDCG@6 | havuz-recall@6 | ilgilisiz soru | iç-doküman |
+|---|---|---|---|---|---|
+| V0 mevcut | 0.139 | 0.102 | 0.111 | 23/30 | 53/180 |
+| V1 filtre | 0.167 | 0.115 | 0.138 | 21/30 | 0 |
+| **V2 çeviri (en)** | **0.711** | **0.771** | **0.849** | **1/30** | 0 |
+| V3 çeviri+filtre | 0.711 | 0.771 | 0.849 | 1/30 | 0 |
+| V4 iki dil+filtre | 0.689 | 0.736 | 0.820 | 1/30 | 0 |
+
+Sınırlar: tek hakem (Claude, kör ama insan değil); recall havuza göreli (gerçek recall'un üst
+sınırı); aynı 30 geliştirme sorusu. Korpusta veri-doğrulama konuları (S01/S02/S05) zayıf.
+Ek bulgular: 2 doküman OCR/kodlama çöpü parça üretiyor ("(4))" başlıklı ve başlıksız biri);
+4/300 başlık yayıncı kalıbı; retrieval tekrarı iç-doküman sayısında 53↔57↔62 oynadı.
+**Karar kullanıcıda:** `HEKTOR_RAG_QUERY_TRANSLATE=en` canlıya alınsın mı (çeviri LLM çağrısı
+ekler; önbellekli). Önce insan etiket örneklemesi önerilir. 2×2 bağlamı V0 ile donduruldu
+(RAG'lı koşullar mevcut hattı ölçüyor).
+
+---
+
 ## Son seans — 2026-09-30 (4): LoRA/RAG iyileştirme protokolü + LLM-30 benchmark (eğitim YOK)
 
 Kullanıcının `Claude_Hektor_LoRA_RAG_Iyilestirme_Promptu.txt` + `Hektor_LLM_30_Soru.txt`

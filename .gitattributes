@@ -23,3 +23,4 @@
 # dönüşümü hash'i bozar; bayt-bayt aynı kalmalı.
 evals/profile_mix/*.jsonl -text
 evals/llm30/*.jsonl -text
+evals/rag_relevance/*.jsonl -text
