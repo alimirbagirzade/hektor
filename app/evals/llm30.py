@@ -16,6 +16,7 @@ gömülmez, tek başına terfiyi engeller. Küçük sayısal alt maddelerin anah
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +28,66 @@ from app.lora.mix_common import repo_root
 
 SOURCE = "Hektor_LLM_30_Soru.txt v1.0 (2026-09-30)"
 QUESTION_IDS: tuple[str, ...] = tuple(f"llm30-s{n:02d}" for n in range(1, 31))
+
+#: Soru dosyasının "ORTAK CEVAP TALİMATI" — 2×2'nin DÖRT koşulunda da aynı sistem istemi.
+SYSTEM_PROMPT = (
+    "Her alt maddeyi ayrı cevapla. İstenen yerde formül, birim, hesap veya kısa "
+    "çalıştırılabilir kod ver. Gerekli varsayımı belirt. Yapmadığın hesaplamayı veya "
+    "çalıştırmadığın kodu test edilmiş gibi sunma. Sayısal örneğin açıklamanla uyumunu kontrol "
+    "et. Verilmeyen piyasa, komisyon ve performans değerlerini varsayım olarak etiketle.\n"
+    "RAG açıkken kaynağın desteklediği iddiaya kaynak kimliği ekle. Kaynakta bulunmayan genel "
+    "bilgiyi açıkça ayır. Kaynak gerektiren görevde yetersiz kaynak varsa neyin eksik olduğunu "
+    "söyle. Her cevaba gereksiz backtest veya yatırım uyarısı ekleme.\n"
+    "Kısa varsayılan format: doğrudan cevap / hesap veya örnek / varsayım ve sınırlama / "
+    "doğrulama."
+)
+
+
+def user_prompt(question: str, context: str | None) -> str:
+    """RAG kapalı: yalnız soru. RAG açık: dondurulmuş bağlam + soru (C ve D'de byte-aynı)."""
+    if context is None:
+        return question
+    return f"KAYNAKLAR:\n{context}\n\nSORU:\n{question}"
+
+
+_SHORT_LOOP = re.compile(r"(.{2,24}?)\1{5,}", re.DOTALL)
+_SENT_SPLIT = re.compile(r"(?<=[.!?。])\s+|\n+")
+_LETTER = re.compile(r"[^\W\d_]")
+_CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+
+
+def answer_flags(
+    answer: str, *, done_reason: str, prompt_tokens: int, output_tokens: int, num_ctx: int
+) -> list[str]:
+    """Ham cevaba DOKUNMADAN sorun bayrakları (protokol Aşama 2: ayrı işaretle).
+
+    - ``kesildi_token_siniri``: Ollama ``done_reason == "length"`` (num_predict doldu)
+    - ``baglam_siniri``: istem + çıktı ≥ num_ctx (bağlam penceresi taştı/doldu)
+    - ``kisa_tekrar``: 2-24 karakterlik birim art arda ≥6 kez
+    - ``uzun_tekrar``: ≥20 karakterlik aynı cümle/satır ≥3 kez
+    - ``bos_cevap``, ``cjk_sizinti``
+    """
+    flags: list[str] = []
+    if done_reason == "length":
+        flags.append("kesildi_token_siniri")
+    if prompt_tokens + output_tokens >= num_ctx:
+        flags.append("baglam_siniri")
+    if not answer.strip():
+        flags.append("bos_cevap")
+    # Harf içermeyen birimler (markdown tablo çizgisi "---", "====", sıfır dizisi) sayılmaz.
+    if any(_LETTER.search(m.group(1)) for m in _SHORT_LOOP.finditer(answer)):
+        flags.append("kisa_tekrar")
+    seen: dict[str, int] = {}
+    for s in _SENT_SPLIT.split(answer):
+        s = s.strip()
+        if len(s) >= 20:
+            seen[s] = seen.get(s, 0) + 1
+    if any(n >= 3 for n in seen.values()):
+        flags.append("uzun_tekrar")
+    if _CJK.search(answer):
+        flags.append("cjk_sizinti")
+    return flags
+
 
 #: Teknik puan boyutları → azami puan. ``kaynak_destegi`` yalnız RAG görevlerinde raporlanır;
 #: kaynak gerektirmeyen koşulda sıfır kaynak cezası VERİLMEZ.

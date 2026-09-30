@@ -58,7 +58,7 @@ PROBES: tuple[list[dict[str, str]], ...] = (
 )
 
 
-def gate_failures(metrics: list[dict[str, Any]]) -> list[str]:
+def gate_failures(metrics: list[dict[str, Any]], *, max_kl: float = MAX_KL) -> list[str]:
     """Prompt başına ölçümlerden kapı ihlallerini döndür (boş liste = geçti). Saf → test."""
     fails: list[str] = []
     for i, m in enumerate(metrics):
@@ -66,8 +66,8 @@ def gate_failures(metrics: list[dict[str, Any]]) -> list[str]:
             fails.append(f"prompt {i}: adapter etkisi {m['effect']:.3g} < {MIN_ADAPTER_EFFECT}")
         if m["diff"] > MAX_MERGE_TO_EFFECT * m["effect"]:
             fails.append(f"prompt {i}: birleştirme farkı {m['diff']:.3g} etkinin çok üstünde")
-        if m["kl"] > MAX_KL:
-            fails.append(f"prompt {i}: KL {m['kl']:.3g} > {MAX_KL}")
+        if m["kl"] > max_kl:
+            fails.append(f"prompt {i}: KL {m['kl']:.3g} > {max_kl}")
         if m["top10"] < MIN_TOP10_OVERLAP or not m["same_top"]:
             fails.append(f"prompt {i}: en olası tokenlar değişti")
     return fails
@@ -90,7 +90,16 @@ def main() -> int:
         action="store_true",
         help="run_complete.json olmadan birleştir (yarım/eski koşu riski — önerilmez)",
     )
+    ap.add_argument(
+        "--max-kl",
+        type=float,
+        default=MAX_KL,
+        help=f"KL kapısı (varsayılan {MAX_KL}). Yalnız bilinçli insan kararıyla gevşetilir; "
+        "kullanılan değer ve istisna merge_info.json'a yazılır. Diğer kapılar DEĞİŞMEZ.",
+    )
     args = ap.parse_args()
+    if args.max_kl != MAX_KL:
+        print(f"UYARI: KL kapısı {MAX_KL} → {args.max_kl} (insan kararı; kayda geçer)", flush=True)
 
     adapter_dir = Path(args.adapter)
     if not adapter_dir.is_dir():
@@ -196,7 +205,7 @@ def main() -> int:
             f"KL={m['kl']:.3g} · top10 örtüşme={m['top10']}/10 · en olası aynı: {m['same_top']}",
             flush=True,
         )
-    fails = gate_failures(metrics)
+    fails = gate_failures(metrics, max_kl=args.max_kl)
     if fails:
         print("HATA: birleşik model doğrulaması başarısız — dönüşüme geçilmez:")
         for f in fails:
@@ -229,6 +238,8 @@ def main() -> int:
                 "merge_logit_max_diff": worst["diff"],
                 "adapter_effect_logit_max_diff": worst["effect"],
                 "kl_peft_vs_merged": max(m["kl"] for m in metrics),
+                "kl_gate": args.max_kl,
+                "kl_gate_override": args.max_kl != MAX_KL,
                 "top10_overlap": min(m["top10"] for m in metrics),
                 "top_same": all(m["same_top"] for m in metrics),
                 "probes": metrics,

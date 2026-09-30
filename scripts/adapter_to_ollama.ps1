@@ -25,7 +25,15 @@ param(
     # Bos = hepsi $Quant (eski davranis).
     [string]$AttnQuant = "q8_0",
     # Ayni adda Ollama modeli varsa ya da ad .env HEKTOR_LLM_MODEL ise uzerine yazmak icin.
-    [switch]$Force
+    [switch]$Force,
+    # Adapter'SIZ base'i AYNI tarifle (GGUF + $Quant + attention $AttnQuant + sablon) Ollama'ya
+    # koy: 2x2 karsilastirmada base ile LoRA'nin nicemlemesi esit olsun diye (protokol Asama 2).
+    # Verilirse birlestirme atlanir, HF onbellegindeki snapshot dogrudan donusturulur;
+    # -Adapter yalniz dosya adi etiketidir (or. base_qwen3_30b_a3b).
+    [string]$BaseRepo = "",
+    # Bos = merge_adapter.py varsayilan KL kapisi (0.01). Yalniz bilincli insan karariyla;
+    # kullanilan deger merge_info.json'a yazilir.
+    [string]$MaxKL = ""
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -58,11 +66,19 @@ if (-not $Force -and ($existing -or $OllamaName -eq $liveModel -or "$OllamaName`
 }
 
 # 1) Birlestir (PEFT merge_and_unload + oncesi/sonrasi logit dogrulamasi)
-if (Test-Path (Join-Path $merged "merge_info.json")) {
+if ($BaseRepo) {
+    $merged = (& $py -c "from huggingface_hub import snapshot_download as s; print(s('$BaseRepo', local_files_only=True))").Trim()
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $merged "config.json"))) {
+        Fail "base snapshot HF onbelleginde yok: $BaseRepo (indirme YAPILMAZ)"
+    }
+    Step "1/5 base-only: birlestirme yok, snapshot -> $merged"
+} elseif (Test-Path (Join-Path $merged "merge_info.json")) {
     Step "1/5 birlesik model zaten var: $merged (atlaniyor)"
 } else {
     Step "1/5 birlestirme: $Adapter -> $merged"
-    & $py scripts\merge_adapter.py $Adapter --out $merged
+    $margs = @()
+    if ($MaxKL) { $margs += "--max-kl"; $margs += $MaxKL }
+    & $py scripts\merge_adapter.py $Adapter --out $merged @margs
     if ($LASTEXITCODE -ne 0) { Fail "birlestirme basarisiz (cikis $LASTEXITCODE)" }
 }
 
@@ -102,7 +118,8 @@ if (Test-Path $quantOut) {
 Step "4/5 Modelfile ($TemplateFrom sablonuyla) -> $modelfile"
 $base = & $ollama show $TemplateFrom --modelfile
 if ($LASTEXITCODE -ne 0) { Fail "ollama show $TemplateFrom basarisiz" }
-$lines = @("# $OllamaName - $Adapter birlesik GGUF $Quant; sablon/parametreler $TemplateFrom'dan.")
+$kind = if ($BaseRepo) { "base-only ($BaseRepo @ $(Split-Path -Leaf $merged))" } else { "birlesik" }
+$lines = @("# $OllamaName - $Adapter $kind GGUF $Quant; sablon/parametreler $TemplateFrom'dan.")
 $lines += "FROM $quantOut"
 # Yalniz BASTAKI yorum satirlari ve FROM satiri atilir; TEMPLATE """ blogu icindeki '#'
 # ile baslayan satirlar (or. "# Tools") KORUNUR.

@@ -32,3 +32,12 @@ def test_noop_adapter_fails() -> None:
 def test_merge_error_relative_threshold_tightened() -> None:
     assert merge_adapter.gate_failures([_m(diff=3.0)])  # eski 0.5 eşiğinde geçerdi
     assert merge_adapter.gate_failures([_m(), _m(kl=0.05)])  # her prompt ayrı denetlenir
+
+
+def test_max_kl_override_relaxes_only_kl() -> None:
+    """v13 ölçümü (2026-09-30): KL 0.0201 varsayılanda düşer, bilinçli 0.025 ile geçer."""
+    v13 = _m(diff=0.6035, effect=17.69, kl=0.0201, top10=10)
+    assert merge_adapter.gate_failures([v13]) == ["prompt 0: KL 0.0201 > 0.01"]
+    assert merge_adapter.gate_failures([v13], max_kl=0.025) == []
+    # Gevşek KL diğer kapıları AÇMAZ.
+    assert merge_adapter.gate_failures([_m(diff=3.0, kl=0.02)], max_kl=0.025)

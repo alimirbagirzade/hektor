@@ -13,9 +13,12 @@ from app.evals.llm30 import (
     CRITICAL_ERRORS,
     QUESTION_IDS,
     RUBRIC,
+    SYSTEM_PROMPT,
+    answer_flags,
     llm30_root,
     load_llm30,
     numeric_keys,
+    user_prompt,
 )
 from app.evals.profile.dataset_loader import DatasetIntegrityError
 from app.evals.profile.leakage import check_leakage
@@ -97,6 +100,34 @@ def test_transition_matrix_ignores_index_alignment() -> None:
     counts, probs = _transition_matrix(s.tolist(), 3)
     assert counts.tolist() == numeric_keys()["s22_gecis_sayilari"]
     assert probs.sum(axis=1).tolist() == [1.0, 1.0, 1.0]  # satır normalize, global değil
+
+
+def _flags(answer: str, **kw: object) -> list[str]:
+    opts: dict = {"done_reason": "stop", "prompt_tokens": 100, "output_tokens": 50, "num_ctx": 8192}
+    opts.update(kw)
+    return answer_flags(answer, **opts)
+
+
+def test_answer_flags_separates_failure_modes() -> None:
+    assert _flags("EMA = 101. Varsayım: alpha=0.1.") == []
+    assert _flags("x", done_reason="length") == ["kesildi_token_siniri"]
+    assert _flags("x", prompt_tokens=8000, output_tokens=192) == ["baglam_siniri"]
+    assert _flags("   ") == ["bos_cevap"]
+    assert _flags("Sonuç: " + "evet " * 8) == ["kisa_tekrar"]
+    loop = "Bu durum look-ahead bias yaratır ve testi geçersiz kılar. "
+    assert _flags(loop * 3) == ["uzun_tekrar"]
+    assert _flags("Cevap 期权 içeriyor") == ["cjk_sizinti"]
+
+
+def test_answer_flags_ignores_markdown_rules() -> None:
+    table = "| a | b |\n|---|---|\n| 1 | 2 |\n" + "-" * 40 + "\n" + "=" * 30
+    assert _flags(table) == []
+
+
+def test_user_prompt_rag_on_off() -> None:
+    assert user_prompt("S?", None) == "S?"
+    assert user_prompt("S?", "[p:1] metin") == "KAYNAKLAR:\n[p:1] metin\n\nSORU:\nS?"
+    assert "RAG açıkken" in SYSTEM_PROMPT
 
 
 def test_reference_answers_agree_with_numeric_keys() -> None:
