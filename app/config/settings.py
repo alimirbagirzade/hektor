@@ -220,6 +220,13 @@ class Settings(BaseSettings):
     # ile rafine et (abstain-oranı vs hata-oranı). Kapı zaten opt-in (rag_abstain=False).
     rag_abstain_min_similarity: float = 0.55
     rag_abstain_min_margin: float = 0.02  # top-1↔top-2 marjı bunun altında → belirsiz
+    # Amaç bazlı dışlama (configs/rag/doc_purposes.yaml; virgüllü, ör. "proje_dokumani").
+    # Varsayılan BOŞ → canlı davranış değişmez; etkisi app.evals.llm30_rag_experiment ile ölçülür.
+    rag_exclude_purposes: str = ""
+    # Retrieval sorgusu çevirisi (TR→EN): off | en | bilingual (TR+EN dense füzyonu, BM25 EN).
+    # Varsayılan KAPALI. Çeviri modeli LLM ayarından AYRI — LoRA'lı (hektor-*) model reddedilir.
+    rag_query_translate: str = "off"
+    rag_translate_model: str = "qwen3:30b-a3b-instruct-2507-q4_K_M"
 
     # --- Trading ---
     default_market: str = "XAUUSD"

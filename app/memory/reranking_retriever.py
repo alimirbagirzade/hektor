@@ -17,11 +17,16 @@ eğitim gerektirmez (bkz. docs/RAG_EGITIM_YENIDEN_TASARIM.md).
 
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 from app.config import get_settings
+from app.memory.doc_purpose import excluded_paper_ids, parse_purposes
 from app.memory.reranker import Reranker
 from app.memory.retrieval_service import RetrievalService, RetrievedChunk
+
+logger = logging.getLogger(__name__)
+_TRANSLATE_MODES = ("off", "en", "bilingual")
 
 
 class RerankerLike(Protocol):
@@ -51,8 +56,23 @@ class RerankingRetriever:
         rrf: bool | None = None,
         graph: bool | None = None,
         router: bool | None = None,
+        exclude_purposes: frozenset[str] | None = None,
+        translate: str | None = None,
+        translate_model: str | None = None,
     ) -> None:
         self.settings = get_settings()
+        # Amaç bazlı dışlama (configs/rag/doc_purposes.yaml). Boş → davranış değişmez.
+        purposes = (
+            exclude_purposes
+            if exclude_purposes is not None
+            else parse_purposes(self.settings.rag_exclude_purposes)
+        )
+        self.exclude_papers: frozenset[str] = excluded_paper_ids(purposes)
+        # Retrieval sorgusu çevirisi: off | en | bilingual (app/memory/query_translation.py).
+        self.translate = (translate or self.settings.rag_query_translate).lower()
+        if self.translate not in _TRANSLATE_MODES:
+            raise ValueError(f"rag_query_translate geçersiz: {self.translate} {_TRANSLATE_MODES}")
+        self.translate_model = translate_model or self.settings.rag_translate_model
         self.base = base or RetrievalService()
         self.reranker: RerankerLike = reranker or self._default_reranker()
         self.overfetch = overfetch if overfetch is not None else self.settings.rag_overfetch
@@ -87,11 +107,36 @@ class RerankingRetriever:
             return CrossEncoderReranker()
         return Reranker()
 
+    def _dense(self, query: str, k: int) -> list[RetrievedChunk]:
+        """Dense retrieval; dışlama varsa indeks sorgusunda uygulanır."""
+        if self.exclude_papers:
+            return self.base.retrieve(query, top_k=k, exclude_papers=self.exclude_papers)
+        return self.base.retrieve(query, top_k=k)
+
+    def _keep(self, chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        return [c for c in chunks if c.paper_id not in self.exclude_papers]
+
+    def search_queries(self, query: str) -> tuple[str, str | None]:
+        """(arama sorgusu, bilingual ise ek orijinal sorgu). Çeviri hatasında orijinale düşer."""
+        if self.translate == "off":
+            return query, None
+        from app.memory.query_translation import TranslationError, translate_query
+
+        try:
+            en = translate_query(query, model=self.translate_model)
+        except TranslationError as exc:
+            logger.warning("Sorgu çevirisi başarısız, orijinal sorgu kullanılıyor: %s", exc)
+            return query, None
+        if self.translate == "bilingual" and en != query:
+            return en, query
+        return en, None
+
     def retrieve(self, query: str, top_k: int | None = None) -> list[RetrievedChunk]:
         k = top_k or self.settings.rag_top_k
+        query, extra_query = self.search_queries(query)
 
         if not self.enabled:
-            return self.base.retrieve(query, top_k=k)
+            return self._dense(query, k)
 
         # Sorgu yönlendirici (opt-in): tip'e göre yol. KISA keyword/entity → konveks-füzyon
         # hibrit; UZUN semantik → saf dense (ölçülen en iyi + en hızlı). Diğer modlardan önce.
@@ -100,7 +145,7 @@ class RerankingRetriever:
 
             if classify_query(query) == "lexical":
                 return self._convex_hybrid_retrieve(query, k)
-            return self.base.retrieve(query, top_k=k)
+            return self._dense(query, k)
 
         # Graf modu (opt-in): dense tohum → PPR → RRF füzyonu (çok-hop recall).
         if self.graph:
@@ -112,7 +157,13 @@ class RerankingRetriever:
 
         # Geniş aday havuzu çek (en az k; ideal olarak k * overfetch).
         candidate_k = max(k, k * max(1, self.overfetch))
-        candidates = self.base.retrieve(query, top_k=candidate_k)
+        candidates = self._dense(query, candidate_k)
+        if extra_query is not None:
+            # bilingual: orijinal (TR) sorgunun dense adaylarını da havuza kat (tekrarsız).
+            have = {c.chunk_id for c in candidates}
+            candidates += [
+                c for c in self._dense(extra_query, candidate_k) if c.chunk_id not in have
+            ]
 
         # Hibrit: BM25 keyword adaylarını ekle (dense'in kaçırdığı teknik terimler:
         # ATR, Sharpe, RSI…). Korpus boş/erişilemezse sessizce dense-only kalır.
@@ -137,7 +188,7 @@ class RerankingRetriever:
         from app.memory.rank_fusion import fuse_ranked
 
         candidate_k = max(k, k * max(1, self.overfetch))
-        dense = self.base.retrieve(query, top_k=candidate_k)
+        dense = self._dense(query, candidate_k)
         chunk_by_id: dict[str, RetrievedChunk] = {c.chunk_id: c for c in dense}
         dense_ids = [c.chunk_id for c in dense]
 
@@ -156,7 +207,7 @@ class RerankingRetriever:
 
         fused = fuse_ranked(ranked_lists, k=self.settings.rag_rrf_k)
         out = [chunk_by_id[cid] for cid in fused if cid in chunk_by_id]
-        return out[:k]
+        return self._keep(out)[:k]
 
     def _graph_retrieve(self, query: str, k: int) -> list[RetrievedChunk]:
         """SPRIG-lite: dense-hit'lerden tohumlanmış PPR → dense ile RRF füzyonu.
@@ -172,7 +223,7 @@ class RerankingRetriever:
         from app.memory.rank_fusion import fuse_ranked
 
         candidate_k = max(k, k * max(1, self.overfetch))
-        dense = self.base.retrieve(query, top_k=candidate_k)
+        dense = self._dense(query, candidate_k)
         if not dense:
             return []
         dense_ids = [c.chunk_id for c in dense]
@@ -198,7 +249,7 @@ class RerankingRetriever:
         ranked_lists = [lst for lst in (dense_ids, graph_ids) if lst]
         fused = fuse_ranked(ranked_lists, k=self.settings.rag_rrf_k)
         out = [chunk_by_id[cid] for cid in fused if cid in chunk_by_id]
-        return out[:k]
+        return self._keep(out)[:k]
 
     def _convex_hybrid_retrieve(self, query: str, k: int) -> list[RetrievedChunk]:
         """Dense + BM25 skorlarını min-max normalize edip KONVEKS birleştir (router lexical yolu).
@@ -211,7 +262,7 @@ class RerankingRetriever:
         from app.memory.query_router import convex_fuse
 
         candidate_k = max(k, k * max(1, self.overfetch))
-        dense = self.base.retrieve(query, top_k=candidate_k)
+        dense = self._dense(query, candidate_k)
         chunk_by_id: dict[str, RetrievedChunk] = {c.chunk_id: c for c in dense}
         dense_scores = {
             c.chunk_id: max(0.0, 1.0 - (c.distance if c.distance is not None else 1.0))
@@ -228,7 +279,7 @@ class RerankingRetriever:
             return dense[:k]  # BM25 yok → dense-only
         fused = convex_fuse(dense_scores, bm25_scores, alpha=self.settings.rag_router_alpha)
         out = [chunk_by_id[cid] for cid in fused if cid in chunk_by_id]
-        return out[:k]
+        return self._keep(out)[:k]
 
     def _add_bm25_candidates(
         self, query: str, candidates: list[RetrievedChunk], candidate_k: int
@@ -239,8 +290,16 @@ class RerankingRetriever:
         if bm25 is None:
             return candidates
         have = {c.chunk_id for c in candidates}
-        for cid, _score in bm25.search(query, candidate_k):
-            if cid not in have and cid in chunk_map:
-                candidates.append(chunk_map[cid])
-                have.add(cid)
+        # Dışlama varsa daha geniş ara, dışlananları at, bütçeyi (candidate_k) koru.
+        fetch = candidate_k * 4 if self.exclude_papers else candidate_k
+        added = 0
+        for cid, _score in bm25.search(query, fetch):
+            if added >= candidate_k:
+                break
+            chunk = chunk_map.get(cid)
+            if chunk is None or cid in have or chunk.paper_id in self.exclude_papers:
+                continue
+            candidates.append(chunk)
+            have.add(cid)
+            added += 1
         return candidates
