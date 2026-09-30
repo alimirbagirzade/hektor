@@ -56,6 +56,32 @@ _LETTER = re.compile(r"[^\W\d_]")
 _CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
 
 
+def _is_content_sentence(s: str) -> bool:
+    """Döngü sayımına girer mi: ≥40 karakter, çoğunluğu harf, başlık/etiket değil.
+
+    Sistem istemi her alt maddede "Doğrudan cevap: / Varsayım ve sınırlama:" başlığı
+    istediğinden başlıklar meşru olarak tekrar eder (2026-09-30 ilk koşuda yanlış pozitif);
+    CSV/tablo satırları da sorunun gereği olabilir (S05 yinelenen zaman damgası).
+    """
+    core = s.strip().strip("*#-_>| ").strip()
+    if len(core) < 40 or core.endswith(":"):
+        return False
+    letters = sum(ch.isalpha() for ch in core)
+    return letters / len(core) >= 0.5
+
+
+def _has_sentence_loop(answer: str) -> bool:
+    sents = [s.strip() for s in _SENT_SPLIT.split(answer) if s.strip()]
+    counts: dict[str, int] = {}
+    for i, s in enumerate(sents):
+        if not _is_content_sentence(s):
+            continue
+        if i + 1 < len(sents) and sents[i + 1] == s:
+            return True  # döngü imzası: aynı cümle hemen ardından yine
+        counts[s] = counts.get(s, 0) + 1
+    return any(n >= 4 for n in counts.values())
+
+
 def answer_flags(
     answer: str, *, done_reason: str, prompt_tokens: int, output_tokens: int, num_ctx: int
 ) -> list[str]:
@@ -64,12 +90,17 @@ def answer_flags(
     - ``kesildi_token_siniri``: Ollama ``done_reason == "length"`` (num_predict doldu)
     - ``baglam_siniri``: istem + çıktı ≥ num_ctx (bağlam penceresi taştı/doldu)
     - ``kisa_tekrar``: 2-24 karakterlik birim art arda ≥6 kez
-    - ``uzun_tekrar``: ≥20 karakterlik aynı cümle/satır ≥3 kez
+    - ``uzun_tekrar``: aynı içerik cümlesi ART ARDA tekrar ya da ≥4 kez (bkz.
+      ``_has_sentence_loop``; format başlıkları / tablo-CSV satırları sayılmaz)
     - ``bos_cevap``, ``cjk_sizinti``
     """
     flags: list[str] = []
     if done_reason == "length":
         flags.append("kesildi_token_siniri")
+    elif done_reason == "iptal:tekrar_limiti":
+        flags.append("ollama_tekrar_iptali")  # Ollama dejenere tekrarı üretim ortasında kesti
+    elif done_reason.startswith("iptal:"):
+        flags.append("ollama_iptal")
     if prompt_tokens + output_tokens >= num_ctx:
         flags.append("baglam_siniri")
     if not answer.strip():
@@ -77,12 +108,7 @@ def answer_flags(
     # Harf içermeyen birimler (markdown tablo çizgisi "---", "====", sıfır dizisi) sayılmaz.
     if any(_LETTER.search(m.group(1)) for m in _SHORT_LOOP.finditer(answer)):
         flags.append("kisa_tekrar")
-    seen: dict[str, int] = {}
-    for s in _SENT_SPLIT.split(answer):
-        s = s.strip()
-        if len(s) >= 20:
-            seen[s] = seen.get(s, 0) + 1
-    if any(n >= 3 for n in seen.values()):
+    if _has_sentence_loop(answer):
         flags.append("uzun_tekrar")
     if _CJK.search(answer):
         flags.append("cjk_sizinti")

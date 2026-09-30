@@ -111,12 +111,35 @@ def _flags(answer: str, **kw: object) -> list[str]:
 def test_answer_flags_separates_failure_modes() -> None:
     assert _flags("EMA = 101. Varsayım: alpha=0.1.") == []
     assert _flags("x", done_reason="length") == ["kesildi_token_siniri"]
+    assert _flags("x", done_reason="iptal:tekrar_limiti") == ["ollama_tekrar_iptali"]
+    assert _flags("x", done_reason="iptal:baska") == ["ollama_iptal"]
     assert _flags("x", prompt_tokens=8000, output_tokens=192) == ["baglam_siniri"]
     assert _flags("   ") == ["bos_cevap"]
     assert _flags("Sonuç: " + "evet " * 8) == ["kisa_tekrar"]
     loop = "Bu durum look-ahead bias yaratır ve testi geçersiz kılar. "
     assert _flags(loop * 3) == ["uzun_tekrar"]
     assert _flags("Cevap 期权 içeriyor") == ["cjk_sizinti"]
+
+
+def test_long_loop_ignores_format_headers_and_data_rows() -> None:
+    """2026-09-30 yanlış pozitifleri: istenen başlıklar ve sorunun gerektirdiği CSV satırı."""
+    per_part = "- **Doğrudan cevap:**\nEMA değeri burada hesaplanır ve yorumlanır, tamam.\n"
+    assert (
+        _flags(
+            "a)\n"
+            + per_part
+            + "b)\n"
+            + per_part.replace("EMA", "SMA")
+            + "c)\n"
+            + per_part.replace("EMA", "WMA")
+        )
+        == []
+    )
+    row = "2025-04-05T10:00:00,ETH/USD,2800.0,2810.0,2790.0,2805.0,150"
+    assert _flags(f"{row}\n{row}\n{row}\nYinelenen satırlar incelenmeli.") == []
+    # Art arda olmayan ama ≥4 kez geçen içerik cümlesi yine döngü sayılır.
+    s = "Bu durum look-ahead bias yaratır ve testi geçersiz kılar."
+    assert _flags(" Ara cümle. ".join([s] * 4)) == ["uzun_tekrar"]
 
 
 def test_answer_flags_ignores_markdown_rules() -> None:

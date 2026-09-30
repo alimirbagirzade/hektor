@@ -89,6 +89,34 @@ def model_info(host: str, name: str) -> dict[str, Any]:
     }
 
 
+def chat_stream(client: httpx.Client, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Streaming /api/chat: üretim ortasında iptal (ör. Ollama "token repeat limit") ham
+    kısmi cevabıyla SONUÇ olarak döner (``done_reason = "iptal:..."``); koşu durmaz.
+    Üretim başlamadan gelen hata (model yok vb.) ölümcüldür."""
+    parts: list[str] = []
+    out: dict[str, Any] = {"prompt_eval_count": 0, "eval_count": 0, "done_reason": ""}
+    with client.stream("POST", url, json={**payload, "stream": True}) as resp:
+        for line in resp.iter_lines():
+            if not line.strip():
+                continue
+            event = json.loads(line)
+            if "error" in event:
+                err = str(event["error"])
+                if not parts:
+                    raise SystemExit(f"Ollama hatası ({payload['model']}): {err}")
+                kind = "tekrar_limiti" if "repeat" in err.lower() else err[:60]
+                out["done_reason"] = f"iptal:{kind}"
+                out["eval_count"] = len(parts)  # akış parçası ≈ token (sayaç gelmedi)
+                break
+            parts.append(str(event.get("message", {}).get("content", "")))
+            if event.get("done"):
+                out["prompt_eval_count"] = int(event.get("prompt_eval_count") or 0)
+                out["eval_count"] = int(event.get("eval_count") or 0)
+                out["done_reason"] = str(event.get("done_reason", ""))
+    out["content"] = "".join(parts)
+    return out
+
+
 def freeze_contexts(items: list[Any], path: Path, top_k: int | None) -> dict[str, dict[str, Any]]:
     """Soru başına tek retrieval → dondurulmuş bağlam (varsa dosyadan okunur, yeniden YAPILMAZ)."""
     if path.exists():
@@ -231,25 +259,23 @@ def main() -> None:
                     if (cond, it.id, seed) in done:
                         continue
                     t0 = time.perf_counter()
-                    resp = client.post(
+                    resp = chat_stream(
+                        client,
                         f"{host}/api/chat",
-                        json={
+                        {
                             "model": model["name"],
                             "messages": [
                                 {"role": "system", "content": SYSTEM_PROMPT},
                                 {"role": "user", "content": prompt},
                             ],
-                            "stream": False,
                             "options": {**decoding, "seed": seed},
                         },
-                    ).json()
+                    )
                     latency = time.perf_counter() - t0
-                    if "error" in resp:
-                        raise SystemExit(f"Ollama hatası ({cond} {it.id}): {resp['error']}")
-                    answer = str(resp.get("message", {}).get("content", ""))
-                    p_tok = int(resp.get("prompt_eval_count") or 0)
-                    o_tok = int(resp.get("eval_count") or 0)
-                    reason = str(resp.get("done_reason", ""))
+                    answer = resp["content"]
+                    p_tok = resp["prompt_eval_count"]
+                    o_tok = resp["eval_count"]
+                    reason = resp["done_reason"]
                     rec = {
                         "run_id": run_id,
                         "condition": cond,
@@ -299,9 +325,18 @@ def main() -> None:
         rs = [r for r in rows if r["condition"] == cond]
         if not rs:
             continue
+        # Bayraklar HAM cevaptan güncel kuralla yeniden hesaplanır (raw.jsonl'deki ``flags``
+        # üretim anındaki kural sürümüdür; ham cevap değişmez).
         flag_counts: dict[str, int] = {}
         for r in rs:
-            for f in r["flags"]:
+            current = answer_flags(
+                r["raw_answer"],
+                done_reason=r["finish_reason"],
+                prompt_tokens=r["input_tokens"],
+                output_tokens=r["output_tokens"],
+                num_ctx=r["decoding"]["num_ctx"],
+            )
+            for f in current:
                 flag_counts[f] = flag_counts.get(f, 0) + 1
         summary[cond] = {
             "n": len(rs),
