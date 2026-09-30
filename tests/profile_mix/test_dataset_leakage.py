@@ -168,6 +168,8 @@ def test_golden_hash_tamper_detected(tmp_path: Path) -> None:
 def test_eval_dir_can_not_be_training_input() -> None:
     with pytest.raises(GoldenAccessError):
         assert_not_eval_path(eval_root() / "golden_test.jsonl")
+    with pytest.raises(GoldenAccessError):
+        assert_not_eval_path(eval_root().parent / "llm30" / "validation.jsonl")
     assert_not_eval_path(Path("data/lora_sft/lora_sft.jsonl"))
 
 
@@ -180,6 +182,6 @@ def test_training_code_never_references_eval_sets() -> None:
             if p.name in {"mix_cli.py"}:  # yalnız sızıntı DENETİMİ için okur
                 continue
             text = p.read_text(encoding="utf-8", errors="ignore")
-            if "profile_mix" in text or "golden_test" in text:
+            if any(k in text for k in ("profile_mix", "golden_test", "llm30")):
                 offenders.append(str(p.relative_to(repo)))
     assert offenders == []

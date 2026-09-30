@@ -413,16 +413,28 @@
           <div class="dry-run-form">
             <div class="setting-group">
               <label>Temel model<input type="text" id="drBaseModel" value="" placeholder="boş = otomatik (Windows/Linux: PEFT temel model, macOS: MLX)" /></label>
-              <p class="setting-desc">Boş bırakırsan sunucu backend'e göre seçer: Windows/Linux PEFT → <code class="js-peft-base">HEKTOR_PEFT_BASE_MODEL</code>, macOS → MLX modeli. Aktif LLM (RAG/sohbet): <code class="js-llm-model">HEKTOR_LLM_MODEL</code> — LoRA adapter'ı yalnız eğitildiği temel modelle uyumludur; ikisi farklıysa adapter aktif LLM'e takılamaz. <strong>Bellek uyarısı:</strong> yerel CPU eğitimi temel modelin boyutuyla büyür (4B ≈ 18–20 GB) ve Ollama da ayrıca bellek kullanır. Dar bellekte <code>Qwen/Qwen2.5-1.5B-Instruct</code> (~6 GB) yaz. Modeli değiştirirsen önceki adapter'lar uyumsuz olur.</p>
-              <p class="setting-desc">Diğer hiper-parametreler (LoRA rank, öğrenme oranı, epoch, batch, maskeleme) <strong>reçete profilinden</strong> gelir: <code>configs/lora/lora_profiles.yaml</code> → varsayılan <code>discipline_safe_local</code>. Buradan tek tek ayarlanmaz — profil, v5 aşırı-öğrenme onarımını da içerdiği için bütün olarak uygulanır.</p>
+              <p class="setting-desc">Boş bırakırsan sunucu backend'e göre seçer: Windows/Linux PEFT → <code class="js-peft-base">HEKTOR_PEFT_BASE_MODEL</code>, macOS → MLX modeli. Aktif LLM (RAG/sohbet): <code class="js-llm-model">HEKTOR_LLM_MODEL</code> — LoRA adapter'ı yalnız eğitildiği temel modelle uyumludur; ikisi farklıysa adapter aktif LLM'e takılamaz. <strong>Bellek uyarısı:</strong> yerel CPU eğitimi temel modelin boyutuyla büyür (varsayılan 30B MoE temel model bf16 ≈ 61–72 GB; küçük yoğun model ≈ 18–20 GB) ve Ollama da ayrıca bellek kullanır. Dar bellekte küçük yoğun bir temel model + <code>discipline_safe_local</code> profili seç, ör. <code>Qwen/Qwen2.5-1.5B-Instruct</code> (~6 GB). Modeli değiştirirsen önceki adapter'lar uyumsuz olur.</p>
+              <p class="setting-desc">Diğer hiper-parametreler (LoRA rank, öğrenme oranı, epoch, batch, maskeleme) <strong>reçete profilinden</strong> gelir: <code>configs/lora/lora_profiles.yaml</code> → varsayılan <code>moe30b_attn_local</code> (MoE temel model); yoğun/dense temel model için <code>discipline_safe_local</code>. Buradan tek tek ayarlanmaz — profil, v5 aşırı-öğrenme onarımını da içerdiği için bütün olarak uygulanır.</p>
+            </div>
+            <div class="setting-group">
+              <label>Reçete profili<select id="trProfile">
+                <option value="moe30b_attn_local" selected>moe30b_attn_local (MoE / A3B temel model, yalnız attention)</option>
+                <option value="discipline_safe_local">discipline_safe_local (yoğun/dense temel model, düşük RAM)</option>
+                <option value="discipline_safe_kl">discipline_safe_kl (deneysel, KL cezası)</option>
+              </select></label>
+              <p class="setting-desc"><strong>MoE temel model</strong> (adında <code>A3B</code> geçen HF modeli) için <code>moe30b_attn_local</code> şart: uzmanlar birleşik parametre olduğundan diğer profillerin gate/up/down hedefleri modelde yok ve eğitim açık hatayla durur. 30B-sınıfı MoE bf16 ≈ 61 GB RAM ister; yetmezse eğitim yüklemeden önce durur. Temel model alanına A3B yazınca bu profil otomatik seçilir.</p>
+            </div>
+            <div class="setting-group">
+              <label>Örnek tavanı<input type="number" id="trMaxExamples" min="0" max="100000" value="0" /></label>
+              <p class="setting-desc"><strong>0</strong> = profildeki <code>max_examples</code>. Adım sayısını değil bunu büyüt; iterasyon 0 ise adım sayısı örnek × epoch'tan hesaplanır.</p>
             </div>
             <div class="setting-group">
               <label>Adapter adı<input type="text" id="trAdapterName" value="hektor_lora" /></label>
               <p class="setting-desc">Eğitim sonucunun kaydedileceği klasör adı (<code>models/adapters/&lt;ad&gt;</code>). Her yeni eğitim için farklı isim kullan (ör. <code>hektor_lora_v2</code>) — aynı adı kullanırsan öncekinin üzerine yazılır.</p>
             </div>
             <div class="setting-group">
-              <label>İterasyon<input type="number" id="drIterations" min="50" max="5000" value="500" /></label>
-              <p class="setting-desc">Modelin kaç güncelleme adımı yapacağı. <strong>100–200:</strong> hızlı ama yetersiz. <strong>300–500:</strong> çoğu kullanım için yeterli (önerilen). <strong>1000+:</strong> güçlü ama yavaş ve aşırı öğrenme riski taşır.</p>
+              <label>İterasyon<input type="number" id="drIterations" min="0" max="5000" value="0" /></label>
+              <p class="setting-desc"><strong>0 (önerilen):</strong> profil planından hesapla (örnek × epoch). Elle girilen değer planı aşarsa sunucu reddeder (aynı örnekler üzerinde fazladan epoch = ezber). Plandan <em>az</em> değer yalnız kısa ölçüm koşusu içindir. Daha çok veri için iterasyonu değil örnek tavanını büyüt.</p>
             </div>
           </div>
         </div>

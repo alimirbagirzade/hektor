@@ -20,7 +20,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Requ
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from app.config import configure_logging, get_settings
+from app.config import DEFAULT_TRAIN_PROFILE, configure_logging, get_settings
 from app.web import security
 from app.web.schemas import (
     AdapterOut,
@@ -1424,7 +1424,19 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
     # bölme, kalite kapısı, sızıntı, yük doktoru) TEK KULLANIMLIK onay tüketilmeden ÖNCE.
     # Eskiden onay önce yanıyor, sonra launch() bu kontrollerde düşüyordu.
     adapter = req.adapter_name or "hektor_lora"
-    pre = detached_launch.preflight_launch(adapter)
+    profile = (req.profile or "").strip() or DEFAULT_TRAIN_PROFILE
+    # Profil adı/hedefleri onay tüketilmeden ÖNCE doğrulanır (bilinmeyen profil / geçersiz
+    # target_modules → onay yanmadan net hata).
+    from app.training.peft_lora_train import load_lora_profile
+
+    try:
+        load_lora_profile(profile)
+    except (KeyError, ValueError, FileNotFoundError) as exc:
+        return TrainingStartResponse(ok=False, status="error", message=f"Profil hatası: {exc}")
+    # Reçete (profil hedefleri ↔ base mimarisi, CPU RAM) de onay yanmadan ÖNCE (Kademe-2 B3/B6).
+    pre = detached_launch.preflight_launch(
+        adapter, base_model=req.base_model or None, profile=profile, check_recipe=True
+    )
     if not pre.get("ok"):
         return TrainingStartResponse(
             ok=False,
@@ -1434,7 +1446,10 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
 
     decision = authorize_training_action(
         "train_run",
-        (f"Gerçek LoRA eğitimi (web): {adapter} ({req.iterations} adım)"),
+        (
+            f"Gerçek LoRA eğitimi (web): {adapter} ({req.iterations} adım, profil={profile}, "
+            f"base={req.base_model or 'varsayılan'}, max_examples={req.max_examples or 'profil'})"
+        ),
         agent_id="lora-trainer",
     )
     if decision.mode == "stop_all":
@@ -1461,6 +1476,8 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
         adapter_name=adapter,
         iterations=req.iterations,
         base_model=req.base_model or None,
+        profile=profile,
+        max_examples=req.max_examples,
         approval_id=decision.approval_id,
     )
     return TrainingStartResponse(
@@ -1563,6 +1580,8 @@ def _detached_training_progress() -> dict | None:
     step = int(state.get("global_step") or 0)
     total = int(state.get("max_steps") or cfg.get("iterations") or 0)
     losses = [e for e in state.get("log_history", []) if "loss" in e]
+    # HF eval kaybını ayrı girdiye yazar (Kademe-2 A5: eskiden val_loss hep None dönüyordu).
+    evals = [e for e in state.get("log_history", []) if "eval_loss" in e]
     finished = (out_dir / "adapter_model.safetensors").is_file()
     return {
         "state": "finished" if finished else "running",
@@ -1570,7 +1589,7 @@ def _detached_training_progress() -> dict | None:
         "total_iters": total,
         "pct": round(100.0 * step / total, 1) if total else 0.0,
         "train_loss": float(losses[-1]["loss"]) if losses else None,
-        "val_loss": None,
+        "val_loss": float(evals[-1]["eval_loss"]) if evals else None,
         "adapter_name": adapter,
         "base_model": str(cfg.get("base_model") or ""),
         "started_at": "",

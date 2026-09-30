@@ -128,5 +128,5 @@ Yeni türetilmiş yollar: `source_root`, `state_dir`, `eval_sets_dir`, `manifest
 |---|---|
 | Phase-4 GitHub otomasyonu (`.github/workflows/claude-code-task.yml`, `docs/PHASE4*.md`, 2 yönetişim testi) | Hiç aktive edilmedi (`vars.ENABLE_CLAUDE_TASK` olmadan INERT) ve `ANTHROPIC_API_KEY` ister. Guard'lı ve testli olduğu için kaldırılmadı. |
 | `app/training/dataset_builder.py` | İkinci veri hattı (SQLite `training_examples`); web uçları kanonik `sft_assembly` yoluna taşındı, yalnız `hektor dataset` kullanıyor. Müfredat pacing (%60/30/10) yalnız burada. |
-| Bulut-GPU eğitim hattı (`cloud_notebook.py`, `lora-cloud-prep`, `PROTOKOL_BULUT_EGITIM.md`) | Yerel küçük-model eğitimine pivot edildi ama kod çalışıyor ve testli; 4B için tek pratik yol. |
+| Bulut-GPU eğitim hattı (`cloud_notebook.py`, `lora-cloud-prep`, `arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md`) | Yerel küçük-model eğitimine pivot edildi ama kod çalışıyor ve testli; 4B için tek pratik yol. |
 | `docs/MIMARI_REFERANS.md` | v1 temizliğinden ÖNCE yazıldı; kaldırılan modülleri hâlâ anlatıyor. Dosya başında uyarı var. |

@@ -71,10 +71,10 @@ Write-Host "  |  (Ollama uygulamasi + model dosyasi otomatik indirilir)         
 Write-Host "  |  Bu proje API anahtari istemez; bulut modeli yoktur.             |" -ForegroundColor DarkGray
 Write-Host "  |                                                                  |" -ForegroundColor Cyan
 Write-Host "  |  -- Qwen3 (Alibaba) --                                           |" -ForegroundColor White
-Write-Host "  |  [1] qwen3:4b-instruct-2507 ~2.5GB  8GB+ RAM  Hizli [ONERILEN]   |" -ForegroundColor Green
+Write-Host "  |  [1] qwen3:30b-a3b-instruct ~19GB 32GB+ RAM  [ONERILEN]          |" -ForegroundColor Green
 Write-Host "  |  [2] qwen3:8b     ~5 GB disk     16 GB+ RAM  Dengeli             |" -ForegroundColor White
 Write-Host "  |  [3] qwen3:14b    ~9 GB disk     32 GB+ RAM  Guclu               |" -ForegroundColor White
-Write-Host "  |  [4] qwen3:30b    ~20 GB disk    32 GB+ RAM  Cok guclu           |" -ForegroundColor White
+Write-Host "  |  [4] qwen3:4b-instruct ~2.5GB    8 GB+ RAM   Dusuk RAM secenegi  |" -ForegroundColor White
 Write-Host "  |                                                                  |" -ForegroundColor Cyan
 Write-Host "  |  -- Llama 3.1 (Meta) --                                          |" -ForegroundColor White
 Write-Host "  |  [5] llama3.1:8b     ~5 GB disk  16 GB+ RAM                      |" -ForegroundColor White
@@ -90,27 +90,29 @@ Write-Host "  |                                                                 
 Write-Host "  +------------------------------------------------------------------+" -ForegroundColor Cyan
 Write-Host ""
 
-$choice = Read-Host "  Seciminiz [1-9] (Enter = 1 / qwen3:4b-instruct-2507)"
+$choice = Read-Host "  Seciminiz [1-9] (Enter = 1 / qwen3:30b-a3b-instruct-2507)"
 if ($choice -eq "") { $choice = "1" }
 
 # Bu proje YALNIZ yerel Ollama kullanir; API anahtari istemez.
-$llmModel    = "qwen3:4b-instruct-2507-q4_K_M"
+# Ciplak `qwen3:30b` / `qwen3:4b` etiketleri Thinking-2507'dir (dusunme kapatilamaz, yavas)
+# -> her zaman -instruct-2507 etiketi.
+$llmModel    = "qwen3:30b-a3b-instruct-2507-q4_K_M"
 $modelEnv    = "HEKTOR_LLM_MODEL"
 $needOllama  = $true
-$ollamaRamGB = 8
-$ollamaDskGB = 3
+$ollamaRamGB = 32
+$ollamaDskGB = 19
 
 switch ($choice) {
-    "1" { $llmModel="qwen3:4b-instruct-2507-q4_K_M"; $ollamaRamGB=8;  $ollamaDskGB=3  }
+    "1" { $llmModel="qwen3:30b-a3b-instruct-2507-q4_K_M"; $ollamaRamGB=32; $ollamaDskGB=19 }
     "2" { $llmModel="qwen3:8b";        $ollamaRamGB=16; $ollamaDskGB=5  }
     "3" { $llmModel="qwen3:14b";       $ollamaRamGB=32; $ollamaDskGB=9  }
-    "4" { $llmModel="qwen3:30b";       $ollamaRamGB=32; $ollamaDskGB=20 }
+    "4" { $llmModel="qwen3:4b-instruct-2507-q4_K_M"; $ollamaRamGB=8;  $ollamaDskGB=3  }
     "5" { $llmModel="llama3.1:8b";     $ollamaRamGB=16; $ollamaDskGB=5  }
     "6" { $llmModel="llama3.1:70b";    $ollamaRamGB=80; $ollamaDskGB=40 }
     "7" { $llmModel="mistral:7b";      $ollamaRamGB=8;  $ollamaDskGB=4  }
     "8" { $llmModel="deepseek-r1:8b";  $ollamaRamGB=16; $ollamaDskGB=5  }
     "9" { $llmModel="deepseek-r1:14b"; $ollamaRamGB=32; $ollamaDskGB=9  }
-    default { $llmModel="qwen3:4b-instruct-2507-q4_K_M"; $ollamaRamGB=8; $ollamaDskGB=3 }
+    default { $llmModel="qwen3:30b-a3b-instruct-2507-q4_K_M"; $ollamaRamGB=32; $ollamaDskGB=19 }
 }
 
 # ==========================================================================

@@ -76,7 +76,7 @@ def test_skeleton_id_groups_strategy_twins() -> None:
     from app.training.detached_launch import _source_key
 
     keys = {_source_key(ln) for ln in discipline_jsonl_lines(seed=0)}
-    # 11 tuzak × 6 cevap = 66 iskelet; satır-hash'i kullanılsaydı grup sayısı 528 olurdu.
+    # 12 tuzak × 6 cevap = 72 iskelet; satır-hash'i kullanılsaydı grup sayısı 528 olurdu.
     assert len(keys) == sum(len(t.answers) for t in TRAPS)
     assert all(k.startswith("skel:") for k in keys)
 

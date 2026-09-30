@@ -232,3 +232,91 @@ def test_find_run_approval_kimlikle_dogrudan_bulur() -> None:
     row = _approval(started - dt.timedelta(hours=10), aid="apr_x")
     assert find_run_approval([row], started, approval_id="apr_x") is not None
     assert find_run_approval([row], started, approval_id="apr_yok") is None
+
+
+# --- 2026-09-28: bitmiş koşu "çökmüş" sanılmamalı ------------------------------
+def test_tamamlanmis_kosu_diriltilemez() -> None:
+    """v10 bittikten sonra durum dosyası kaldı; kontrol 'yetkili' diyordu (nöbetçi tuzağı)."""
+    started = _NOW - dt.timedelta(hours=2)
+    ok = [_approval(started - dt.timedelta(minutes=2))]
+    v = recovery_allowed(_status(started), ok, now=_NOW, last_checkpoint_step=600)
+    assert not v.allowed
+    assert "TAMAMLANMIŞ" in v.reason
+    # Yarıda kalmış koşu hâlâ diriltilebilir.
+    assert recovery_allowed(_status(started), ok, now=_NOW, last_checkpoint_step=575).allowed
+    assert recovery_allowed(_status(started), ok, now=_NOW, last_checkpoint_step=None).allowed
+
+
+def test_last_checkpoint_step(tmp_path) -> None:
+    from app.training.train_guard import last_checkpoint_step
+
+    assert last_checkpoint_step(tmp_path / "yok") is None
+    assert last_checkpoint_step(tmp_path) is None
+    for n in (1675, 1702, 1700):
+        (tmp_path / f"checkpoint-{n}").mkdir()
+    (tmp_path / "checkpoint-x").mkdir()
+    assert last_checkpoint_step(tmp_path) == 1702
+
+
+# --- Kademe-2 (2026-09-28, 30B öncesi): diriltme döngüsü kırıcıları -------------------
+def _ok_approvals(started: dt.datetime) -> list[dict]:
+    return [_approval(started - dt.timedelta(minutes=2))]
+
+
+def test_web_durdurulan_kosu_diriltilemez() -> None:
+    """B1: web stop durum dosyasına stop_requested_at yazar → nöbetçi diriltmemeli."""
+    started = _NOW - dt.timedelta(hours=2)
+    st = _status(started, stop_requested_at=_NOW.isoformat())
+    v = recovery_allowed(st, _ok_approvals(started), now=_NOW, last_checkpoint_step=100)
+    assert not v.allowed
+    assert "DURDURULDU" in v.reason
+
+
+def test_kirpilmis_hedefte_biten_kosu_tamamlanmis_sayilir() -> None:
+    """A1/B2: maskeleme 600→598 kırptı; checkpoint-598 + run_plan max_steps=598 → bitti."""
+    started = _NOW - dt.timedelta(hours=2)
+    ok = _ok_approvals(started)
+    kw = {"now": _NOW, "last_checkpoint_step": 598}
+    assert recovery_allowed(_status(started), ok, **kw).allowed  # eski davranış: yanlış
+    v = recovery_allowed(_status(started), ok, effective_max_steps=598, **kw)
+    assert not v.allowed and "TAMAMLANMIŞ" in v.reason
+    # Gerçekten yarıda kalan koşu hâlâ diriltilebilir.
+    assert recovery_allowed(
+        _status(started), ok, now=_NOW, last_checkpoint_step=575, effective_max_steps=598
+    ).allowed
+
+
+def test_tamamlanma_ve_hata_isaretleri_diriltmeyi_engeller() -> None:
+    started = _NOW - dt.timedelta(hours=2)
+    ok = _ok_approvals(started)
+    assert not recovery_allowed(_status(started), ok, now=_NOW, run_completed=True).allowed
+    fin = _status(started, finished_at=_NOW.isoformat())
+    assert not recovery_allowed(fin, ok, now=_NOW).allowed
+    fail = _status(started, failed_at=_NOW.isoformat(), error="LoRA hedefleri modelde YOK")
+    v = recovery_allowed(fail, ok, now=_NOW)
+    assert not v.allowed and "HATA" in v.reason
+
+
+def test_kurtarma_deneme_siniri() -> None:
+    """B3/N1: yükleme-sonrası düşen koşu en çok MAX_RECOVERY_ATTEMPTS kez diriltilir."""
+    from app.training.train_guard import MAX_RECOVERY_ATTEMPTS
+
+    started = _NOW - dt.timedelta(hours=2)
+    ok = _ok_approvals(started)
+    below = _status(started, recovery_attempts=MAX_RECOVERY_ATTEMPTS - 1)
+    assert recovery_allowed(below, ok, now=_NOW).allowed
+    at = _status(started, recovery_attempts=MAX_RECOVERY_ATTEMPTS)
+    v = recovery_allowed(at, ok, now=_NOW)
+    assert not v.allowed and "deneme sınırı" in v.reason
+
+
+def test_read_run_markers(tmp_path) -> None:
+    from app.training.train_guard import read_run_markers
+
+    assert read_run_markers(tmp_path) == {"max_steps": None, "completed": False}
+    (tmp_path / "run_plan.json").write_text('{"max_steps": 598}', encoding="utf-8")
+    assert read_run_markers(tmp_path)["max_steps"] == 598
+    (tmp_path / "run_complete.json").write_text("{}", encoding="utf-8")
+    assert read_run_markers(tmp_path)["completed"] is True
+    (tmp_path / "run_plan.json").write_text("bozuk", encoding="utf-8")
+    assert read_run_markers(tmp_path)["max_steps"] is None

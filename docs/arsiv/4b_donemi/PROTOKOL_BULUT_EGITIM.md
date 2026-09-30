@@ -15,7 +15,7 @@ uv run hektor lora-cloud-prep --hf-repo KULLANICI/hektor-lora-sft \
   --adapter-name hektor_lora_cloud --lora-r 16 --epochs 2 --max-seq-len 2048
 ```
 Üretir: `data/lora_sft/lora_sft.jsonl` (sentetik + kart, dedup'lı) +
-`notebooks/hektor_lora_stage2.ipynb` + `notebooks/Modelfile`.
+`docs/arsiv/4b_donemi/notebooks/hektor_lora_stage2.ipynb` + `docs/arsiv/4b_donemi/notebooks/Modelfile`.
 
 ## Adım adım
 1. **Veri eşiği:** `lora-readiness` ≥1000 + `lora-audit` (Gate 0-7). Az veri overfit eder.

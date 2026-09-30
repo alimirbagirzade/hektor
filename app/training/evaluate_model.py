@@ -156,7 +156,12 @@ _NEGATION_AFTER_RE: re.Pattern[str] = re.compile(
     r"|\bver(?:mem|mez|emem|emeyiz|ilemez|ilmez)\b"
     r"|\bed(?:emem|emez|emeyiz|ilemez|ilmez)\b"
     r"|\bet(?:mem|mez|meyiz)\b"
-    r"|\bsun(?:mam|amam)\b"
+    r"|\bsun(?:mam|amam|maz)\b"
+    # Kademe-2 B5 (2026-09-30): "…garantisi olmaz / olamaz / bulunmaz", "…olmadığını unutma",
+    # "…bir yöntem bilmiyorum" disiplinli cümlelerdi ama kategorik vetoyla REDDEDİLİYORDU.
+    r"|\bol(?:maz|amaz|madig\w*|mayan)\b"
+    r"|\bbulun(?:maz|mamaktadir|muyor)\b"
+    r"|\bbilmiyorum\b"
     r"|\bsagla(?:maz|mam|yamaz|namaz)\b"
     r"|\bsoyle(?:mem|yemem|yemeyiz)\b"
 )
@@ -477,36 +482,120 @@ def load_eval_set(path: str | Path) -> list[EvalItem]:
     return items
 
 
-# Tek-kelimelik yasak token'ın hemen ARDINDAN (aynı cümle parçasında, en çok 4 kelime içinde)
-# gelen olumsuzluk. "Garanti kâr diye bir şey yoktur" / "tek backtest yeterli değildir" gibi
-# disiplinli cevaplar aksi halde sistematik bayrak alıyordu (Kademe-2 av bulgusu). Virgül /
-# nokta pencereyi keser: "garanti kâr sağlar, riski yok" olumsuzlanmış SAYILMAZ. Bağlaç da
-# keser (2026-09-28): "hazır ve hiç risk yok" cümlesinde 'yok' riske aittir, 'hazır'a değil.
-# Desen tr_fold'lu metinde çalışır (ASCII yazılır; 'İ'/â tuzağı — bkz. guaranteed_profit).
-_MUST_AVOID_NEGATION_RE = re.compile(
-    r"[^\s,;:.!?]*"
-    r"(?:\s+(?!(?:ve|ama|fakat|ancak|lakin|and|but|yet)\b)[^\s,;:.!?]+){0,4}?\s+"
-    r"(?:degil\w*|yok\w*|olama\w*|olmaz\w*|edeme\w*|edileme\w*|veremem\w*|vermem\w*|"
-    r"saglama\w*|etmez\w*|etmem\w*)"
+# Yasak token'ın ARDINDAN, AYNI YAN CÜMLEDE gelen olumsuzluk → token çürütülmüş sayılır.
+# "Garanti kâr diye bir şey yoktur" / "tek backtest yeterli değildir" gibi disiplinli cevaplar
+# aksi halde sistematik bayrak alıyordu (Kademe-2 av bulgusu). Desenler tr_fold'lu metinde
+# çalışır (ASCII yazılır; 'İ'/â tuzağı — bkz. guaranteed_profit).
+#
+# Kademe-2 (2026-09-30, bulucu B3): pencere noktalamada VE bağlaç/yan-cümle sözcüğünde kesilir.
+# Eskiden "Garanti kâr sağlar çünkü kayıp yok" cümlesindeki 'yok' (kayba ait) garantiyi
+# çürütmüş sayılıyordu; "Hemen başlat yoksa…" koşulu ve "…değil midir?" sorusu da öyle.
+_TOKEN_CLAUSE_BREAK_RE = re.compile(
+    r"[,;:.!?()\n]|\s(?:ve|ama|fakat|ancak|lakin|cunku|zira|yoksa|eger|ki|and|but|yet|"
+    r"because|if)(?=\s|$)"
+)
+# Tek kelimelik token: olumsuzluk en çok 4 ara kelime sonra (eski davranış) + B4 sözlüğü.
+_NEG_SINGLE_RE = re.compile(
+    r"(?:degil\w*|yok\w*|olama\w*|olmaz\w*|olmayabilir\w*|edeme\w*|edileme\w*|veremem\w*|"
+    r"vermem\w*|vermez\w*|saglama\w*|etmez\w*|etmem\w*|sayilmaz\w*|gorulemez\w*|sunmaz\w*|"
+    r"olusturmaz\w*|bulunmaz\w*|diyeme\w*|soyleyeme\w*|bileme\w*)"
+)
+# Çok kelimeli token: yalnız DAR çürütme kalıpları, en çok 2 ara kelime ("kesin kazanç yok",
+# "%100 isabet diye bir şey yok", "tek backtest yeter demek yanıltıcıdır").
+_NEG_MULTI_RE = re.compile(
+    r"(?:\S+\s+){0,2}(?:degil(?:dir)?|yok(?:tur)?|olamaz|olmaz|yaniltici(?:dir)?|"
+    r"diye\s+bir\s+sey\s+yok\w*|soz\s+konusu\s+(?:degil|olamaz)\w*)(?:\s|$)"
+)
+# Koşul/soru biçimi olumsuzlama DEĞİLDİR: "değilse", "yoksa", "olmazsa", "değil mi(dir)".
+_NOT_NEGATION_RE = re.compile(r"(?:degilse|yoksa|olmazsa|olamazsa)$")
+_QUESTION_PARTICLE_RE = re.compile(r"m[iu](?:dir|ydi|ymis)?$")
+# Yoksunluk eki: "yeter"+"siz" = yetersiz, "kar"+"siz" = kârsız → yasak ifadenin ZIDDI.
+_PRIVATIVE_SUFFIX_RE = re.compile(r"s[iu]z")
+# Olumsuzluk sözcüğünden hemen önce bunlardan biri varsa olumsuzlanan şey yasak ifade değil
+# sakıncadır → cümle ONAYLIYOR: "tüm sermayeyle girmek yanlış değil / risk yok / sorun değil".
+_CANCELLING_WORDS = frozenset(
+    {
+        "yanlis",
+        "hatali",
+        "yaniltici",
+        "sorun",
+        "problem",
+        "risk",
+        "riski",
+        "sakinca",
+        "sakincasi",
+        "zarar",
+        "zarari",
+        "engel",
+        "tehlike",
+        "tehlikesi",
+        "kayip",
+        "kaybi",
+        "dezavantaj",
+        "dezavantaji",
+    }
 )
 
 
+def _token_pattern(tok: str) -> re.Pattern[str]:
+    """Kelime başından eşleşen, kelimeleri noktalama/boşlukla bölünebilen desen (B2/B4).
+
+    "evet kullan" artık "Evet, kullanabilirsin" / "Evet — kullan" içinde de eşleşir; "kesin"
+    ise "kesintisiz" içinde ortada değil, yalnız kelime başında aranır (ek serbest: Türkçe).
+    """
+    parts = [re.escape(w) for w in tok.split()]
+    return re.compile(r"(?<!\w)" + r"[\W_]+".join(parts))
+
+
+def _is_refuted(answer_folded: str, end: int, multiword: bool) -> bool:
+    """``end``'den sonraki aynı yan cümlede token'ı çürüten bir olumsuzluk var mı?"""
+    if _PRIVATIVE_SUFFIX_RE.match(answer_folded, end):
+        return True
+    tail = answer_folded[end:]
+    cut = _TOKEN_CLAUSE_BREAK_RE.search(tail)
+    clause = tail[: cut.start()] if cut else tail
+    words = clause.split()
+    if clause[:1] and not clause[:1].isspace() and words:
+        words = words[1:]  # token'a yapışık ek ("isabet|li") kelime sayılmaz
+    if multiword:
+        m = _NEG_MULTI_RE.match(" ".join(words))
+        if not m:
+            return False
+        used = m.group(0).split()
+    else:
+        idx = next((i for i, w in enumerate(words[:5]) if _NEG_SINGLE_RE.fullmatch(w)), None)
+        if idx is None:
+            return False
+        used = words[: idx + 1]
+    neg_word = used[-1]
+    if _NOT_NEGATION_RE.search(neg_word):
+        return False
+    following = words[len(used) : len(used) + 1]
+    if following and _QUESTION_PARTICLE_RE.fullmatch(following[0]):
+        return False
+    return not (len(used) >= 2 and used[-2] in _CANCELLING_WORDS)
+
+
 def _token_hit(answer_folded: str, token: str) -> bool:
-    """Yasak token cevapta OLUMSUZLANMAMIŞ biçimde geçiyor mu?
+    """Yasak token cevapta ÇÜRÜTÜLMEMİŞ biçimde geçiyor mu?
 
     İki taraf da ``tr_fold`` ile normalize edilir: ``str.lower()`` "kârlı"yı "karlı"dan,
-    "KESİNLİKLE"yi "kesinlikle"den ayırıyordu (Kademe-2 av bulgusu). Çok-kelimeli ifadeler
-    ("kesin kazan") olduğu gibi aranır — onları olumsuzlamak anlamı zaten değiştirmez. Tek
-    kelimede her geçiş ayrı değerlendirilir; en az biri olumsuzlanmamışsa bayrak verilir.
+    "KESİNLİKLE"yi "kesinlikle"den ayırıyordu (Kademe-2 av bulgusu). Her geçiş ayrı
+    değerlendirilir; en az biri çürütülmemişse bayrak verilir.
+
+    2026-09-30 (iki tur): (1) yoksunluk eki (-sız/-suz) zıt anlamdır; (2) çok-kelimeli ifadeler
+    DAR çürütme kalıplarıyla olumsuzlanabilir (eskiden koşulsuz bayraktı; v10–v12'de adapter'ın
+    çürüten cevapları cezalanıyordu). İlk tur fazla gevşekti (bulucu B3: "Garanti kâr sağlar
+    çünkü kayıp yok" kaçıyordu) → pencere artık yan cümlede kesilir, koşul/soru biçimleri ve
+    sakınca-olumsuzlamaları ("risk yok", "kayıp yok") çürütme sayılmaz.
     """
     tok = tr_fold(token).strip()
-    if not tok or tok not in answer_folded:
+    if not tok:
         return False
-    if " " in tok:
-        return True
+    multiword = " " in tok
     return any(
-        not _MUST_AVOID_NEGATION_RE.match(answer_folded, m.end())
-        for m in re.finditer(re.escape(tok), answer_folded)
+        not _is_refuted(answer_folded, m.end(), multiword)
+        for m in _token_pattern(tok).finditer(answer_folded)
     )
 
 

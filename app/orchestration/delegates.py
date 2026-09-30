@@ -19,6 +19,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.config import DEFAULT_TRAIN_PROFILE
 from app.orchestration.pipeline import StageStatus
 
 if TYPE_CHECKING:
@@ -202,7 +203,7 @@ def dry_run(ctx: RunContext) -> StageResult:
 
     settings = get_settings()
     model = ctx.run.get("model", "") or getattr(settings, "peft_base_model", "")
-    profile = ctx.run.get("profile", "") or "discipline_safe_local"
+    profile = ctx.run.get("profile", "") or DEFAULT_TRAIN_PROFILE
     adapter = ctx.run.get("adapter_name", "") or "hektor_lora"
     iters = int(ctx.params.get("iters", 0) or 0)
     n, _ = _count_sft_lines()

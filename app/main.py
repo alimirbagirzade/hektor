@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from app.config import configure_logging, get_settings
+from app.config import DEFAULT_TRAIN_PROFILE, configure_logging, get_settings
 
 app = typer.Typer(
     help="Hektor Trader AI — local-first trading research system.",
@@ -439,6 +439,7 @@ def _register_manual_adapter(
     lora_dropout: float = 0.05,
     learning_rate: float = 2e-4,
     target_modules: list[str] | None = None,
+    train_examples: int | None = None,
     notes: str,
 ) -> str:
     """Manuel `train --run` sonrası adapter'ı CANDIDATE olarak kayıt defterine ekle.
@@ -456,7 +457,11 @@ def _register_manual_adapter(
         lora_dropout=lora_dropout,
         target_modules=target_modules or [],
         learning_rate=learning_rate,
-        train_examples=_count_jsonl_examples(train_jsonl),
+        # FİİLİ eğitilen örnek (max_examples kırpması + maskeleme sonrası) verildiyse o;
+        # tam train.jsonl sayısı kırpılmış koşuyu olduğundan büyük gösterirdi (Kademe-2 C5).
+        train_examples=(
+            train_examples if train_examples is not None else _count_jsonl_examples(train_jsonl)
+        ),
         valid_examples=_count_jsonl_examples(valid_jsonl),
         status=AdapterStatus.CANDIDATE,
         notes=notes,
@@ -524,7 +529,10 @@ def train_load_doctor_cmd(
 def train(
     base_model: str = typer.Option(None),
     adapter_name: str = typer.Option("hektor_lora_v1"),
-    iterations: int = typer.Option(300, help="Eğitim iterasyon sayısı"),
+    iterations: int = typer.Option(
+        0,
+        help="Örnek-adımı sayısı; 0 = plandan (örnek × profil epoch). Planı aşan değer reddedilir.",
+    ),
     batch_size: int = typer.Option(2, help="Batch büyüklüğü (8GB için 2 önerilir)"),
     num_layers: int = typer.Option(8, help="LoRA adapter katman sayısı (sadece MLX)"),
     run: bool = typer.Option(False, help="Eğitimi gerçekten başlat"),
@@ -533,7 +541,7 @@ def train(
         None,
         help="LoRA profili (configs/lora/lora_profiles.yaml; yalnız PEFT): "
         "standard_reasoning|high_capacity_reasoning|discipline_safe|"
-        "discipline_safe_local|small_smoke_test",
+        "discipline_safe_local|moe30b_attn_local|small_smoke_test",
     ),
     max_examples: int = typer.Option(
         0,
@@ -565,11 +573,10 @@ def train(
     settings = get_settings()
 
     resolved = detect_lora_backend() if backend == "auto" else backend
-    # Denetimli (web buton/auto_pipeline) koşular `launch()` üzerinden BU AYNI komutu
-    # subprocess olarak çağırır ve eğitim bitince auto_pipeline KENDİ kayıt defteri
-    # girişini (gerçek eval sonrası SMOKE_PASSED/EVAL_PASSED) açar — burada da CANDIDATE
-    # eklenirse aynı koşu için çift kayıt oluşur. Yalnız SAF manuel çağrı (env yok)
-    # kendi CANDIDATE kaydını açar.
+    # Denetimli (web buton/nöbetçi/auto_pipeline) koşular `launch()`/start-train üzerinden BU
+    # AYNI komutu subprocess olarak çağırır. Kayıt: yalnız auto_pipeline KENDİ girişini açar
+    # (launch skip_register=True → HEKTOR_TRAIN_SKIP_REGISTER=1); web ve nöbetçi koşuları
+    # burada CANDIDATE olarak kaydedilir (Kademe-2 C3: eskiden hiç kaydedilmiyordu).
     supervised = False
 
     if run:
@@ -696,6 +703,27 @@ def train(
             )
             raise typer.Exit(6)
 
+        # Kademe-2 A1 (2026-09-30): plandan fazla adım = aynı alt-küme üzerinde sessizce
+        # çok-epoch (ör. `--iterations 1682` + profilin max_examples 600 → ~2.8 epoch). Web/
+        # launch bunu zaten reddediyordu (B5); CLI yolu yalnız uyarıyordu. Onaydan ÖNCE.
+        from app.training.detached_launch import _adapter_dir_blocker, plan_iterations
+
+        _planned, _n_eff, _epochs = plan_iterations(n_train, max_examples, profile)
+        if iterations > _planned > 0:
+            console.print(
+                f"[red]İstenen {iterations} adım planı ({_planned} = {_n_eff} örnek × {_epochs} "
+                "epoch) aşıyor → aynı örnekler üzerinde fazladan epoch (ezber riski).[/red] "
+                "--iterations 0 ver (plandan) ya da daha çok veri için --max-examples büyüt."
+            )
+            raise typer.Exit(1)
+        # Kademe-2 A7: sıfırdan koşu dolu klasöre yazmasın (eski checkpoint numaraları kurtarma/
+        # resume kararını bozar; birikimle yeni numaralar eskilerden KÜÇÜK kalır).
+        _resume = _os.environ.get("HEKTOR_TRAIN_RESUME", "").strip().lower() in {"1", "true"}
+        _blocker = None if _resume else _adapter_dir_blocker(settings.adapters_dir / adapter_name)
+        if _blocker:
+            console.print(f"[red]{_blocker}[/red]")
+            raise typer.Exit(1)
+
         # auto_pipeline/launch zaten kendi onayını aldıysa (supervised) iç kapı atlanır
         # — çift onay olmasın; ama STOP_ALL her zaman geçerli. Onay, yukarıdaki TÜM ucuz
         # ön-kontroller geçtikten SONRA tüketilir.
@@ -767,7 +795,8 @@ def train(
             train_jsonl=settings.jsonl_dir / "train.jsonl",
             valid_jsonl=settings.jsonl_dir / "valid.jsonl",
             adapter_output_path=settings.adapters_dir / adapter_name,
-            iterations=iterations,
+            # MLX 0 adımı kabul etmez: 0 = plandan → eski varsayılan (300).
+            iterations=iterations or 300,
             batch_size=batch_size,
             num_layers=num_layers,
         )
@@ -802,7 +831,6 @@ def train(
             )
     else:
         from app.training.peft_lora_train import (
-            TARGET_MODULES,
             PeftTrainConfig,
             dry_run,
             load_lora_profile,
@@ -813,7 +841,7 @@ def train(
         if profile:
             try:
                 prof = load_lora_profile(profile)
-            except (KeyError, FileNotFoundError) as exc:
+            except (KeyError, FileNotFoundError, ValueError) as exc:
                 console.print(f"[red]Profil hatası: {exc}[/red]")
                 raise typer.Exit(1) from exc
             # epochs PeftTrainConfig alanı değil — ayıkla (epoch ≠ iterasyon). max_examples
@@ -834,7 +862,13 @@ def train(
             **prof,
         )
         if run:
+            import datetime as _dt_run
+            import os as _os_run
+
+            from app.training.detached_launch import mark_detached_status
+
             result = peft_train(cfg)  # type: ignore[arg-type]
+            _now_iso = _dt_run.datetime.now(_dt_run.UTC).isoformat()
             if not result.get("ok"):
                 console.print(f"[red]Hata: {result.get('error')}[/red]")
                 if "Eksik paketler" in str(result.get("error", "")):
@@ -842,7 +876,18 @@ def train(
                         "[yellow]Kur: uv pip install torch transformers "
                         "peft datasets accelerate[/yellow]"
                     )
-            elif not supervised:
+                # Kademe-2 A2/B3: train() ok=False yalnız DETERMİNİSTİK hatalarda döner (RAM,
+                # hedef, sıfır adım, boş veri) → durum kaydına işle ki nöbetçi diriltmesin;
+                # ve 0 ile ÇIKMA (eskiden hata = exit 0 → "başladı" sanılıyordu).
+                mark_detached_status(
+                    adapter_name, failed_at=_now_iso, error=str(result.get("error", ""))[:500]
+                )
+                raise typer.Exit(7)
+            # Başarı: durum kaydı "bitti" → nöbetçi bunu çöküş sanıp diriltmez (A1/B2).
+            mark_detached_status(adapter_name, finished_at=_now_iso)
+            # Kademe-2 C3: denetimli (web/nöbetçi) koşular da kayıt defterine girer; yalnız
+            # kendi kaydını açan auto_pipeline (launch skip_register=True) hariç.
+            if _os_run.environ.get("HEKTOR_TRAIN_SKIP_REGISTER") != "1":
                 _register_manual_adapter(
                     adapter_name=adapter_name,
                     base_model=cfg.base_model,
@@ -852,10 +897,11 @@ def train(
                     lora_alpha=cfg.lora_alpha,  # type: ignore[attr-defined]
                     lora_dropout=cfg.lora_dropout,  # type: ignore[attr-defined]
                     learning_rate=cfg.learning_rate,
-                    target_modules=list(TARGET_MODULES),
+                    target_modules=list(cfg.target_modules),  # type: ignore[attr-defined]
+                    train_examples=result.get("train_examples"),
                     notes=(
-                        f"manuel train --run --backend peft "
-                        f"(iterations={iterations}, profile={profile or '-'}) "
+                        f"{'denetimli' if supervised else 'manuel'} train --run --backend peft "
+                        f"(max_steps={result.get('max_steps')}, profile={profile or '-'}) "
                         f"mix[{weight_decision.decision_id}]={weight_decision.profile_name}"
                     ),
                 )
@@ -2608,6 +2654,78 @@ def lora_dataset(
     console.print(f"  → [bold]{jsonl_dir}[/bold]")
 
 
+@app.command("synth-enrich")
+def synth_enrich(
+    below: int = typer.Option(200, "--below", help="Bu uzunluğun altındaki cevaplar ele alınır"),
+    limit: int = typer.Option(0, "--limit", help="Bu çağrıda en çok N satır işle (0=tümü)"),
+    seed: int = typer.Option(0, "--seed", help="Determinizm tabanı (satır başına seed+i)"),
+    apply: bool = typer.Option(
+        False, "--apply", help="Tamamlanan çalışmayı synthetic_qa.jsonl'e uygula (yedekli)"
+    ),
+    model: str = typer.Option(
+        "",
+        "--model",
+        help="Üretici Ollama modeli (boş=.env HEKTOR_LLM_MODEL). BASE model olmalı.",
+    ),
+    allow_adapter_model: bool = typer.Option(
+        False,
+        "--allow-adapter-model",
+        help="hektor-* (kendi eğittiğimiz adapter) ile üretime izin ver — önerilmez",
+    ),
+) -> None:
+    """Kısa sentetik QA cevaplarını aynı bağlamdan açıklamalı hâle getir (Ollama).
+
+    Soru ve bağlam korunur; yeni cevap üreticinin tüm kapılarından (grounding, uydurma
+    sayı, düşük-değer, tekrar, CJK) geçmezse ORİJİNAL satır kalır. Kesilirse kaldığı satırdan
+    sürer. `--apply` önce `storage/`'a yedek alır. Eğitim BAŞLATMAZ (Kural 8); ardından
+    `scripts/assemble_sft.py` ile yeniden birleştir.
+    """
+    from app.brain.local_llm import LocalLLM
+    from app.brain.synthetic_enrich import apply_enrichment, is_adapter_model, run_enrichment
+
+    settings = get_settings()
+    src = settings.root / "data" / "lora_sft" / "synthetic_qa.jsonl"
+    if not src.exists():
+        console.print(f"[red]{src} yok.[/red]")
+        raise typer.Exit(1)
+    try:
+        if apply:
+            res = apply_enrichment(src, settings.root / "storage")
+            console.print(
+                f"[green]✓[/green] {res['applied']} satır uygulandı · model {res['model']} · "
+                f"durumlar {res['counts']} · yedek: {res['backup']}"
+            )
+            return
+        llm = LocalLLM(model=model or None)
+        if is_adapter_model(llm.model) and not allow_adapter_model:
+            console.print(
+                f"[red]Üretici model {llm.model!r} bir Hektor adapter'ı.[/red] Eğitim verisini "
+                "önceki adapter'a ürettirmek hatalarını bir sonrakine taşır. Base model ver: "
+                "--model qwen3:30b-a3b-instruct-2507-q4_K_M"
+            )
+            raise typer.Exit(1)
+        if not llm.available():
+            console.print("[red]LLM kullanılamıyor (Ollama).[/red]")
+            raise typer.Exit(1)
+        console.print(f"[cyan]Üretici model:[/cyan] {llm.model}")
+
+        def _progress(i: int, n: int, status: str) -> None:
+            if i % 25 == 0 or i == n:
+                console.print(f"[dim]{i}/{n} · son: {status}[/dim]")
+
+        res = run_enrichment(
+            src, llm, seed=seed, below_chars=below, limit=limit, progress=_progress
+        )
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[cyan]Zenginleştirme:[/cyan] {res['done']}/{res['total']} satır · {res['counts']}"
+    )
+    if res["done"] >= res["total"]:
+        console.print("Bitti → incele, sonra: [bold]uv run hektor synth-enrich --apply[/bold]")
+
+
 @app.command("synth-qa")
 def synth_qa(
     per_chunk: int = typer.Option(5, "--per-chunk", help="Chunk başına üretilecek QA sayısı"),
@@ -2629,7 +2747,7 @@ def synth_qa(
 
     15-50 şablon örneğinden ~1000+ çeşitli örneğe geçiş motoru (büyüme motoru).
     Eğitim BAŞLATMAZ (CLAUDE.md kural 8); yalnız veri üretir. Ollama gerektirir.
-    Detay: docs/RAG_EGITIM_YENIDEN_TASARIM.md (Faz A6).
+    Detay: docs/arsiv/4b_donemi/RAG_EGITIM_YENIDEN_TASARIM.md (Faz A6).
     """
     import os
 
@@ -2883,7 +3001,7 @@ def lora_readiness(
 ) -> None:
     """Stage 1→Stage 2 eşik durumu: sentetik + kart örnekleri ≥ eşik mi?
 
-    Aşamalı eğitim kapısı (bkz. docs/PROTOKOL_ASAMALI_EGITIM.md). Eğitim BAŞLATMAZ.
+    Aşamalı eğitim kapısı (bkz. docs/arsiv/4b_donemi/PROTOKOL_ASAMALI_EGITIM.md). Eğitim BAŞLATMAZ.
     """
     from app.lora.dataset_builder import build_dataset
     from app.memory.sqlite_store import SqliteStore
@@ -2963,7 +3081,7 @@ def lora_cloud_prep(
     Eğitim BAŞLATMAZ (CLAUDE.md kural 8). Üretir: birleşik JSONL (HF'e yüklenecek),
     doğrulanmış unsloth notebook'u (Kaggle/Colab), Ollama Modelfile + adım talimatları.
     Birleşik sete ~%25 adversarial disiplin örneği karıştırılır (v5 regresyon fix'i #4 Fix B;
-    `--no-discipline` ile kapatılır). Detay: docs/PROTOKOL_BULUT_EGITIM.md.
+    `--no-discipline` ile kapatılır). Detay: docs/arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md.
     """
     from app.training.cloud_notebook import build_stage2_notebook, write_modelfile
     from app.training.sft_assembly import assemble_sft_lines
@@ -3069,7 +3187,7 @@ def lora_cloud_prep(
     console.print(f"[green]✓[/green] Notebook: [bold]{nb_path}[/bold]")
     console.print(f"[green]✓[/green] Modelfile: [bold]{mf_path}[/bold]")
     console.print(
-        "\n[bold]Sıradaki adımlar (docs/PROTOKOL_BULUT_EGITIM.md):[/bold]\n"
+        "\n[bold]Sıradaki adımlar (docs/arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md):[/bold]\n"
         f"  1) HF private dataset: [bold]huggingface-cli upload {hf_repo} "
         f"{combined} lora_sft.jsonl --repo-type dataset[/bold]\n"
         "  2) HF READ token → Kaggle Secrets / Colab userdata: ad=HF_TOKEN\n"
@@ -3147,7 +3265,7 @@ def reindex_contextual(
     Her chunk'a "başlık / bölüm:" ön-eki eklenerek yeniden embed edilir (retrieval
     doğruluğu ↑); Chroma document'ı (orijinal metin) + metadata değişmez. Bittiğinde
     .env'e HEKTOR_RAG_CONTEXTUAL_EMBED=true ekle ki yeni makaleler de eşleşsin.
-    Detay: docs/RAG_EGITIM_YENIDEN_TASARIM.md (P2).
+    Detay: docs/arsiv/4b_donemi/RAG_EGITIM_YENIDEN_TASARIM.md (P2).
     """
     from app.memory.chroma_store import ChromaStore
     from app.memory.embedding_service import EmbeddingService
@@ -3997,7 +4115,7 @@ def _render_orchestration(snap: dict) -> None:
 @app.command("orchestrate-start")
 def orchestrate_start_cmd(
     model: str = typer.Option("", "--model", help="LLM/base model (boşsa ayardan)."),
-    profile: str = typer.Option("discipline_safe_local", "--profile", help="LoRA profili."),
+    profile: str = typer.Option(DEFAULT_TRAIN_PROFILE, "--profile", help="LoRA profili."),
     adapter: str = typer.Option("hektor_lora", "--adapter", help="Adapter adı."),
     iters: int = typer.Option(300, "--iters", help="Eğitim adım sayısı (öneri/önizleme)."),
     hunt_ack: bool = typer.Option(
@@ -4715,7 +4833,13 @@ def train_recovery_check(
 
     from app.memory.sqlite_store import SqliteStore
     from app.training.detached_launch import read_detached_training_status
-    from app.training.train_guard import SOURCE_DATA_REL, recovery_allowed, sha256_file
+    from app.training.train_guard import (
+        SOURCE_DATA_REL,
+        last_checkpoint_step,
+        read_run_markers,
+        recovery_allowed,
+        sha256_file,
+    )
 
     settings = get_settings()
     status = read_detached_training_status(settings.root)
@@ -4729,6 +4853,12 @@ def train_recovery_check(
     if train_jsonl.exists():
         data_mtime = _dt.datetime.fromtimestamp(train_jsonl.stat().st_mtime, tz=_dt.UTC)
 
+    adapter_dir = settings.adapters_dir / str(status.get("adapter") or "")
+    markers = (
+        read_run_markers(adapter_dir)
+        if status.get("adapter")
+        else {"max_steps": None, "completed": False}
+    )
     # Kurtarma `lora_sft.jsonl`'i YENİDEN böler ve train.jsonl'i yeniden yazar → mtime
     # tek başına yanıltır; durum dosyası başlangıç hash'ini taşıyorsa içerik kıyaslanır.
     verdict = recovery_allowed(
@@ -4737,6 +4867,9 @@ def train_recovery_check(
         now=_dt.datetime.now(_dt.UTC),
         data_mtime=data_mtime,
         data_sha256=sha256_file(settings.root / SOURCE_DATA_REL),
+        last_checkpoint_step=last_checkpoint_step(adapter_dir) if status.get("adapter") else None,
+        effective_max_steps=markers["max_steps"],
+        run_completed=bool(markers["completed"]),
     )
     if as_json:
         console.print_json(json.dumps(verdict.to_dict(), ensure_ascii=False))

@@ -7,7 +7,10 @@
 > ⚠️ **Bu bir araştırma aracıdır — canlı bot DEĞİLDİR ve yatırım tavsiyesi VERMEZ.**
 > Tüm çıktılar test edilmesi gereken _hipotezlerdir_. Gerçek parayla kullanımın sorumluluğu tamamen size aittir.
 
-> 📘 **Yerel LoRA eğitimi (donanım, model, ölçülmüş süreler):** [docs/EGITIM_PROTOKOLU.md](docs/EGITIM_PROTOKOLU.md)
+> 📘 **Yerel LoRA eğitimi:** varsayılan Qwen3-30B-A3B-Instruct-2507 + `moe30b_attn_local`
+> (`configs/lora/lora_profiles.yaml`, `scripts/start-train.ps1`, CPU bf16 ~61 GB RAM) ·
+> ölçüm/iyileştirme protokolü: [docs/PROTOKOL_LORA_RAG_IYILESTIRME.md](docs/PROTOKOL_LORA_RAG_IYILESTIRME.md)
+> · güncel durum: [HANDOFF.md](HANDOFF.md). 4B dönemi belgeleri: `docs/arsiv/4b_donemi/`.
 
 ---
 
@@ -34,10 +37,10 @@ Kurulum açılır ve **9 yerel model seçeneği** sunar (hepsi internetsiz ve ü
 API anahtarı istenmez):
 
 ```
-  [1] qwen3:4b-instruct-2507  ~2.5 GB   8 GB+ RAM  Hızlı ← önerilen (düşünmesiz)
+  [1] qwen3:30b-a3b-instruct-2507 ~19 GB  32 GB+ RAM  ← önerilen (düşünmesiz, MoE)
   [2] qwen3:8b        ~5 GB     16 GB+ RAM   Dengeli
   [3] qwen3:14b       ~9 GB     32 GB+ RAM   Güçlü
-  [4] qwen3:30b      ~20 GB     32 GB+ RAM   Çok güçlü
+  [4] qwen3:4b-instruct-2507 ~2.5 GB  8 GB+ RAM  Düşük RAM seçeneği
   [5] llama3.1:8b     ~5 GB     16 GB+ RAM
   [6] llama3.1:70b   ~40 GB     80 GB+ RAM   Çok güçlü
   [7] mistral:7b      ~4 GB      8 GB+ RAM   Hızlı
@@ -271,7 +274,8 @@ Soru → RAG ilgili makale parçalarını getirir → (base model + LoRA) cevapl
 
 > Yani: **RAG ne bilineceğini, LoRA nasıl söyleneceğini** belirler. Bilgi için eğitim
 > gerekmez (RAG halleder); LoRA sadece "trader gibi disiplinli" düşünmeyi keskinleştirir.
-> Uçtan uca akış + eğitim reçetesi: **`docs/PROTOKOL_RAG_LORA_ZINCIR.md`**.
+> Uçtan uca akış + ölçüm: **`docs/PROTOKOL_LORA_RAG_IYILESTIRME.md`** (ilk zincir tasarımı:
+> `docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md`).
 
 ---
 
@@ -283,7 +287,7 @@ Soru → RAG ilgili makale parçalarını getirir → (base model + LoRA) cevapl
 gerçek kanıt aşağıdaki sınavdır.
 
 > ℹ️ **Bu merdiven nereden geliyor?** Aşağıdaki basamaklar, `CLAUDE.md` kuralları ile
-> [`docs/PROTOKOL_RAG_LORA_ZINCIR.md`](docs/PROTOKOL_RAG_LORA_ZINCIR.md) ilkelerinin
+> [`docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md`](docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md) ilkelerinin
 > **gündelik bir okuması**dır; protokolün resmî numaralandırması değildir. Protokolün
 > kendi terimleri şunlardır: **"%100 ANLA / anlama skoru"** (`hektor rag-mastery`),
 > **"RAFT veri reçetesi"** ve **"dürüst gate (Kural 2)"**. Aşağıdaki "Taban · Dürüstlük"
@@ -312,7 +316,7 @@ bir **"aday"** olur. Geçemezse halüsinasyondur ve dürüstçe öyle raporlanı
 taşıyacaksa o da aynı kapıdan geçmek zorundadır; tek başına "matematik tutarlı" demek
 "çalışıyor" anlamına gelmez.
 
-Detay: [`docs/PROTOKOL_RAG_LORA_ZINCIR.md`](docs/PROTOKOL_RAG_LORA_ZINCIR.md)
+Detay: [`docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md`](docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md)
 
 ---
 
@@ -439,8 +443,10 @@ Cevap + kaynak (hangi makalenin kaçıncı parçası)
 > "Kütüphaneciye trading kitapları okutuyorsun. Artık sormadan kendisi biliyor."
 
 **Ne zaman çalışır:** Sadece açık `--run` ile (varsayılan kuru-çalışma — güvenli).
-CPU'da çok yavaştır → **bulut-GPU önerilir** (Kaggle T4×2, ~15-20 dk); bkz.
-`notebooks/KAGGLE_EGITIM_ADIM_ADIM.md`. RAG, backtest ve web her makinede tam çalışır.
+Varsayılan: yerel CPU, Qwen3-30B-A3B MoE + `moe30b_attn_local` (bf16 ~61 GB RAM; v13: 210
+optimizer adımı ≈ 9,5 sa). Düşük RAM'li makinede `Qwen/Qwen3-4B-Instruct-2507` +
+`discipline_safe_local` ya da isteğe bağlı bulut-GPU yolu (`hektor lora-cloud-prep`; 4B dönemi
+kılavuzu `docs/arsiv/4b_donemi/`). RAG, backtest ve web her makinede tam çalışır.
 
 ```
 Onaylı bilgi kartları (06 ONAY sekmesi)
@@ -911,7 +917,8 @@ cp .env.example .env
 # .env → HEKTOR_LLM_BACKEND=ollama     (varsayılan; API anahtarı gerekmez)
 
 # 4. Ollama modelini indir
-ollama pull qwen3:4b-instruct-2507-q4_K_M  # 8 GB RAM için önerilen (düşünmesiz)
+ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M  # varsayılan (32 GB+ RAM, düşünmesiz)
+# düşük RAM (8 GB): ollama pull qwen3:4b-instruct-2507-q4_K_M
 ollama pull nomic-embed-text # embedding modeli
 
 # 5. Web arayüzünü başlat
@@ -922,9 +929,9 @@ uv run hektor-web
 
 | RAM | Model | Hız |
 |:---:|-------|-----|
-| 8 GB | `qwen3:4b-instruct-2507-q4_K_M` | Hızlı (düşünmesiz; çıplak `qwen3:4b` = Thinking-2507, yavaş) |
+| 32 GB+ | `qwen3:30b-a3b-instruct-2507-q4_K_M` | **Varsayılan** (düşünmesiz MoE; çıplak `qwen3:30b` = Thinking-2507, yavaş) |
 | 16 GB | `qwen3:8b` | Dengeli |
-| 32 GB | `qwen3:14b` | Güçlü |
+| 8 GB | `qwen3:4b-instruct-2507-q4_K_M` | Düşük RAM seçeneği (çıplak `qwen3:4b` = Thinking-2507) |
 
 > **Ollama yoksa:** Embedding için deterministik hash yedek devreye girer (`HEKTOR_ALLOW_FAKE_EMBEDDINGS=true`); LLM cevabı üretilmez, yalnız kaynak parçaları gösterilir.
 > Bulut sağlayıcı (OpenAI/Anthropic/Google) desteği kodda **opsiyonel** kalır ve bu projede kullanılmaz (bkz. `.env.example`).
@@ -995,20 +1002,22 @@ uv run hektor pine [strateji-adı]     # StrategyIR → TradingView Pine Script 
 
 ### Eğitim
 
-**Aşamalı eğitim** (CPU sürekli-eğitimi YOK — bkz. `docs/PROTOKOL_ASAMALI_EGITIM.md`):
+**Eğitim akışı** (sürekli/otomatik eğitim YOK — her koşu insan onaylı, Kural 8):
 ```bash
-# Stage 1 — lokal veri üret (büyüme motoru)
+# 1 — lokal veri üret (büyüme motoru)
 uv run hektor synth-qa                # chunk'lardan sentetik grounded QA üret (Ollama)
 uv run hektor synth-qa-bulk           # TÜM korpustan checkpoint'li bulk üretim (1000'e hızlı)
+uv run hektor synth-enrich            # kısa sentetik cevapları aynı bağlamdan açıklamalı yap (devam eder; --apply)
 uv run hektor discipline-dataset      # adversarial disiplin örnekleri üret/önizle (LLM-free)
 uv run hektor lora-curate             # orphan + çok-versiyon kartları eğitimden çıkar (--run uygular)
 uv run hektor pretrain-gate           # eğitim-ÖNCESİ kalite kapısı: GO/NO-GO (LLM-free, #3)
 uv run hektor lora-readiness          # Stage 2 eşik durumu (≥1000 örnek mi?)
 bash scripts/continuous-learning.sh 72  # sürekli üretim döngüsü (eğitim DEĞİL)
 
-# Stage 2 — bulut-GPU LoRA (eşik dolunca, kullanıcı onayıyla)
-uv run hektor lora-cloud-prep         # veri paketle (+%25 disiplin) + notebook + Modelfile
-#   → notebook'u Kaggle/Colab'da çalıştır → GGUF indir → ollama create hektor
+# 2 — yerel LoRA (varsayılan 30B-A3B + moe30b_attn_local; onay + kapılar betikte zorunlu)
+.\scripts\start-train.ps1             # DETACHED; bitince lora-eval → ADAY
+powershell -File scripts\adapter_to_ollama.ps1 -Adapter <ad> -OllamaName <ad> -TemplateFrom qwen3:30b-a3b-instruct-2507-q4_K_M
+# İsteğe bağlı (düşük RAM / 4B): uv run hektor lora-cloud-prep → Kaggle/Colab notebook
 
 # Yardımcı / klasik
 uv run hektor dataset                 # bilgi kartlarından eğitim JSONL üret
@@ -1016,7 +1025,7 @@ uv run hektor lora-dataset            # LoRA SFT JSONL + train/valid split üret
 uv run hektor rag-mastery             # RAG "ne kadar öğrendi" ustalık panosu (LLM-free)
 uv run hektor train-load-doctor       # eğitim-ÖNCESİ rakip LLM/GPU yükü taraması: GO/WARN/NO-GO (salt-okuma; train-doctor'la KARIŞTIRILMASIN)
 uv run hektor train                   # LoRA — SADECE ÖNIZLEME (çalıştırmaz)
-uv run hektor train --run             # LoRA — yerel (smoke; ağır 4B için bulut tercih et; train-load-doctor otomatik çalışır; karışım ağırlığı sorulur + eval sızıntı kapısı)
+uv run hektor train --run             # LoRA — yerel (varsayılan 30B-A3B + moe30b_attn_local, bf16 ~61 GB RAM; uzun koşu için scripts/start-train.ps1; train-load-doctor otomatik çalışır; karışım ağırlığı sorulur + eval sızıntı kapısı)
 uv run hektor evaluate <eval.jsonl>   # modeli failure-mode eval setiyle test et
 uv run hektor local-training-audit    # eğitim-HAZIRLIK denetimi — SALT RAPOR (eğitim başlatmaz, 5A)
 uv run hektor local-training-request  # onay-kapılı eğitim İSTEĞİ — onay oluşturabilir, eğitim/onay-tüketimi YOK (5B)
@@ -1178,8 +1187,8 @@ uv run hektor train --run               # macOS Apple Silicon gerekli
 | Sayfa eski veya boş | **Cmd+Shift+R** (Mac) / **Ctrl+Shift+R** (Win) — önbellek temizle |
 | "Bu siteye ulaşılamıyor" | Sunucu kapalı → `uv run hektor-web` çalıştır |
 | 🔴 "Ollama yok" uyarısı | `brew services start ollama` → tarayıcıyı yenile |
-| Kart üretimi çok uzun | `.env` → `HEKTOR_LLM_MODEL=qwen3:4b-instruct-2507-q4_K_M` (düşünmesiz, çok daha hızlı) |
-| 🔴 "LLM yok" uyarısı | `ollama serve` çalıştır, sonra `ollama pull qwen3:4b-instruct-2507-q4_K_M` |
+| Kart üretimi çok uzun | Modelin `-instruct-2507` etiketi olduğundan emin ol (çıplak `qwen3:30b`/`qwen3:4b` = düşünen, yavaş); düşük RAM'de `qwen3:4b-instruct-2507-q4_K_M` |
+| 🔴 "LLM yok" uyarısı | `ollama serve` çalıştır, sonra `ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M` |
 | 50 MB az geldi | `.env` → `HEKTOR_MAX_UPLOAD_MB=200` → sunucuyu yeniden başlat |
 | "Yetkisiz" hatası | Token ayarlıysa **08 SİSTEM** → token gir → KAYDET bas |
 | Backtest FAIL ama getiri pozitif | OOS kısmı başarısız — bu kasıtlı, overfit koruması |

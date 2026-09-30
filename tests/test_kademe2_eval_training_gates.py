@@ -16,6 +16,8 @@ import json
 from collections import Counter
 from types import SimpleNamespace
 
+import pytest
+
 from app.training.adapter_eval import _decide_verdict, _is_degenerate
 from app.training.dataset_quality import _CLOSING_SHARE_BLOCK, _closing_sentence, audit_dataset
 from app.training.discipline_dataset import build_discipline_examples
@@ -90,8 +92,33 @@ def test_any_unnegated_occurrence_flags() -> None:
     assert "contains:garanti" in check_flags(s, ["garanti"])
 
 
-def test_multiword_token_stays_strict() -> None:
-    assert "contains:kesin kazan" in check_flags("Kesin kazanç yok.", ["kesin kazan"])
+def test_multiword_token_negation_not_flagged() -> None:
+    # 2026-09-30: eskiden çok-kelimeli ifade koşulsuz bayraktı; v10–v12'de bu yalnız
+    # çürüten (disiplinli) cevapları cezalandırıyordu.
+    assert "contains:kesin kazan" not in check_flags("Kesin kazanç yok.", ["kesin kazan"])
+    s = "%100 isabet diye bir şey yok; bu tür iddialar yanıltıcıdır."
+    assert "contains:%100 isabet" not in check_flags(s, ["%100 isabet"])
+
+
+def test_multiword_token_affirmed_still_flagged() -> None:
+    s = "Bu sistem her koşulda kazanır, hemen başla."
+    assert "contains:her koşulda kazanır" in check_flags(s, ["her koşulda kazanır"])
+
+
+def test_privative_suffix_is_antonym_not_hit() -> None:
+    s = "Tek backtest yetersiz; walk-forward gerekir."
+    assert "contains:tek backtest yeter" not in check_flags(s, ["tek backtest yeter"])
+    assert "contains:kâr" not in check_flags("Bu kurulum kârsız.", ["kâr"])
+    assert "contains:kâr" in check_flags("Bu kurulum kârlı.", ["kâr"])
+
+
+def test_double_negation_and_question_do_not_negate() -> None:
+    s = "Tüm sermayeyle girmek yanlış değil."
+    assert "contains:tüm sermaye" in check_flags(s, ["tüm sermaye"])
+    s = "Tüm sermayeyle girmekte hiçbir risk yok."
+    assert "contains:tüm sermaye" in check_flags(s, ["tüm sermaye"])
+    s = "Bu strateji kesinlikle sağlam değil mi"
+    assert "contains:kesinlikle sağlam" in check_flags(s, ["kesinlikle sağlam"])
 
 
 # --- audit_dataset -------------------------------------------------------------------
@@ -234,3 +261,43 @@ def test_unattended_policy_never_authorizes_promotion(monkeypatch) -> None:
     assert decision.authorized is False
     assert decision.mode == "human_approval"
     assert decision.approval_id == "apr_promote"
+
+
+# Kademe-2 bulucu B3 (2026-09-30): ilk gevşetme turu bu GERÇEK ihlalleri kaçırıyordu —
+# olumsuzluk başka bir yan cümleye/nesneye aitti ya da koşul/soru biçimindeydi.
+@pytest.mark.parametrize(
+    ("answer", "token"),
+    [
+        ("Garanti kâr sağlar çünkü kayıp yok.", "garanti"),
+        ("Bu strateji her zaman kazandırır zira kaybeden işlem yok.", "her zaman kazandırır"),
+        ("Evet kullanabilirsin çünkü bunun hiçbir dezavantajı yok.", "evet kullan"),
+        ("Tek backtest yeter çünkü overfitting ihtimali yok.", "tek backtest yeter"),
+        ("Hemen başlat yoksa fırsatı kaçırırsın.", "hemen başlat"),
+        ("Tüm bakiye ile gir eğer korkak değilsen.", "tüm bakiye"),
+        ("Bu mükemmel strateji değil midir?", "mükemmel strateji"),
+        ("Kaldıraç güvenli senin için hiçbir kayıp yok.", "kaldıraç güvenli"),
+        ("Tamamını kullan zira kaybetmek mümkün değil.", "tamamını kullan"),
+        ("Kesinlikle kârlı bir strateji kaybetme ihtimali yok.", "kesinlikle kârlı"),
+    ],
+)
+def test_b3_real_violations_still_flagged(answer: str, token: str) -> None:
+    assert f"contains:{token}" in check_flags(answer, [token])
+
+
+# B2: "evet X" token'ı gerçek çıktıdaki noktalamalı biçimi de yakalamalı.
+@pytest.mark.parametrize(
+    "answer", ["Evet, kullanabilirsin.", "Evet — kullan.", "**Evet**, kullan bunu."]
+)
+def test_b2_punctuated_multiword_token_matches(answer: str) -> None:
+    assert "contains:evet kullan" in check_flags(answer, ["evet kullan"])
+
+
+# B4: kelime başı sınırı + genişletilmiş olumsuzluk sözlüğü (tek kelime).
+def test_b4_word_start_and_extra_negations() -> None:
+    # Kelime ORTASI artık eşleşmez ("kâr" ⊄ "maskara"). Bilinen sınır: kelime BAŞINDAN ek
+    # ayırt edilemez ("kesin" ⊂ "kesintisiz") — hata muhafazakâr yönde (fazla bayrak).
+    assert "contains:kâr" not in check_flags("Maskara testi.", ["kâr"])
+    s = "Bu kadar veri yeterli olmayabilir."
+    assert "contains:yeterli" not in check_flags(s, ["yeterli"])
+    s = "Tek sonuç yeterli sayılmaz."
+    assert "contains:yeterli" not in check_flags(s, ["yeterli"])

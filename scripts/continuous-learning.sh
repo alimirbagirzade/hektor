@@ -132,7 +132,7 @@ for pid in sorted(p for p in pids if p):
   # ~76sn/adım = haftalar; 15-50 örnek overfit eder (anlamlı LoRA ~1000 örnek
   # ister). Döngü artık EĞİTMEZ; VERİ ÜRETİR (15→1000+ büyüme motoru). Eğitim,
   # ≥1000 örnek olunca bulut-GPU'da, açık --run ile yapılır (CLAUDE.md kural 8).
-  # Detay: docs/RAG_EGITIM_YENIDEN_TASARIM.md
+  # Detay: docs/arsiv/4b_donemi/RAG_EGITIM_YENIDEN_TASARIM.md
   # NOT (2026-06-14): 'lora-dataset' KALDIRILDI — her turda data/lora_sft/lora_sft.jsonl'i
   # (Stage 2 birleşik dataset, lora-cloud-prep üretir) kart-only veriyle EZİYORDU. Veri
   # synthetic_qa.jsonl'de birikir; birleşik dataset gerektiğinde lora-cloud-prep üretir.

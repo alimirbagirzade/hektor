@@ -32,7 +32,7 @@ reddet, alıntıla, uydurma.
 - Bir sonraki LoRA eğitiminin **veri reçetesini düzeltir** (bizim `raft_discipline_seed.jsonl`
   seed'imizin akademik temeli).
 - v5 regresyonunu önler → eğitim 47 saat boşa gitmez.
-- Doğrudan: `docs/PROTOKOL_RAG_LORA_ZINCIR.md` §3c (RAFT veri reçetesi).
+- Doğrudan: `docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md` §3c (RAFT veri reçetesi).
 
 ---
 

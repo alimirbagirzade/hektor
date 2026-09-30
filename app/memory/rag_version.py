@@ -17,6 +17,13 @@ from typing import Any
 
 from app.config import get_settings
 from app.lora.mix_common import hash_obj
+from app.memory.doc_purpose import parse_purposes
+
+_LATE_DEFAULTS: dict[str, str] = {
+    "exclude_purposes": "",
+    "query_translate": "off",
+    "translate_model": "",
+}
 
 
 class RagConfigDrift(RuntimeError):
@@ -39,10 +46,19 @@ class RagSnapshot:
     chunk_size: int
     chunk_overlap: int
     index_hash: str = "unknown"
+    # Sonradan eklenen alanlar: VARSAYILAN değerdeyken hash'e girmez → mevcut rag_version'lar
+    # (ve onlara bağlı regression gate kıyasları) değişmez; değer verilince sürüm ayrışır.
+    exclude_purposes: str = ""
+    query_translate: str = "off"
+    translate_model: str = ""
 
     @property
     def rag_version(self) -> str:
-        return "rag-" + hash_obj(asdict(self))[:12]
+        d = asdict(self)
+        for key, default in _LATE_DEFAULTS.items():
+            if d.get(key) == default:
+                d.pop(key)
+        return "rag-" + hash_obj(d)[:12]
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -107,6 +123,11 @@ def current_rag_snapshot(
         chunk_size=int(s.chunk_size),
         chunk_overlap=int(s.chunk_overlap),
         index_hash=index_hash,
+        exclude_purposes=",".join(sorted(parse_purposes(s.rag_exclude_purposes))),
+        query_translate=str(s.rag_query_translate).lower(),
+        translate_model=(
+            str(s.rag_translate_model) if str(s.rag_query_translate).lower() != "off" else ""
+        ),
     )
 
 

@@ -20,13 +20,13 @@ try {
     # dusuk RAM'li makinede OOM olur -- kurtarma sessizce basarisiz olurdu.
     # Receteyi durum dosyasindan OLDUGU GIBI geri oku. Eksik okunan her alan, kurtarma
     # kosusunu SESSIZCE baska bir receteye kaydirir:
-    #   * base_model yoksa -> varsayilan 4B, dusuk RAM'li makinede OOM,
+    #   * base_model yoksa -> ayardaki varsayilan base (30B), dusuk RAM'li makinede OOM,
     #   * profile sabit yazilirsa -> baska profille baslamis kosu profil degistirir,
     #   * max_examples unutulursa -> ornek tavani profil varsayilanina duser, adim sayisi
     #     ayni kalir, yani ayni kucuk alt-kume uzerinde COKLU EPOCH (ezber; 2026-09-08 v8).
     $prop = $status.PSObject.Properties.Name
     $bm = if ($prop -contains "base_model") { [string]$status.base_model } else { "" }
-    $prof = if ($prop -contains "profile" -and "$($status.profile)".Trim() -ne "") { [string]$status.profile } else { "discipline_safe_local" }
+    $prof = if ($prop -contains "profile" -and "$($status.profile)".Trim() -ne "") { [string]$status.profile } else { "moe30b_attn_local" }
     $mx = if ($prop -contains "max_examples") { [int]$status.max_examples } else { 0 }
     # Kademe-2 A2: ilk kosunun TUKETTIGI karisim agirligi. Gecilmezse etkilesimsiz alt surec
     # ya 5 ile cikar ya da bir SONRAKI egitim icin kaydedilmis bekleyen karari tuketirdi.

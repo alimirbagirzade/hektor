@@ -134,3 +134,38 @@ discipline_safe_kl:
   max_examples: 300
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
   note: "DENEYSEL — discipline_safe_local + KL-regularized SFT (arXiv:2512.22337, β=0.01). Base-model'e karşı KL cezası forgetting'i azaltır (makale bulgusu); Hektor'te henüz bulut eğitim + adapter_eval gate'iyle DOĞRULANMADI. Kural 2: hipotez."
+
+# YEREL (CPU) — Qwen3-30B-A3B-Instruct-2507 (MoE, 30.5B toplam / ~3.3B aktif) reçetesi.
+# NEDEN AYRI: transformers 5.x MoE uzmanlarını birleşik 3B parametre (experts.gate_up_proj /
+# experts.down_proj) tutar → gate/up/down_proj MODÜL değildir; 7'li hedef listesi PEFT'te
+# sessizce yalnız attention'a düşerdi. Burada hedef AÇIKÇA attention (kullanıcı kararı
+# 2026-09-28: router + uzmanlar donuk). Artı: merge → GGUF → Ollama yolu 4B'dekiyle aynı kalır.
+# BELLEK: bf16 base ≈ 61 GB (fp32 ≈ 122 GB → 128 GB makinede SIĞMAZ; train() RAM ön-kontrolü
+# durdurur) → HEKTOR_TRAIN_DTYPE=bf16 ZORUNLU (start-train/web varsayılanı bf16).
+# gradient_checkpointing: aktivasyon belleğini düşürür (Ollama/web ile RAM paylaşımı).
+# max_examples: CPU'da 30B adım süresi ÖLÇÜLMEDİ — önce kısa ölçüm, sonra buyut (Kural 2).
+moe30b_attn_local:
+  r: 16
+  alpha: 32
+  dropout: 0.1
+  epochs: 1
+  max_seq_length: 1024
+  # Efektif batch 8 → optimizer adımı 8× azalır; lr 1e-4 (batch 1'de ayarlıydı) → 2e-4.
+  learning_rate: 0.0002
+  use_rslora: false
+  neftune_noise_alpha: 5
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  assistant_only_loss: true
+  gradient_checkpointing: true
+  max_examples: 600
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+  # v12 (batch 1, birikim yok): kayıp ~100. adımdan sonra düz + gürültülü (0.28↔1.46).
+  gradient_accumulation_steps: 8
+  # Held-out eval: her 200 örnekte ≤64 valid örnek (v12 hızıyla ~7 dk/eval, ≈ +%10 süre).
+  eval_every_examples: 200
+  eval_max_examples: 64
+  load_best_model_at_end: true
+  note: "YEREL CPU, Qwen3-30B-A3B-Instruct-2507 (MoE) — yalnız attention LoRA, bf16 zorunlu, gradient checkpointing, birikim 8 + held-out eval. Checkpoint aralığı eval'e eşit (200 örnek ≈ 1 sa) → çökmede en çok ~1 sa kayıp."

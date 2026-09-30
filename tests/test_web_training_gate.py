@@ -150,3 +150,47 @@ def test_run_real_approval_flow_consumes_single_use() -> None:
     consumed = approvals.get_approval(mine.approval_id, store=st)
     assert consumed is not None and consumed.consumed_at is not None
     assert approvals.has_fresh_approval("lora-trainer", "train_run", store=st) is False
+
+
+def test_run_passes_profile_and_max_examples_to_launch() -> None:
+    """30B MoE hazırlığı: web formundaki profil + örnek tavanı launch'a AYNEN ulaşmalı."""
+    decision = ApprovalDecision(
+        authorized=True,
+        approval_id="apr_moe1",
+        status=ApprovalStatus.approved,
+        created=False,
+    )
+    fake = {"ok": True, "message": "ok", "adapter": "a"}
+    payload = {
+        "adapter_name": "hektor_lora_v11_30b",
+        "iterations": 0,
+        "base_model": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+        "profile": "moe30b_attn_local",
+        "max_examples": 120,
+    }
+    with (
+        patch(_SUP, return_value=False),
+        patch(_REQ, return_value=decision),
+        patch(_LAUNCH, return_value=fake) as m_launch,
+    ):
+        r = client.post("/api/training/run", json=payload)
+    assert r.json()["ok"] is True
+    kw = m_launch.call_args.kwargs
+    assert kw["profile"] == "moe30b_attn_local"
+    assert kw["max_examples"] == 120
+    assert kw["base_model"] == "Qwen/Qwen3-30B-A3B-Instruct-2507"
+
+
+def test_unknown_profile_does_not_consume_approval() -> None:
+    """Bilinmeyen profil → onay kapısına HİÇ gelinmez, launch çağrılmaz."""
+    with (
+        patch(_SUP, return_value=False),
+        patch(_REQ) as m_req,
+        patch(_LAUNCH) as m_launch,
+    ):
+        r = client.post("/api/training/run", json={**_PAYLOAD, "profile": "yok_boyle_profil"})
+    body = r.json()
+    assert body["ok"] is False and body["status"] == "error"
+    assert "Profil" in body["message"]
+    m_req.assert_not_called()
+    m_launch.assert_not_called()

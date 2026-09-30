@@ -44,10 +44,18 @@ class RetrievalService:
         self.chroma = chroma or ChromaStore()
         self.embedder = embedder or EmbeddingService()
 
-    def retrieve(self, query: str, top_k: int | None = None) -> list[RetrievedChunk]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int | None = None,
+        *,
+        exclude_papers: frozenset[str] = frozenset(),
+    ) -> list[RetrievedChunk]:
         k = top_k or self.settings.rag_top_k
         q_emb = self.embedder.embed_one(query)
-        hits = self.chroma.query(q_emb, top_k=k)
+        # Dışlama indeks sorgusunda (where $nin) → top-k dışlanan parçalarla boşalmaz.
+        where = {"paper_id": {"$nin": sorted(exclude_papers)}} if exclude_papers else None
+        hits = self.chroma.query(q_emb, top_k=k, where=where)
         out: list[RetrievedChunk] = []
         for h in hits:
             meta = h.get("metadata", {})

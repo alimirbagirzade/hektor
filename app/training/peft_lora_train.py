@@ -8,11 +8,13 @@ Baslatma: yalnizca --run parametresiyle gercek egitim yapilir (dry-run varsayila
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import re
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,13 @@ TARGET_MODULES: tuple[str, ...] = (
     "up_proj",
     "down_proj",
 )
+
+# MoE (ör. Qwen3-30B-A3B) için: transformers 5.x uzmanları birleşik 3B parametre
+# (`experts.gate_up_proj`/`experts.down_proj`) olarak tutar → gate/up/down_proj MODÜL değildir
+# ve PEFT onları sessizce ATLAR (yalnız attention eğitilir). Bu yüzden MoE profilleri hedefi
+# açıkça attention'a daraltır; train() eşleşmeyen hedefte HATA verir (bkz.
+# unmatched_target_modules).
+ATTENTION_TARGET_MODULES: tuple[str, ...] = ("q_proj", "k_proj", "v_proj", "o_proj")
 
 # PEFT init_lora_weights için geçerli string stratejileri (bool dışında).
 # Kaynak: peft 0.19 LoraConfig — gaussian/pissa/olora/eva/loftq/corda/orthogonal.
@@ -146,6 +155,212 @@ class PeftTrainConfig:
     # kaldıraç — 4B/1.5B'de tam set (~2000) tek epoch'ta bile saatlerce sürer; bu yüzden
     # yerel eğitim temsilî bir alt-kümeyle yapılır. Determinist örnekleme (seed).
     max_examples: int = 0
+    # LoRA hedef modülleri — YALNIZ TARGET_MODULES'ın alt kümesi (GGUF uyumu; lm_head/embed
+    # yasak). Profil `target_modules` ile daraltabilir (MoE → ATTENTION_TARGET_MODULES).
+    target_modules: tuple[str, ...] = TARGET_MODULES
+    # Gradient checkpointing: aktivasyonları saklamak yerine geri yayılımda yeniden hesaplar →
+    # bellek düşer, adım ~%20-30 yavaşlar. 30B gibi büyük base'lerde CPU RAM'i için açılır.
+    gradient_checkpointing: bool = False
+    # Gradient accumulation: N mikro-batch'in gradyanı toplanıp TEK optimizer adımı atılır →
+    # efektif batch = batch_size × N. v12 (batch 1, birikim yok) kayıp eğrisi ilk ~100
+    # adımdan sonra düz ve çok gürültülüydü (0.28↔1.46, grad_norm 7.6'ya kadar). ÖNEMLİ:
+    # `iterations` üst katmanlarda (web/start-train/nöbetçi) "örnek-adımı" (mikro-batch)
+    # olarak kalır; optimizer adımına çeviri YALNIZ train()'de yapılır (optimizer_steps).
+    gradient_accumulation_steps: int = 1
+    # Held-out doğrulama: `valid_jsonl`'den (kaynak-gruplu split, train ile ayrık) her
+    # `eval_every_examples` örnekte bir eval_loss. 0 = kapalı (eski davranış). CPU'da 30B
+    # eval pahalı → `eval_max_examples` ile determinist alt-küme (seed).
+    eval_every_examples: int = 0
+    eval_max_examples: int = 64
+    # En düşük eval_loss'lu checkpoint'i sonda yükle (HF load_best_model_at_end). Yalnız
+    # eval açıkken anlamlı; açıkken checkpoint aralığı eval aralığına eşitlenir (HF şartı).
+    load_best_model_at_end: bool = False
+
+
+def normalize_target_modules(value: object) -> tuple[str, ...]:
+    """Profildeki ``target_modules``'ı doğrula: boş olmayan, TARGET_MODULES alt kümesi.
+
+    lm_head/embed_tokens gibi hedefler GGUF dönüşümünde sessizce düşer (tied-embeddings) →
+    erken ValueError. Sıra TARGET_MODULES sırasına normalize edilir (determinizm).
+    """
+    if isinstance(value, str) or not isinstance(value, list | tuple):
+        raise ValueError(f"target_modules liste olmalı: {value!r}")
+    names = {str(v).strip() for v in value}
+    if not names:
+        raise ValueError("target_modules boş olamaz.")
+    bad = sorted(names - set(TARGET_MODULES))
+    if bad:
+        raise ValueError(
+            f"Desteklenmeyen target_modules: {bad}. İzin verilen: {list(TARGET_MODULES)} "
+            "(lm_head/embed GGUF dönüşümünde sessizce düşer)."
+        )
+    return tuple(t for t in TARGET_MODULES if t in names)
+
+
+def unmatched_target_modules(module_names: list[str], targets: tuple[str, ...]) -> list[str]:
+    """Modelde HİÇBİR modülle eşleşmeyen hedefleri döndür (PEFT'in sonek eşleşmesiyle aynı).
+
+    PEFT, en az bir hedef eşleştiği sürece eşleşmeyenleri SESSİZCE yok sayar: MoE
+    modelinde (birleşik uzmanlar) gate/up/down_proj istenir ama yalnız attention eğitilir.
+    Reçetenin sessizce değişmesi Kural 2 ihlalidir → train() bu listeyi boş görmek ister.
+    """
+    missing: list[str] = []
+    for t in targets:
+        suffix = "." + t
+        if not any(n == t or n.endswith(suffix) for n in module_names):
+            missing.append(t)
+    return missing
+
+
+def precheck_target_modules(base_model: str, targets: tuple[str, ...]) -> str | None:
+    """Hedef modülleri AĞIRLIK YÜKLEMEDEN (meta cihaz) doğrula → hata mesajı ya da None.
+
+    Kademe-2 (2026-09-28) A2/B3: kontrol 61 GB'lık yüklemeden SONRA çalışıyordu; hatalı
+    profil (ör. MoE base + 7'li dense hedef) her diriltmede modeli yeniden yüklüyordu. Meta
+    cihazda yapı ~saniyede kurulur. Config okunamazsa/kurulamazsa None (kontrol yapılamadı —
+    train() yükleme sonrası kontrolü yine uygular).
+    """
+    try:
+        import torch
+        from transformers import AutoConfig, AutoModelForCausalLM
+
+        config = AutoConfig.from_pretrained(base_model, trust_remote_code=True)
+        with torch.device("meta"):
+            meta_model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+        names = [n for n, _ in meta_model.named_modules()]
+        del meta_model
+    except Exception as exc:  # config yok / ağ yok / mimari tanınmıyor
+        logger.warning("Hedef ön-kontrolü yapılamadı (%s): %s", base_model, exc)
+        return None
+    missing = unmatched_target_modules(names, targets)
+    if not missing:
+        return None
+    return (
+        f"LoRA hedefleri modelde YOK: {missing} ({base_model}). PEFT bunları sessizce "
+        "atlayıp reçeteyi değiştirirdi. MoE modelde (birleşik uzmanlar) yalnız attention "
+        "hedefleyen profil kullan (ör. moe30b_attn_local)."
+    )
+
+
+# Adapter klasöründeki koşu işaretleri (nöbetçi/kurtarma bunları okur; bkz. train_guard).
+# run_plan.json: trainer'ın FİİLİ adım hedefi (maskeleme kırpması SONRASI) — durum
+# dosyasındaki `iterations` kırpılmamış plandır; 600 → 598 olunca son checkpoint 598'de
+# kalır ve "tamamlanmış" kontrolü tutmazdı (Kademe-2 A1/B2). run_complete.json: başarıyla
+# biten koşunun işareti.
+RUN_PLAN_FILE = "run_plan.json"
+RUN_COMPLETE_FILE = "run_complete.json"
+
+
+def _write_run_marker(adapter_dir: Path, name: str, payload: dict) -> None:
+    try:
+        adapter_dir.mkdir(parents=True, exist_ok=True)
+        (adapter_dir / name).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Koşu işareti yazılamadı (%s): %s", name, exc)
+
+
+# CPU eğitiminde base ağırlıklarının üstüne tahmini ek bellek payı (aktivasyon, LoRA
+# optimizer durumu, tokenizer, Python). Ölçüm değil, muhafazakâr tahmin.
+_RAM_OVERHEAD_FRAC = 0.15
+_RAM_OVERHEAD_GB = 6.0
+
+
+def estimate_cpu_train_ram_gb(checkpoint_bytes: int, *, src_bytes: int, dst_bytes: int) -> float:
+    """Checkpoint boyutundan (src dtype) hedef dtype'ta CPU eğitim RAM'i tahmini (GB).
+
+    Ör. 30B bf16 checkpoint ≈ 61 GB → bf16 eğitim ≈ 76 GB, fp32 ≈ 146 GB (128 GB'a sığmaz).
+    """
+    weights_gb = checkpoint_bytes * (dst_bytes / src_bytes) / 1024**3
+    return round(weights_gb * (1 + _RAM_OVERHEAD_FRAC) + _RAM_OVERHEAD_GB, 1)
+
+
+def _checkpoint_total_bytes(base_model: str) -> int | None:
+    """Base checkpoint'in safetensors toplam boyutu (bayt) — yalnız YEREL okuma, ağ yok.
+
+    Yerel klasör ya da HF önbelleğindeki ``model.safetensors.index.json`` → ``metadata.
+    total_size``; tek dosyalı modelde ``model.safetensors`` boyutu. Bulunamazsa None.
+    """
+    p = Path(base_model)
+    index: Path | None = None
+    single: Path | None = None
+    if p.is_dir():
+        index, single = p / "model.safetensors.index.json", p / "model.safetensors"
+    else:
+        try:
+            from huggingface_hub import try_to_load_from_cache
+
+            hit = try_to_load_from_cache(base_model, "model.safetensors.index.json")
+            if isinstance(hit, str):
+                index = Path(hit)
+            hit1 = try_to_load_from_cache(base_model, "model.safetensors")
+            if isinstance(hit1, str):
+                single = Path(hit1)
+        except Exception:
+            return None
+    try:
+        if index is not None and index.is_file():
+            meta = json.loads(index.read_text(encoding="utf-8")).get("metadata") or {}
+            total = int(meta.get("total_size") or 0)
+            return total or None
+        if single is not None and single.is_file():
+            return single.stat().st_size
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def check_cpu_ram(base_model: str, dst_bytes: int) -> tuple[bool, str]:
+    """CPU eğitimi için RAM yeterli mi? (ok, mesaj). Belirlenemezse ok=True + uyarı mesajı.
+
+    Yetersiz RAM'de 30B yüklemesi saatlerce swap'lar ya da OOM ile düşer; nöbetçi onu
+    tekrar tekrar diriltirdi. Bu yüzden model yüklenmeden ÖNCE açık hata verilir.
+    """
+    total = _checkpoint_total_bytes(base_model)
+    if not total:
+        return True, f"RAM ön-kontrolü atlandı: {base_model} checkpoint boyutu yerelde bulunamadı."
+    try:
+        import psutil
+
+        avail_gb = psutil.virtual_memory().available / 1024**3
+    except Exception:
+        return True, "RAM ön-kontrolü atlandı: psutil yok."
+    # Hub checkpoint'leri bf16/fp16 yayımlanır (2 bayt); fp32 hedef RAM'i ikiye katlar.
+    need_gb = estimate_cpu_train_ram_gb(total, src_bytes=2, dst_bytes=dst_bytes)
+    msg = f"RAM: gereken ≈{need_gb} GB, kullanılabilir {avail_gb:.1f} GB ({base_model})."
+    if need_gb > avail_gb:
+        hint = " HEKTOR_TRAIN_DTYPE=bf16 kullan;" if dst_bytes > 2 else ""
+        return False, (
+            f"Yetersiz RAM — {msg}{hint} Ollama modellerini boşalt / arka plan döngülerini "
+            "kapat ya da daha küçük base seç."
+        )
+    return True, msg
+
+
+@contextlib.contextmanager
+def _keep_awake() -> Iterator[None]:
+    """Eğitim boyunca Windows'un UYKUYA geçmesini engelle (kalıcı güç ayarı DEĞİŞMEZ).
+
+    SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) yalnız bu iş parçacığı
+    yaşarken geçerlidir; süreç biterse/çökerse Windows kendiliğinden bırakır. Ekranın
+    kapanmasına izin verilir. Windows dışı sistemlerde no-op.
+    """
+    if os.name != "nt":
+        yield
+        return
+    import ctypes
+
+    es_continuous, es_system_required = 0x80000000, 0x00000001
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined,unused-ignore]
+    try:
+        kernel32.SetThreadExecutionState(es_continuous | es_system_required)
+        logger.info("Uyku engeli AKTİF (eğitim süresince).")
+    except Exception:
+        logger.warning("Uyku engeli ayarlanamadı; güç ayarlarını kontrol et.")
+    try:
+        yield
+    finally:
+        with contextlib.suppress(Exception):
+            kernel32.SetThreadExecutionState(es_continuous)
 
 
 def _check_deps() -> list[str]:
@@ -170,15 +385,48 @@ def build_lora_kwargs(cfg: PeftTrainConfig) -> dict:
         "lora_alpha": cfg.lora_alpha,
         "lora_dropout": cfg.lora_dropout,
         "bias": "none",
-        "target_modules": list(TARGET_MODULES),
+        "target_modules": list(normalize_target_modules(list(cfg.target_modules))),
         "use_rslora": cfg.use_rslora,
         "use_dora": cfg.use_dora,
         "init_lora_weights": normalize_init_lora_weights(cfg.init_lora_weights),
     }
 
 
+# Checkpoint ve log aralıkları ÖRNEK cinsinden sabit tutulur; gradient accumulation açılınca
+# optimizer adımına ölçeklenir (birikim 8 iken 25 adım = 200 örnek → çökmede ~1 saat kayıp).
+_SAVE_EVERY_EXAMPLES = 25
+_LOG_EVERY_EXAMPLES = 5
+
+
+def optimizer_steps(micro_steps: int, grad_accum: int) -> int:
+    """Mikro-batch (örnek-adımı) sayısını optimizer adımına çevir: ``ceil(micro / birikim)``.
+
+    HF Trainer epoch sonundaki KISMİ birikimi de ayrı bir güncelleme sayar
+    (``len_dataloader // GA + (kalan > 0)``); bu yüzden tavan bölme 1 epoch'u tam kapar,
+    fazladan bir epoch'a taşmaz. ``micro_steps<=0`` → 0 (hedef henüz bilinmiyor).
+    """
+    if micro_steps <= 0:
+        return 0
+    ga = max(1, int(grad_accum))
+    return -(-int(micro_steps) // ga)
+
+
+def eval_steps_for(cfg: PeftTrainConfig) -> int:
+    """``eval_every_examples``'ı optimizer adımına çevir (0 = eval kapalı)."""
+    if cfg.eval_every_examples <= 0:
+        return 0
+    per_step = max(1, cfg.batch_size) * max(1, cfg.gradient_accumulation_steps)
+    return max(1, round(cfg.eval_every_examples / per_step))
+
+
 def build_training_kwargs(
-    cfg: PeftTrainConfig, *, num_epochs: int, output_dir: str, on_cuda: bool, max_steps: int = 0
+    cfg: PeftTrainConfig,
+    *,
+    num_epochs: int,
+    output_dir: str,
+    on_cuda: bool,
+    max_steps: int = 0,
+    eval_steps: int = 0,
 ) -> dict:
     """transformers ``TrainingArguments`` için kwargs sözlüğü kur (saf → offline test).
 
@@ -188,22 +436,29 @@ def build_training_kwargs(
     ``max_steps>0`` ise adım sayısını TAM kapar (HF Trainer bunu ``num_train_epochs``'un
     önüne alır). ``cfg.iterations`` gerçekte ADIM sayısıdır; epoch'a çevirmek küçük
     değerlerde (iterations<steps_per_epoch) tüm-epoch'a kaçırıyordu (kök bug).
+
+    ``max_steps`` ve ``eval_steps`` OPTIMIZER adımıdır (birikim sonrası). ``eval_steps>0``
+    held-out eval'i açar; eval kapalıysa (0) eski davranış birebir korunur.
     """
+    ga = max(1, int(cfg.gradient_accumulation_steps))
+    per_step = max(1, cfg.batch_size) * ga
+    save_steps = max(1, round(_SAVE_EVERY_EXAMPLES / per_step))
     kwargs: dict = {
         "output_dir": output_dir,
         "num_train_epochs": num_epochs,
         "per_device_train_batch_size": cfg.batch_size,
+        "gradient_accumulation_steps": ga,
         "learning_rate": cfg.learning_rate,
         "weight_decay": cfg.weight_decay,
         "warmup_ratio": cfg.warmup_ratio,
         "lr_scheduler_type": cfg.lr_scheduler_type,
         "max_grad_norm": cfg.max_grad_norm,
         "fp16": on_cuda,
-        "logging_steps": 5,
+        "logging_steps": max(1, round(_LOG_EVERY_EXAMPLES / per_step)),
         # CPU eğitimleri saatler sürer; web/Windows çökmesinde sıfırdan başlamamak için
         # sık ve dönen checkpoint tut.
         "save_strategy": "steps",
-        "save_steps": 25,
+        "save_steps": save_steps,
         "save_total_limit": 3,
         "eval_strategy": "no",
         "report_to": "none",
@@ -212,6 +467,23 @@ def build_training_kwargs(
     }
     if cfg.neftune_noise_alpha and cfg.neftune_noise_alpha > 0:
         kwargs["neftune_noise_alpha"] = cfg.neftune_noise_alpha
+    if cfg.gradient_checkpointing:
+        kwargs["gradient_checkpointing"] = True
+        # Reentrant olmayan yol PEFT'te (donuk base + LoRA) input grad hilesi olmadan çalışır.
+        kwargs["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
+    if eval_steps and eval_steps > 0:
+        kwargs["eval_strategy"] = "steps"
+        kwargs["eval_steps"] = int(eval_steps)
+        kwargs["per_device_eval_batch_size"] = 1
+        # Yalnız kayıp: 30B'de logit (seq × 151k vocab) biriktirmek RAM'i patlatır.
+        kwargs["prediction_loss_only"] = True
+        if cfg.load_best_model_at_end:
+            # HF şartı: save_steps, eval_steps'in tam katı olmalı → eşitle. Best checkpoint
+            # döndürmede korunur (save_total_limit'e rağmen).
+            kwargs["save_steps"] = int(eval_steps)
+            kwargs["load_best_model_at_end"] = True
+            kwargs["metric_for_best_model"] = "eval_loss"
+            kwargs["greater_is_better"] = False
     if max_steps and max_steps > 0:
         kwargs["max_steps"] = max_steps
     return _adapt_warmup(kwargs, max_steps=max_steps, num_epochs=num_epochs)
@@ -282,7 +554,21 @@ def recipe_summary(cfg: PeftTrainConfig) -> dict:
         techniques.append("assistant_only_loss (yalnız asistan token kaybı — yerelde aktif)")
     if cfg.kl_reg_beta and cfg.kl_reg_beta > 0:
         techniques.append(f"kl_reg (β={cfg.kl_reg_beta}, base'e KL cezası — forgetting azaltma)")
+    if cfg.gradient_checkpointing:
+        techniques.append("gradient_checkpointing (bellek ↓, adım yavaş)")
+    if cfg.gradient_accumulation_steps > 1:
+        techniques.append(
+            f"gradient_accumulation={cfg.gradient_accumulation_steps} "
+            f"(efektif batch {max(1, cfg.batch_size) * cfg.gradient_accumulation_steps})"
+        )
+    if cfg.eval_every_examples > 0:
+        best = ", en iyi checkpoint yüklenir" if cfg.load_best_model_at_end else ""
+        techniques.append(
+            f"held-out eval (her {cfg.eval_every_examples} örnekte, "
+            f"≤{cfg.eval_max_examples} valid örnek{best})"
+        )
     return {
+        "target_modules": list(cfg.target_modules),
         "r": cfg.lora_r,
         "alpha": cfg.lora_alpha,
         "dropout": cfg.lora_dropout,
@@ -335,7 +621,27 @@ def load_lora_profile(name: str, profiles_path: Path | None = None) -> dict:
     for yaml_key, cfg_field in field_map.items():
         if yaml_key in prof and prof[yaml_key] is not None:
             out[cfg_field] = prof[yaml_key]
-    # epochs/target_modules/max_examples/note çağırana ayrı bilgi olarak verilebilir.
+    # target_modules ARTIK uygulanır (eskiden YAML'da yazıp sessizce yok sayılıyordu); geçersiz
+    # hedef (lm_head/embed/bilinmeyen) → ValueError, profil yüklenmez.
+    if prof.get("target_modules") is not None:
+        out["target_modules"] = normalize_target_modules(prof["target_modules"])
+    if prof.get("gradient_checkpointing") is not None:
+        out["gradient_checkpointing"] = bool(prof["gradient_checkpointing"])
+    if prof.get("load_best_model_at_end") is not None:
+        out["load_best_model_at_end"] = bool(prof["load_best_model_at_end"])
+    # Tamsayı alanlar: YAML'da yanlış tip/negatif değer sessizce kabul edilmez.
+    for key, minimum in (
+        ("gradient_accumulation_steps", 1),
+        ("eval_every_examples", 0),
+        ("eval_max_examples", 1),
+    ):
+        if prof.get(key) is None:
+            continue
+        val = prof[key]
+        if isinstance(val, bool) or not isinstance(val, int) or val < minimum:
+            raise ValueError(f"Profil {name!r}: {key} ≥{minimum} tamsayı olmalı: {val!r}")
+        out[key] = val
+    # epochs/max_examples/note çağırana ayrı bilgi olarak verilebilir.
     for extra in ("epochs", "max_examples"):
         if extra in prof:
             out[extra] = prof[extra]
@@ -500,6 +806,9 @@ def dry_run(cfg: PeftTrainConfig) -> dict:
         "iterations": cfg.iterations,
         "max_examples": cfg.max_examples,
         "recipe": recipe_summary(cfg),
+        "ram_check": check_cpu_ram(
+            cfg.base_model, 2 if os.environ.get("HEKTOR_TRAIN_DTYPE", "fp32") == "bf16" else 4
+        )[1],
         "missing_packages": missing,
         "install_cmd": f"uv pip install {' '.join(missing)}" if missing else None,
     }
@@ -690,6 +999,23 @@ def _make_trainer_cls(kl_reg_beta: float) -> type:
     return trainer_cls
 
 
+def _silence_eval_progress_bar(trainer: Any) -> None:
+    """Eval'in tqdm çubuğunu kapat; eğitim çubuğu AYNEN kalır.
+
+    Web/nöbetçi ilerlemeyi ``logs/train-full-err.log``'daki SON ``x/y [..<..]`` satırından
+    okur (``detached_launch._detached_status``). Eval çubuğu (ör. ``64/64``) son satır
+    olunca ``step>=total`` → koşu "bitti/koşmuyor" sanılırdı (çift başlatma kapısı dahil).
+    """
+    from transformers.trainer_callback import ProgressCallback
+
+    class _TrainOnlyProgress(ProgressCallback):
+        def on_prediction_step(self, args, state, control, eval_dataloader=None, **kwargs):
+            return None
+
+    if trainer.pop_callback(ProgressCallback) is not None:
+        trainer.add_callback(_TrainOnlyProgress())
+
+
 def train(cfg: PeftTrainConfig) -> dict:
     missing = _check_deps()
     if missing:
@@ -700,8 +1026,12 @@ def train(cfg: PeftTrainConfig) -> dict:
 
     # Devam (resume) kararı EN BAŞTA verilir: hatalıysa GB'lık model yüklenmeden dönülür.
     # Varsayılan KAPALI → mevcut checkpoint sessizce kullanılmaz (bkz. PeftTrainConfig).
+    # Checkpoint numaraları OPTIMIZER adımıdır; iterations mikro-adım → aynı birime çevir.
+    ga = max(1, int(cfg.gradient_accumulation_steps))
     resume_plan = resolve_resume_checkpoint(
-        cfg.adapter_output_path, resume=resume_requested(cfg), max_steps=cfg.iterations
+        cfg.adapter_output_path,
+        resume=resume_requested(cfg),
+        max_steps=optimizer_steps(cfg.iterations, ga),
     )
     for _msg in resume_plan.warnings:
         logger.warning("%s", _msg)
@@ -727,6 +1057,21 @@ def train(cfg: PeftTrainConfig) -> dict:
     dtype = torch.float16 if device == "cuda" else cpu_dtype
     logger.info("PEFT LoRA egitimi basladi. Cihaz: %s, dtype: %s", device, dtype)
 
+    # 30B gibi büyük base'lerde yetersiz RAM'le yükleme saatlerce swap'lar/OOM ile düşer ve
+    # nöbetçi onu sonsuza dek diriltir → model yüklenmeden ÖNCE açık hata (Kural 2).
+    if device == "cpu":
+        ram_ok, ram_msg = check_cpu_ram(cfg.base_model, 2 if _want_bf16 else 4)
+        if not ram_ok:
+            logger.error("%s", ram_msg)
+            return {"ok": False, "error": ram_msg}
+        logger.info("%s", ram_msg)
+
+    # Hedef uyumu YÜKLEMEDEN önce (meta cihaz) — aşağıdaki yükleme-sonrası kontrol yedektir.
+    target_err = precheck_target_modules(cfg.base_model, tuple(cfg.target_modules))
+    if target_err:
+        logger.error("%s", target_err)
+        return {"ok": False, "error": target_err}
+
     tokenizer = AutoTokenizer.from_pretrained(cfg.base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -750,6 +1095,21 @@ def train(cfg: PeftTrainConfig) -> dict:
             cfg.init_lora_weights,
         )
     logger.info("LoRA reçetesi: %s", recipe_summary(cfg))
+    missing_targets = unmatched_target_modules(
+        [n for n, _ in model.named_modules()], tuple(cfg.target_modules)
+    )
+    if missing_targets:
+        err = (
+            f"LoRA hedefleri modelde YOK: {missing_targets} ({cfg.base_model}). PEFT bunları "
+            "sessizce atlayıp reçeteyi değiştirirdi. MoE modelde (birleşik uzmanlar) yalnız "
+            "attention hedefleyen profil kullan (ör. moe30b_attn_local)."
+        )
+        logger.error("%s", err)
+        return {"ok": False, "error": err}
+    if cfg.gradient_checkpointing:
+        # KV-önbellek checkpointing ile uyumsuz (her adımda uyarı + boşa bellek).
+        model.config.use_cache = False
+        logger.info("Gradient checkpointing AKTİF (bellek ↓, adım ~%20-30 yavaş).")
     peft_config = LoraConfig(**build_lora_kwargs(cfg))
     model = get_peft_model(model, peft_config)
     model.print_trainable_parameters()
@@ -847,21 +1207,59 @@ def train(cfg: PeftTrainConfig) -> dict:
     # ile epoch'a çeviriyordu → iterations < steps_per_epoch olunca 0→1 epoch (TÜM veri) kaçağı:
     # "iterations=200" gerçekte 1 tam epoch (ör. 1919 adım) koşuyor, eğitim hiç bitmiyordu.
     # Artık max_steps adım sayısını TAM kapar; num_epochs yalnız tavan (max_steps onu keser).
-    max_steps = cfg.iterations if cfg.iterations > 0 else steps_per_epoch
+    # Bu hesap MİKRO-adım (örnek) biriminde yapılır; optimizer'a çeviri aşağıda.
+    micro_steps = cfg.iterations if cfg.iterations > 0 else steps_per_epoch
     # Maskeleme/tokenize örnek attıysa plan (satır sayısından) veri setini aşar → kısmi
     # ek epoch. Plan edilen epoch sayısını koruyacak şekilde kıs (asla büyütme).
-    clamped = clamp_steps_to_dataset(max_steps, len(train_rows), len(train_ds), cfg.batch_size)
-    if clamped < max_steps:
+    clamped = clamp_steps_to_dataset(micro_steps, len(train_rows), len(train_ds), cfg.batch_size)
+    if clamped < micro_steps:
         logger.warning(
             "Adım hedefi %d → %d'e düşürüldü: tokenize/maskeleme sonrası %d/%d örnek kaldı; "
             "eski hedef sessizce kısmi ek bir epoch koşturacaktı (plan epoch'u aşılmaz).",
-            max_steps,
+            micro_steps,
             clamped,
             len(train_ds),
             len(train_rows),
         )
-        max_steps = clamped
-    num_epochs = max(1, -(-max_steps // steps_per_epoch))  # ceil(max_steps/steps_per_epoch)
+        micro_steps = clamped
+    # Gradient accumulation: HF max_steps OPTIMIZER adımı sayar. ceil bölme, epoch sonundaki
+    # kısmi birikimi HF ile aynı sayar → 1 epoch planı 1 epoch kalır.
+    max_steps = optimizer_steps(micro_steps, ga)
+    opt_steps_per_epoch = optimizer_steps(steps_per_epoch, ga)
+    num_epochs = max(1, -(-max_steps // opt_steps_per_epoch))  # ceil(max/epoch başı)
+    if ga > 1:
+        logger.info(
+            "Gradient accumulation=%d → %d mikro-adım = %d optimizer adımı (efektif batch %d).",
+            ga,
+            micro_steps,
+            max_steps,
+            max(1, cfg.batch_size) * ga,
+        )
+
+    # Held-out eval: valid_jsonl (kaynak-gruplu, train ile ayrık) — train ile AYNI render/
+    # maskeleme yolu. Dosya yok/boşsa eval kapatılır ve bu GÖRÜNÜR loglanır.
+    eval_ds: list[dict] = []
+    eval_steps = eval_steps_for(cfg)
+    if eval_steps > 0:
+        valid_rows = _load_jsonl(cfg.valid_jsonl) if Path(cfg.valid_jsonl).is_file() else []
+        valid_rows = sample_rows(valid_rows, cfg.eval_max_examples, cfg.seed)
+        eval_ds = _tokenize_masked(valid_rows) if use_mask else _tokenize(valid_rows)
+        if eval_ds:
+            logger.info(
+                "Held-out eval AKTİF: %d valid örnek, her %d optimizer adımında (%s).",
+                len(eval_ds),
+                eval_steps,
+                "en iyi checkpoint sonda yüklenir"
+                if cfg.load_best_model_at_end
+                else "yalnız ölçüm",
+            )
+        else:
+            logger.warning(
+                "Held-out eval istendi ama %s boş/yok → eval KAPALI (en iyi checkpoint "
+                "seçimi de yok).",
+                cfg.valid_jsonl,
+            )
+            eval_steps = 0
 
     output_dir = str(cfg.adapter_output_path)
     # HIZ ayarları (CPU): eval kapalı, tek checkpoint, pin_memory kapalı, dinamik padding.
@@ -873,6 +1271,7 @@ def train(cfg: PeftTrainConfig) -> dict:
             output_dir=output_dir,
             on_cuda=(device == "cuda"),
             max_steps=max_steps,
+            eval_steps=eval_steps,
         )
     )
 
@@ -902,9 +1301,12 @@ def train(cfg: PeftTrainConfig) -> dict:
         model=model,
         args=args,
         train_dataset=train_ds,
+        eval_dataset=eval_ds or None,
         data_collator=collator,
         optimizers=optimizers,
     )
+    if eval_ds:
+        _silence_eval_progress_bar(trainer)
 
     import datetime as _dt
 
@@ -917,23 +1319,82 @@ def train(cfg: PeftTrainConfig) -> dict:
         err = zero_step_error(resume_plan.checkpoint, resume_plan.last_step, max_steps)
         logger.error("%s", err)
         return {"ok": False, "error": err}
-    trainer.train(resume_from_checkpoint=resume_plan.checkpoint)
+    adapter_dir = Path(output_dir)
+    if not resume_plan.checkpoint:
+        # Sıfırdan koşu: aynı klasördeki ESKİ koşunun tamamlanma işareti bu koşuya ait değil.
+        with contextlib.suppress(OSError):
+            (adapter_dir / RUN_COMPLETE_FILE).unlink()
+    _write_run_marker(
+        adapter_dir,
+        RUN_PLAN_FILE,
+        {
+            "max_steps": max_steps,
+            "planned_iterations": cfg.iterations,
+            "micro_steps": micro_steps,
+            "gradient_accumulation_steps": ga,
+            "started_at": started_at,
+        },
+    )
+    with _keep_awake():
+        trainer.train(resume_from_checkpoint=resume_plan.checkpoint)
     finished_at = _dt.datetime.now().isoformat(timespec="seconds")
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
+    _write_run_marker(
+        adapter_dir,
+        RUN_COMPLETE_FILE,
+        {
+            "global_step": int(trainer.state.global_step),
+            "max_steps": max_steps,
+            "finished_at": finished_at,
+            "gradient_accumulation_steps": ga,
+            # load_best açıksa kaydedilen adapter BU checkpoint'tir (son adım değil).
+            "best_checkpoint": trainer.state.best_model_checkpoint,
+            "best_eval_loss": trainer.state.best_metric,
+        },
+    )
 
     # Loss eğrisini reports/training/<adapter>_loss.json'a yaz → web "Eğitim grafiği"
     # bu dosyaları okur (/api/learning/training-runs). CLI eğitimi de artık kaydeder.
     _write_loss_curve(cfg, trainer.state.log_history, started_at, finished_at)
 
     logger.info("Adapter kaydedildi: %s", output_dir)
-    return {"ok": True, "adapter_path": output_dir, "device": device}
+    return {
+        "ok": True,
+        "adapter_path": output_dir,
+        "device": device,
+        # Kayıt defteri FİİLİ eğitilen örnek sayısını yazsın (C5: tam train.jsonl değil).
+        "train_examples": len(train_ds),
+        "max_steps": max_steps,
+    }
 
 
 def _write_loss_curve(
     cfg: PeftTrainConfig, log_history: list[dict], started_at: str, finished_at: str
 ) -> None:
     """Trainer log_history'den loss eğrisi çıkar; web grafiğinin okuduğu JSON'u yaz."""
+    report = {
+        "adapter_name": cfg.adapter_output_path.name,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "total_iters": cfg.iterations,
+        "base_model": cfg.base_model,
+        "curve": build_loss_curve(log_history),
+    }
+    out_dir = Path("reports/training")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"{cfg.adapter_output_path.name}_loss.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def build_loss_curve(log_history: list[dict]) -> list[dict]:
+    """log_history → [{step, train_loss, val_loss}] (saf → offline test).
+
+    HF eval kaybını AYRI bir log girdisine yazar (``eval_loss``, ``loss`` yok); eskiden
+    yalnız ``loss``lu girdilere bakıldığından ``val_loss`` hep None kalıyordu. Her eval,
+    adımı ≤ eval adımı olan SON eğitim noktasına iliştirilir.
+    """
     curve: list[dict] = []
     for entry in log_history:
         if "loss" in entry:  # eğitim loss'u (logging_steps'te)
@@ -946,19 +1407,14 @@ def _write_loss_curve(
                     ),
                 }
             )
-    report = {
-        "adapter_name": cfg.adapter_output_path.name,
-        "started_at": started_at,
-        "finished_at": finished_at,
-        "total_iters": cfg.iterations,
-        "base_model": cfg.base_model,
-        "curve": curve,
-    }
-    out_dir = Path("reports/training")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f"{cfg.adapter_output_path.name}_loss.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    for entry in log_history:
+        if "eval_loss" not in entry or "loss" in entry:
+            continue
+        step = int(entry.get("step", 0))
+        target = [p for p in curve if p["step"] <= step]
+        if target:
+            target[-1]["val_loss"] = round(float(entry["eval_loss"]), 4)
+    return curve
 
 
 def generate_colab_notebook(
@@ -974,7 +1430,7 @@ def generate_colab_notebook(
     `app/training/cloud_notebook.py` üzerinden doldurur. Eski düz-transformers
     notebook'u (5 bilinen hata: target_modules eksik, {messages} okunmuyor, uydurma
     chat formatı, padding='max_length', GGUF export yok) tamamen değiştirildi.
-    Detay: docs/PROTOKOL_BULUT_EGITIM.md.
+    Detay: docs/arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md.
     """
     from app.training.cloud_notebook import build_stage2_notebook, write_modelfile
 

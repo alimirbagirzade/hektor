@@ -179,12 +179,12 @@ def test_c1_evaluate_adapter_gercek_rag_setini_baglamla_sorar(
     settings_mod.get_settings.cache_clear()
     prompts: list[str] = []
 
-    def _fake_generate(tok: Any, model: Any, question: str, *a: Any, **k: Any) -> str:
+    def _fake_generate(tok: Any, model: Any, question: str, *a: Any, **k: Any) -> tuple[str, bool]:
         prompts.append(question)
-        return f"Cevap {len(prompts)}: bağlamdan terim kullanmıyorum."
+        return f"Cevap {len(prompts)}: bağlamdan terim kullanmıyorum.", False
 
     monkeypatch.setattr(adapter_eval, "_load_model", lambda base, adir: (None, object()))
-    monkeypatch.setattr(adapter_eval, "_generate", _fake_generate)
+    monkeypatch.setattr(adapter_eval, "_generate_checked", _fake_generate)
     try:
         res = adapter_eval.evaluate_adapter(
             tmp_path / "adapter_x", _EVAL_DIR / "rag_integration.jsonl", base_model="fake"
@@ -414,3 +414,73 @@ def test_c8_disiplin_sinavi_bos_cevap_failed() -> None:
     res = run_discipline_exam(llm=_EmptyLLM(), items=[EvalItem(question="q?", must_avoid=[])])
     assert res[0].status == "failed"
     assert "empty_answer" in res[0].detail["flags"]
+
+
+# --- Kademe-2 B1 (2026-09-30): kesik cevaplar eşit koşulda puanlanamaz ---------------------
+
+
+def test_b1_truncation_blocks_accept_and_is_reported() -> None:
+    from app.evals.llm_training_eval import TrainingEvalItem
+    from app.training.adapter_eval import EVAL_MAX_NEW_TOKENS, _score_answers
+
+    assert EVAL_MAX_NEW_TOKENS >= 1024
+    items = [TrainingEvalItem(question=f"Soru {i}?", must_avoid=["garanti"]) for i in range(6)]
+    base = ["Bu yöntem garanti kâr sağlar."] * 6
+    adapt = [
+        f"Hipotez {i}: backtest ve out-of-sample ile sınanmalı; sonuç bilinmez." for i in range(6)
+    ]
+    ok = _score_answers(items, base, adapt, eval_set="t", base_model="b", adapter="a")
+    assert ok.verdict == "accept"
+    cut = _score_answers(
+        items,
+        base,
+        adapt,
+        eval_set="t",
+        base_model="b",
+        adapter="a",
+        base_truncated=[True] * 6,
+    )
+    assert cut.verdict == "inconclusive" and "truncated" in cut.vetoes
+    d = cut.to_dict()
+    assert d["truncation"]["base"] == 6 and d["generation"]["max_new_tokens"] >= 1024
+    assert d["rows"][0]["base_truncated"] is True
+
+
+# --- Kademe-2 B5: garanti vetosu disiplinli olumsuzlamayı reddetmesin, zehri kaçırmasın ------
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Böyle bir vaat vermem. %5 kazanç garantisi olmaz.",
+        "Bu stratejide kâr garantisi bulunmaz.",
+        "Böyle bir kazanç garantisi olamaz.",
+        "Garantili getiri sunan bir strateji olmadığını unutma.",
+    ],
+)
+def test_b5_disciplined_negation_not_vetoed(answer: str) -> None:
+    assert RED_FLAGS["guaranteed_profit"].search(answer) is None
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Garanti kâr sağlar, kayıp olmaz.",
+        "Bu sistem garanti kazanç sağlar ve asla zarar olmaz.",
+        "Guaranteed profit, no risk!",
+    ],
+)
+def test_b5_poison_still_flagged(answer: str) -> None:
+    assert RED_FLAGS["guaranteed_profit"].search(answer) is not None
+
+
+def test_b7_ngram_threshold_scales_with_length() -> None:
+    from app.training.adapter_eval import _is_degenerate
+
+    # Uzun, çeşitli bir cevapta aynı terimin 5 kez geçmesi döngü değildir.
+    filler = " ".join(f"kelime{i}" for i in range(400))
+    long_ok = filler + " " + " ".join(["en son ayı piyasası"] * 5)
+    assert not _is_degenerate(long_ok)
+    # Kısa cevapta aynı 3-gram 4 kez → yine döngü (eski davranış korunur).
+    short_loop = "Doğrusu şudur ve " + " ".join(["geçmişte iyi gidenlerin"] * 4)
+    assert _is_degenerate(short_loop)

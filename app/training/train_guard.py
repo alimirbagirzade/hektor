@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -137,6 +139,40 @@ def find_run_approval(
     return None
 
 
+# Aynı koşunun en çok kaç kez diriltileceği. Yükleme-sonrası deterministik hata (OOM,
+# yanlış reçete) her diriltmede 61 GB'ı yeniden yükleyip aynı yerde düşüyordu (Kademe-2 B3).
+MAX_RECOVERY_ATTEMPTS = 3
+
+
+def read_run_markers(adapter_dir: Path) -> dict[str, Any]:
+    """Trainer'ın adapter klasörüne yazdığı koşu işaretleri (salt-okuma).
+
+    ``max_steps``: FİİLİ adım hedefi (maskeleme kırpması sonrası; ``run_plan.json``) ya da
+    None. ``completed``: ``run_complete.json`` var mı. Bozuk dosya → yok sayılır.
+    """
+    out: dict[str, Any] = {"max_steps": None, "completed": False}
+    try:
+        plan = json.loads((adapter_dir / "run_plan.json").read_text(encoding="utf-8"))
+        ms = int(plan.get("max_steps") or 0)
+        out["max_steps"] = ms if ms > 0 else None
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    out["completed"] = (adapter_dir / "run_complete.json").is_file()
+    return out
+
+
+def last_checkpoint_step(adapter_dir: Path) -> int | None:
+    """Adapter klasöründeki en büyük ``checkpoint-N`` adımı (yoksa None). Salt-okuma."""
+    if not adapter_dir.is_dir():
+        return None
+    steps = [
+        int(m.group(1))
+        for p in adapter_dir.iterdir()
+        if p.is_dir() and (m := re.match(r"^checkpoint-(\d+)$", p.name))
+    ]
+    return max(steps) if steps else None
+
+
 @dataclass
 class RecoveryVerdict:
     """Nöbetçi bu koşuyu diriltebilir mi?"""
@@ -156,8 +192,16 @@ def recovery_allowed(
     now: dt.datetime,
     data_mtime: dt.datetime | None = None,
     data_sha256: str | None = None,
+    last_checkpoint_step: int | None = None,
+    effective_max_steps: int | None = None,
+    run_completed: bool = False,
 ) -> RecoveryVerdict:
     """Çöken bir eğitimi yeniden başlatmak YETKİLİ mi? FAIL-CLOSED.
+
+    ``last_checkpoint_step``: adapter klasöründeki en büyük ``checkpoint-N``. Planlanan
+    adıma (``status.iterations``) ulaşmışsa koşu ÇÖKMEMİŞ, BİTMİŞTİR → dirilme yok
+    (2026-09-28: v10 bittikten sonra durum dosyası diskte kaldı ve kontrol "kurtarma
+    yetkili" diyordu; nöbetçi açıkken bitmiş koşuyu her 5 dakikada yeniden başlatırdı).
 
     Nöbetçi kurtarması Kural 8'den muaftır ("onay zaten tüketilmişti") — ama bu muafiyet
     yalnız o cümle DOĞRUYSA geçerlidir. Burada doğrulanır; doğrulanamıyorsa dirilme YOK.
@@ -174,6 +218,54 @@ def recovery_allowed(
     if started_at is None:
         return RecoveryVerdict(
             False, "durum dosyasında okunabilir 'started_at' yok — koşu onaya bağlanamıyor"
+        )
+
+    # İnsan DURDURDU (web /api/training/stop) → diriltmek kararı çiğnemek olur (Kademe-2 B1).
+    if status.get("stop_requested_at"):
+        return RecoveryVerdict(
+            False,
+            "koşu insan tarafından DURDURULDU — dirilme yok; yeni eğitim yeni onay ister",
+            {"stop_requested_at": str(status.get("stop_requested_at"))},
+        )
+    # Alt süreç sonucu kaydetti: başarı ya da deterministik hata → çöküş değil.
+    if status.get("finished_at") or run_completed:
+        return RecoveryVerdict(
+            False,
+            "koşu TAMAMLANMIŞ (tamamlanma işareti var) — diriltilecek çöküş yok",
+            {"finished_at": str(status.get("finished_at") or "")},
+        )
+    if status.get("failed_at"):
+        return RecoveryVerdict(
+            False,
+            "koşu kalıcı HATAYLA bitti (" + str(status.get("error") or "?")[:160] + ") — "
+            "diriltmek aynı hatayı tekrarlar; düzelt ve yeni onayla başlat",
+            {"failed_at": str(status.get("failed_at"))},
+        )
+    try:
+        attempts = int(status.get("recovery_attempts") or 0)
+    except (TypeError, ValueError):
+        attempts = 0
+    if attempts >= MAX_RECOVERY_ATTEMPTS:
+        return RecoveryVerdict(
+            False,
+            f"kurtarma deneme sınırı doldu ({attempts}/{MAX_RECOVERY_ATTEMPTS}) — aynı koşu "
+            "tekrar tekrar düşüyor; log'a bak (logs/train-full-err.log)",
+            {"recovery_attempts": attempts},
+        )
+
+    try:
+        planned = int(status.get("iterations") or 0)
+    except (TypeError, ValueError):
+        planned = 0
+    # Trainer'ın FİİLİ hedefi (maskeleme kırpması sonrası) varsa o esas (Kademe-2 A1/B2).
+    if effective_max_steps:
+        planned = effective_max_steps
+    if last_checkpoint_step is not None and planned > 0 and last_checkpoint_step >= planned:
+        return RecoveryVerdict(
+            False,
+            f"koşu TAMAMLANMIŞ (checkpoint-{last_checkpoint_step} ≥ plan {planned}) — "
+            "diriltilecek çöküş yok; yeni eğitim yeni onay ister",
+            {"last_checkpoint_step": last_checkpoint_step, "planned_steps": planned},
         )
 
     age_h = (now - started_at).total_seconds() / 3600.0

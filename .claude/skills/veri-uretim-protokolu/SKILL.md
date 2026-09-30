@@ -1,19 +1,20 @@
 ---
 name: veri-uretim-protokolu
-description: Stage 1 — lokal sentetik QA veri üretimi. Makale chunk'larından grounded SFT örneği üretir (15→1000+), gece döngüsünü yönetir, Stage 2 eşiğini izler. CPU eğitimi YAPMAZ.
-when_to_use: Kullanıcı sentetik eğitim verisi üretmek, üretim döngüsünü başlatmak/izlemek veya bulut-GPU eğitim eşiğine (≥1000 örnek) ulaşılıp ulaşılmadığını kontrol etmek istediğinde.
+description: Stage 1 — lokal sentetik QA veri üretimi. Makale chunk'larından grounded SFT örneği üretir (15→1000+), gece döngüsünü yönetir, Stage 2 eşiğini izler. Eğitim YAPMAZ.
+when_to_use: Kullanıcı sentetik eğitim verisi üretmek, üretim döngüsünü başlatmak/izlemek veya LoRA eğitim eşiğine (≥1000 örnek) ulaşılıp ulaşılmadığını kontrol etmek istediğinde.
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 
 # Stage 1 — Veri Üretim Protokolü
 
 Amaç: lokal CPU'da **eğitim yapmadan** makale chunk'larından grounded sentetik QA
-üreterek ≥1000 örneğe çıkmak (Stage 2 / bulut-GPU eğitiminin ön koşulu).
-Detay: `docs/PROTOKOL_VERI_URETIM.md` · üst: `docs/PROTOKOL_ASAMALI_EGITIM.md`.
+üreterek ≥1000 örneğe çıkmak (Stage 2 / LoRA eğitiminin ön koşulu).
+Detay: `docs/PROTOKOL_VERI_URETIM.md` · ölçüm: `docs/PROTOKOL_LORA_RAG_IYILESTIRME.md`.
 
 ## Sınır (önce bunu doğrula)
-- **CPU LoRA eğitimi YASAK** — haftalar sürer + az veride overfit. Bu skill yalnız
-  VERİ ÜRETİR. Gerçek eğitim Stage 2'de bulut-GPU + açık onayla (CLAUDE.md kural 8).
+- **Bu skill eğitim BAŞLATMAZ** — yalnız VERİ ÜRETİR. Gerçek eğitim Stage 2'de yerel
+  `scripts/start-train.ps1` (varsayılan 30B-A3B + `moe30b_attn_local`) + açık onayla
+  (CLAUDE.md kural 8); öncesinde Kademe 2 derin av zorunlu.
 - Üretim Ollama (veya API) gerektirir; çıktı her zaman grounded (kural 7).
 
 ## Komutlar
@@ -31,7 +32,7 @@ Detay: `docs/PROTOKOL_VERI_URETIM.md` · üst: `docs/PROTOKOL_ASAMALI_EGITIM.md`
    (`logs/continuous-learning.log` son 45 dk'da ilerliyor mu?).
 3. **Kalite:** üretilen örnekler grounded mı? (sayı-altküme + anchor kapıları otomatik).
 4. **Eşik:** ≥1000 olunca kullanıcıya bildir → GATE: `lora-audit` (Gate 0-7) öner →
-   onaylanırsa `/bulut-egitim-protokolu` (Stage 2).
+   onaylanırsa `/lora-training-control-plane` → `scripts/start-train.ps1` (Stage 2).
 
 ## Sağlık kontrolü (döngü için)
 - Boş RAM < 2GB → ağır LLM işini beklet, çakışan süreçleri durdur.

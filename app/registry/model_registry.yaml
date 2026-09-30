@@ -133,6 +133,24 @@ models:
     notes: "Güçlü reasoning. Yavaş CPU'da."
 
   # ── LARGE (30B–34B) ───────────────────────────────────────────────────────
+  - id: qwen3_30b_a3b_q4
+    display_name: "Qwen3 30B-A3B Instruct-2507 Q4 (MoE)"
+    family: qwen
+    size_tier: large
+    task_tags: [general, reasoning, coding, multilingual]
+    backends:
+      ollama:
+        name: "qwen3:30b-a3b-instruct-2507-q4_K_M"
+    min_ram_gb: 24
+    recommended_ram_gb: 32
+    min_vram_gb: 0
+    recommended_vram_gb: 20
+    context_default: 4096
+    context_max_safe_cpu: 8192
+    quality_score: 9
+    speed_score: 6
+    notes: "Hektor varsayılanı (2026-09-30). MoE: 30.5B toplam / ~3.3B aktif → 30B kalitesi, küçük-model hızına yakın. Düşünmesiz; çıplak qwen3:30b = Thinking-2507 (yavaş)."
+
   - id: qwen2_5_coder_32b_q4
     display_name: "Qwen2.5 Coder 32B Q4"
     family: qwen

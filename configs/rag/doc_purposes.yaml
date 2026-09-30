@@ -1,0 +1,14 @@
+# Korpus dokümanlarının AMACI (protokol Aşama 4: proje talimatları, teknik kaynaklar ve
+# eval materyali ayrı amaçla filtrelenebilir olmalı). papers.source bugün hepsinde 'manual'
+# olduğu için ayırt edici değil; paper_id içerik hash'inden türer → kalıcı anahtar.
+#
+# Listelenmeyen her doküman `default` amacındadır. Filtre: HEKTOR_RAG_EXCLUDE_PURPOSES
+# (virgüllü; varsayılan boş = hiçbir şey dışlanmaz, canlı davranış değişmez).
+default: kaynak
+purposes:
+  # Projenin kendi Türkçe kılavuzları — geliştirme dokümanı, matematiksel otorite DEĞİL.
+  # Ölçüm (2026-09-30, app.evals.llm30_rag_probe): LLM-30 sorularında BM25 top-24'ün %82'si.
+  proje_dokumani:
+    paper_ids:
+      - paper_cd76dd9a893f  # Hektor LoRA Eğitimi — Detaylı Anlatım
+      - paper_3afecc5fb4da  # Hektor RAG Eğitimi — Detaylı Anlatım

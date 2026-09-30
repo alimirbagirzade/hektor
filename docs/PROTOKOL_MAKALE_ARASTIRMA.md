@@ -6,7 +6,7 @@ _Son güncelleme: 2026-06-17 (v1.0)._
 > RAG/LoRA gelişimine yarayacak **YENİ, GERÇEK** arXiv makalelerini bulur, doğrular, yerel
 > klasöre indirir ve "neden önemli" indeksini günceller. **Eğitim başlatmaz** — yalnız besler.
 
-> **🧠 Bağlam:** Bu ajan, [`PROTOKOL_RAG_LORA_ZINCIR.md`](PROTOKOL_RAG_LORA_ZINCIR.md)
+> **🧠 Bağlam:** Bu ajan, [`arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md`](arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md)
 > zincirinin **giriş ucudur**: RAG = bilgi, makaleden gelir. Sistem kendi kendine arxiv
 > ÇEKMEZ (loop'ta kapalı); makale akışı ya kullanıcının elle yüklemesiyle ya da **bu ajanın
 > seçip indirdiği** kaynaklarla gelir. Kullanıcı indirilenleri inceleyip web arayüzünden RAG'a
@@ -92,6 +92,6 @@ Türkçe özet: indirilenler (ID + başlık + tema), atlananlar (sebep), indeks 
 loop durumu.
 
 ---
-İlişkili: [`PROTOKOL_RAG_LORA_ZINCIR.md`](PROTOKOL_RAG_LORA_ZINCIR.md) ·
+İlişkili: [`arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md`](arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md) ·
 [`PROTOKOL_VERI_URETIM.md`](PROTOKOL_VERI_URETIM.md) ·
 Ajan tanımı: `.claude/agents/makale-arastirma.md`

@@ -1058,7 +1058,7 @@ Kimlik toplanmaz/saklanmaz; `logged_in` daima `null`.
 | `/tv-bridge` | TradingView MCP köprüsü | Pine export ↔ TV karşılaştırma (>%10 fark uyarısı) |
 | `/lora-training-control-plane` | Her LoRA hattı işi | audit, curriculum, gates, smoke, config, eval, registry, safe promote |
 | `/veri-uretim-protokolu` | Stage 1 | sentetik QA 15→1000+, gece döngüsü, eşik izleme; CPU eğitimi YAPMAZ |
-| `/bulut-egitim-protokolu` | Stage 2 | Kaggle/Colab T4 unsloth → GGUF → Ollama; eval gate + promote |
+| ~~`/bulut-egitim-protokolu`~~ | Stage 2 | 2026-09-30'da kaldırıldı (4B/T4 dönemi); belge `docs/arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md`. Güncel Stage 2: yerel 30B-A3B (`scripts/start-train.ps1`) |
 | `/paper-mastery-agent` | Ustalık ölçümü | mastery-run/queue/score/report |
 | `/model-data-registry` | Sürüm/terfi | registry-list/snapshot/promote |
 | `/scientific-tool-runtime` | Hesap doğrulama | tools-list, montecarlo (seed ZORUNLU), stats-check |
@@ -1261,11 +1261,11 @@ macOS: `launchctl` `com.hektor.web.plist`; Linux: systemd kullanıcı servisi `h
 | `SCOPE_ISOLATION.md` (232) | human/driver ayrımı, 4 bypass kanalı, araç kısıtı |
 | `UNATTENDED_ARCHITECTURE.md` | Unattended Supervisor desired-state reconciler |
 | `AGENT_RUNTIME_OBSERVER.md` | Tracker/registry tasarımı, Phase 1/2 |
-| `PROTOKOL_ASAMALI_EGITIM.md` (master) → `PROTOKOL_VERI_URETIM.md` (Stage 1), `PROTOKOL_BULUT_EGITIM.md` (Stage 2) | Aşamalı eğitim |
-| `PROTOKOL_RAG_LORA_ZINCIR.md` + `RAG_LORA_ENTEGRASYON.md` | RAG bilgi / LoRA üslup zinciri; PEFT→GGUF tek çalışan yol (Qwen3 `ADAPTER` desteklenmez) |
-| `RAG_EGITIM_YENIDEN_TASARIM.md` | Büyük pivot gerekçesi (CPU eğitimi durdur, RAG-first) |
+| `arsiv/4b_donemi/PROTOKOL_ASAMALI_EGITIM.md` (master) → `PROTOKOL_VERI_URETIM.md` (Stage 1), `arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md` (Stage 2) | Aşamalı eğitim |
+| `arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md` + `arsiv/4b_donemi/RAG_LORA_ENTEGRASYON.md` | RAG bilgi / LoRA üslup zinciri; PEFT→GGUF tek çalışan yol (Qwen3 `ADAPTER` desteklenmez) |
+| `arsiv/4b_donemi/RAG_EGITIM_YENIDEN_TASARIM.md` | Büyük pivot gerekçesi (CPU eğitimi durdur, RAG-first) |
 | `PROTOKOL_BACKTEST.md`, `PROTOKOL_MCP.md`, `PROTOKOL_RAG_GUNCEL_ARASTIRMA.md`, `PROTOKOL_LORA_ARASTIRMA.md`, `PROTOKOL_MAKALE_ARASTIRMA.md` | Süreç protokolleri |
-| `EGITIM_PROTOKOLU.md` | Windows yerel eğitim: donanım (i7-1165G7, GPU yok), ölçülmüş süreler (Qwen3-4B Q4 ~74 s/adım) |
+| `arsiv/4b_donemi/EGITIM_PROTOKOLU.md` | Windows yerel eğitim: donanım (i7-1165G7, GPU yok), ölçülmüş süreler (Qwen3-4B Q4 ~74 s/adım) |
 | `GUNCELLEME_KILAVUZU.md` | Çok-makine güncelleme, doctor, -Repair |
 | `LOCAL_TRAINING_{REQUEST_FLOW,DRYRUN_PIPELINE,HANDOFF,POSTCHECK}.md` | Phase 5B-5E |
 | `PHASE4_GITHUB_AUTOMATION.md`, `PHASE4B_DRYRUN.md`, `PHASE4C_ACTIVATION.md` | GitHub otomasyonu (testlerle zorunlu yönetişim belgeleri) |

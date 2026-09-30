@@ -27,14 +27,15 @@ param(
     # istiyorsan adim sayisini degil BUNU buyut; adim sayisi plandan turer.
     [int]$MaxExamples = 0,
     [string]$Dtype = "bf16",
-    # LoRA recete profili. VARSAYILAN discipline_safe_local (assistant_only_loss maskeleme +
-    # NEFTune). --profile GECMEZSEK `train --run` vanilya varsayilanla (maskesiz, lr=2e-4)
-    # kosar -> prompt kalibi ezberlenir = v5 disiplin-regresyon recetesi (Kademe-2 av bulgusu).
-    # Profili tamamen atlamak icin -Profile "" ver.
-    [string]$Profile = "discipline_safe_local",
-    # Temel model. BOS ise ayardaki varsayilan (Qwen3-4B) kullanilir. Yerel CPU'da
-    # 4B bf16 ~8 GB tutar; dusuk RAM'li makinede kucuk model (or. Qwen2.5-1.5B-Instruct)
-    # sec. Secim train_status.json'a yazilir ki nobetci yeniden baslatirken UNUTMASIN.
+    # LoRA recete profili. VARSAYILAN moe30b_attn_local (Qwen3-30B-A3B MoE: yalniz attention +
+    # assistant_only_loss maskeleme + NEFTune; app.config.DEFAULT_TRAIN_PROFILE ile ayni).
+    # --profile GECMEZSEK `train --run` vanilya varsayilanla (maskesiz) kosar -> prompt kalibi
+    # ezberlenir = v5 disiplin-regresyon recetesi. Dense/4B temel model icin
+    # -Profile discipline_safe_local. Profili tamamen atlamak icin -Profile "" ver.
+    [string]$Profile = "moe30b_attn_local",
+    # Temel model. BOS ise ayardaki varsayilan (Qwen3-30B-A3B-Instruct-2507, bf16 ~61 GB RAM)
+    # kullanilir. Dusuk RAM'li makinede -BaseModel Qwen/Qwen3-4B-Instruct-2507 +
+    # -Profile discipline_safe_local. Secim train_status.json'a yazilir ki nobetci UNUTMASIN.
     [string]$BaseModel = "",
     # Cokme-kurtarma: son checkpoint'ten DEVAM et. Trainer'da resume artik ACIK TERCIH
     # (varsayilan KAPALI) -- ayni adapter adiyla ikinci kosu eskiden sessizce eski
@@ -195,14 +196,17 @@ if ($SkipGate) {
     Write-Host "  [OK] Kapi GECILDI -- $gateSummary" -ForegroundColor Green
 }
 
-# Egitim verisi: lora_sft.jsonl -> train/valid (clobber-proof; bos train.jsonl onarilir)
-& $uv run --project "$ProjectDir" hektor lora-split | Out-Null
+# Egitim verisi: lora_sft.jsonl -> train/valid. `train --run` ile AYNI bolucu
+# (ensure_train_split, kaynak-gruplu). Eskiden burada `lora-split` (satir-sirali) cagriliyordu;
+# iki bolucu farkli sayida satir uretiyordu (1702 vs 1680) ve plan fazla adim veriyordu ->
+# ~22 ornek ikinci kez goruluyordu (v10'da ~24). 2026-09-30: train --run artik plani asan
+# adimi REDDEDER, bu yuzden plan ayni bolmeden alinmali.
+$pySplit = "from app.training.detached_launch import ensure_train_split as s;print(s()[0])"
+$nTrain = 0
+try { $nTrain = [int](& $uv run --project "$ProjectDir" python -c $pySplit | Select-Object -Last 1) } catch { $nTrain = 0 }
 
 # Adim plani: hesabi burada TEKRARLAMA -- kanonik kaynak plan_iterations
 # (app/training/detached_launch.py). Plan = min(train_satiri, tavan) x profil epochs.
-$nTrain = 0
-$trainJsonl = Join-Path $ProjectDir "data\training\jsonl\train.jsonl"
-if (Test-Path $trainJsonl) { $nTrain = (Get-Content $trainJsonl | Measure-Object -Line).Lines }
 $profArg = if ($Profile -and $Profile.Trim() -ne "") { "'$Profile'" } else { "None" }
 $pyPlan = "import json;from app.training.detached_launch import plan_iterations as p;i,n,e=p($nTrain,$MaxExamples,$profArg);print(json.dumps({'iters':i,'n':n,'epochs':e}))"
 $plan = $null
@@ -244,6 +248,22 @@ if (Test-Path $srcData) {
 # Kademe-2 A3: started_at (UTC ISO 8601, detached_launch ile ayni bicim). Yoksa train_guard
 # onay/veri-kaymasi kontrollerini atlar ve kurtarma HER ZAMAN reddedilir.
 $startedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.ffffff", [Globalization.CultureInfo]::InvariantCulture) + "+00:00"
+# Kademe-2 N1 (2026-09-28): nobetci KURTARMASINDA ilk kosunun started_at'i KORUNUR ve deneme
+# sayaci artar. Eskiden her kurtarma started_at'i yeniliyordu -> 72 saat bayatlik siniri hic
+# devreye girmiyor, yukleme-sonrasi dusen kosu SONSUZA dek (her turda 61 GB) diriltiliyordu.
+# train_guard.recovery_allowed recovery_attempts >= 3 ise reddeder.
+$recoveryAttempts = 0
+if ($Supervised -and (Test-Path $StatusFile)) {
+    try {
+        $prev = Get-Content $StatusFile -Raw | ConvertFrom-Json
+        if ($prev.adapter -eq $Adapter) {
+            $pp = $prev.PSObject.Properties.Name
+            if ($pp -contains "started_at" -and "$($prev.started_at)".Trim() -ne "") { $startedAt = [string]$prev.started_at }
+            if ($pp -contains "recovery_attempts") { $recoveryAttempts = [int]$prev.recovery_attempts }
+        }
+    } catch { }
+    $recoveryAttempts += 1
+}
 # Alt surece ORTAMLA gecenler yalniz Start-Process ANINDA ayarlanir, hemen geri alinir.
 # $env: surec-geneldir: kalici kalirsa ayni kabukta sonradan elle calistirilan
 # `hektor train --run` taze onay kapisini ATLAR ve eski -BaseModel ile egitir (Kademe-2 av).
@@ -297,6 +317,7 @@ $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
     # gercek kimlik; bkz. app/training/train_guard.py: find_run_approval).
     approval_id  = $ApprovalId
     started_at   = $startedAt
+    recovery_attempts = $recoveryAttempts
     # Kurtarmada param'dan; taze baslatmada asagida log'daki MIX_DECISION satirindan islenir.
     mix_weights  = $MixWeights
     mix_profile  = $MixProfile

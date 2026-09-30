@@ -1,6 +1,6 @@
 """Sentetik QA üretici — chunk'lardan LLM ile çeşitli, grounded eğitim örneği üret.
 
-Amaç (bkz. docs/RAG_EGITIM_YENIDEN_TASARIM.md, Faz A6): 15-50 deterministik şablon
+Amaç (bkz. docs/arsiv/4b_donemi/RAG_EGITIM_YENIDEN_TASARIM.md, Faz A6): 15-50 deterministik şablon
 örneğinden, makale chunk'larından üretilen ~1000-2000 çeşitli SFT örneğine geçmek.
 LoRA'nın anlamlı olması için pratik eşik ~1000 örnektir; bu modül o "büyüme motoru".
 
@@ -268,6 +268,10 @@ class SyntheticQABuilder:
             f"- Sorular farkli yonleri sorgulasin (tanim, mekanizma, varsayim, "
             f"sinirlama, test/uygulama).\n"
             f"- Sayilari ve teknik terimleri pasajdan aynen kullan.\n"
+            # 2026-09-30: tek cümlelik cevaplar (medyan 166 kr) adapter'a kısa cevap
+            # öğretiyordu → 2-4 cümle: doğrudan cevap + pasajdaki gerekçe/sınırlama.
+            f"- Her cevap 2-4 cumle olsun: once dogrudan cevap, sonra pasajdaki gerekce, "
+            f"mekanizma ya da sinirlama. Dolgu cumlesi yazma.\n"
             f"- YALNIZ pasajin GERCEKTEN cevapladigi sorulari sor; pasajda cevabi olmayan "
             f"soru YAZMA.\n"
             f"- Cevapta 'pasaj' kelimesini KULLANMA; cevaba 'Pasajda' / 'Bu pasaj' diye "

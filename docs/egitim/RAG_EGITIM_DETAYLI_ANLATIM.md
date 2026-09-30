@@ -326,7 +326,7 @@ Bu katman **objektif sayısal kıyas + regex** kullanır; `eval`/`exec` hiçbir 
 **Önemli loop notları:**
 - continuous-learning başında **devralma protokolü**: `touch storage/STOP_TRAINING` → 360×15sn (~90 dk) bekle → +150 sn cooldown → kendi başlar (`rm -f`).
 - **Otomatik arXiv çekme KAPALI** (2026-06-14 kullanıcı isteği); loop yalnız elle yüklenmiş makaleler üzerinde çalışır (`continuous-learning.sh:50-54`).
-- **Sürekli CPU-LoRA DURDURULDU**: 4B CPU'da ~76 sn/adım, 15-50 örnek overfit eder; eğitim ≥1000 örnekte bulut-GPU'da (rag-training-redesign kararı).
+- **Sürekli CPU-LoRA DURDURULDU**: eğitim yalnız ≥1000 örnek + insan onayıyla, tek koşu (4B döneminde eski makinede ~76 sn/adım ölçülmüştü; güncel yol: yerel 30B-A3B + `moe30b_attn_local`, bkz. LORA kılavuzu v1.4).
 - **ScheduleWakeup otonom nöbet kodda bulunamadı**: HANDOFF notuna göre yeni seans kendiliğinden devam etmez; loop'lar yalnız elle/CLI/web ile başlar.
 
 ---

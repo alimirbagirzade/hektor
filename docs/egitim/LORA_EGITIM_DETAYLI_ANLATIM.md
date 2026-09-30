@@ -1,6 +1,6 @@
 # Hektor LoRA Eğitimi — Detaylı Anlatım
 
-Sürüm: v1.3 · 2026-07-03
+Sürüm: v1.4 · 2026-09-30
 
 ## Sürüm Geçmişi
 
@@ -10,6 +10,7 @@ Sürüm: v1.3 · 2026-07-03
 | v1.1 | 2026-06-16 | Denetçi düzeltmeleri: `check_flags` fiili davranışı, `cloud_notebook.py` net durumu, `chunk_size=1200` kesinleştirildi, `classify_curriculum` imzası iki-parametreli olarak düzeltildi |
 | v1.2 | 2026-06-17 | **İleri LoRA teknikleri entegrasyonu** (araştırma turu): rsLoRA / DoRA / `init_lora_weights` (PiSSA/OLoRA/EVA/LoftQ) / LoRA+ / NEFTune + regularizasyon (warmup·cosine·weight_decay·grad-clip) PEFT trainer'a saf, offline-test edilebilir builder'larla bağlandı; `discipline_safe` profili (v5 catastrophic-forgetting reçetesi); bulut notebook parametrik (alpha/dropout/rsLoRA/NEFTune); degenerasyon tespiti n-gram/satır döngüsünü de yakalar. Yeni: **Aşama 8** + **Araştırma Kaynakları & Log**. |
 | v1.3 | 2026-07-03 | **KL-regularized SFT entegrasyonu** (araştırma turu 3, weekly-deep): arXiv:2512.22337 (Riemer ve ark., IBM Research) — Qwen2.5-Instruct'ta (1.5B/3B/7B/14B) standart LoRA SFT'nin ciddi catastrophic forgetting yarattığını, base-model'e KL cezasının (β=0.001-0.01) bunu büyük ölçüde azalttığını gösteriyor; `_KLRegTrainer` (`peft_lora_train.py`) `Trainer.compute_loss`'u override eder, `model.disable_adapter()` sayesinde ek model kopyası gerekmez. Yeni opt-in alan `kl_reg_beta` + deneysel profil `discipline_safe_kl`. Ayrıca LoRA-GA'nın PEFT 0.19.1'de artık GERÇEKTEN native olduğu doğrulandı (önceki turun "eklenmedi" kaydı güncellendi) ama entegre EDİLMEDİ (quantize desteklenmiyor + residual dönüşüm + ayrı gradient-tahmin ön-adımı gerektiriyor — karmaşıklık/fayda dengesi düşük). |
+| v1.4 | 2026-09-30 | **Varsayılan base Qwen3-30B-A3B-Instruct-2507 (MoE)** + profil `moe30b_attn_local` (attention-only; MoE uzmanları birleşik parametre olduğu için gate/up/down_proj hedeflenemez), CPU bf16 ~61 GB, gradient accumulation 8 + held-out eval + load_best (v13: 210 optimizer adımı ≈ 9,5 sa). 4B yalnız düşük-RAM seçeneği (`discipline_safe_local`); 4B dönemi belgeleri `docs/arsiv/4b_donemi/`. Servis: merge → GGUF (attn q8_0) → Ollama (`scripts/adapter_to_ollama.ps1`). Ölçüm: `docs/PROTOKOL_LORA_RAG_IYILESTIRME.md`. |
 
 > Not: Yeni eğitim geliştirmesinde sürüm numarası artırılır ve değişiklik buraya eklenir.
 
@@ -136,7 +137,7 @@ LoRA verisi, doğrudan PDF korpusundan türeyen yapılandırılmış bilgiye day
   3. en az 1 anchor örtüşmesi.
   Ardından uzunluk filtresi (`min_answer_chars=60`).
 - **DOSYA:** `app/brain/synthetic_qa_builder.py:111-138` (`_is_grounded`), `:216-238` (`_build_prompt`), `:241-317` (`build_for_chunk`), `:319-347` (`build_for_paper`).
-- **MODEL/KÜTÜPHANE:** Ollama `qwen3:4b` (enjekte edilebilir LLM → çevrimdışı test).
+- **MODEL/KÜTÜPHANE:** Ollama `HEKTOR_LLM_MODEL` (varsayılan `qwen3:30b-a3b-instruct-2507-q4_K_M`; enjekte edilebilir LLM → çevrimdışı test).
 - **PARAMETRELER (CLI):** `synth-qa --per-chunk 5 --max-chunks 12 --max-papers 0 --append --seed 0`; toplu: `synth-qa-bulk --batch 5 --target 1000` (checkpoint'li, çökme-güvenli; tam batch implementasyonu kaynak bulgusunda "tam okunmadı" notuyla **kısmen doğrulandı**).
 
 > **RAFT notu:** Direktifte "RAFT" geçer. Kaynak bulgusu (lora-dataset) açıkça belirtir: **"RAFT seed" terimi kodda geçmez**; mevcut grounding mekanizması RAFT'ın (Retrieval-Augmented Fine-Tuning) "cevap yalnız verilen pasajdan kaynaklanmalı" ilkesinin uygulamasıdır, ancak ayrı bir RAFT modülü **kodda bulunamadı**. Repo kökünde `storage/_gen_raft_seed.py` adlı izlenmemiş bir dosya görülmektedir (git status); içeriği bu bulgularda yer almadığından işlevi **doğrulanmadı**.
@@ -194,7 +195,7 @@ LoRA verisi, doğrudan PDF korpusundan türeyen yapılandırılmış bilgiye day
 - **NE:** torch + transformers + peft ile in-process LoRA eğitimi.
 - **NASIL:** `dry_run()` varsayılan — `--run` yoksa eğitim **başlatılmaz** (sadece bağımlılık kontrolü + kurulum komutu). `train()` (`--run` ile): tokenizer/model yükle → `LoraConfig` uygula → tokenize (padding yok, dinamik collator) → `Trainer.train()` → loss eğrisi JSON.
 - **DOSYA:** `app/training/peft_lora_train.py`, CLI `app/main.py:244-345`.
-- **MODEL/KÜTÜPHANE:** `Qwen/Qwen3-4B-Instruct-2507` (varsayılan base), torch/transformers/peft (kurulu: peft 0.19.1, transformers 5.12.0).
+- **MODEL/KÜTÜPHANE:** `Qwen/Qwen3-30B-A3B-Instruct-2507` (varsayılan base, v1.4; düşük RAM: `Qwen/Qwen3-4B-Instruct-2507`), torch/transformers/peft (kurulu: peft 0.19.1, transformers 5.12.0).
 - **PARAMETRELER:** `iterations=300`, `batch_size=1` (config) / `2` (CLI öneri, 8GB), `lr=2e-4`, `lora_r=8`, `lora_alpha=16`, `dropout=0.05`, `max_seq_length=1024`. `target_modules` = `TARGET_MODULES` sabiti `[q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]` — **lm_head/embed YOK** (Qwen3 tied-embeddings; GGUF uyumu). dtype varsayılan `fp32`, `HEKTOR_TRAIN_DTYPE=bf16` ile yarıya iner (AVX512-BF16 olmayan CPU'da emüle edilir → uyarı).
 - **YENİ (v1.2):** `LoraConfig` ve `TrainingArguments` artık **saf builder'lardan** kurulur (`build_lora_kwargs` / `build_training_kwargs` — torch/peft import etmez → çevrimdışı test edilebilir). Yerel trainer bulut reçetesiyle **hizalandı**: artık `weight_decay=0.01`, `warmup_ratio=0.03`, `lr_scheduler_type="cosine"`, `max_grad_norm=1.0`, `seed=42` (önceden warmup/scheduler/weight_decay yoktu — degenerasyon/unutma riski). İleri teknikler (rsLoRA/DoRA/init/LoRA+/NEFTune) config alanlarıyla **opt-in** açılır; ayrıntı **Aşama 8**. Profiller `load_lora_profile()` + `hektor train --profile <ad>` ile uygulanır.
 
@@ -255,11 +256,11 @@ LoRA verisi, doğrudan PDF korpusundan türeyen yapılandırılmış bilgiye day
 
 - **GATE 0 (nicelik):** `lora-readiness [--threshold 1000]` — sentetik satır + onaylı kart örneği toplamı ≥ eşik. `app/main.py` → `@app.command("lora-readiness")`.
 - **GATE 1–7 (audit):** `lora-audit` → `control_plane`. **KARAR:** ≥1000 örnek + audit geçti + kullanıcı onayı.
-- **HAZIRLIK KOMUTU:** `lora-cloud-prep` — birleşik dataset + dedup → `lora_sft.jsonl`; Unsloth notebook (`build_stage2_notebook`, placeholder doldurma) → `notebooks/hektor_lora_stage2.ipynb`; Ollama Modelfile (`write_modelfile`) → ChatML TEMPLATE + `<|im_start|>`/`<|im_end|>` stop token'ları. `app/main.py:1770-1849`, `app/training/cloud_notebook.py:23-66`.
+- **HAZIRLIK KOMUTU:** `lora-cloud-prep` — birleşik dataset + dedup → `lora_sft.jsonl`; Unsloth notebook (`build_stage2_notebook`, placeholder doldurma) → `docs/arsiv/4b_donemi/notebooks/hektor_lora_stage2.ipynb`; Ollama Modelfile (`write_modelfile`) → ChatML TEMPLATE + `<|im_start|>`/`<|im_end|>` stop token'ları. `app/main.py:1770-1849`, `app/training/cloud_notebook.py:23-66`.
 - **5 BİLİNEN HATA DÜZELTMESİ (notebook):** (1) 7 target_module, lm_head/embed yok (tied); (2) `{"messages":[...]}` formatı; (3) `apply_chat_template("qwen3-instruct")`; (4) dinamik padding + `train_on_responses_only` (loss maskeleme); (5) `save_pretrained_gguf("q4_k_m")` + fallback (16-bit merge → llama.cpp).
 - **YENİ (v1.2) — parametrik ileri teknikler:** notebook artık `{LORA_ALPHA}`, `{LORA_DROPOUT}`, `{USE_RSLORA}`, `{NEFTUNE_ALPHA}`, `{WEIGHT_DECAY}`, `{WARMUP_RATIO}` placeholder'larını da doldurur (`build_stage2_notebook` parametreleri config'ten alır). `alpha` verilmezse `2*r` konvansiyonu. NEFTune `SFTConfig(neftune_noise_alpha=...)` ile, rsLoRA `get_peft_model(use_rslora=...)` ile bağlanır. Hepsi **GGUF-güvenli** (eğitim-zamanı / ölçek; mimari değişmez).
 - **KRİTİK EŞLEŞMELER:** base = `Qwen/Qwen3-4B-Instruct-2507` (Ollama `qwen3:4b-instruct-2507` ile birebir; çıplak `qwen3:4b`=2504 ile uyuşmaz); T4'te `fp16` (bf16 DEĞİL — NaN); eğitim chat template ↔ Modelfile TEMPLATE birebir.
-- **DOKÜMAN:** `docs/PROTOKOL_ASAMALI_EGITIM.md`, `docs/PROTOKOL_BULUT_EGITIM.md`.
+- **DOKÜMAN:** `docs/arsiv/4b_donemi/PROTOKOL_ASAMALI_EGITIM.md`, `docs/arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md`.
 - **NOT:** `app/training/cloud_notebook.py` **mevcuttur** (2379 bayt) ve `build_stage2_notebook` (`:23`) ile `write_modelfile` (`:57`) fonksiyonlarını içerir; `app/training/peft_lora_train.py:280` içinde `from app.training.cloud_notebook import build_stage2_notebook, write_modelfile` ile import edilerek aktif olarak kullanılır (`peft_lora_train.generate_colab_notebook` tarafından çağrılır). Önceki "çelişki/belirsizlik" notu hatalıydı; tek ve net bir durum vardır.
 
 ---
@@ -336,7 +337,7 @@ profil: discipline_safe   (hektor train --profile discipline_safe)
 
 3. **Negasyon-kör (negation-blind) uyarısı.** `check_flags()` basit string eşleşmesidir (`token.lower() in answer.lower()`, `evaluate_model.py:88-89`) ve `guaranteed_profit`/`ignores_costs` desenleri de regex temellidir. "Kesinlikle **değil** kazanç" gibi olumsuzlamalar yanlış-pozitif bayrak tetikleyebilir. Negasyon-farkında kontrol **kodda bulunamadı** (`evaluate_model.py:82-91`).
 
-4. **Sürekli CPU-LoRA durduruldu, RAG-first + sentetik veri motoru.** 4B model CPU'da ~74–76 sn/adım; 15–50 örnek overfit. Karar: önce robust RAG + grounding'li sentetik QA ile ≥1000 örneğe ulaş, sonra bulut-GPU. (MEMORY: rag-training-redesign, v5-adapter-regression.)
+4. **Sürekli CPU-LoRA durduruldu, RAG-first + sentetik veri motoru.** (4B dönemi, eski makine) 4B model CPU'da ~74–76 sn/adım; 15–50 örnek overfit. Karar: önce robust RAG + grounding'li sentetik QA ile ≥1000 örneğe ulaş, sonra bulut-GPU. (MEMORY: rag-training-redesign, v5-adapter-regression.)
 
 5. **eval/exec yasağı, whitelist AST.** Makaleden çıkan formüller `safe_eval` ile yalnız beyaz-listeli AST düğümleriyle yürütülür; L3/L4/L5 parse'ları yalnız JSON. (`safe_eval.py:44-92`.) CLAUDE.md Kural 5.
 
@@ -406,7 +407,7 @@ profil: discipline_safe   (hektor train --profile discipline_safe)
 9. **Ölü red-flag deseni.** `success_without_test` deseni `RED_FLAGS`'te tanımlıdır (`evaluate_model.py:32-34`) ama `check_flags` veya başka hiçbir yerde çağrılmaz; etkin değildir. (Aktif desenler yalnız `guaranteed_profit` ve strateji-koşullu `ignores_costs` + `must_avoid`.)
 10. **Çift registry.** JSONL (aktif) ve SQLite (eski) iki registry; karışıklık riski.
 11. **MasterySFTBuilder / build_tool_use_dataset / ModelEvaluator / LoRAControlPlane.run_full iç detayı** bu bulgularda **tam okunmadı** → davranışları **doğrulanmadı**.
-12. **CPU'da eğitim pratik değil.** 4B model ~74–76 sn/adım; ≥1000 örnek için bulut-GPU zorunlu.
+12. **CPU eğitim süresi (güncel, v1.4):** 30B-A3B MoE bf16, GA 8 → ~160 sn/optimizer adımı; 1680 örnek ≈ 9,5 sa (v13). (4B döneminde eski i7 makinede ~74–76 sn/adım ölçülmüştü; o donanımda bulut-GPU gerekiyordu.)
 13. **`auto_researcher` → tool-use** zinciri DPO hazırlığı üretir; DPO eğitiminin kendisi (eğitim döngüsüne bağlanması) bu bulgularda **gösterilmedi**.
 14. **v1.2 reçetesi (`discipline_safe`) henüz doğrulanmadı.** İleri teknikler kod+config olarak bağlandı ve çevrimdışı test edildi; ancak bir bulut eğitim koşusu + `adapter_eval` gate'i ile **fiilen daha iyi olduğu kanıtlanmadı** (Kural 2: test edilmeden "daha iyi" denmez). rsLoRA/DoRA/init/LoRA+/NEFTune **varsayılan kapalı** (opt-in) — yalnız regularizasyon (warmup/cosine/weight_decay/grad-clip) varsayılan etkin.
 

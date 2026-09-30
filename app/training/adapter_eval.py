@@ -18,6 +18,7 @@ eskisi gibi (çıplak soru + ``check_flags``) değerlendirilir.
 
 from __future__ import annotations
 
+import gc
 import json
 import re
 from collections import Counter
@@ -70,7 +71,9 @@ def _is_degenerate(answer: str) -> bool:
     sent_counts = Counter(sents)
     sent_dup = len(sents) >= 3 and len(sent_counts) <= max(1, len(sents) // 2)
     sent_repeat = bool(sents) and max(sent_counts.values()) >= _SENTENCE_REPEAT_MIN
-    ngram_loop = _max_ngram_repeat(answer, 3) >= 4
+    # Kademe-2 B7 (2026-09-30): mutlak 4 eşiği uzun (1024 token) cevaplarda meşru terim
+    # tekrarını döngü sayar → uzunlukla ölçeklenir; ≤200 kelimede davranış AYNI (4).
+    ngram_loop = _max_ngram_repeat(answer, 3) >= max(4, -(-len(answer.split()) // 50))
     lines = [ln.strip() for ln in answer.splitlines() if len(ln.strip()) > 15]
     line_dup = len(lines) >= 4 and len(set(lines)) <= max(1, len(lines) // 2)
     return sent_dup or sent_repeat or ngram_loop or line_dup
@@ -211,6 +214,8 @@ class AdapterEvalResult:
     rows: list[dict] = field(default_factory=list)
     # Skordan BAĞIMSIZ kategorik vetolar (degenerate / collapse / guaranteed_profit).
     vetoes: list[str] = field(default_factory=list)
+    # Kesilen cevap sayıları + üretim sınırı (B1): rapor kendi üretim koşulunu taşır.
+    truncation: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -225,6 +230,13 @@ class AdapterEvalResult:
             "regression": self.regression,
             "verdict": self.verdict,
             "vetoes": self.vetoes,
+            "truncation": self.truncation,
+            "generation": {
+                "do_sample": False,
+                "max_new_tokens": EVAL_MAX_NEW_TOKENS,
+                "system_prompt": False,
+                "repetition_penalty": None,
+            },
             "rows": self.rows,
         }
 
@@ -276,9 +288,23 @@ def _build_messages(question: str, system: str | None = None) -> list[dict]:
     return msgs
 
 
-def _generate(
-    tok, model, question: str, max_new_tokens: int = 220, *, system: str | None = None
-) -> str:
+# Kademe-2 B1 (2026-09-30): eskiden 220 idi → v10–v12 eval'lerinde base cevaplarının 80/80'i
+# cümle ortasında kesildi (adapter kısa cevap verdiği için tamamlanıyordu); base'in maliyet/
+# format/persona bayraklarının çoğu kesilen kısımdaydı → karşılaştırma adapter lehine bozuktu.
+EVAL_MAX_NEW_TOKENS = 1024
+# Bir tarafın cevaplarının bu oranından fazlası kesildiyse 'accept' verilmez (eşit koşul yok).
+_MAX_TRUNCATED_SHARE = 0.2
+
+
+def _generate_checked(
+    tok,
+    model,
+    question: str,
+    max_new_tokens: int = EVAL_MAX_NEW_TOKENS,
+    *,
+    system: str | None = None,
+) -> tuple[str, bool]:
+    """Greedy üretim → (metin, kesildi_mi). Kesildi = sınıra ulaştı ve EOS üretilmedi."""
     import torch
 
     msgs = _build_messages(question, system)
@@ -288,7 +314,21 @@ def _generate(
         out = model.generate(
             **ids, max_new_tokens=max_new_tokens, do_sample=False
         )  # greedy=determinist
-    return tok.decode(out[0][ids["input_ids"].shape[1] :], skip_special_tokens=True).strip()
+    gen = out[0][ids["input_ids"].shape[1] :]
+    eos = getattr(tok, "eos_token_id", None)
+    truncated = len(gen) >= max_new_tokens and (eos is None or int(gen[-1]) != int(eos))
+    return tok.decode(gen, skip_special_tokens=True).strip(), truncated
+
+
+def _generate(
+    tok,
+    model,
+    question: str,
+    max_new_tokens: int = EVAL_MAX_NEW_TOKENS,
+    *,
+    system: str | None = None,
+) -> str:
+    return _generate_checked(tok, model, question, max_new_tokens, system=system)[0]
 
 
 _MIN_EVAL_N = 5  # bu sayının altında 'accept' YASAK (v5 dersi: n=1 ile sahte accept)
@@ -345,18 +385,30 @@ def _score_answers(
     base_model: str,
     adapter: str,
     min_n: int = _MIN_EVAL_N,
+    base_truncated: list[bool] | None = None,
+    adapter_truncated: list[bool] | None = None,
 ) -> AdapterEvalResult:
     """Üretilmiş base/adapter cevaplarını puanla + verdict ver (saf; model yüklemez)."""
+    bt = base_truncated or [False] * len(items)
+    at = adapter_truncated or [False] * len(items)
     base_flag_total = 0
     adapt_flag_total = 0
     rows: list[dict] = []
-    for it, b, a in zip(items, base_ans, adapt_ans, strict=True):
+    for it, b, a, b_cut, a_cut in zip(items, base_ans, adapt_ans, bt, at, strict=True):
         bf = _item_flags(it, b)
         af = _item_flags(it, a)
         base_flag_total += len(bf)
         adapt_flag_total += len(af)
         rows.append(
-            {"q": it.question, "base": b, "adapter": a, "base_flags": bf, "adapter_flags": af}
+            {
+                "q": it.question,
+                "base": b,
+                "adapter": a,
+                "base_flags": bf,
+                "adapter_flags": af,
+                "base_truncated": b_cut,
+                "adapter_truncated": a_cut,
+            }
         )
 
     denom = max(1, len(items))
@@ -391,11 +443,18 @@ def _score_answers(
         adapter_collapsed=adapter_collapsed,
         adapter_guaranteed_profit=adapter_guaranteed_profit,
     )
+    # B1: kesik cevaplar eşit koşulda puanlanamaz → 'accept' için kanıt sayılmaz.
+    denom_n = max(1, len(items))
+    truncation = {"base": sum(bt), "adapter": sum(at), "max_new_tokens": EVAL_MAX_NEW_TOKENS}
+    if verdict == "accept" and max(sum(bt), sum(at)) / denom_n > _MAX_TRUNCATED_SHARE:
+        verdict = "inconclusive"
+        vetoes = [*vetoes, "truncated"]
     return AdapterEvalResult(
         eval_set=eval_set,
         base_model=base_model,
         adapter=adapter,
         n=len(items),
+        truncation=truncation,
         base_score=base_score,
         adapter_score=adapter_score,
         base_flags=base_flag_total,
@@ -432,18 +491,22 @@ def evaluate_adapter(
 
     # 1) BASE (adapter yok) — tek tek üret, sonra belleği boşalt
     tok, model = _load_model(base_model, None)
-    base_ans = [_generate(tok, model, p) for p in prompts]
+    base_out = [_generate_checked(tok, model, p) for p in prompts]
     del model
+    gc.collect()  # B11/C8: base serbest kalmadan adapter yüklenmesin (30B'de 2× bellek)
 
     # 2) ADAPTER (base + PEFT)
     tok, model = _load_model(base_model, str(adapter_dir))
-    adapt_ans = [_generate(tok, model, p) for p in prompts]
+    adapt_out = [_generate_checked(tok, model, p) for p in prompts]
     del model
+    gc.collect()
 
     result = _score_answers(
         items,
-        base_ans,
-        adapt_ans,
+        [a for a, _ in base_out],
+        [a for a, _ in adapt_out],
+        base_truncated=[c for _, c in base_out],
+        adapter_truncated=[c for _, c in adapt_out],
         eval_set=Path(eval_set).stem,
         base_model=base_model,
         adapter=str(adapter_dir),

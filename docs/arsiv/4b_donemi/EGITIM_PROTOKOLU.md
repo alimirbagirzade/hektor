@@ -276,7 +276,7 @@ Kuyruk düz metin dosyasıdır: satır ekle/çıkar, döngü kaldığı yerden d
 
 ### RAG + LoRA tek beyin entegrasyonu
 Eğitilen adapter'ın RAG ile AYNI modelde çalışması için GGUF dönüşümü ve
-RAFT-tarzı veri reçetesi: bkz. **docs/RAG_LORA_ENTEGRASYON.md** (Ollama
+RAFT-tarzı veri reçetesi: bkz. **docs/arsiv/4b_donemi/RAG_LORA_ENTEGRASYON.md** (Ollama
 ADAPTER yolu, base eşleşme kuralı, ≥1000 örnek hedefi, kaynak-yok reddi
 örnekleri, müfredat sırası).
 
