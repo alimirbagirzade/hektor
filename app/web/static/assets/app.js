@@ -1443,7 +1443,7 @@
         "GERÇEK LoRA eğitimi başlatılacak:\n" +
         "Adapter: " + payload.adapter_name + "\n" +
         "Temel model: " + (payload.base_model || "(varsayılan)") + "\n" +
-        "Profil: " + (payload.profile || "discipline_safe_local") + "\n" +
+        "Profil: " + (payload.profile || "moe30b_attn_local") + "\n" +
         "Örnek tavanı: " + (payload.max_examples || "profil") + "\n" +
         "İterasyon: " + (payload.iterations || "plandan (örnek × epoch)") + "\n\n" +
         "Saatler sürebilir; bilgisayar açık kalmalı. Sunucu TAZE manuel onay ister " +

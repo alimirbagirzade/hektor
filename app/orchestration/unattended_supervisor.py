@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.config import DEFAULT_TRAIN_PROFILE
+
 log = logging.getLogger(__name__)
 
 
@@ -139,7 +141,7 @@ class UnattendedSupervisor:
         settings = get_settings()
         return orch.start(
             model=settings.peft_base_model,
-            profile="discipline_safe_local",
+            profile=DEFAULT_TRAIN_PROFILE,
             adapter_name="hektor_lora",
             params={"iters": 300, "hunt_ack": False, "unattended": True},
         )

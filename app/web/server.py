@@ -20,7 +20,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Requ
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from app.config import configure_logging, get_settings
+from app.config import DEFAULT_TRAIN_PROFILE, configure_logging, get_settings
 from app.web import security
 from app.web.schemas import (
     AdapterOut,
@@ -1424,7 +1424,7 @@ def api_training_run(req: TrainingStartRequest) -> TrainingStartResponse:
     # bölme, kalite kapısı, sızıntı, yük doktoru) TEK KULLANIMLIK onay tüketilmeden ÖNCE.
     # Eskiden onay önce yanıyor, sonra launch() bu kontrollerde düşüyordu.
     adapter = req.adapter_name or "hektor_lora"
-    profile = (req.profile or "").strip() or "discipline_safe_local"
+    profile = (req.profile or "").strip() or DEFAULT_TRAIN_PROFILE
     # Profil adı/hedefleri onay tüketilmeden ÖNCE doğrulanır (bilinmeyen profil / geçersiz
     # target_modules → onay yanmadan net hata).
     from app.training.peft_lora_train import load_lora_profile

@@ -27,14 +27,15 @@ param(
     # istiyorsan adim sayisini degil BUNU buyut; adim sayisi plandan turer.
     [int]$MaxExamples = 0,
     [string]$Dtype = "bf16",
-    # LoRA recete profili. VARSAYILAN discipline_safe_local (assistant_only_loss maskeleme +
-    # NEFTune). --profile GECMEZSEK `train --run` vanilya varsayilanla (maskesiz, lr=2e-4)
-    # kosar -> prompt kalibi ezberlenir = v5 disiplin-regresyon recetesi (Kademe-2 av bulgusu).
-    # Profili tamamen atlamak icin -Profile "" ver.
-    [string]$Profile = "discipline_safe_local",
-    # Temel model. BOS ise ayardaki varsayilan (Qwen3-4B) kullanilir. Yerel CPU'da
-    # 4B bf16 ~8 GB tutar; dusuk RAM'li makinede kucuk model (or. Qwen2.5-1.5B-Instruct)
-    # sec. Secim train_status.json'a yazilir ki nobetci yeniden baslatirken UNUTMASIN.
+    # LoRA recete profili. VARSAYILAN moe30b_attn_local (Qwen3-30B-A3B MoE: yalniz attention +
+    # assistant_only_loss maskeleme + NEFTune; app.config.DEFAULT_TRAIN_PROFILE ile ayni).
+    # --profile GECMEZSEK `train --run` vanilya varsayilanla (maskesiz) kosar -> prompt kalibi
+    # ezberlenir = v5 disiplin-regresyon recetesi. Dense/4B temel model icin
+    # -Profile discipline_safe_local. Profili tamamen atlamak icin -Profile "" ver.
+    [string]$Profile = "moe30b_attn_local",
+    # Temel model. BOS ise ayardaki varsayilan (Qwen3-30B-A3B-Instruct-2507, bf16 ~61 GB RAM)
+    # kullanilir. Dusuk RAM'li makinede -BaseModel Qwen/Qwen3-4B-Instruct-2507 +
+    # -Profile discipline_safe_local. Secim train_status.json'a yazilir ki nobetci UNUTMASIN.
     [string]$BaseModel = "",
     # Cokme-kurtarma: son checkpoint'ten DEVAM et. Trainer'da resume artik ACIK TERCIH
     # (varsayilan KAPALI) -- ayni adapter adiyla ikinci kosu eskiden sessizce eski

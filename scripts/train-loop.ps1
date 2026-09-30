@@ -61,7 +61,7 @@ while (-not (Test-Path $StopFile) -and (Get-Date) -lt $EndTime) {
     & $Uv run hektor lora-split *>> $Log
     Write-Log "=== Dongu ${cycle}: egitim ($Iterations iter) ==="
     # --profile ZORUNLU: geçilmezse vanilya reçete (maskesiz, NEFTune'suz) koşar = v5 tuzağı.
-    & $Uv run hektor train --run --backend peft --adapter-name $Adapter --iterations $Iterations --profile discipline_safe_local *>> $Log
+    & $Uv run hektor train --run --backend peft --adapter-name $Adapter --iterations $Iterations --profile moe30b_attn_local *>> $Log
     Write-Log "=== Dongu $cycle bitti -> ${CooldownSec}sn cooldown ==="
     # Cooldown sirasinda da durdurma kontrolu
     $waited = 0

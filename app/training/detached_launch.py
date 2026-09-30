@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.config import get_settings
+from app.config import DEFAULT_TRAIN_PROFILE, get_settings
 
 log = logging.getLogger(__name__)
 
@@ -750,7 +750,7 @@ def launch(
     iterations: int = 0,
     dtype: str = "bf16",
     base_model: str | None = None,
-    profile: str | None = "discipline_safe_local",
+    profile: str | None = DEFAULT_TRAIN_PROFILE,
     max_examples: int = 0,
     approval_id: str = "",
     early_exit_wait_s: float | None = None,
@@ -763,7 +763,7 @@ def launch(
       (profil/CLI `max_examples` kırpması UYGULANDIKTAN sonra) × profildeki `epochs`.
       Tam `train.jsonl` satır sayısını kullanmak, kırpılmış alt-küme üzerinde sessizce
       birkaç epoch koşulmasına (aşırı-uyum) yol açıyordu.
-    - profile: LoRA reçete profili. VARSAYILAN `discipline_safe_local` (maskeli + NEFTune)
+    - profile: LoRA reçete profili. VARSAYILAN `DEFAULT_TRAIN_PROFILE` (maskeli + NEFTune)
       — web butonu / auto_pipeline / CLI-detached çağıranlarının HİÇBİRİ profil geçmediği
       için varsayılan vanilya olsaydı bu yollarla başlatılan eğitim SESSİZCE maskesiz koşar
       ve tam v5 disiplin-regresyonunu üretirdi (Kademe-2 av bulgusu). Güvenli-varsayılan

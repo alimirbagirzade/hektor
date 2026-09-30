@@ -14,10 +14,18 @@ import inspect
 from app.training.detached_launch import _build_train_cmd, launch
 
 
-def test_launch_default_profile_is_discipline_safe_local() -> None:
-    """launch() varsayılan profili güvenli (maskeli) olmalı — vanilya DEĞİL."""
+def test_launch_default_profile_is_safe_and_matches_default_base() -> None:
+    """launch() varsayılan profili güvenli (maskeli) olmalı — vanilya DEĞİL — ve varsayılan
+    base (Qwen3-30B-A3B MoE) ile uyumlu olmalı (attention-only; 2026-09-30'dan beri)."""
+    from app.config import DEFAULT_TRAIN_PROFILE, get_settings
+    from app.training.peft_lora_train import load_lora_profile
+
     default = inspect.signature(launch).parameters["profile"].default
-    assert default == "discipline_safe_local"
+    assert default == DEFAULT_TRAIN_PROFILE == "moe30b_attn_local"
+    assert "A3B" in get_settings().peft_base_model
+    prof = load_lora_profile(DEFAULT_TRAIN_PROFILE)
+    assert prof["assistant_only_loss"] is True  # maskeli → v5 tuzağı yok
+    assert set(prof["target_modules"]) == {"q_proj", "k_proj", "v_proj", "o_proj"}
 
 
 def test_build_train_cmd_includes_profile_when_given() -> None:

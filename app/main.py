@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from app.config import configure_logging, get_settings
+from app.config import DEFAULT_TRAIN_PROFILE, configure_logging, get_settings
 
 app = typer.Typer(
     help="Hektor Trader AI — local-first trading research system.",
@@ -541,7 +541,7 @@ def train(
         None,
         help="LoRA profili (configs/lora/lora_profiles.yaml; yalnız PEFT): "
         "standard_reasoning|high_capacity_reasoning|discipline_safe|"
-        "discipline_safe_local|small_smoke_test",
+        "discipline_safe_local|moe30b_attn_local|small_smoke_test",
     ),
     max_examples: int = typer.Option(
         0,
@@ -4115,7 +4115,7 @@ def _render_orchestration(snap: dict) -> None:
 @app.command("orchestrate-start")
 def orchestrate_start_cmd(
     model: str = typer.Option("", "--model", help="LLM/base model (boşsa ayardan)."),
-    profile: str = typer.Option("discipline_safe_local", "--profile", help="LoRA profili."),
+    profile: str = typer.Option(DEFAULT_TRAIN_PROFILE, "--profile", help="LoRA profili."),
     adapter: str = typer.Option("hektor_lora", "--adapter", help="Adapter adı."),
     iters: int = typer.Option(300, "--iters", help="Eğitim adım sayısı (öneri/önizleme)."),
     hunt_ack: bool = typer.Option(

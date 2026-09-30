@@ -34,10 +34,10 @@ Kurulum açılır ve **9 yerel model seçeneği** sunar (hepsi internetsiz ve ü
 API anahtarı istenmez):
 
 ```
-  [1] qwen3:4b-instruct-2507  ~2.5 GB   8 GB+ RAM  Hızlı ← önerilen (düşünmesiz)
+  [1] qwen3:30b-a3b-instruct-2507 ~19 GB  32 GB+ RAM  ← önerilen (düşünmesiz, MoE)
   [2] qwen3:8b        ~5 GB     16 GB+ RAM   Dengeli
   [3] qwen3:14b       ~9 GB     32 GB+ RAM   Güçlü
-  [4] qwen3:30b      ~20 GB     32 GB+ RAM   Çok güçlü
+  [4] qwen3:4b-instruct-2507 ~2.5 GB  8 GB+ RAM  Düşük RAM seçeneği
   [5] llama3.1:8b     ~5 GB     16 GB+ RAM
   [6] llama3.1:70b   ~40 GB     80 GB+ RAM   Çok güçlü
   [7] mistral:7b      ~4 GB      8 GB+ RAM   Hızlı
@@ -911,7 +911,8 @@ cp .env.example .env
 # .env → HEKTOR_LLM_BACKEND=ollama     (varsayılan; API anahtarı gerekmez)
 
 # 4. Ollama modelini indir
-ollama pull qwen3:4b-instruct-2507-q4_K_M  # 8 GB RAM için önerilen (düşünmesiz)
+ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M  # varsayılan (32 GB+ RAM, düşünmesiz)
+# düşük RAM (8 GB): ollama pull qwen3:4b-instruct-2507-q4_K_M
 ollama pull nomic-embed-text # embedding modeli
 
 # 5. Web arayüzünü başlat
@@ -922,9 +923,9 @@ uv run hektor-web
 
 | RAM | Model | Hız |
 |:---:|-------|-----|
-| 8 GB | `qwen3:4b-instruct-2507-q4_K_M` | Hızlı (düşünmesiz; çıplak `qwen3:4b` = Thinking-2507, yavaş) |
+| 32 GB+ | `qwen3:30b-a3b-instruct-2507-q4_K_M` | **Varsayılan** (düşünmesiz MoE; çıplak `qwen3:30b` = Thinking-2507, yavaş) |
 | 16 GB | `qwen3:8b` | Dengeli |
-| 32 GB | `qwen3:14b` | Güçlü |
+| 8 GB | `qwen3:4b-instruct-2507-q4_K_M` | Düşük RAM seçeneği (çıplak `qwen3:4b` = Thinking-2507) |
 
 > **Ollama yoksa:** Embedding için deterministik hash yedek devreye girer (`HEKTOR_ALLOW_FAKE_EMBEDDINGS=true`); LLM cevabı üretilmez, yalnız kaynak parçaları gösterilir.
 > Bulut sağlayıcı (OpenAI/Anthropic/Google) desteği kodda **opsiyonel** kalır ve bu projede kullanılmaz (bkz. `.env.example`).
@@ -1017,7 +1018,7 @@ uv run hektor lora-dataset            # LoRA SFT JSONL + train/valid split üret
 uv run hektor rag-mastery             # RAG "ne kadar öğrendi" ustalık panosu (LLM-free)
 uv run hektor train-load-doctor       # eğitim-ÖNCESİ rakip LLM/GPU yükü taraması: GO/WARN/NO-GO (salt-okuma; train-doctor'la KARIŞTIRILMASIN)
 uv run hektor train                   # LoRA — SADECE ÖNIZLEME (çalıştırmaz)
-uv run hektor train --run             # LoRA — yerel (smoke; ağır 4B için bulut tercih et; train-load-doctor otomatik çalışır; karışım ağırlığı sorulur + eval sızıntı kapısı)
+uv run hektor train --run             # LoRA — yerel (varsayılan 30B-A3B + moe30b_attn_local, bf16 ~61 GB RAM; uzun koşu için scripts/start-train.ps1; train-load-doctor otomatik çalışır; karışım ağırlığı sorulur + eval sızıntı kapısı)
 uv run hektor evaluate <eval.jsonl>   # modeli failure-mode eval setiyle test et
 uv run hektor local-training-audit    # eğitim-HAZIRLIK denetimi — SALT RAPOR (eğitim başlatmaz, 5A)
 uv run hektor local-training-request  # onay-kapılı eğitim İSTEĞİ — onay oluşturabilir, eğitim/onay-tüketimi YOK (5B)
@@ -1179,8 +1180,8 @@ uv run hektor train --run               # macOS Apple Silicon gerekli
 | Sayfa eski veya boş | **Cmd+Shift+R** (Mac) / **Ctrl+Shift+R** (Win) — önbellek temizle |
 | "Bu siteye ulaşılamıyor" | Sunucu kapalı → `uv run hektor-web` çalıştır |
 | 🔴 "Ollama yok" uyarısı | `brew services start ollama` → tarayıcıyı yenile |
-| Kart üretimi çok uzun | `.env` → `HEKTOR_LLM_MODEL=qwen3:4b-instruct-2507-q4_K_M` (düşünmesiz, çok daha hızlı) |
-| 🔴 "LLM yok" uyarısı | `ollama serve` çalıştır, sonra `ollama pull qwen3:4b-instruct-2507-q4_K_M` |
+| Kart üretimi çok uzun | Modelin `-instruct-2507` etiketi olduğundan emin ol (çıplak `qwen3:30b`/`qwen3:4b` = düşünen, yavaş); düşük RAM'de `qwen3:4b-instruct-2507-q4_K_M` |
+| 🔴 "LLM yok" uyarısı | `ollama serve` çalıştır, sonra `ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M` |
 | 50 MB az geldi | `.env` → `HEKTOR_MAX_UPLOAD_MB=200` → sunucuyu yeniden başlat |
 | "Yetkisiz" hatası | Token ayarlıysa **08 SİSTEM** → token gir → KAYDET bas |
 | Backtest FAIL ama getiri pozitif | OOS kısmı başarısız — bu kasıtlı, overfit koruması |

@@ -26,6 +26,13 @@ LEGACY_ENV_PREFIX = "ACHILLES_"
 
 # Yeniden adlandırma öncesi/sonrası SQLite dosya adları (bkz. Settings.sqlite_file).
 _DEFAULT_SQLITE_PATH = Path("storage/sqlite/hektor_trader_ai.db")
+
+#: Varsayılan LoRA reçete profili (configs/lora/lora_profiles.yaml) — varsayılan base
+#: Qwen3-30B-A3B (MoE) için attention-only + maskeli + NEFTune. Profil geçmeyen tüm yollar
+#: (web, detached launch, supervisor, CLI) bunu kullanır: vanilya (maskesiz) eğitim v5
+#: disiplin regresyonunu üretmişti. Düşük RAM / dense 4B base için LOW_RAM_TRAIN_PROFILE.
+DEFAULT_TRAIN_PROFILE = "moe30b_attn_local"
+LOW_RAM_TRAIN_PROFILE = "discipline_safe_local"
 _LEGACY_SQLITE_PATH = Path("storage/sqlite/achilles_trader_ai.db")
 
 
@@ -87,16 +94,17 @@ class Settings(BaseSettings):
     # Pay-per-token bulut API'si (OpenAI/Anthropic/Google) bu projede KULLANILMAZ;
     # istemci kodu ve ayarları bilinçli olarak yoktur (kalıcı proje kısıtı).
     ollama_host: str = "http://127.0.0.1:11434"  # localhost yerine IP — Windows IPv6 sorununu önler
-    # Düşünmesiz Qwen3-4B-Instruct-2507 (PEFT base ile aynı checkpoint). Çıplak `qwen3:4b`
-    # etiketi = Qwen3-4B-Thinking-2507: düşünme kapatılamaz, CPU'da cevap dakikalar sürer.
-    llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
+    # Düşünmesiz Qwen3-30B-A3B-Instruct-2507 (PEFT base ile aynı checkpoint; 2026-09-30'dan beri
+    # varsayılan). Çıplak `qwen3:30b` / `qwen3:4b` etiketleri Thinking-2507'dir: düşünme
+    # kapatılamaz, cevap dakikalar sürer. Düşük RAM (8 GB): `qwen3:4b-instruct-2507-q4_K_M`.
+    llm_model: str = "qwen3:30b-a3b-instruct-2507-q4_K_M"
     # Modeli sorgu sonrası ne kadar yüklü tutsun. RAM darsa (ör. aynı anda LoRA eğitimi)
     # "0" → hemen boşalt (eğitimle ~7GB çakışmayı önler). Varsayılan "30s"; büyük
     # makinede ".env: HEKTOR_OLLAMA_KEEP_ALIVE=5m" hızlı ardışık sorgu için.
     ollama_keep_alive: str = "30s"
     # train-load-doctor eşiği: gerçek eğitim öncesi rakip yük (Ollama'da yüklü model /
-    # başka GPU süreci) taranır. Ölçülen boş VRAM bu değerin altındaysa NO-GO. LoRA
-    # (Qwen3-4B, 4-bit) tek başına ~4-5GB tutar; 3GB tampon makul varsayılan.
+    # başka GPU süreci) taranır. Ölçülen boş VRAM bu değerin altındaysa NO-GO. 3GB tampon
+    # makul varsayılan (CPU eğitiminde asıl sınır RAM'dir: train() RAM ön-kontrolü).
     train_load_doctor_min_free_vram_gb: float = 3.0
     # LocalLLM num_predict bütçesi: çağıran max_tokens vermezse varsayılan; verse de tavanı
     # aşamaz. Sınırsız üretimde qwen3:4b "2+2" sorusunu 240 sn'de bitiremedi (2026-09-13).
@@ -112,10 +120,12 @@ class Settings(BaseSettings):
 
     # PEFT (Windows/Linux) LoRA eğitimi için HuggingFace base model.
     # MLX 4-bit formatı transformers ile yüklenemez; bu yüzden ayrı HF model gerekir.
-    # DİKKAT: Instruct-2507'nin Ollama karşılığı `qwen3:4b-instruct-2507-q4_K_M`'dir; çıplak
-    # `qwen3:4b` Thinking-2507'dir (manifest özetiyle doğrulandı, 2026-09-13). Adapter'ın
-    # Ollama'da çalışması için eğitim base'i BİREBİR aynı olmalı.
-    peft_base_model: str = "Qwen/Qwen3-4B-Instruct-2507"
+    # DİKKAT: Instruct-2507'nin Ollama karşılığı `qwen3:30b-a3b-instruct-2507-q4_K_M`'dir;
+    # çıplak `qwen3:30b` Thinking-2507'dir. Adapter'ın Ollama'da çalışması için eğitim base'i
+    # BİREBİR aynı olmalı. MoE base → eğitim profili `DEFAULT_TRAIN_PROFILE` (attention-only);
+    # CPU'da bf16 zorunlu (~61 GB; fp32 128 GB'a sığmaz). Düşük RAM: base
+    # `Qwen/Qwen3-4B-Instruct-2507` + profil `LOW_RAM_TRAIN_PROFILE`.
+    peft_base_model: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
 
     # --- Storage ---
     sqlite_path: Path = Field(default=_DEFAULT_SQLITE_PATH)
