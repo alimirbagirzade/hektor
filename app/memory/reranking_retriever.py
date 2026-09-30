@@ -120,11 +120,13 @@ class RerankingRetriever:
         """(arama sorgusu, bilingual ise ek orijinal sorgu). Çeviri hatasında orijinale düşer."""
         if self.translate == "off":
             return query, None
+        from app.brain.local_llm import LLMUnavailable
         from app.memory.query_translation import TranslationError, translate_query
 
         try:
             en = translate_query(query, model=self.translate_model)
-        except TranslationError as exc:
+        except (TranslationError, LLMUnavailable) as exc:
+            # Çeviri yardımcıdır: model yok / Ollama kapalı / kötü çıktı → retrieval DÜŞMEZ.
             logger.warning("Sorgu çevirisi başarısız, orijinal sorgu kullanılıyor: %s", exc)
             return query, None
         if self.translate == "bilingual" and en != query:

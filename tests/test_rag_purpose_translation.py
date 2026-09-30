@@ -116,6 +116,19 @@ def test_translation_failure_falls_back(monkeypatch: pytest.MonkeyPatch) -> None
     assert base.calls[0][0] == "TR sorgu"
 
 
+def test_translation_llm_unavailable_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Canlıda çeviri modeli yok / Ollama kapalı → RAG düşmez, orijinal sorguyla sürer."""
+    from app.brain.local_llm import LLMUnavailable
+
+    def down(q: str, model: str) -> str:
+        raise LLMUnavailable("Ollama yanıt vermedi")
+
+    monkeypatch.setattr(qt, "translate_query", down)
+    base = _Base([_chunk("b1", "paper_b")])
+    out = _rr(base, exclude_purposes=frozenset(), translate="en").retrieve("TR sorgu", top_k=1)
+    assert [c.chunk_id for c in out] == ["b1"] and base.calls[0][0] == "TR sorgu"
+
+
 def test_invalid_translate_mode_rejected() -> None:
     with pytest.raises(ValueError, match="rag_query_translate"):
         _rr(_Base([]), translate="fr")

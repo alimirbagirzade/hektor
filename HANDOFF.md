@@ -42,7 +42,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 | LLM | Yalnız yerel Ollama. Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
 | Arka plan döngüleri | Web açılışında çalışır; `HEKTOR_BACKGROUND_LOOPS_ENABLED=false` ile kapatılır. **Bu makinede kapalı** (LLM ayarı LoRA'lı model — açmadan önce base'e döndür). |
-| RAG | Hibrit (dense + BM25 + sezgisel rerank). Sorgu çevirisi / amaç filtresi **varsayılan KAPALI** — canlıya alma kararı bekliyor (bkz. 2026-09-30 (5)). |
+| RAG | Hibrit (dense + BM25 + sezgisel rerank). **Sorgu çevirisi (TR→EN) CANLI** bu makinede (`.env`: `HEKTOR_RAG_QUERY_TRANSLATE=en`, çevirmen `qwen3:30b-a3b-instruct-2507-q4_K_M`; yedek `storage/env.bak-20260930-ragtranslate`) — kullanıcı kararı 2026-09-30; `.env.example`'da da açık, kod varsayılanı `off`. Çeviri hata verirse retrieval orijinal sorguyla sürer. ⚠ Sohbet modeli `hektor-v12-30b` + çevirmen ayrı 30B → önbellekte olmayan her sorguda GPU model takası olabilir (ÖLÇÜLMEDİ). Amaç filtresi kapalı. |
 | Test izolasyonu | Testler gerçek `data/` · `storage/` ağacına **yazamaz**; ihlal ederse paket FAIL verir |
 
 ---
@@ -144,8 +144,10 @@ Sınırlar: tek hakem (Claude, kör ama insan değil); recall havuza göreli (ge
 sınırı); aynı 30 geliştirme sorusu. Korpusta veri-doğrulama konuları (S01/S02/S05) zayıf.
 Ek bulgular: 2 doküman OCR/kodlama çöpü parça üretiyor ("(4))" başlıklı ve başlıksız biri);
 4/300 başlık yayıncı kalıbı; retrieval tekrarı iç-doküman sayısında 53↔57↔62 oynadı.
-**Karar kullanıcıda:** `HEKTOR_RAG_QUERY_TRANSLATE=en` canlıya alınsın mı (çeviri LLM çağrısı
-ekler; önbellekli). Önce insan etiket örneklemesi önerilir. 2×2 bağlamı V0 ile donduruldu
+**CANLIYA ALINDI** (kullanıcı kararı, 2026-09-30): bu makinenin `.env`'inde
+`HEKTOR_RAG_QUERY_TRANSLATE=en`; uçtan uca doğrulandı (S14 Kalman: 6/6 zaman serisi kaynağı).
+Çeviri hatası (`TranslationError`/`LLMUnavailable`) retrieval'ı düşürmez. İnsan etiket
+örneklemesi hâlâ önerilir. 2×2 bağlamı V0 ile donduruldu
 (RAG'lı koşullar mevcut hattı ölçüyor).
 
 ---
