@@ -2,8 +2,9 @@
 
 > Amaç: Lokal CPU'da, eğitim yapmadan, makale chunk'larından **grounded sentetik
 > QA** üreterek 15-50 örnekten **≥1000 çeşitli SFT örneğine** çıkmak. Bu, anlamlı
-> bulut-GPU LoRA eğitiminin (Stage 2) ön koşuludur. Üst protokol:
-> [PROTOKOL_ASAMALI_EGITIM.md](PROTOKOL_ASAMALI_EGITIM.md).
+> LoRA eğitiminin (Stage 2: yerel 30B-A3B, `scripts/start-train.ps1`) ön koşuludur.
+> Ölçüm/iyileştirme protokolü: [PROTOKOL_LORA_RAG_IYILESTIRME.md](PROTOKOL_LORA_RAG_IYILESTIRME.md)
+> (ilk aşamalı plan, 4B dönemi: [arsiv/4b_donemi/PROTOKOL_ASAMALI_EGITIM.md](arsiv/4b_donemi/PROTOKOL_ASAMALI_EGITIM.md)).
 
 ## Akış (gece döngüsü — `scripts/continuous-learning.sh`)
 Her tur sırayla:
@@ -52,5 +53,7 @@ uv run hektor rag-mastery      # RAG kapsama/anlama/hazırlık panosu (LLM-free)
 - Stage 2'den önce **mutlaka** `lora-audit` (Gate 0-7) + OOS bölme.
 
 ## Çıkış kriteri (GATE)
-≥1000 örnek **VE** `lora-audit` geçti **VE** kullanıcı onayı → **Stage 2**
-([PROTOKOL_BULUT_EGITIM.md](PROTOKOL_BULUT_EGITIM.md)).
+≥1000 örnek **VE** `lora-audit` geçti **VE** Kademe 2 derin av **VE** kullanıcı onayı →
+**Stage 2**: yerel eğitim (`scripts/start-train.ps1`, varsayılan `moe30b_attn_local`; kapılar
+betikte zorunlu). Düşük RAM'de isteğe bağlı bulut yolu: `hektor lora-cloud-prep`
+([arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md](arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md)).

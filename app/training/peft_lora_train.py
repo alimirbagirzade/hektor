@@ -1430,7 +1430,7 @@ def generate_colab_notebook(
     `app/training/cloud_notebook.py` üzerinden doldurur. Eski düz-transformers
     notebook'u (5 bilinen hata: target_modules eksik, {messages} okunmuyor, uydurma
     chat formatı, padding='max_length', GGUF export yok) tamamen değiştirildi.
-    Detay: docs/PROTOKOL_BULUT_EGITIM.md.
+    Detay: docs/arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md.
     """
     from app.training.cloud_notebook import build_stage2_notebook, write_modelfile
 

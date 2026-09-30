@@ -7,7 +7,10 @@
 > ⚠️ **Bu bir araştırma aracıdır — canlı bot DEĞİLDİR ve yatırım tavsiyesi VERMEZ.**
 > Tüm çıktılar test edilmesi gereken _hipotezlerdir_. Gerçek parayla kullanımın sorumluluğu tamamen size aittir.
 
-> 📘 **Yerel LoRA eğitimi (donanım, model, ölçülmüş süreler):** [docs/EGITIM_PROTOKOLU.md](docs/EGITIM_PROTOKOLU.md)
+> 📘 **Yerel LoRA eğitimi:** varsayılan Qwen3-30B-A3B-Instruct-2507 + `moe30b_attn_local`
+> (`configs/lora/lora_profiles.yaml`, `scripts/start-train.ps1`, CPU bf16 ~61 GB RAM) ·
+> ölçüm/iyileştirme protokolü: [docs/PROTOKOL_LORA_RAG_IYILESTIRME.md](docs/PROTOKOL_LORA_RAG_IYILESTIRME.md)
+> · güncel durum: [HANDOFF.md](HANDOFF.md). 4B dönemi belgeleri: `docs/arsiv/4b_donemi/`.
 
 ---
 
@@ -271,7 +274,8 @@ Soru → RAG ilgili makale parçalarını getirir → (base model + LoRA) cevapl
 
 > Yani: **RAG ne bilineceğini, LoRA nasıl söyleneceğini** belirler. Bilgi için eğitim
 > gerekmez (RAG halleder); LoRA sadece "trader gibi disiplinli" düşünmeyi keskinleştirir.
-> Uçtan uca akış + eğitim reçetesi: **`docs/PROTOKOL_RAG_LORA_ZINCIR.md`**.
+> Uçtan uca akış + ölçüm: **`docs/PROTOKOL_LORA_RAG_IYILESTIRME.md`** (ilk zincir tasarımı:
+> `docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md`).
 
 ---
 
@@ -283,7 +287,7 @@ Soru → RAG ilgili makale parçalarını getirir → (base model + LoRA) cevapl
 gerçek kanıt aşağıdaki sınavdır.
 
 > ℹ️ **Bu merdiven nereden geliyor?** Aşağıdaki basamaklar, `CLAUDE.md` kuralları ile
-> [`docs/PROTOKOL_RAG_LORA_ZINCIR.md`](docs/PROTOKOL_RAG_LORA_ZINCIR.md) ilkelerinin
+> [`docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md`](docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md) ilkelerinin
 > **gündelik bir okuması**dır; protokolün resmî numaralandırması değildir. Protokolün
 > kendi terimleri şunlardır: **"%100 ANLA / anlama skoru"** (`hektor rag-mastery`),
 > **"RAFT veri reçetesi"** ve **"dürüst gate (Kural 2)"**. Aşağıdaki "Taban · Dürüstlük"
@@ -312,7 +316,7 @@ bir **"aday"** olur. Geçemezse halüsinasyondur ve dürüstçe öyle raporlanı
 taşıyacaksa o da aynı kapıdan geçmek zorundadır; tek başına "matematik tutarlı" demek
 "çalışıyor" anlamına gelmez.
 
-Detay: [`docs/PROTOKOL_RAG_LORA_ZINCIR.md`](docs/PROTOKOL_RAG_LORA_ZINCIR.md)
+Detay: [`docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md`](docs/arsiv/4b_donemi/PROTOKOL_RAG_LORA_ZINCIR.md)
 
 ---
 
@@ -439,8 +443,10 @@ Cevap + kaynak (hangi makalenin kaçıncı parçası)
 > "Kütüphaneciye trading kitapları okutuyorsun. Artık sormadan kendisi biliyor."
 
 **Ne zaman çalışır:** Sadece açık `--run` ile (varsayılan kuru-çalışma — güvenli).
-CPU'da çok yavaştır → **bulut-GPU önerilir** (Kaggle T4×2, ~15-20 dk); bkz.
-`notebooks/KAGGLE_EGITIM_ADIM_ADIM.md`. RAG, backtest ve web her makinede tam çalışır.
+Varsayılan: yerel CPU, Qwen3-30B-A3B MoE + `moe30b_attn_local` (bf16 ~61 GB RAM; v13: 210
+optimizer adımı ≈ 9,5 sa). Düşük RAM'li makinede `Qwen/Qwen3-4B-Instruct-2507` +
+`discipline_safe_local` ya da isteğe bağlı bulut-GPU yolu (`hektor lora-cloud-prep`; 4B dönemi
+kılavuzu `docs/arsiv/4b_donemi/`). RAG, backtest ve web her makinede tam çalışır.
 
 ```
 Onaylı bilgi kartları (06 ONAY sekmesi)
@@ -996,9 +1002,9 @@ uv run hektor pine [strateji-adı]     # StrategyIR → TradingView Pine Script 
 
 ### Eğitim
 
-**Aşamalı eğitim** (CPU sürekli-eğitimi YOK — bkz. `docs/PROTOKOL_ASAMALI_EGITIM.md`):
+**Eğitim akışı** (sürekli/otomatik eğitim YOK — her koşu insan onaylı, Kural 8):
 ```bash
-# Stage 1 — lokal veri üret (büyüme motoru)
+# 1 — lokal veri üret (büyüme motoru)
 uv run hektor synth-qa                # chunk'lardan sentetik grounded QA üret (Ollama)
 uv run hektor synth-qa-bulk           # TÜM korpustan checkpoint'li bulk üretim (1000'e hızlı)
 uv run hektor synth-enrich            # kısa sentetik cevapları aynı bağlamdan açıklamalı yap (devam eder; --apply)
@@ -1008,9 +1014,10 @@ uv run hektor pretrain-gate           # eğitim-ÖNCESİ kalite kapısı: GO/NO-
 uv run hektor lora-readiness          # Stage 2 eşik durumu (≥1000 örnek mi?)
 bash scripts/continuous-learning.sh 72  # sürekli üretim döngüsü (eğitim DEĞİL)
 
-# Stage 2 — bulut-GPU LoRA (eşik dolunca, kullanıcı onayıyla)
-uv run hektor lora-cloud-prep         # veri paketle (+%25 disiplin) + notebook + Modelfile
-#   → notebook'u Kaggle/Colab'da çalıştır → GGUF indir → ollama create hektor
+# 2 — yerel LoRA (varsayılan 30B-A3B + moe30b_attn_local; onay + kapılar betikte zorunlu)
+.\scripts\start-train.ps1             # DETACHED; bitince lora-eval → ADAY
+powershell -File scripts\adapter_to_ollama.ps1 -Adapter <ad> -OllamaName <ad> -TemplateFrom qwen3:30b-a3b-instruct-2507-q4_K_M
+# İsteğe bağlı (düşük RAM / 4B): uv run hektor lora-cloud-prep → Kaggle/Colab notebook
 
 # Yardımcı / klasik
 uv run hektor dataset                 # bilgi kartlarından eğitim JSONL üret

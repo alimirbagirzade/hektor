@@ -2747,7 +2747,7 @@ def synth_qa(
 
     15-50 şablon örneğinden ~1000+ çeşitli örneğe geçiş motoru (büyüme motoru).
     Eğitim BAŞLATMAZ (CLAUDE.md kural 8); yalnız veri üretir. Ollama gerektirir.
-    Detay: docs/RAG_EGITIM_YENIDEN_TASARIM.md (Faz A6).
+    Detay: docs/arsiv/4b_donemi/RAG_EGITIM_YENIDEN_TASARIM.md (Faz A6).
     """
     import os
 
@@ -3001,7 +3001,7 @@ def lora_readiness(
 ) -> None:
     """Stage 1→Stage 2 eşik durumu: sentetik + kart örnekleri ≥ eşik mi?
 
-    Aşamalı eğitim kapısı (bkz. docs/PROTOKOL_ASAMALI_EGITIM.md). Eğitim BAŞLATMAZ.
+    Aşamalı eğitim kapısı (bkz. docs/arsiv/4b_donemi/PROTOKOL_ASAMALI_EGITIM.md). Eğitim BAŞLATMAZ.
     """
     from app.lora.dataset_builder import build_dataset
     from app.memory.sqlite_store import SqliteStore
@@ -3081,7 +3081,7 @@ def lora_cloud_prep(
     Eğitim BAŞLATMAZ (CLAUDE.md kural 8). Üretir: birleşik JSONL (HF'e yüklenecek),
     doğrulanmış unsloth notebook'u (Kaggle/Colab), Ollama Modelfile + adım talimatları.
     Birleşik sete ~%25 adversarial disiplin örneği karıştırılır (v5 regresyon fix'i #4 Fix B;
-    `--no-discipline` ile kapatılır). Detay: docs/PROTOKOL_BULUT_EGITIM.md.
+    `--no-discipline` ile kapatılır). Detay: docs/arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md.
     """
     from app.training.cloud_notebook import build_stage2_notebook, write_modelfile
     from app.training.sft_assembly import assemble_sft_lines
@@ -3187,7 +3187,7 @@ def lora_cloud_prep(
     console.print(f"[green]✓[/green] Notebook: [bold]{nb_path}[/bold]")
     console.print(f"[green]✓[/green] Modelfile: [bold]{mf_path}[/bold]")
     console.print(
-        "\n[bold]Sıradaki adımlar (docs/PROTOKOL_BULUT_EGITIM.md):[/bold]\n"
+        "\n[bold]Sıradaki adımlar (docs/arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md):[/bold]\n"
         f"  1) HF private dataset: [bold]huggingface-cli upload {hf_repo} "
         f"{combined} lora_sft.jsonl --repo-type dataset[/bold]\n"
         "  2) HF READ token → Kaggle Secrets / Colab userdata: ad=HF_TOKEN\n"
@@ -3265,7 +3265,7 @@ def reindex_contextual(
     Her chunk'a "başlık / bölüm:" ön-eki eklenerek yeniden embed edilir (retrieval
     doğruluğu ↑); Chroma document'ı (orijinal metin) + metadata değişmez. Bittiğinde
     .env'e HEKTOR_RAG_CONTEXTUAL_EMBED=true ekle ki yeni makaleler de eşleşsin.
-    Detay: docs/RAG_EGITIM_YENIDEN_TASARIM.md (P2).
+    Detay: docs/arsiv/4b_donemi/RAG_EGITIM_YENIDEN_TASARIM.md (P2).
     """
     from app.memory.chroma_store import ChromaStore
     from app.memory.embedding_service import EmbeddingService

@@ -5,7 +5,7 @@
 > Tahmini süre: hesap kurulumu ~5 dk + eğitim ~15-20 dk.
 
 Elinde HAZIR olan 2 dosya (bu klasörde):
-- `notebooks/hektor_lora_stage2.ipynb` ← eğitim defteri
+- `docs/arsiv/4b_donemi/notebooks/hektor_lora_stage2.ipynb` ← eğitim defteri
 - `data/lora_sft/lora_sft.jsonl` ← eğitim verisi (671 örnek, kalite kapısı: GO)
 
 ---

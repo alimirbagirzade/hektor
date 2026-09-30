@@ -12,7 +12,7 @@ yolu tek yerde toplanır.
 
 `rag_rerank` ayarı kapalıysa düz dense retrieval'a indirger (davranış değişmez).
 Bu, "yazılı ama bağlanmamış" `Reranker`'ı canlı yola alan Faz A2 adımıdır;
-eğitim gerektirmez (bkz. docs/RAG_EGITIM_YENIDEN_TASARIM.md).
+eğitim gerektirmez (bkz. docs/arsiv/4b_donemi/RAG_EGITIM_YENIDEN_TASARIM.md).
 """
 
 from __future__ import annotations

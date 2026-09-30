@@ -6,7 +6,7 @@ Doğrulanmış unsloth (Qwen3-4B-Instruct-2507 → GGUF Q4_K_M → Ollama) şabl
 
 Şablon, 4-ajan araştırmasıyla doğrulandı (5 bilinen hata düzeltildi: target_modules,
 {messages} formatı, apply_chat_template, dinamik padding, GGUF/Ollama export). Detay:
-docs/PROTOKOL_BULUT_EGITIM.md. Bu modül EĞİTİM BAŞLATMAZ; yalnız notebook üretir
+docs/arsiv/4b_donemi/PROTOKOL_BULUT_EGITIM.md. Bu modül EĞİTİM BAŞLATMAZ; yalnız notebook üretir
 (CLAUDE.md kural 8 — gerçek eğitim bulutta, kullanıcı tarafından, açıkça).
 """
 

@@ -1,6 +1,6 @@
 """Sentetik QA üretici — chunk'lardan LLM ile çeşitli, grounded eğitim örneği üret.
 
-Amaç (bkz. docs/RAG_EGITIM_YENIDEN_TASARIM.md, Faz A6): 15-50 deterministik şablon
+Amaç (bkz. docs/arsiv/4b_donemi/RAG_EGITIM_YENIDEN_TASARIM.md, Faz A6): 15-50 deterministik şablon
 örneğinden, makale chunk'larından üretilen ~1000-2000 çeşitli SFT örneğine geçmek.
 LoRA'nın anlamlı olması için pratik eşik ~1000 örnektir; bu modül o "büyüme motoru".
 
