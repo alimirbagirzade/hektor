@@ -328,6 +328,7 @@ def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
     valid'de olan bir satır sonraki bölmede train'e düşebilir.
     """
     from app.config import get_settings
+    from app.evals.llm30 import load_llm30
     from app.evals.profile.dataset_loader import load_split
     from app.evals.profile.leakage import check_leakage, load_train_jsonl
     from app.evals.profile.schema import Split
@@ -337,6 +338,7 @@ def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
     items = [
         *load_split(Split.VALIDATION, purpose="leakage_check"),
         *load_split(Split.GOLDEN_TEST, purpose="leakage_check"),
+        *load_llm30(purpose="leakage_check"),
         *adapter_eval_items(),
     ]
     rep = check_leakage(items, train)

@@ -108,9 +108,9 @@ def load_split(
 
 
 def assert_not_eval_path(path: Path) -> None:
-    """Eğitim veri yolu eval dizininin içindeyse reddet (golden eğitime giremez)."""
+    """Eğitim veri yolu ``evals/`` altındaysa reddet (golden/validation/llm30 eğitime giremez)."""
     try:
-        path.resolve().relative_to(eval_root().resolve())
+        path.resolve().relative_to(eval_root().parent.resolve())
     except ValueError:
         return
     raise GoldenAccessError(f"eval verisi eğitim girdisi olarak kullanılamaz: {path}")

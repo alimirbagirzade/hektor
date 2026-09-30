@@ -103,6 +103,24 @@ production terfisi ayrı insan onayı ister.
 
 ---
 
+## Son seans — 2026-09-30 (4): LoRA/RAG iyileştirme protokolü + LLM-30 benchmark (eğitim YOK)
+
+Kullanıcının `Claude_Hektor_LoRA_RAG_Iyilestirme_Promptu.txt` + `Hektor_LLM_30_Soru.txt`
+dosyaları repoya bağlandı → **`docs/PROTOKOL_LORA_RAG_IYILESTIRME.md`** (8 aşama → mevcut
+modül eşlemesi + açık işler). ⚠ Protokolün 2×2 harfleri `hektor mix eval`'den farklı
+(protokol B = base+LoRA = bizim `C_*`; protokol C = base+RAG = bizim `B_base_rag`).
+- `evals/llm30/validation.jsonl` (30 soru, `EvalItem`) + sha256 manifest; `app/evals/llm30.py`
+  (yükleyici, `RUBRIC`, 13 `CRITICAL_ERRORS` + soru eşlemesi, `numeric_keys()`).
+  **Geliştirme setidir, final test DEĞİL**; `human_verified=false`.
+- Sızıntı kapısı (`run_leakage_check` → `train --run`) llm30'u da tarıyor; mevcut
+  train (1680) + valid (111) ↔ llm30 **0 isabet** → v13 sonrası eğitimi bloklamaz.
+  `assert_not_eval_path` artık tüm `evals/`i kapsar.
+- v13 koşusuna dokunulmadı (20:31'de python süreci yoktu — bitiş/sonuç bu seansta
+  DENETLENMEDİ); llm30 2×2 koşusu, final test takımı, rubrik puanlama aracı ve
+  Aşama 1 denetim raporu **yapılmadı** (v13 bitince, Ollama boşken).
+
+---
+
 ## Son seans — 2026-09-30 (3): Kademe 2 + veri zenginleştirme + **v13 EĞİTİMİ KOŞUYOR**
 
 **Koşu:** `hektor_lora_v13_30b` — başladı 02:14 (`start-train.ps1`, onay `apr_40a3e32f4aac`

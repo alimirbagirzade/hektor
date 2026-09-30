@@ -58,6 +58,9 @@ seviyesine göre kademeli tarama:
   `verdict != pass` ise çıktı "aday"dır, "hazır" değildir.
 - Yeni indikatör → `app/trading/indicators.py` registry'sine ekle + test yaz.
 - Yeni CLI komutu → `app/main.py` + README tablosu güncelle.
+- LoRA/RAG iyileştirme işi → `docs/PROTOKOL_LORA_RAG_IYILESTIRME.md` (2×2 base/LoRA × RAG,
+  LLM-30 geliştirme seti `evals/llm30/`, rubrik + kritik hata kapısı). Eval soruları/anahtarları
+  eğitime ve retrieval indeksine GİRMEZ.
 
 ## ⚡ Yeni seans başlangıcı
 
