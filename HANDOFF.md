@@ -35,7 +35,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | **Yerel (Windows, 2026-09-30):** ✅ ruff format/check + mypy (263 dosya) + pytest **2817 passed, 4 deselected** (`-m "not ollama"`). CI (Linux) main'de; bu dal (`claude/lora-30b-a3b-prep`) henüz main'e birleşmedi. **Yerel ✅ tek başına kapı sayılmaz.** |
+| Kapı (`make ci`) | **CI (Linux) ✅** PR #26 (`claude/lora-30b-a3b-prep`) `f92a22d` — "lint · types · tests (offline)" success (önceki kırmızı: llm30 manifest hash'i CRLF'ten hesaplanmıştı, LF'e düzeltildi; temiz LF klonda yeniden üretilip doğrulandı). **Yerel (Windows):** ruff + mypy (263) + pytest **2818 passed**. PR henüz main'e birleşmedi. |
 | Varsayılan model | **LLM:** `qwen3:30b-a3b-instruct-2507-q4_K_M` · **PEFT base:** `Qwen/Qwen3-30B-A3B-Instruct-2507` · **profil:** `moe30b_attn_local` (`app.config.DEFAULT_TRAIN_PROFILE`; attention-only, maskeli, bf16 ~61 GB RAM). Düşük RAM: `qwen3:4b-instruct-2507-q4_K_M` + `Qwen/Qwen3-4B-Instruct-2507` + `discipline_safe_local`. Çıplak `qwen3:30b`/`qwen3:4b` = Thinking-2507 (yavaş). **Bu makinenin `.env`'i: `HEKTOR_LLM_MODEL=hektor-v12-30b`** (LoRA'lı; arka plan döngüleri bu yüzden KAPALI). |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
 | Son adapter | **`hektor_lora_v13_30b`** — TAMAMLANDI 2026-09-30 11:44 (210 optimizer adımı, GA 8, val_loss en iyi 0.5769 @175, son adapter = checkpoint-175). Kayıt `adapter_ee06d5a4dfa8` **candidate**, terfi YOK. Ollama: `hektor-v13-30b` (Q4_K_M + attn q8_0). Önceki: v12 (candidate; Ollama şablonunda CR — D1), v11 (candidate). |
@@ -76,11 +76,15 @@ Ollama kapalıysa: `ollama serve` → `ollama pull qwen3:30b-a3b-instruct-2507-q
 
 ## Sıradaki adım
 
-1. **LLM-30 2×2 sonucu** → rubrikle puanla (`app.evals.llm30.RUBRIC`, kritik hatalar ayrı);
-   protokol B = base+LoRA, C = base+RAG (bkz. `docs/PROTOKOL_LORA_RAG_IYILESTIRME.md` §2).
-2. **RAG sorgu çevirisi** canlıya alınsın mı (`HEKTOR_RAG_QUERY_TRANSLATE=en`) — önce insan
-   etiket örneklemesi (`evals/rag_relevance/llm30_pooled_v1.jsonl`, `human_verified=false`).
-3. Yeni eğitimden ÖNCE: Kademe 2 derin av (zorunlu) + karışım ağırlığı sorusu.
+1. **v14 veri kararı (v13 geriliyor — 2×2):** eğitim verisi kısa + atıfsız → sentetik QA payını
+   düşür / açıklamalı-atıflı, RAG sistem istemli örnekler ekle; EMA doğrusallığı gibi doğrulanmış
+   kavram düzeltmeleri. Tek değişken: yalnız veri. Önce Kademe 2 + karışım ağırlığı sorusu.
+2. **2×2 rubrik puanlaması** (insan; `app.evals.llm30.RUBRIC`, kritik hatalar ayrı) — ham
+   cevaplar `reports/evals/llm30/llm30_v13_2x2_20260930/raw.jsonl`.
+3. RAG çevirisi canlı → sohbet modeli + çevirmen GPU takas gecikmesini ölç; insan etiket
+   örneklemesi (`evals/rag_relevance/llm30_pooled_v1.jsonl`). 2×2'yi çevirili RAG ile tekrar koş.
+4. **Canlı sohbet modeli** `hektor-v12-30b` (D1 şablon CR'si, v13'e benzer kısa/atıfsız davranış
+   riski) → base `qwen3:30b-a3b-instruct-2507-q4_K_M`'e dönmek kullanıcı kararı.
 
 Eğitim akışı (veri `data/`, `storage/`, `models/` git'te izlenmez):
 
@@ -99,7 +103,7 @@ Ollama; 2×2 için aynı tarifle base: `-BaseRepo`).
 
 ---
 
-## Son seans — 2026-09-30 (5): v13 sonucu + GGUF + LLM-30 2×2 (KOŞUYOR) + RAG deneyi
+## Son seans — 2026-09-30 (5): v13 sonucu + GGUF + LLM-30 2×2 (v13 GERİLİYOR) + RAG deneyi + 4B temizliği
 
 **v13 eğitimi TAMAMLANDI** (210/210 optimizer adımı, 30.09 11:44; kayıt `adapter_ee06d5a4dfa8`
 **candidate**, terfi YOK). 07:43'te checkpoint-125'ten sürdürüldü (`recovery_attempts: 1`;
@@ -114,12 +118,32 @@ ile LoRA'nın nicemlemesi/şablonu birebir aynı olsun diye. v13 birleştirme ka
 (`merge_info.json`: `kl_gate_override=true`). Varsayılan 0.01 değişmedi.
 
 **LLM-30 2×2** (`app/evals/llm30_run.py`, run `llm30_v13_2x2_20260930`, 30 soru × A/B/C/D × 3
-tekrar, temperature 0, num_predict 4096, num_ctx 16384): **KOŞUYOR** (22:51'de 114/360,
-~35 sn/cevap). İlk koşu 108'de Ollama "token repeat limit" iptalinde durdu → koşucu artık
-iptali kısmi ham cevapla `iptal:tekrar_limiti` olarak kaydediyor. Bulgular:
+tekrar, temperature 0, num_predict 4096, num_ctx 16384): **TAMAMLANDI** (360/360). Protokol
+harfleri: A base · B base+v13 · C base+RAG · D base+v13+RAG; base = `hektor-base-30b-q4a8`
+(v13 ile AYNI GGUF tarifi + şablon). RAG bağlamı V0 (mevcut hat, çevirisiz) ile donduruldu.
+Deterministik analiz (RUBRİK DEĞİL; `reports/evals/llm30/llm30_v13_2x2_20260930/`):
+
+| | A base | B +v13 | C +RAG | D +v13+RAG |
+|---|---|---|---|---|
+| ort. çıktı token | 2261 | **495** | 2476 | **388** |
+| sayısal anahtar (10 soru × 3, kaba regex) | **30/30** | 18/30 | 26/30 | 18/30 |
+| a/b/c alt maddelerinin hepsi | 90/90 | 81/90 | 90/90 | **51/90** |
+| atıflı cevap / uydurma atıf | — | — | 56/90 · 2/197 | **0/90** |
+| kesilme (4096) / döngü | 1 / 0 | 4 / 3 (S13, S28×3) | 0 / 0 | 2 / 4 (S08, S28) |
+
+**Sonuç (Kural 2; puanlama değil ölçüm):** v13 base'e göre **geriliyor** — cevaplar ~5× kısa,
+sayısal anahtar kapsaması 30→18, RAG'da atıf talimatını tamamen yok sayıyor (D 0 atıf; v10'daki
+bulgunun aynısı), alt maddeleri atlıyor, S28/S08'de döngüye giriyor. v13 **terfi edilmemeli**;
+candidate kalır. Kök neden hipotezi (HANDOFF 09-30 (3) Öneri 3 ile tutarlı): eğitim verisi kısa,
+atıfsız cevaplardan oluşuyor → LoRA uzunluğu/formatı bastırıyor.
+**Kritik ortak hata:** S12'de 4 koşulun 12/12 cevabı "sabit alpha EMA doğrusal DEĞİLDİR" diyor
+(yanlış — doğrusal zamanla-değişmez IIR filtre). Base modelin kavram hatası; LoRA/RAG düzeltmiyor →
+eğitim verisine müfredat maddesi adayı (doğrulanmış kaynakla).
+İlk koşu 108'de Ollama "token repeat limit" iptalinde durdu → koşucu artık iptali kısmi ham
+cevapla `iptal:tekrar_limiti` kaydediyor (sürdürmede C S07 iptal etmedi). Bulgular:
 - **Ollama bu kurulumda deterministik DEĞİL:** aynı model+seed+temp 0'da cevaplar 149. karakterde
-  (RAG'lı ilk token'da) ayrışıyor; tekrar 2-3 genelde aynı (önek önbelleği), tekrar 1 farklı.
-  Tekrarlar bağımsız örneklem değil, önbellek-durumu ölçüsü → tek cevaptan sonuç çıkarma.
+  (RAG'lı ilk token'da) ayrışıyor. 2×2'de ölçüldü: tekrar 2 = tekrar 3 **30/30** her koşulda
+  (önek önbelleği), tekrar 1 ≠ tekrar 2 **~30/30** → soru başına fiilen 2 bağımsız örnek var.
 - `uzun_tekrar` bayrağı ilk sürümde YANLIŞ POZİTİFTİ (istenen alt-madde başlıkları 3× geçiyor);
   düzeltildi, `summary.json` bayrakları ham cevaptan yeniden hesaplar.
 - Canlı `hektor-v12-30b` şablonu base'den FARKLI (D1: CR'ler; yeniden oluşturulmadı) →
