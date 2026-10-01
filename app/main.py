@@ -2726,6 +2726,152 @@ def synth_enrich(
         console.print("Bitti → incele, sonra: [bold]uv run hektor synth-enrich --apply[/bold]")
 
 
+@app.command("synth-distill")
+def synth_distill(
+    n_rag: int = typer.Option(800, "--rag", help="RAG kipi iş sayısı (canlı istem + atıf)"),
+    n_plain: int = typer.Option(150, "--plain", help="RAG'sız kavramsal iş sayısı"),
+    limit: int = typer.Option(0, "--limit", help="Bu çağrıda en çok N iş işle (0=tümü)"),
+    seed: int = typer.Option(0, "--seed", help="Seçim + üretim seed tabanı (Kural 6)"),
+    model: str = typer.Option(
+        "qwen3:30b-a3b-instruct-2507-q4_K_M",
+        "--model",
+        help="Öğretmen = BASE Ollama modeli (hektor-* reddedilir)",
+    ),
+    gen_questions: bool = typer.Option(
+        False,
+        "--gen-questions",
+        help="Önce korpus parçalarından bağımsız soru üret (distill_questions.jsonl) ve dur",
+    ),
+    per_paper: int = typer.Option(3, "--per-paper", help="--gen-questions: makale başına parça"),
+) -> None:
+    """Base modelin kendi uzun/atıflı cevaplarıyla öz-damıtma SFT örnekleri üret (Ollama).
+
+    RAG kipi canlı hatla bayt-aynı istem kullanır (`build_rag_prompt`); atıfların hepsi
+    getirilen kaynaklarda olmalı. Eval soruları sızıntı denetimiyle dışlanır. Sorular:
+    sentetik QA'nın bağımsız soruları + (`--gen-questions` ile önceden üretilmiş) korpus
+    parçalarından bağımsız sorular. Çıktı `data/lora_sft/distill_qa.jsonl` (kesilirse kaldığı
+    işten sürer). Eğitim BAŞLATMAZ (Kural 8); ardından `scripts/assemble_sft.py`.
+    """
+    from app.brain.synthetic_enrich import is_adapter_model
+    from app.memory.reranking_retriever import RerankingRetriever
+    from app.training.self_distill import (
+        DISTILL_FILENAME,
+        QUESTIONS_FILENAME,
+        ChatResult,
+        eval_leak_filter,
+        generate_questions,
+        generation_config,
+        load_generated_questions,
+        norm_question,
+        ollama_chat,
+        progress_done,
+        run_distill,
+        sample_chunks,
+        select_jobs,
+        used_questions,
+    )
+
+    settings = get_settings()
+    if is_adapter_model(model):
+        console.print(f"[red]Öğretmen {model!r} bir Hektor adapter'ı — base model ver.[/red]")
+        raise typer.Exit(1)
+    lora_dir = settings.root / "data" / "lora_sft"
+    q_path = lora_dir / QUESTIONS_FILENAME
+    if gen_questions:
+        from app.brain.local_llm import LocalLLM
+        from app.memory.doc_purpose import excluded_paper_ids
+        from app.memory.sqlite_store import SqliteStore
+
+        chunks = sample_chunks(
+            SqliteStore().list_all_chunks(),
+            per_paper=per_paper,
+            seed=seed,
+            exclude_papers=excluded_paper_ids(frozenset({"proje_dokumani"})),
+        )
+        llm = LocalLLM(model=model)
+        console.print(f"[cyan]Soru üretimi:[/cyan] {len(chunks)} parça · {model}")
+
+        def _gen(prompt: str, s: int) -> str:
+            return llm.generate(prompt, temperature=0.7, fmt="json", max_tokens=400, seed=s)
+
+        def _qprog(i: int, n: int, status: str) -> None:
+            if i % 25 == 0 or i == n:
+                console.print(f"[dim]{i}/{n} · son: {status}[/dim]")
+
+        gres = generate_questions(q_path, chunks, generate=_gen, seed=seed, progress=_qprog)
+        console.print(f"[cyan]Sorular:[/cyan] {gres['counts']} → {q_path}")
+        return
+    src = lora_dir / "synthetic_qa.jsonl"
+    if not src.exists():
+        console.print(f"[red]{src} yok.[/red]")
+        raise typer.Exit(1)
+    synth_lines = [ln for ln in src.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    out = lora_dir / DISTILL_FILENAME
+    # Önceki turların (distill_qa.<tur>.jsonl) soruları yeniden üretilmez. Koşunun KENDİ
+    # dosyası hariç tutulur — yoksa sürdürmede iş listesi (ve hash'i) değişirdi.
+    used = used_questions(lora_dir, skip=out)
+
+    def _exclude(qs: list[str]) -> set[str]:
+        return eval_leak_filter(qs) | {q for q in qs if norm_question(q) in used}
+
+    jobs = select_jobs(
+        synth_lines,
+        n_rag=n_rag,
+        n_plain=n_plain,
+        seed=seed,
+        exclude=_exclude,
+        extra=load_generated_questions(q_path),
+    )
+    n_r = sum(j.mode == "rag" for j in jobs)
+    console.print(
+        f"[cyan]Öğretmen:[/cyan] {model} · iş: {len(jobs)} (rag {n_r}, plain {len(jobs) - n_r})"
+        f" · önceki turlardan dışlanan soru: {len(used)}"
+    )
+    retriever = RerankingRetriever()
+    config = generation_config()
+
+    # Çevirileri TOPLU önceden yap (Kademe 2 F3-7): çevirmen /api/generate (num_ctx varsayılan)
+    # ile öğretmen /api/chat (num_ctx 8192) aynı modeli farklı bağlamla istediği için Ollama
+    # her RAG işinde 30B'yi İKİ KEZ yeniden yüklüyordu (~20 sn/iş). Önbellek dolunca döngüde
+    # çeviri çağrısı olmaz. Limit verildiyse yalnız bu çağrının işleri.
+    start = progress_done(out)
+    stop = len(jobs) if limit <= 0 else min(len(jobs), start + limit)
+    todo = [j.question for j in jobs[start:stop] if j.mode == "rag"]
+    if todo and retriever.translate != "off":
+        console.print(f"[cyan]Sorgu çevirisi (önbellek):[/cyan] {len(todo)} soru")
+        for i, q in enumerate(todo, 1):
+            retriever.search_queries(q)
+            if i % 50 == 0 or i == len(todo):
+                console.print(f"[dim]çeviri {i}/{len(todo)}[/dim]")
+
+    def _chat(messages: list[dict[str, str]], s: int) -> ChatResult:
+        return ollama_chat(
+            settings.ollama_host, model, messages, seed=s, keep_alive=settings.ollama_keep_alive
+        )
+
+    def _progress(i: int, n: int, status: str) -> None:
+        if i % 10 == 0 or i == n:
+            console.print(f"[dim]{i}/{n} · son: {status}[/dim]")
+
+    try:
+        res = run_distill(
+            out,
+            jobs,
+            chat=_chat,
+            retrieve=lambda q: retriever.retrieve(q),
+            teacher=model,
+            seed=seed,
+            limit=limit,
+            progress=_progress,
+            provenance=lambda: dict(retriever.last_search),
+            config=config,
+        )
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[cyan]Öz-damıtma:[/cyan] {res['done']}/{res['total']} iş · {res['counts']}")
+
+
 @app.command("synth-qa")
 def synth_qa(
     per_chunk: int = typer.Option(5, "--per-chunk", help="Chunk başına üretilecek QA sayısı"),

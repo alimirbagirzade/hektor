@@ -165,3 +165,57 @@ def test_rag_version_stable_for_defaults_and_split_for_new_settings() -> None:
     assert snap.rag_version == "rag-" + hash_obj(legacy)[:12]  # eski sürüm kimliği korunur
     assert _snap(query_translate="en", translate_model="m").rag_version != snap.rag_version
     assert _snap(exclude_purposes="proje_dokumani").rag_version != snap.rag_version
+
+
+def test_translation_detects_ascii_turkish_and_keeps_names() -> None:
+    assert qt.looks_turkish("Kernel makinesi tanimi nedir?")
+    assert qt.looks_turkish("Threshold AR modelindeki R kumesi neyi ifade eder?")
+    assert not qt.looks_turkish("What is the kernel trick?")
+    # Girdideki özel adlar çıktıda kalabilir; bağlaçlar Türkçe kanıtı olmaya devam eder.
+    assert not qt._still_turkish(
+        "Borsa İstanbul'da oynaklık nasıl ölçülür?",
+        "How is volatility measured on Borsa İstanbul?",
+    )
+    assert qt._still_turkish("EMA nedir ve nasıl?", "EMA bir ortalama ve filtre")
+
+
+def test_translation_rejects_answer_like_output_and_retries(tmp_path: Path) -> None:
+    q = "Kalman filtresi nasıl çalışır?"
+    answer = "The Kalman filter works as follows: " + "it predicts and updates the state. " * 8
+
+    class _Seq:
+        def __init__(self, outs: list[str]) -> None:
+            self.outs = outs
+            self.prompts: list[str] = []
+
+        def generate(self, prompt: str, **kw: object) -> str:
+            self.prompts.append(prompt)
+            return self.outs[len(self.prompts) - 1]
+
+    llm = _Seq([answer, "How does the Kalman filter work?"])
+    out = qt.translate_query(q, model="qwen3:x", llm=llm, path=tmp_path / "c.json")
+    assert out == "How does the Kalman filter work?" and "Do NOT answer" in llm.prompts[1]
+    with pytest.raises(qt.TranslationError, match="cevap"):
+        qt.translate_query(q, model="qwen3:y", llm=_Seq([answer, answer]), path=tmp_path / "d")
+
+
+def test_clean_keeps_inner_trailing_quote() -> None:
+    assert qt._clean("English: What is 'alpha'") == "What is 'alpha'"
+    assert qt._clean('"What is alpha?"') == "What is alpha?"
+
+
+def test_cache_not_wiped_when_unreadable(tmp_path: Path) -> None:
+    path = tmp_path / "cache.json"
+    path.write_text("{bozuk", encoding="utf-8")
+    qt._write_cache(path, "k", {"model": "m", "tr": "a", "en": "b"})
+    assert path.read_text(encoding="utf-8") == "{bozuk"
+
+
+def test_retriever_falls_back_on_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(q: str, model: str) -> str:
+        raise PermissionError("WinError 5")
+
+    monkeypatch.setattr(qt, "translate_query", boom)
+    r = _rr(_Base([_chunk("b1", "paper_b")]), exclude_purposes=frozenset(), translate="en")
+    assert r.search_queries("EMA nedir ve nasıl?") == ("EMA nedir ve nasıl?", None)
+    assert r.last_search["translation"].startswith("düştü:PermissionError")

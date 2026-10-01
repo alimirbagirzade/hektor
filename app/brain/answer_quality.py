@@ -19,9 +19,6 @@ from dataclasses import dataclass, field
 
 from app.memory.retrieval_service import RetrievedChunk
 
-# Satır-içi atıf deseni: [paper_id:chunk_id] veya [paper_id:chunk_id, s.3]
-_CITE_RE = re.compile(r"\[([A-Za-z0-9_\-]+):([A-Za-z0-9_\-]+)(?:,[^\]]*)?\]")
-
 
 def similarity(distance: float | None) -> float:
     """Cosine distance → [0,1] benzerlik. None/aralık-dışı güvenli."""
@@ -90,40 +87,79 @@ def reorder_lost_in_middle(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]
 class CitationCheck:
     """Satır-içi atıf doğrulama sonucu (deterministik, LLM'siz)."""
 
-    n_cited: int  # cevapta toplam atıf sayısı
+    n_cited: int  # cevapta toplam atıf sayısı (tekrarlar dahil)
     unsupported: list[str] = field(default_factory=list)  # retrieve edilmeyene atıflar
+    n_unique: int = 0  # farklı (paper_id, chunk_id) çifti sayısı
+    malformed: list[str] = field(default_factory=list)  # çözümlenemeyen kaynak-benzeri köşeli
 
     @property
     def has_unsupported(self) -> bool:
         return bool(self.unsupported)
 
 
-def verify_citations(answer: str, chunks: list[RetrievedChunk]) -> CitationCheck:
+# Köşeli parantez içeriği; içte `,`/`;` ile ayrılmış birden çok `id:id` olabilir (Kademe 2
+# F3-3, 2026-10-01: eski desen "[a:c1, b:c9]"nin ikinci kimliğini sayfa eki sanıp yutuyordu).
+_BRACKET_RE = re.compile(r"\[([^\[\]\n]{1,400})\]")
+# Her iki kimlik harfle başlar ve ≥2 karakterdir: "[0:1]", "[09:30]", "x[t:T]" gibi matematik /
+# saat ifadeleri atıf sayılmaz (Kademe 2 F1-8).
+_CITE_TOKEN_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_\-]+)\s*:\s*([A-Za-z][A-Za-z0-9_\-]+)$")
+_PAGE_TOKEN_RE = re.compile(r"^(?:s|p|pp|sayfa|page)\.?\s*\d+(?:\s*[-–]\s*\d+)?$", re.I)
+_SOURCE_LIKE_RE = re.compile(r"\b(?:paper|card|source)_\w+", re.I)
+
+
+def parse_citations(answer: str) -> tuple[list[tuple[str, str]], list[str]]:
+    """(atıf çiftleri — sırayla, tekrarlar dahil; kaynak-benzeri ama çözümlenemeyen köşeliler)."""
+    cites: list[tuple[str, str]] = []
+    malformed: list[str] = []
+    for m in _BRACKET_RE.finditer(answer):
+        body = m.group(1)
+        found: list[tuple[str, str]] = []
+        odd = False
+        for tok in (t.strip() for t in re.split(r"[;,]", body)):
+            cm = _CITE_TOKEN_RE.match(tok)
+            if cm:
+                found.append((cm.group(1), cm.group(2)))
+            elif tok and not _PAGE_TOKEN_RE.match(tok) and _SOURCE_LIKE_RE.search(tok):
+                odd = True
+        if found and _CITE_TOKEN_RE.match(body.split(",")[0].split(";")[0].strip()) is None:
+            odd = True  # köşeli bir atıfla başlamıyor (ör. "[bkz. paper_x:c1]")
+        cites.extend(found)
+        if odd or (not found and _SOURCE_LIKE_RE.search(body)):
+            malformed.append(m.group(0))
+    return cites, malformed
+
+
+def verify_citations(
+    answer: str, chunks: list[RetrievedChunk], *, strict: bool = False
+) -> CitationCheck:
     """Cevaptaki [paper_id:chunk_id] atıflarını retrieve edilen kaynaklarla doğrula.
 
     Citation-forcing prompt yine de UYDURMA atıf üretebilir ("correctness ≠ faithfulness",
-    araştırma) → deterministik son-kontrol: chunk_id'si VEYA paper_id'si getirilen kaynak
-    kümesinde OLMAYAN atıflar 'unsupported' (dayanaksız). LLM çağrısı yok. (Kural 7)
+    araştırma) → deterministik son-kontrol. LLM çağrısı yok. (Kural 7)
+
+    Varsayılan (canlı uyarı): chunk_id'si VEYA paper_id'si getirilen kümede olan atıf
+    desteklenir (LLM bazen parça id'sini yaklaşık verir ama doğru makaleyi gösterir).
+    ``strict=True`` (eğitim verisi kapısı, Kademe 2 F3-2): (paper_id, chunk_id) ÇİFTİ birebir
+    getirilenlerde olmalı — uydurma parça kimliği / yanlış eşleşmiş çift eğitime girmez.
     """
+    cites, malformed = parse_citations(answer or "")
     if not answer or not chunks:
-        return CitationCheck(n_cited=0)
+        return CitationCheck(n_cited=0, malformed=malformed)
+    pairs = {(c.paper_id, c.chunk_id) for c in chunks}
     chunk_ids = {c.chunk_id for c in chunks}
     paper_ids = {c.paper_id for c in chunks}
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     unsupported: list[str] = []
-    n = 0
-    for m in _CITE_RE.finditer(answer):
-        pid, cid = m.group(1), m.group(2)
-        n += 1
-        key = f"{pid}:{cid}"
-        if key in seen:
+    for pid, cid in cites:
+        if (pid, cid) in seen:
             continue
-        seen.add(key)
-        # chunk_id getirilenlerde varsa desteklenir; değilse paper_id eşleşmesi de kabul
-        # (LLM bazen sayfa/parça id'sini yaklaşık verir ama doğru makaleyi gösterir).
-        if cid not in chunk_ids and pid not in paper_ids:
-            unsupported.append(key)
-    return CitationCheck(n_cited=n, unsupported=unsupported)
+        seen.add((pid, cid))
+        ok = (pid, cid) in pairs if strict else (cid in chunk_ids or pid in paper_ids)
+        if not ok:
+            unsupported.append(f"{pid}:{cid}")
+    return CitationCheck(
+        n_cited=len(cites), unsupported=unsupported, n_unique=len(seen), malformed=malformed
+    )
 
 
 def citation_warning(check: CitationCheck) -> str:

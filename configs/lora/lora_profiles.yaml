@@ -169,3 +169,41 @@ moe30b_attn_local:
   eval_max_examples: 64
   load_best_model_at_end: true
   note: "YEREL CPU, Qwen3-30B-A3B-Instruct-2507 (MoE) — yalnız attention LoRA, bf16 zorunlu, gradient checkpointing, birikim 8 + held-out eval. Checkpoint aralığı eval'e eşit (200 örnek ≈ 1 sa) → çökmede en çok ~1 sa kayıp."
+
+# YEREL (CPU) — v14: moe30b_attn_local ile BİREBİR aynı reçete, tek fark max_seq_length 6144.
+# NEDEN: v14 öz-damıtma RAG örnekleri canlı istemle bayt-aynı (top_k=6 bağlam ≈ 3.2k token +
+# base cevabı ≈ 2.5k token). 1024'te bu örneklerin prompt'u sığmaz → `_tokenize_masked`
+# öğrenilebilir token bulamaz ve örneği ATAR; ya da cevap EOS'suz kırpılır. `hektor
+# synth-distill` toplamı ≤ 6048 token olan örnekleri kabul eder (96 token şablon payı).
+# SÜRE/RAM: ÖLÇÜLMEDİ — tam koşudan önce kısa ölçüm (Kural 2). Kaba tahmin v13'ün ~2-4 katı.
+moe30b_attn_long:
+  r: 16
+  alpha: 32
+  dropout: 0.1
+  epochs: 1
+  max_seq_length: 6144
+  learning_rate: 0.0002
+  use_rslora: false
+  neftune_noise_alpha: 5
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  assistant_only_loss: true
+  gradient_checkpointing: true
+  # 0 = TÜM eğitim havuzu (Kademe 2 F2-6: 600 iken -MaxExamples verilmezse v14 havuzunun
+  # ~%60'ı sessizce dışarıda kalırdı).
+  max_examples: 0
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+  gradient_accumulation_steps: 8
+  # load_best altında checkpoint = eval aralığı (HF: save_steps eval_steps'in katı). Uzun
+  # örneklerde 200 örnek ≈ 3-5 sa → çökmede o kadar kayıp (Kademe 2 F2-2) → 96 örnek
+  # (12 optimizer adımı); eval alt-kümesi 32 (uzun örnekli eval de pahalı).
+  eval_every_examples: 96
+  eval_max_examples: 32
+  load_best_model_at_end: true
+  # Kayıp ağırlığı (Kademe 2 F2-1) — KULLANICI KARARI 2026-10-01: token başına (HF varsayılanı,
+  # v13 ile aynı). v14'ün hedefi uzun/atıflı cevap; bedeli disiplin satırlarının kayıp
+  # sinyalindeki payının ~%2-4'e düşmesi → lora-eval disiplin setiyle ölçülecek.
+  loss_weighting: token
+  note: "YEREL CPU, Qwen3-30B-A3B MoE — moe30b_attn_local + max_seq_length 6144 (v14 uzun RAG öz-damıtma örnekleri), tüm havuz, checkpoint/eval her 96 örnekte. Süre/RAM ölçülmedi; önce kısa ölçüm."

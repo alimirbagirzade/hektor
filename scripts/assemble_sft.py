@@ -1,4 +1,4 @@
-"""Birleşik SFT veri setini (synth-qa + onaylı kart + ~%25 disiplin) lora_sft.jsonl'e yaz.
+"""Birleşik SFT veri setini (synth-qa ≤400 + öz-damıtma + onaylı kart + ~%25 disiplin) yaz.
 
 Kanonik `app.training.sft_assembly.assemble_sft_lines` yolunu kullanır — `lora-cloud-prep`
 ve `pretrain-gate` ile AYNI birleştirme mantığı (drift yok). `lora-dataset` (sadece kart)
@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 
 from app.config.settings import get_settings
-from app.training.sft_assembly import assemble_sft_lines
+from app.training.sft_assembly import CANONICAL_SYNTH_CAP, assemble_sft_lines
 
 
 def main() -> None:
@@ -41,8 +41,8 @@ def main() -> None:
     disc_added = res.total - res.deduped
     print(
         f"✓ {res.total} örnek → {out}\n"
-        f"  synth={res.synth_n} kart={res.card_n} dedup_sonrası={res.deduped} "
-        f"disiplin_eklenen={disc_added}"
+        f"  synth={res.synth_n} (sınır {CANONICAL_SYNTH_CAP}) öz-damıtma={res.distill_n} "
+        f"kart={res.card_n} dedup_sonrası={res.deduped} disiplin_eklenen={disc_added}"
     )
 
 

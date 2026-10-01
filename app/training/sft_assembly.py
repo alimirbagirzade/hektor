@@ -85,10 +85,41 @@ class AssemblyResult:
     deduped: int  # synth + kart, dedup sonrası
     discipline: dict[str, Any] | None = field(default=None)
     low_value_dropped: int = 0  # atılan çekimser / "pasaj" atıflı sentetik örnek
+    distill_n: int = 0  # eklenen öz-damıtma satırı (yeniden doğrulama sonrası, dedup öncesi)
 
     @property
     def total(self) -> int:
         return len(self.lines)
+
+
+# v14: kısa sentetik QA payı ~%60 → ~%30. Varsayılan olarak TÜM yazıcılar (assemble_sft.py,
+# lora-cloud-prep, detached_launch) ve tazelik denetimi aynı sınırı kullanır (drift yok).
+CANONICAL_SYNTH_CAP = 400
+
+
+def _cap_synth(lines: list[str], cap: int, seed: int) -> list[str]:
+    """Sentetik QA'yı ``cap`` satıra indir: önce zenginleştirilmiş (açıklamalı) satırlar,
+    kalan kota seed'li rastgele (Kural 6). Seçilenler ORİJİNAL sırasını korur.
+
+    v14 (2026-10-01): kısa sentetik cevaplar setin ~%60'ıydı ve LoRA'yı kısa/atıfsız cevaba
+    çekiyordu (LLM-30 2×2) → pay düşürülür, yerine öz-damıtma örnekleri girer.
+    """
+    import random
+
+    if cap <= 0 or len(lines) <= cap:
+        return lines
+
+    def _enriched(ln: str) -> bool:
+        try:
+            return bool((json.loads(ln).get("metadata") or {}).get("enriched"))
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            return False
+
+    idx = list(range(len(lines)))
+    random.Random(seed).shuffle(idx)
+    idx.sort(key=lambda i: not _enriched(lines[i]))  # kararlı sıralama: zenginler öne
+    keep = sorted(idx[:cap])
+    return [lines[i] for i in keep]
 
 
 def assemble_sft_lines(
@@ -97,6 +128,8 @@ def assemble_sft_lines(
     discipline: bool = True,
     discipline_ratio: float = 0.25,
     seed: int = 0,
+    synth_cap: int = CANONICAL_SYNTH_CAP,
+    distill: bool = True,
 ) -> AssemblyResult:
     """Birleşik SFT JSONL satırlarını kur (eğitim BAŞLATMAZ).
 
@@ -105,6 +138,9 @@ def assemble_sft_lines(
         discipline: Adversarial disiplin örneklerini karıştır (#4 Fix B).
         discipline_ratio: Disiplin payı (disiplin/(taban+disiplin)); v5 dersi ~0.25.
         seed: Determinizm tabanı (karıştırma — kural 6).
+        synth_cap: >0 → sentetik QA en çok bu kadar satır (`_cap_synth`); 0 = sınırsız.
+            Varsayılan kanonik sınır (`CANONICAL_SYNTH_CAP`).
+        distill: `distill_qa.jsonl` (base öz-damıtma, `hektor synth-distill`) varsa ekle.
     """
     lora_dir = settings.root / "data" / "lora_sft"
     synth_path = lora_dir / "synthetic_qa.jsonl"
@@ -121,7 +157,23 @@ def assemble_sft_lines(
         # girmesin (eski veride %3-5; kitaplardan üretilen ilk partide %33-50).
         kept_synth = [ln for ln in synth_lines if not _is_low_value_line(ln)]
         low_value_dropped = synth_n - len(kept_synth)
-        lines += kept_synth
+        lines += _cap_synth(kept_synth, synth_cap, seed)
+
+    distill_n = 0
+    if distill:
+        from app.training.self_distill import distill_files, revalidate_line
+
+        distill_lines = [
+            ln
+            for p in distill_files(lora_dir)
+            for ln in p.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
+        ]
+        # Güncel içerik kapılarından yeniden geçir: kapı sıkılaştıysa eski kabul edilmiş
+        # satırlar yeniden üretim gerektirmeden elenir (Kademe 2 F1/F3, 2026-10-01).
+        distill_lines = [ln for ln in distill_lines if revalidate_line(ln) is None]
+        distill_n = len(distill_lines)
+        lines += distill_lines
 
     card_n = 0
     try:
@@ -153,6 +205,7 @@ def assemble_sft_lines(
         deduped=deduped,
         discipline=disc_stats,
         low_value_dropped=low_value_dropped,
+        distill_n=distill_n,
     )
 
 
@@ -219,6 +272,7 @@ def check_assembly_freshness(
             discipline=True,
             discipline_ratio=CANONICAL_DISCIPLINE_RATIO,
             seed=CANONICAL_SEED,
+            synth_cap=CANONICAL_SYNTH_CAP,
         )
 
     try:

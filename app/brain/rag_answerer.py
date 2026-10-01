@@ -63,6 +63,26 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
+def build_rag_prompt(
+    question: str, chunks: list[RetrievedChunk], *, reorder: bool = True
+) -> tuple[str, str]:
+    """Canlı RAG'ın (sistem, kullanıcı) istemi — TEK kaynak.
+
+    `RagAnswerer.answer` ve öz-damıtma verisi (`app.training.self_distill`) aynı fonksiyonu
+    kullanır; eğitim örneği canlı istemle bayt-aynı olsun (v13 dersi: eğitimdeki
+    `BAĞLAM:/SORU:` biçimi canlı `SOURCES / KAYNAKLAR` biçiminden farklıydı).
+    """
+    # "Lost in the middle": en alakalı chunk'lar bağlamın başına/sonuna (ekleme/çıkarma yok).
+    context_chunks = reorder_lost_in_middle(chunks) if reorder else chunks
+    context = _format_context(context_chunks)
+    try:
+        system = load_prompt("rag_answer")  # tek kaynak format + grounding kuralları
+    except FileNotFoundError:
+        system = _FALLBACK_SYSTEM
+    # Format sistem prompt'undan gelir; kullanıcı prompt'u yalnız bağlam + soru.
+    return system, f"SOURCES / KAYNAKLAR:\n{context}\n\nQUESTION / SORU: {question}"
+
+
 class RagAnswerer:
     def __init__(
         self,
@@ -118,20 +138,11 @@ class RagAnswerer:
                     llm_used=False,
                 )
 
-        # "Lost in the middle" (opt, varsayılan açık): en alakalı chunk'ları LLM bağlamının
-        # başına/sonuna koy (kaynak listesi sıralı kalır; yalnız LLM'e giden bağlam yeniden
-        # dizilir — chunk eklenmez/çıkarılmaz).
-        context_chunks = (
-            reorder_lost_in_middle(chunks) if self.settings.rag_reorder_context else chunks
+        # "Lost in the middle" (opt, varsayılan açık) — kaynak listesi sıralı kalır; yalnız
+        # LLM'e giden bağlam yeniden dizilir.
+        system, prompt = build_rag_prompt(
+            question, chunks, reorder=self.settings.rag_reorder_context
         )
-        context = _format_context(context_chunks)
-        try:
-            system = load_prompt("rag_answer")  # tek kaynak format + grounding kuralları
-        except FileNotFoundError:
-            system = _FALLBACK_SYSTEM
-
-        # Format sistem prompt'undan gelir; kullanıcı prompt'u yalnız bağlam + soru.
-        prompt = f"SOURCES / KAYNAKLAR:\n{context}\n\nQUESTION / SORU: {question}"
 
         try:
             text = self.llm.generate(prompt, system=system, temperature=0.2, seed=42)

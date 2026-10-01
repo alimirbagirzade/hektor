@@ -321,6 +321,25 @@ def adapter_eval_items(eval_dir: Path | None = None) -> list[Any]:
     return out
 
 
+def leakage_eval_items() -> list[Any]:
+    """Sızıntı denetiminin TÜM eval kalemleri (validation + golden + llm30 + adapter-eval).
+
+    Tek kaynak: `run_leakage_check` (eğitim kapısı) ve öz-damıtma soru filtresi
+    (`app.training.self_distill.eval_leak_filter`) aynı listeyi kullanır. Eğitim kodu eval
+    setlerini doğrudan okumaz (statik koruma: tests/profile_mix/test_dataset_leakage.py).
+    """
+    from app.evals.llm30 import load_llm30
+    from app.evals.profile.dataset_loader import load_split
+    from app.evals.profile.schema import Split
+
+    return [
+        *load_split(Split.VALIDATION, purpose="leakage_check"),
+        *load_split(Split.GOLDEN_TEST, purpose="leakage_check"),
+        *load_llm30(purpose="leakage_check"),
+        *adapter_eval_items(),
+    ]
+
+
 def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
     """train.jsonl (+ yanındaki valid.jsonl varsa) ↔ validation/golden sızıntı denetimi.
 
@@ -328,19 +347,11 @@ def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
     valid'de olan bir satır sonraki bölmede train'e düşebilir.
     """
     from app.config import get_settings
-    from app.evals.llm30 import load_llm30
-    from app.evals.profile.dataset_loader import load_split
     from app.evals.profile.leakage import check_leakage, load_train_jsonl
-    from app.evals.profile.schema import Split
 
     path = train_jsonl or get_settings().jsonl_dir / "train.jsonl"
     train = load_train_jsonl(path) if path.exists() else []
-    items = [
-        *load_split(Split.VALIDATION, purpose="leakage_check"),
-        *load_split(Split.GOLDEN_TEST, purpose="leakage_check"),
-        *load_llm30(purpose="leakage_check"),
-        *adapter_eval_items(),
-    ]
+    items = leakage_eval_items()
     rep = check_leakage(items, train)
     valid_path = path.with_name("valid.jsonl")
     n_valid = 0

@@ -147,12 +147,64 @@ def _opening_bigram(answer: str) -> str:
     return " ".join(words[:2])
 
 
-def _ngram_doc_frequency(answers: list[str], n: int) -> dict[str, int]:
-    """Her N-kelimelik ifadenin kaç FARKLI cevapta geçtiği (cevap içi tekrar bir kez sayılır)."""
+def _ngrams(text: str, n: int) -> set[str]:
+    words = _WORD_RE.findall(text.lower())
+    return {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}
+
+
+def _strip_prompt_lines(answer: str, sys_norm: str) -> str:
+    """Normalize hali satırın KENDİ sistem isteminde geçen cevap satırlarını çıkar.
+
+    Kademe 2 F1-3 (2026-10-01, ölçüm): n-gram muafiyeti yalnız istemde harfiyen geçen
+    8-gram'ları düşüyordu; ama cevapta istemdeki bölüm başlığı ("6. Trading Hypothesis /
+    Trading Hipotezi") ile istemdeki zorunlu cümle ("Bu bulgu doğrudan trading kuralına
+    çevrilemez.") ALT ALTA geliyor ve aralarındaki 8-gram istemde yok → kanonik v14 seti
+    %14.2 ile NO-GO. Satır düzeyinde çıkarma bu sınır-aşan pencereleri yok eder; istemde
+    OLMAYAN içerik satırlarının tekrarı (v8 iskelet ezberi) aynen sayılır.
+    """
+    if not sys_norm:
+        return answer
+    kept = []
+    for line in answer.splitlines():
+        norm = " ".join(_WORD_RE.findall(line.lower()))
+        if len(norm) >= 8 and norm in sys_norm:
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _system_prompt(line: str) -> str:
+    """Satırın sistem istemi (yoksa boş) — şablon kapısı muafiyeti için."""
+    try:
+        msgs = json.loads(line).get("messages")
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return ""
+    if not isinstance(msgs, list):
+        return ""
+    return "\n".join(
+        str(m.get("content") or "")
+        for m in msgs
+        if isinstance(m, dict) and m.get("role") == "system"
+    )
+
+
+def _ngram_doc_frequency(
+    answers: list[str], n: int, exempt: list[set[str]] | None = None
+) -> dict[str, int]:
+    """Her N-kelimelik ifadenin kaç FARKLI cevapta geçtiği (cevap içi tekrar bir kez sayılır).
+
+    ``exempt[i]`` → i. cevapta SAYILMAYACAK ifadeler: o satırın kendi sistem isteminde
+    harfiyen geçen N-gram'lar. v14 (2026-10-01): canlı RAG istemi (`rag_answer.md`) bölüm
+    başlıklarını ve "Bu bulgu doğrudan trading kuralına çevrilemez." cümlesini ZORUNLU kılar;
+    bunlar ezber değil talimata uyumdur. İstemde OLMAYAN tekrar (v8 iskelet ezberi) aynen
+    sayılmaya devam eder.
+    """
     df: dict[str, int] = {}
-    for a in answers:
-        words = _WORD_RE.findall(a.lower())
-        for gram in {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}:
+    for i, a in enumerate(answers):
+        grams = _ngrams(a, n)
+        if exempt is not None and exempt[i]:
+            grams -= exempt[i]
+        for gram in grams:
             df[gram] = df.get(gram, 0) + 1
     return df
 
@@ -283,7 +335,21 @@ def audit_dataset(
             warnings.append(f"disiplin kapsamı düşük: {disc_present}/{disc_target} örnek karışımda")
 
     # 6) Şablon tekrarı — aynı uzun ifade çok cevapta (HARD NO-GO; v8 mekanizması).
-    df = _ngram_doc_frequency(answers, _TEMPLATE_NGRAM)
+    sys_cache: dict[str, tuple[set[str], str]] = {}
+    exempt: list[set[str]] = []
+    template_answers: list[str] = []
+    for no, answer in parsed:
+        sp = _system_prompt(lines[no - 1])
+        if sp not in sys_cache:
+            sys_cache[sp] = (
+                (_ngrams(sp, _TEMPLATE_NGRAM), " ".join(_WORD_RE.findall(sp.lower())))
+                if sp
+                else (set(), "")
+            )
+        grams, sys_norm = sys_cache[sp]
+        exempt.append(grams)
+        template_answers.append(_strip_prompt_lines(answer, sys_norm))
+    df = _ngram_doc_frequency(template_answers, _TEMPLATE_NGRAM, exempt)
     n_answers = len(answers)
     top_gram, top_df = min(df.items(), key=lambda kv: (-kv[1], kv[0])) if df else ("", 0)
     template_share = (top_df / n_answers) if n_answers else 0.0

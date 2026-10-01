@@ -46,7 +46,9 @@ def _max_ngram_repeat(answer: str, n: int = 3) -> int:
 
 
 # Cümle sınırları: nokta yanında ! ? 。 ve satır sonu (v8: "!" ile biten tekrar kaçıyordu).
-_SENT_SPLIT_RE = re.compile(r"[.!?。\n]+")
+# Rakamlar arasındaki nokta (ondalık "0.01", "3.2.1") bölmez — Kademe 2 F4-6: matematik
+# satırları ondalıkta bölünüp aynı "0" parçası tekrar sayılıyordu.
+_SENT_SPLIT_RE = re.compile(r"(?:(?<!\d)\.|\.(?!\d)|[!?。\n])+")
 _SENTENCE_REPEAT_MIN = 3  # aynı cümle bu kadar kez BİREBİR geçerse dejenere
 
 
@@ -89,9 +91,47 @@ def _collapse_flags(answer: str) -> list[str]:
     # için bayraklanMAZ (Kural 7 abstain korunur) — yalnız GERÇEKTEN boş çıktı cezalanır.
     if not answer.strip():
         flags.append("empty_answer")
-    if _is_degenerate(answer):
+    if _is_degenerate(strip_scaffold(answer)):
         flags.append("degenerate_repetition")
     return flags
+
+
+_CODE_FENCE_RE = re.compile(r"```.*?(?:```|\Z)", re.S)
+_SCAFFOLD_LINE_RE = re.compile(
+    r"^\s*(?:#{1,6}\s"  # markdown başlık
+    r"|\d+\.\s+\S[^.!?]{0,80}$"  # numaralı bölüm başlığı ("6. Trading Hipotezi")
+    r"|[-*•]?\s*\*\*[^*]{1,80}\*\*:?\s*$"  # kalın etiket satırı ("**Doğrudan cevap:**")
+    r"|[^.!?]{1,80}:\s*$"  # iki noktayla biten kısa etiket
+    r"|\|)"  # markdown tablo satırı
+)
+
+
+def _is_csv_row(line: str) -> bool:
+    """Sorunun istediği CSV verisi mi (düz yazı DEĞİL): ≥3 kısa alan (≤25 kr) ve ya rakam
+    taşır ya da hiçbir alanda boşluk yoktur (başlık satırı "tarih,fiyat,hacim")."""
+    fields = [f.strip() for f in line.strip().split(",")]
+    if len(fields) < 3 or any(len(f) > 25 for f in fields):
+        return False
+    return any(ch.isdigit() for ch in line) or not any(" " in f for f in fields)
+
+
+_CITE_BRACKET_RE = re.compile(r"\[[^\[\]\n]{1,400}\]")
+
+
+def strip_scaffold(answer: str) -> str:
+    """Tekrar denetiminden ÖNCE meşru iskeleti ayıkla (Kademe 2 F4-6, 2026-10-01).
+
+    Ölçüm (v13 LLM-30 2×2): `_is_degenerate` base cevaplarının %56-73'ünü bayrakladı; iki
+    oylu doğrulamada incelenen örneklerin hepsi döngüsüz, iyi yapılandırılmış cevaplardı.
+    Tetikleyiciler: istemin her alt madde için istediği başlıklar, kod bloklarındaki
+    tekrarlı import satırları, sorunun istediği CSV satırları ve aynı kaynağa tekrarlı atıf
+    (`s.9]` noktası cümleyi bölüyordu). Bunlar atılır; içerik cümlelerinin tekrarı (gerçek
+    döngü) aynen yakalanır. Adapter'da tek bayrak kategorik ret (veto) olduğu için yanlış
+    pozitif, uzun-cevap stilini öğrenen adapter'ı haksız yere reddediyordu.
+    """
+    text = _CODE_FENCE_RE.sub("\n", answer)
+    kept = [ln for ln in text.splitlines() if not (_SCAFFOLD_LINE_RE.match(ln) or _is_csv_row(ln))]
+    return _CITE_BRACKET_RE.sub("", "\n".join(kept))
 
 
 def _flags_for(answer: str, must_avoid: list[str]) -> list[str]:

@@ -303,7 +303,8 @@ def test_freshness_identical_file_is_fresh_and_uses_canonical_params() -> None:
     build, seen = _assembler(expected, expected)
     res = check_assembly_freshness(list(expected), SimpleNamespace(), assemble=build)
     assert res.fresh and res.deterministic and not res.blockers
-    assert seen == [{"discipline": True, "discipline_ratio": 0.25, "seed": 0}] * 2
+    canonical = {"discipline": True, "discipline_ratio": 0.25, "seed": 0, "synth_cap": 400}
+    assert seen == [canonical] * 2
 
 
 def test_freshness_stale_card_set_blocks() -> None:

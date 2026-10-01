@@ -72,6 +72,7 @@ class RerankingRetriever:
         self.translate = (translate or self.settings.rag_query_translate).lower()
         if self.translate not in _TRANSLATE_MODES:
             raise ValueError(f"rag_query_translate geçersiz: {self.translate} {_TRANSLATE_MODES}")
+        self.last_search: dict[str, str] = {}
         self.translate_model = translate_model or self.settings.rag_translate_model
         self.base = base or RetrievalService()
         self.reranker: RerankerLike = reranker or self._default_reranker()
@@ -118,17 +119,22 @@ class RerankingRetriever:
 
     def search_queries(self, query: str) -> tuple[str, str | None]:
         """(arama sorgusu, bilingual ise ek orijinal sorgu). Çeviri hatasında orijinale düşer."""
+        # Son çağrının izi (öz-damıtma satır kökeni + denetim; Kademe 2 F3-8).
+        self.last_search = {"query": query, "translation": "kapalı"}
         if self.translate == "off":
             return query, None
-        from app.brain.local_llm import LLMUnavailable
-        from app.memory.query_translation import TranslationError, translate_query
+        from app.memory.query_translation import looks_turkish, translate_query
 
         try:
             en = translate_query(query, model=self.translate_model)
-        except (TranslationError, LLMUnavailable) as exc:
-            # Çeviri yardımcıdır: model yok / Ollama kapalı / kötü çıktı → retrieval DÜŞMEZ.
+        except Exception as exc:
+            # Çeviri yardımcıdır: model yok / Ollama kapalı / kötü çıktı / önbellek G/Ç hatası →
+            # retrieval DÜŞMEZ (Kademe 2 F3-6: OSError eskiden retrieve()'dan kaçıyordu).
             logger.warning("Sorgu çevirisi başarısız, orijinal sorgu kullanılıyor: %s", exc)
+            self.last_search = {"query": query, "translation": f"düştü:{type(exc).__name__}"}
             return query, None
+        status = "çevrildi" if en != query else ("aynı" if looks_turkish(query) else "türkçe-değil")
+        self.last_search = {"query": en, "translation": status}
         if self.translate == "bilingual" and en != query:
             return en, query
         return en, None

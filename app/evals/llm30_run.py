@@ -235,6 +235,35 @@ def main() -> None:
         manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+    else:
+        # Sürdürme (Kademe 2 F4-1): manifest eskiden HİÇ karşılaştırılmıyordu → aynı adla
+        # yeniden kurulmuş model / farklı adapter / farklı çözme ayarı / farklı RAG eski
+        # satırlarla sessizce karışırdı. Kimlik alanları birebir eşleşmeli.
+        old = json.loads(manifest_path.read_text(encoding="utf-8"))
+        now = {
+            "base_digest": models["base"]["digest"],
+            "lora_digest": models["lora"]["digest"],
+            "adapter_sha256": file_sha(adapter_dir / "adapter_model.safetensors"),
+            "decoding": decoding,
+            "seeds": args.seeds,
+            "rag_version": snapshot.rag_version,
+            "system_prompt_sha256": sha(SYSTEM_PROMPT),
+        }
+        was = {
+            "base_digest": old["models"]["base"]["digest"],
+            "lora_digest": old["models"]["lora"]["digest"],
+            "adapter_sha256": old["adapter"]["adapter_sha256"],
+            "decoding": old["decoding"],
+            "seeds": old["seeds"],
+            "rag_version": old["rag"].get("rag_version"),
+            "system_prompt_sha256": old["system_prompt_sha256"],
+        }
+        diff = [k for k in now if now[k] != was[k]]
+        if diff:
+            raise SystemExit(
+                f"{run_id} sürdürülemez: manifest ile şimdiki koşu farklı ({', '.join(diff)}). "
+                "Yeni --run-id ile başlat."
+            )
 
     raw_path = out_dir / "raw.jsonl"
     done: set[tuple[str, str, int]] = set()

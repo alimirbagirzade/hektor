@@ -1008,6 +1008,8 @@ uv run hektor pine [strateji-adı]     # StrategyIR → TradingView Pine Script 
 uv run hektor synth-qa                # chunk'lardan sentetik grounded QA üret (Ollama)
 uv run hektor synth-qa-bulk           # TÜM korpustan checkpoint'li bulk üretim (1000'e hızlı)
 uv run hektor synth-enrich            # kısa sentetik cevapları aynı bağlamdan açıklamalı yap (devam eder; --apply)
+uv run hektor synth-distill --gen-questions  # korpus parçalarından bağımsız soru üret (base model)
+uv run hektor synth-distill           # base öz-damıtma: canlı RAG istemiyle uzun/atıflı cevaplar → distill_qa.jsonl (devam eder)
 uv run hektor discipline-dataset      # adversarial disiplin örnekleri üret/önizle (LLM-free)
 uv run hektor lora-curate             # orphan + çok-versiyon kartları eğitimden çıkar (--run uygular)
 uv run hektor pretrain-gate           # eğitim-ÖNCESİ kalite kapısı: GO/NO-GO (LLM-free, #3)

@@ -102,3 +102,31 @@ def test_iki_kez_gecen_cumle_tek_basina_bayraklanmaz() -> None:
         "Ardından out-of-sample doğrula. Maliyetsiz getiri yanıltır."
     )
     assert _is_degenerate(s) is False
+
+
+def test_structured_long_answer_is_not_degenerate() -> None:
+    """Kademe 2 F4-6: istemin istediği alt-madde başlıkları, kod bloklarındaki importlar,
+    CSV satırları, ondalıklar ve aynı kaynağa tekrarlı atıf döngü sayılmaz."""
+    from app.training.adapter_eval import strip_scaffold
+
+    parts = []
+    topics = ["oynaklık", "momentum", "kelly oranı"]
+    for t in topics:
+        parts.append(
+            f"**Doğrudan cevap:**\n{t.capitalize()} burada ayrı bir mekanizma ile açıklanır "
+            f"[p1:p1_c1, s.9].\n**Varsayım ve sınırlama:**\n{t} için örneklem dışı test "
+            "gerekir.\n```python\nimport numpy as np\nimport pandas as pd\n```\n"
+            "tarih,fiyat,hacim\n2024-01-01,100.5,10\n"
+            f"- p = 0.01 + (1 - 0.01) * 0.5 ile {t} hesabı yapılır."
+        )
+    answer = "\n\n".join(parts)
+    assert not _is_degenerate(strip_scaffold(answer))
+    assert "degenerate_repetition" not in _flags_for(answer, [])
+
+
+def test_real_content_loop_still_flagged_after_scaffold_strip() -> None:
+    from app.training.adapter_eval import strip_scaffold
+
+    loop = "**Doğrudan cevap:**\n" + "Model bu rejimde aynı sonucu verir. " * 5
+    assert _is_degenerate(strip_scaffold(loop))
+    assert "degenerate_repetition" in _flags_for(loop, [])
