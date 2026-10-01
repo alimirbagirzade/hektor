@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-09-30 (**varsayılan artık Qwen3-30B-A3B-Instruct-2507** + `moe30b_attn_local`; 4B yalnız düşük-RAM seçeneği · v13 eğitimi TAMAMLANDI, candidate · LLM-30 2×2 koşusu · RAG sorgu çevirisi deneyi P@6 0.14 → 0.71 · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-10-01 (**v14 EĞİTİMİ KOŞUYOR** — base öz-damıtma verisi + `moe30b_attn_long` (seq 6144) · v14 öncesi Kademe 2 (4 bulucu × 2 doğrulayıcı) · PR #27 çakışması giderildi, CI yeşil · v13 candidate, 2×2'de geriliyor · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
 
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
@@ -35,9 +35,10 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 | Alan | Durum |
 |---|---|
-| Kapı (`make ci`) | **CI (Linux) ✅** PR #26 (`claude/lora-30b-a3b-prep`) `f92a22d` — "lint · types · tests (offline)" success (önceki kırmızı: llm30 manifest hash'i CRLF'ten hesaplanmıştı, LF'e düzeltildi; temiz LF klonda yeniden üretilip doğrulandı). **Yerel (Windows):** ruff + mypy (263) + pytest **2818 passed**. PR henüz main'e birleşmedi. |
+| Kapı (`make ci`) | **CI (Linux) ✅** PR #27 (`claude/lora-30b-a3b-prep` → main) `9cf1034` "lint · types · tests (offline)" success. #26 main'e SQUASH ile birleşmişti → #27 "dirty" idi; squash ağacı `f92a22d` ile birebir aynı olduğu doğrulanıp `-s ours` ile birleştirildi (içerik kaybı yok). **Yerel (Windows):** ruff + mypy (264) + pytest **2854+ passed**. Not: arka planda `storage/`'a yazan süreç (synth-distill/web) varken tam test koşusunda izolasyon koruması nadiren ERROR verebilir — tek başına tekrar koş. |
 | Varsayılan model | **LLM:** `qwen3:30b-a3b-instruct-2507-q4_K_M` · **PEFT base:** `Qwen/Qwen3-30B-A3B-Instruct-2507` · **profil:** `moe30b_attn_local` (`app.config.DEFAULT_TRAIN_PROFILE`; attention-only, maskeli, bf16 ~61 GB RAM). Düşük RAM: `qwen3:4b-instruct-2507-q4_K_M` + `Qwen/Qwen3-4B-Instruct-2507` + `discipline_safe_local`. Çıplak `qwen3:30b`/`qwen3:4b` = Thinking-2507 (yavaş). **Bu makinenin `.env`'i: `HEKTOR_LLM_MODEL=hektor-v12-30b`** (LoRA'lı; arka plan döngüleri bu yüzden KAPALI). |
 | Eğitim yığını | `train-cpu` extra'sı kilitte **sabit**: torch 2.14.0 · transformers 5.16.1 · tokenizers 0.23.2 · peft 0.20.0 · accelerate 1.14.0. Yükseltmek açık karardır → ardından adapter yeniden değerlendirilmeli |
+| Koşan eğitim | **`hektor_lora_v14_30b`** — başladı 2026-10-01 11:45 (`start-train.ps1 -Profile moe30b_attn_long`, onay `apr_9e27b2e343f3`, mix `trading_analysis_v1` / `wd_db97219915`). 1489 örnek → **187 optimizer adımı** (GA 8), eval+checkpoint her 12 adımda (32 valid), load_best, kayıp **token başına** (kullanıcı kararı). **Ölçüm:** 1. optimizer adımı 13 dk 10 sn → ~42-45 sa (bitiş ≈ 3 Ekim öğleden sonra; tek adımdan genişletme). **RAM SINIRDA:** süreç private 120 GB, boş RAM 12.7 GB, boş sanal (commit) 12.1 GB → en uzun örneklerle ayırma hatası riski; çökmede nöbetçi checkpoint'ten sürdürür (her 12 adım ≈ 2.6 sa), log artık arşivlenir. Önlem: Windows sayfa dosyasını büyütmek (kullanıcı). Eğitim sürerken Ollama/web/LoRA sohbeti AÇMA. |
 | Son adapter | **`hektor_lora_v13_30b`** — TAMAMLANDI 2026-09-30 11:44 (210 optimizer adımı, GA 8, val_loss en iyi 0.5769 @175, son adapter = checkpoint-175). Kayıt `adapter_ee06d5a4dfa8` **candidate**, terfi YOK. Ollama: `hektor-v13-30b` (Q4_K_M + attn q8_0). Önceki: v12 (candidate; Ollama şablonunda CR — D1), v11 (candidate). |
 | LLM | Yalnız yerel Ollama. Bulut API istemcisi YOK. |
 | Gözetimsiz eğitim | **KAPALI** (`unattended_training_enabled=false`) → her gerçek eğitim tek-kullanımlık insan onayı ister (Kural 8) |
@@ -76,14 +77,23 @@ Ollama kapalıysa: `ollama serve` → `ollama pull qwen3:30b-a3b-instruct-2507-q
 
 ## Sıradaki adım
 
-1. **v14 veri kararı (v13 geriliyor — 2×2):** eğitim verisi kısa + atıfsız → sentetik QA payını
-   düşür / açıklamalı-atıflı, RAG sistem istemli örnekler ekle; EMA doğrusallığı gibi doğrulanmış
-   kavram düzeltmeleri. Tek değişken: yalnız veri. Önce Kademe 2 + karışım ağırlığı sorusu.
-2. **2×2 rubrik puanlaması** (insan; `app.evals.llm30.RUBRIC`, kritik hatalar ayrı) — ham
+1. **v14 eğitimini izle** (`egitim-nobetcisi` ajanı / `.\scripts\start-train.ps1 -Status`). Bitince:
+   `run_complete.json` (best checkpoint) → `lora-eval` (dejenere dedektörü artık iskelet-bilinçli)
+   → `adapter_to_ollama.ps1 -Adapter hektor_lora_v14_30b -OllamaName hektor-v14-30b -AttnQuant q8_0`
+   (köken anahtarı eşleşmezse durur) → LLM-30 2×2 **yeni run-id** ile, base `hektor-base-30b-q4a8`.
+   v13 ile karşılaştır: ort. token, sayısal anahtar, alt madde, atıf (D), döngü. ADAY; terfi insan.
+2. **Eğitim sürerken yapılacak eval işleri (Kademe 2 açık):** F4-5 2×2'ye canlı RAG istemli koşul
+   (C′/D′ = `build_rag_prompt`; v14 bu biçimle eğitildi) · F4-7 v13 metriklerini üreten analiz
+   betiği (repo'da yok; `abc_all`/`num_ok` yeniden üretilemiyor) · F4-8 n=30 soru başına raporla
+   (temp 0'da seed43==44) · F4-9 merge KL kapısı tüm pozisyonlarda · F4-10 Modelfile parametre
+   karşılaştırması · F4-11 dataset_version kanonik içerikten · F2-9 Ollama şablonu `SYS\n\n<|im_end|>`.
+3. EMA doğrusallığı (S12) müfredatı **v14'e girmedi**: LLM-30 S12'yi doğrudan hedefler (geliştirme
+   seti kirlenir); eklenecekse doğrulanmış kaynakla + S12 metrik dışı bırakılarak.
+4. **2×2 rubrik puanlaması** (insan; `app.evals.llm30.RUBRIC`, kritik hatalar ayrı) — ham
    cevaplar `reports/evals/llm30/llm30_v13_2x2_20260930/raw.jsonl`.
-3. RAG çevirisi canlı → sohbet modeli + çevirmen GPU takas gecikmesini ölç; insan etiket
+5. RAG çevirisi canlı → sohbet modeli + çevirmen GPU takas gecikmesini ölç; insan etiket
    örneklemesi (`evals/rag_relevance/llm30_pooled_v1.jsonl`). 2×2'yi çevirili RAG ile tekrar koş.
-4. **Canlı sohbet modeli** `hektor-v12-30b` (D1 şablon CR'si, v13'e benzer kısa/atıfsız davranış
+6. **Canlı sohbet modeli** `hektor-v12-30b` (D1 şablon CR'si, v13'e benzer kısa/atıfsız davranış
    riski) → base `qwen3:30b-a3b-instruct-2507-q4_K_M`'e dönmek kullanıcı kararı.
 
 Eğitim akışı (veri `data/`, `storage/`, `models/` git'te izlenmez):
@@ -103,7 +113,45 @@ Ollama; 2×2 için aynı tarifle base: `-BaseRepo`).
 
 ---
 
-## Son seans — 2026-09-30 (5): v13 sonucu + GGUF + LLM-30 2×2 (v13 GERİLİYOR) + RAG deneyi + 4B temizliği
+## Son seans — 2026-10-01: v14 verisi (base öz-damıtma) + Kademe 2 + **v14 EĞİTİMİ KOŞUYOR**
+
+**Teşhis (v13 verisi, ölçüm):** 1499 sentetik/disiplin satırında cevap medyanı ~250 kr, atıf 6;
+canlı RAG istemi (`rag_answer.md` + `SOURCES / KAYNAKLAR … QUESTION / SORU:`) eğitimde HİÇ yoktu
+→ LoRA "bağlam+soru → 2-4 cümle, atıfsız" öğrendi (2×2: ~5× kısa, D'de 0 atıf).
+
+**v14 verisi (`hektor synth-distill`, yeni `app/training/self_distill.py`):** öğretmen = BASE
+`qwen3:30b-a3b-instruct-2507-q4_K_M` (hektor-* reddedilir). Kipler: `rag` (canlı retrieval +
+`build_rag_prompt` bayt-aynı istem) ve `plain` (genel istem + "bağlam verilmedi" notu). Sorular:
+sentetik QA'nın bağımsız soruları + `--gen-questions` (865 parçadan 620 bağımsız soru, ⅓'ü a/b/c
+alt maddeli). İki tur: r1 (`distill_qa.r1.jsonl`, kapılar sıkılaşmadan) + r2; birleştirme
+`distill_qa*.jsonl`'i GÜNCEL kapılardan yeniden geçirir. Geçerli: **431 RAG + 61 RAG'sız**.
+Birleştirme: sentetik QA ≤400 (zenginleştirilmiş önce), kalıplaşmış damıtma satırı inceltme
+(%1.8; 10 satır). Kanonik set **1569** (train 1489 / valid 80): satır payı RAG-damıtma %27 ·
+sentetik %25 · disiplin %25 · kart %19 · plain %4; cevap metni payı RAG-damıtma **%72**.
+pretrain-gate GO · lora-audit 292/292 · sızıntı 0. Yeni profil `moe30b_attn_long`
+(seq 6144, tüm havuz, eval/checkpoint her 96 örnek, `loss_weighting: token`).
+
+**Kademe 2 (v14 öncesi; 4 bulucu, her bulgu 2 bağımsız şüpheci doğrulayıcı — F1'in 2. oyu kota
+yüzünden yarıda kaldı, F1 iddiaları gerçek veride ölçülerek doğrulandı).** Onaylanıp düzeltilenler:
+- Veri: RAG'sız damıtmada **87/90 uydurma kaynakça / "RAG bağlamı" iddiası** (Kural 7) → not +
+  kapı · atıf kapısı tekrarları sayıyor, uydurma parça kimliğini ve çoklu kimlikli köşeliyi
+  kabul ediyordu → strict çift + ≥2 farklı kaynak · Gate 5/7 damıtmada da · tekrar kapısı zorunlu
+  iskelette yanlış pozitif · U+2028 satır bölme · aksansız/numaralı-kitap bağımlı sorular.
+- Retrieval: ASCII Türkçe çevrilmiyordu (25/800) · çevirmen alt maddeli soruyu CEVAPLIYORDU ve
+  cevap sorgu oluyordu · önbellek G/Ç hatası koşuyu düşürüyordu / önbelleği siliyordu · çevirmen
+  ile öğretmen farklı num_ctx → **her RAG işinde 30B iki kez yeniden yükleniyordu** (toplu ön-çeviri).
+- Eğitim: kayıp token ağırlıklı (karar: token kalsın) · profil sessizce 600 satır · checkpoint
+  3-5 sa'te bir · start-train eski logu siliyordu · 45 dk canlılık eşiği · uzunluk kaybı sessizdi
+  (artık >%1 ise eğitim başlamaz).
+- Eval: `_is_degenerate` base'i %56-73 bayraklıyordu (v13 2×2 kalibrasyonu → A 6, C 6; adapter
+  döngüleri korunur) · `adapter_to_ollama` eski birleşik/GGUF'u yalnız varlığa bakıp kullanıyordu
+  (köken anahtarı) · llm30 sürdürme manifest denetimi · sızıntı: LLM-30 alt maddeleri + canlı
+  `QUESTION / SORU:` biçimi · pretrain-gate şablon muafiyeti satır düzeyinde.
+Commit'ler: 604f1f5, b7a683d, 24e20ac, 9cf1034 (main birleştirme), 1683792 + bu.
+
+---
+
+## Önceki seans — 2026-09-30 (5): v13 sonucu + GGUF + LLM-30 2×2 (v13 GERİLİYOR) + RAG deneyi + 4B temizliği
 
 **v13 eğitimi TAMAMLANDI** (210/210 optimizer adımı, 30.09 11:44; kayıt `adapter_ee06d5a4dfa8`
 **candidate**, terfi YOK). 07:43'te checkpoint-125'ten sürdürüldü (`recovery_attempts: 1`;
