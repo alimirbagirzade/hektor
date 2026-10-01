@@ -152,6 +152,27 @@ def _ngrams(text: str, n: int) -> set[str]:
     return {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}
 
 
+def _strip_prompt_lines(answer: str, sys_norm: str) -> str:
+    """Normalize hali satırın KENDİ sistem isteminde geçen cevap satırlarını çıkar.
+
+    Kademe 2 F1-3 (2026-10-01, ölçüm): n-gram muafiyeti yalnız istemde harfiyen geçen
+    8-gram'ları düşüyordu; ama cevapta istemdeki bölüm başlığı ("6. Trading Hypothesis /
+    Trading Hipotezi") ile istemdeki zorunlu cümle ("Bu bulgu doğrudan trading kuralına
+    çevrilemez.") ALT ALTA geliyor ve aralarındaki 8-gram istemde yok → kanonik v14 seti
+    %14.2 ile NO-GO. Satır düzeyinde çıkarma bu sınır-aşan pencereleri yok eder; istemde
+    OLMAYAN içerik satırlarının tekrarı (v8 iskelet ezberi) aynen sayılır.
+    """
+    if not sys_norm:
+        return answer
+    kept = []
+    for line in answer.splitlines():
+        norm = " ".join(_WORD_RE.findall(line.lower()))
+        if len(norm) >= 8 and norm in sys_norm:
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def _system_prompt(line: str) -> str:
     """Satırın sistem istemi (yoksa boş) — şablon kapısı muafiyeti için."""
     try:
@@ -314,14 +335,21 @@ def audit_dataset(
             warnings.append(f"disiplin kapsamı düşük: {disc_present}/{disc_target} örnek karışımda")
 
     # 6) Şablon tekrarı — aynı uzun ifade çok cevapta (HARD NO-GO; v8 mekanizması).
-    sys_cache: dict[str, set[str]] = {}
+    sys_cache: dict[str, tuple[set[str], str]] = {}
     exempt: list[set[str]] = []
-    for no, _ in parsed:
+    template_answers: list[str] = []
+    for no, answer in parsed:
         sp = _system_prompt(lines[no - 1])
         if sp not in sys_cache:
-            sys_cache[sp] = _ngrams(sp, _TEMPLATE_NGRAM) if sp else set()
-        exempt.append(sys_cache[sp])
-    df = _ngram_doc_frequency(answers, _TEMPLATE_NGRAM, exempt)
+            sys_cache[sp] = (
+                (_ngrams(sp, _TEMPLATE_NGRAM), " ".join(_WORD_RE.findall(sp.lower())))
+                if sp
+                else (set(), "")
+            )
+        grams, sys_norm = sys_cache[sp]
+        exempt.append(grams)
+        template_answers.append(_strip_prompt_lines(answer, sys_norm))
+    df = _ngram_doc_frequency(template_answers, _TEMPLATE_NGRAM, exempt)
     n_answers = len(answers)
     top_gram, top_df = min(df.items(), key=lambda kv: (-kv[1], kv[0])) if df else ("", 0)
     template_share = (top_df / n_answers) if n_answers else 0.0

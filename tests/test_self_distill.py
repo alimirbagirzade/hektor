@@ -514,3 +514,30 @@ def test_used_questions_skips_own_output(tmp_path) -> None:
     w("distill_qa.rejects.jsonl", "Red sorusu")
     used = sd.used_questions(tmp_path, skip=tmp_path / "distill_qa.jsonl")
     assert used == {sd.norm_question("Momentum nedir")}
+
+
+def test_template_gate_exempts_prompt_heading_plus_mandated_line() -> None:
+    """Kademe 2 F1-3: başlık satırı + zorunlu cümle ALT ALTA → aradaki 8-gram istemde yok;
+    satır düzeyinde istem çıkarması olmadan kanonik v14 seti %14 ile NO-GO veriyordu."""
+    import random
+
+    from app.brain.rag_answerer import build_rag_prompt
+
+    system, _ = build_rag_prompt("x", [])
+    vocab = [f"kavram{chr(97 + a)}{chr(97 + b)}" for a in range(26) for b in range(26)]
+
+    def body(i: int) -> str:
+        return " ".join(random.Random(i).sample(vocab, 12))
+
+    answer = (
+        "1. Short Answer / Kısa Cevap\n{b}.\n"
+        "6. Trading Hypothesis / Trading Hipotezi\n"
+        "Bu bulgu doğrudan trading kuralına çevrilemez.\n"
+        "7. Test Plan / Test Planı\n{b} plan."
+    )
+    lines = [_row(system, answer.format(b=body(i)), f"q{i}") for i in range(60)]
+    assert not any("şablon tekrarı" in b for b in audit_dataset(lines).blockers)
+    # İstemde OLMAYAN ortak içerik satırı hâlâ engellenir.
+    memorized = "Bu yöntem her piyasada aynı sinyali üretir ve sonuç değişmez gibi görünür."
+    lines2 = [_row(system, f"{body(i)}.\n{memorized}", f"q{i}") for i in range(60)]
+    assert any("şablon tekrarı" in b for b in audit_dataset(lines2).blockers)
