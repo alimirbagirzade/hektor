@@ -43,8 +43,16 @@ _MIN_TEXT_LEN = 20  # çok kısa metinler (ör. "Evet.") near-dup için anlamsı
 # İçerme (substring) denetimi için normalize eval metninin en kısa uzunluğu: daha kısa ifadeler
 # (ör. "standart sapma nedir") uzun pasajlarda doğal olarak geçer → yanlış pozitif.
 _MIN_CONTAIN_LEN = 30
-# ``BAĞLAM: …\n\nSORU: <soru>`` biçimli kullanıcı mesajında soru bölümünün işareti.
-_QUESTION_MARKER = re.compile(r"(?:^|\n)[ \t]*(?:SORU|QUESTION)[ \t]*:[ \t]*", re.IGNORECASE)
+# ``BAĞLAM: …\n\nSORU: <soru>`` biçimli kullanıcı mesajında soru bölümünün işareti. Canlı RAG
+# biçimi ``QUESTION / SORU:`` da tanınır (Kademe 2 F1-5/F4-4: eskiden '' dönüyordu → soru
+# bağlamın içinde kalıyor, yakın-kopya denetimi kör oluyordu).
+_QUESTION_MARKER = re.compile(
+    r"(?:^|\n)[ \t]*(?:SORU|QUESTION)(?:[ \t]*/[ \t]*(?:SORU|QUESTION))?[ \t]*:[ \t]*",
+    re.IGNORECASE,
+)
+# Çok parçalı eval sorusunun alt maddeleri ("a) …", "b) …") ayrı ayrı denetlenir (F4-3).
+_SUBPART_SPLIT = re.compile(r"\n(?=[ \t]*[a-eA-E]\)[ \t])")
+_SUBPART_PREFIX = re.compile(r"^[ \t]*[a-eA-E]\)[ \t]*")
 
 
 @dataclass
@@ -162,7 +170,15 @@ def load_train_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _eval_texts(item: EvalItem) -> list[str]:
-    return [t for t in (item.question, item.reference_answer, *item.accepted_answers) if t.strip()]
+    texts = [t for t in (item.question, item.reference_answer, *item.accepted_answers) if t.strip()]
+    # Alt maddeler: eğitim satırı tek bir alt maddeye eşitse bütün-soru karşılaştırması
+    # kaçırıyordu (Kademe 2 F4-3; S12 a) → temiz). Gövde "a) " öneki olmadan eklenir.
+    parts = _SUBPART_SPLIT.split(item.question)
+    for part in parts[1:]:
+        body = _SUBPART_PREFIX.sub("", part).strip()
+        if len(body) >= _MIN_TEXT_LEN:
+            texts.append(body)
+    return texts
 
 
 def _eval_sources(item: EvalItem) -> set[str]:

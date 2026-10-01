@@ -281,6 +281,17 @@ try {
     if ($Supervised) { $env:HEKTOR_TRAIN_RECOVERY = "1" }
     else { Remove-Item Env:HEKTOR_TRAIN_RECOVERY -ErrorAction SilentlyContinue }
     if ($BaseModel -and $BaseModel.Trim() -ne "") { $env:HEKTOR_PEFT_BASE_MODEL = $BaseModel }
+    # Start-Process -Redirect* dosyalari KESER: kurtarma/yeniden baslatmada onceki kosunun
+    # cokme izi (traceback) silinirdi (Kademe 2 F2-3; v13'te kesinti nedeni bu yuzden
+    # bilinmiyor). Dolu eski loglar zaman damgasiyla arsivlenir.
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    foreach ($lf in @($LogOut, $LogErr)) {
+        if ((Test-Path $lf) -and ((Get-Item $lf).Length -gt 0)) {
+            $arch = [System.IO.Path]::ChangeExtension($lf, "$stamp.log")
+            Move-Item -LiteralPath $lf -Destination $arch -Force
+            Write-Host "Onceki log arsivlendi: $arch"
+        }
+    }
     $proc = Start-Process -FilePath $uv `
         -ArgumentList $trainArgs `
         -WorkingDirectory $ProjectDir `

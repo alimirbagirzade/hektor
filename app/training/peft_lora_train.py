@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import sys
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,6 +143,12 @@ class PeftTrainConfig:
     # Trainer.compute_loss override'ı (_KLRegTrainer) ile uygulanır. GGUF-güvenli: yalnız
     # eğitim-zamanı ek loss terimi; mimari/ağırlık şekli değişmez. OPT-IN (0.0=kapalı).
     kl_reg_beta: float = 0.0
+    # Gradient birikiminde kayıp ağırlığı (Kademe 2 F2-1, 2026-10-01). transformers 5.x MoE
+    # modelinde (forward **kwargs alır) VARSAYILAN "token": birikim penceresindeki tüm cevap
+    # token'larına bölünür → uzun cevaplı satır kısa satırdan orantısız ağır basar (v14'te
+    # disiplin satırları satırların %25'i ama kayıp token'larının ~%3'ü). "example": her
+    # örnek ortalaması eşit ağırlık (= birikim öncesi semantik; eval_loss da böyle ölçülür).
+    loss_weighting: str = "token"
     seed: int = 42
     # --- Checkpoint'ten devam (resume) — VARSAYILAN KAPALI, AÇIK TERCİH ---
     # Eskiden train() çıktı klasöründeki en son checkpoint'ten KOŞULSUZ devam ederdi:
@@ -395,6 +402,8 @@ def build_lora_kwargs(cfg: PeftTrainConfig) -> dict:
 # Checkpoint ve log aralıkları ÖRNEK cinsinden sabit tutulur; gradient accumulation açılınca
 # optimizer adımına ölçeklenir (birikim 8 iken 25 adım = 200 örnek → çökmede ~1 saat kayıp).
 _SAVE_EVERY_EXAMPLES = 25
+# Uzunluk kaybı (kırpılan + atılan örnek) bu payı aşarsa eğitim BAŞLAMAZ (Kademe 2 F2-5/F1-2).
+MAX_LENGTH_LOSS_FRAC = 0.01
 _LOG_EVERY_EXAMPLES = 5
 
 
@@ -554,6 +563,8 @@ def recipe_summary(cfg: PeftTrainConfig) -> dict:
         techniques.append("assistant_only_loss (yalnız asistan token kaybı — yerelde aktif)")
     if cfg.kl_reg_beta and cfg.kl_reg_beta > 0:
         techniques.append(f"kl_reg (β={cfg.kl_reg_beta}, base'e KL cezası — forgetting azaltma)")
+    if cfg.loss_weighting == "example":
+        techniques.append("kayıp ağırlığı: örnek başına (birikimde her örnek eşit)")
     if cfg.gradient_checkpointing:
         techniques.append("gradient_checkpointing (bellek ↓, adım yavaş)")
     if cfg.gradient_accumulation_steps > 1:
@@ -616,7 +627,13 @@ def load_lora_profile(name: str, profiles_path: Path | None = None) -> dict:
         "neftune_noise_alpha": "neftune_noise_alpha",
         "assistant_only_loss": "assistant_only_loss",
         "kl_reg_beta": "kl_reg_beta",
+        "loss_weighting": "loss_weighting",
     }
+    if prof.get("loss_weighting") not in (None, "token", "example"):
+        raise ValueError(
+            f"Profil {name!r}: loss_weighting 'token' ya da 'example' olmalı: "
+            f"{prof.get('loss_weighting')!r}"
+        )
     out: dict = {}
     for yaml_key, cfg_field in field_map.items():
         if yaml_key in prof and prof[yaml_key] is not None:
@@ -981,6 +998,25 @@ class _KLRegTrainer:  # transformers.Trainer alt sınıfı; import torch/transfo
         return loss
 
 
+def apply_loss_weighting(trainer: Any, weighting: str) -> None:
+    """Birikim penceresinde kayıp ağırlığını ayarla (bkz. `PeftTrainConfig.loss_weighting`).
+
+    "example" → ``model_accepts_loss_kwargs=False``: HF `num_items_in_batch` geçmez, her mikro
+    adımın kaybı kendi token ortalamasıdır (batch 1 → örnek ortalaması) ve `training_step`
+    birikim adımına böler. Ayrıca `_KLRegTrainer` (`num_items_in_batch`'i yok sayar) GA>1'de
+    kaybı GA kat şişirmez. "token" → HF varsayılanı (dokunulmaz). transformers 5.16.1'de iki
+    okuma noktası da bayrağı çalışma anında okur (Kademe 2 F2 doğrulaması).
+    """
+    if weighting == "example":
+        trainer.model_accepts_loss_kwargs = False
+        logger.info("Kayıp ağırlığı: ÖRNEK başına (birikimde her örnek eşit).")
+    else:
+        logger.info(
+            "Kayıp ağırlığı: TOKEN başına (model_accepts_loss_kwargs=%s).",
+            getattr(trainer, "model_accepts_loss_kwargs", None),
+        )
+
+
 def _make_trainer_cls(kl_reg_beta: float) -> type:
     """``kl_reg_beta>0`` ise KL-regularized Trainer sınıfı, aksi halde düz Trainer döner.
 
@@ -1152,6 +1188,8 @@ def train(cfg: PeftTrainConfig) -> dict:
             out.append({"input_ids": enc["input_ids"], "attention_mask": enc["attention_mask"]})
         return out
 
+    length_loss: Counter[str] = Counter()
+
     def _tokenize_masked(rows: list[dict]) -> list[dict]:
         # assistant_only_loss: prompt'u chat-template ile AYRI render edip token sınırını
         # bul; labels'ta prompt token'larını -100'le → yalnız asistan cevabı öğrenilir.
@@ -1165,12 +1203,15 @@ def train(cfg: PeftTrainConfig) -> dict:
                 continue
             try:
                 prompt_ids = _chat_input_ids(tokenizer, msgs[:-1], add_generation_prompt=True)
-                full_ids = _chat_input_ids(tokenizer, msgs, add_generation_prompt=False)[
-                    : cfg.max_seq_length
-                ]
+                full_all = _chat_input_ids(tokenizer, msgs, add_generation_prompt=False)
             except Exception:
                 skipped += 1
                 continue
+            # Uzunluk kaybı AYRI sayılır (Kademe 2 F2-5/F1-2): prompt sığmayan örnek atılır,
+            # cevabı sığmayan örnek EOS'suz kırpılır — ikisi de sessiz veri bozulmasıdır.
+            if len(full_all) > cfg.max_seq_length:
+                length_loss["kırpılan" if len(prompt_ids) < cfg.max_seq_length else "atılan"] += 1
+            full_ids = full_all[: cfg.max_seq_length]
             labels = build_masked_labels(prompt_ids, full_ids)
             if labels is None:
                 skipped += 1
@@ -1194,6 +1235,27 @@ def train(cfg: PeftTrainConfig) -> dict:
         train_ds = _tokenize_masked(train_rows)
         collator = _MaskedDataCollator(tokenizer.pad_token_id)
         logger.info("assistant_only_loss AKTİF — prompt maskelendi (%d örnek).", len(train_ds))
+        lost = sum(length_loss.values())
+        if lost:
+            logger.warning(
+                "max_seq_length=%d: %d örnek EOS'suz kırpıldı, %d örnek prompt sığmadığı için "
+                "atıldı (%d/%d).",
+                cfg.max_seq_length,
+                length_loss["kırpılan"],
+                length_loss["atılan"],
+                lost,
+                len(train_rows),
+            )
+        if train_rows and lost / len(train_rows) > MAX_LENGTH_LOSS_FRAC:
+            return {
+                "ok": False,
+                "error": (
+                    f"Uzunluk kaybı %{100 * lost / len(train_rows):.1f} > "
+                    f"%{100 * MAX_LENGTH_LOSS_FRAC:.0f}: max_seq_length={cfg.max_seq_length} "
+                    f"ile {length_loss['kırpılan']} örnek kırpılır, {length_loss['atılan']} "
+                    "örnek atılır. Uzun örnekli veri için `--profile moe30b_attn_long` kullan."
+                ),
+            }
     else:
         if cfg.assistant_only_loss:
             logger.warning("assistant_only_loss istendi ama chat_template yok → maskesiz eğitim.")
@@ -1305,6 +1367,7 @@ def train(cfg: PeftTrainConfig) -> dict:
         data_collator=collator,
         optimizers=optimizers,
     )
+    apply_loss_weighting(trainer, cfg.loss_weighting)
     if eval_ds:
         _silence_eval_progress_bar(trainer)
 

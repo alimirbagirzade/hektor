@@ -46,7 +46,8 @@ MAX_STATUS_AGE_HOURS = 72
 APPROVAL_WINDOW_MINUTES = 20
 # Eğitim canlıyken log bu kadar süre ilerlemiyorsa: askıya alınmış / donmuş olabilir.
 # CPU'da tek adım dakikalar sürer; eşik cömert tutuldu ki yavaş adım alarm üretmesin.
-LOG_STALL_MINUTES = 45
+# Kademe 2 F2-4 (v14): uzun dizi adımı + sessiz eval 45 dk'yı aşabilir → 150 dk.
+LOG_STALL_MINUTES = 150
 # Veri, koşu başladıktan bu kadar sonra değiştiyse eğitilen set artık diskteki set değildir.
 DATA_DRIFT_GRACE_MINUTES = 5
 

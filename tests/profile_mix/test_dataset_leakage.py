@@ -185,3 +185,33 @@ def test_training_code_never_references_eval_sets() -> None:
             if any(k in text for k in ("profile_mix", "golden_test", "llm30")):
                 offenders.append(str(p.relative_to(repo)))
     assert offenders == []
+
+
+MULTI = EvalItem(
+    id="m1",
+    domain="math",
+    question=(
+        "S99. Hareketli ortalama\n"
+        "a) Üstel hareketli ortalamanın yeni gözlem katsayısını açıkça tanımla ve formülü yaz.\n"
+        "b) Pencere uzadıkça gecikmenin nasıl değiştiğini sayısal örnekle göster."
+    ),
+)
+
+
+def test_single_subpart_of_multipart_question_is_detected() -> None:
+    """Kademe 2 F4-3: eğitim satırı tek bir alt maddeye eşitse eskiden temiz geçiyordu."""
+    part_a = MULTI.question.split("\n")[1]
+    assert not check_leakage([MULTI], [_msg(part_a)]).clean
+    body_b = MULTI.question.split("\n")[2][3:]
+    assert not check_leakage([MULTI], [_msg(body_b)]).clean
+    assert check_leakage([MULTI], [_msg("Kalman filtresi nasıl çalışır?")]).clean
+
+
+def test_question_segment_reads_live_rag_format() -> None:
+    """Kademe 2 F1-5/F4-4: canlı RAG biçimi `QUESTION / SORU:` eskiden '' döndürüyordu."""
+    from app.brain.rag_answerer import build_rag_prompt
+    from app.evals.profile.leakage import question_segment
+
+    _, user = build_rag_prompt("Standart hata nasıl hesaplanır?", [])
+    assert question_segment(user) == "Standart hata nasıl hesaplanır?"
+    assert question_segment("BAĞLAM:\nx\n\nSORU: eski biçim") == "eski biçim"

@@ -49,7 +49,9 @@ _TRAIN_BATCH_SIZE = 1
 # Log'a son yazımdan bu kadar dakika geçmediyse eğitim "canlı" sayılır.
 # Yavaş CPU eğitiminde adım ~dakikalar sürer + log seyrek yazılabilir → 45 dk
 # (tamamlanma zaten step>=total ile anında algılanır; bu yalnız ara boşluklar için).
-_LIVE_LOG_AGE_MIN = 45.0
+# Kademe 2 F2-4 (v14): uzun dizi örneklerinde eval (sessiz) + bir optimizer adımı 45 dk'yı
+# aşabiliyor → canlı koşu "durmuş" görünüp ikinci başlatmaya kapı açıyordu → 150 dk.
+_LIVE_LOG_AGE_MIN = 150.0
 # Geçerli adapter adı (path traversal/CLI argüman güvenliği): yalnız harf/rakam/_/-.
 _ADAPTER_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # Çift-başlatma yarışını kapatan atomik kilit (log yazılmadan önceki pencere için).
