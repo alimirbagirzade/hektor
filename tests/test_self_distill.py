@@ -541,3 +541,34 @@ def test_template_gate_exempts_prompt_heading_plus_mandated_line() -> None:
     memorized = "Bu yöntem her piyasada aynı sinyali üretir ve sonuç değişmez gibi görünür."
     lines2 = [_row(system, f"{body(i)}.\n{memorized}", f"q{i}") for i in range(60)]
     assert any("şablon tekrarı" in b for b in audit_dataset(lines2).blockers)
+
+
+def test_thin_template_rows_drops_only_formulaic_distilled_rows() -> None:
+    """v14: kalıplaşmış Test Planı cümlesi pretrain-gate şablon engelini aşıyordu; yalnız
+    damıtma satırları, %1.8 sınırına kadar inceltilir (deterministik)."""
+    import random
+
+    vocab = [f"kavram{chr(97 + a)}{chr(97 + b)}" for a in range(26) for b in range(26)]
+    formula = "Zaman dilimi dakikalık veri ile in sample ve out of sample ayrımı yapılır."
+
+    def row(i: int, *, distilled: bool, with_formula: bool) -> str:
+        body = " ".join(random.Random(i).sample(vocab, 12))
+        ans = f"{body}.\n{formula}" if with_formula else f"{body}."
+        meta = {"distilled": True} if distilled else {"discipline": True}
+        return json.dumps(
+            {"messages": [{"role": "assistant", "content": ans}], "metadata": meta},
+            ensure_ascii=False,
+        )
+
+    lines = [row(i, distilled=True, with_formula=True) for i in range(10)]
+    lines += [row(100 + i, distilled=False, with_formula=True) for i in range(5)]
+    lines += [row(200 + i, distilled=True, with_formula=False) for i in range(285)]
+    kept, dropped = sft_assembly.thin_template_rows(lines, share=0.018)
+    cap = int(0.018 * len(lines))  # 5
+    # İlk 5 damıtma satırı sınırı doldurur, sonraki 5'i atılır; disiplin satırları sınır
+    # dolmuş olsa da asla atılmaz.
+    assert dropped == 10 - cap
+    assert kept[:cap] == lines[:cap]
+    assert all(ln in kept for ln in lines[10:15])
+    assert len([ln for ln in kept if "Zaman dilimi" in ln]) == cap + 5
+    assert kept == sft_assembly.thin_template_rows(lines, share=0.018)[0]

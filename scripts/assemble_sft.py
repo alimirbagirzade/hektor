@@ -37,12 +37,13 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(res.lines) + ("\n" if res.lines else ""), encoding="utf-8")
 
-    # Disiplin, dedup'tan SONRA karıştığı için eklenen = toplam - dedup'lu taban (sağlam).
-    disc_added = res.total - res.deduped
+    # Eklenen disiplin: karıştırma istatistiğinden (şablon inceltme toplamı değiştirir).
+    disc_added = (res.discipline or {}).get("discipline_used", res.total - res.deduped)
     print(
         f"✓ {res.total} örnek → {out}\n"
         f"  synth={res.synth_n} (sınır {CANONICAL_SYNTH_CAP}) öz-damıtma={res.distill_n} "
-        f"kart={res.card_n} dedup_sonrası={res.deduped} disiplin_eklenen={disc_added}"
+        f"kart={res.card_n} dedup_sonrası={res.deduped} disiplin_eklenen={disc_added} "
+        f"şablon_inceltme={res.template_thinned}"
     )
 
 

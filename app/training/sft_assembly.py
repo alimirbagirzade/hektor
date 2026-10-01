@@ -86,6 +86,7 @@ class AssemblyResult:
     discipline: dict[str, Any] | None = field(default=None)
     low_value_dropped: int = 0  # atılan çekimser / "pasaj" atıflı sentetik örnek
     distill_n: int = 0  # eklenen öz-damıtma satırı (yeniden doğrulama sonrası, dedup öncesi)
+    template_thinned: int = 0  # kalıplaşmış olduğu için alınmayan öz-damıtma satırı
 
     @property
     def total(self) -> int:
@@ -198,6 +199,8 @@ def assemble_sft_lines(
         disc_lines = discipline_jsonl_lines(seed=seed)
         merged, disc_stats = mix_discipline(merged, disc_lines, ratio=discipline_ratio, seed=seed)
 
+    merged, template_thinned = thin_template_rows(merged)
+
     return AssemblyResult(
         lines=merged,
         synth_n=synth_n,
@@ -206,7 +209,55 @@ def assemble_sft_lines(
         discipline=disc_stats,
         low_value_dropped=low_value_dropped,
         distill_n=distill_n,
+        template_thinned=template_thinned,
     )
+
+
+# pretrain-gate şablon engeli %2; inceltme %1.8'de durur → kapıya pay bırakır.
+TEMPLATE_THIN_SHARE = 0.018
+
+
+def thin_template_rows(
+    lines: list[str], share: float = TEMPLATE_THIN_SHARE
+) -> tuple[list[str], int]:
+    """Kalıplaşmış öz-damıtma satırlarını incelt (yalnız `metadata.distilled` satırlar).
+
+    v14 ölçümü (2026-10-01): base modelin RAG cevaplarındaki Test Planı satırı ("Zaman dilimi:
+    dakikalık (1m) veri, in-sample/out-of-sample…") 33/1579 cevapta → pretrain-gate şablon
+    engeli (%2, v8 iskelet-ezberi dersi). Kapı gevşetilmez; sırayla gidilir ve istem-dışı
+    8-gram'ı ZATEN ``share`` × toplam satırda geçmiş bir damıtma satırı alınmaz. Deterministik
+    (girdi sırası); disiplin/kart/sentetik satırlara dokunulmaz. (satırlar, atılan sayısı).
+    """
+    from app.training.dataset_quality import (
+        _TEMPLATE_NGRAM,
+        _WORD_RE,
+        _assistant_answer,
+        _ngrams,
+        _strip_prompt_lines,
+        _system_prompt,
+    )
+
+    cap = int(share * len(lines))
+    df: Counter[str] = Counter()
+    kept: list[str] = []
+    dropped = 0
+    for ln in lines:
+        try:
+            distilled = bool((json.loads(ln).get("metadata") or {}).get("distilled"))
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            distilled = False
+        sp = _system_prompt(ln)
+        answer = _assistant_answer(ln) or ""
+        sys_norm = " ".join(_WORD_RE.findall(sp.lower()))
+        grams = _ngrams(_strip_prompt_lines(answer, sys_norm), _TEMPLATE_NGRAM) - _ngrams(
+            sp, _TEMPLATE_NGRAM
+        )
+        if distilled and cap and any(df[g] >= cap for g in grams):
+            dropped += 1
+            continue
+        df.update(grams)
+        kept.append(ln)
+    return kept, dropped
 
 
 # `scripts/assemble_sft.py` varsayılanları — tazelik denetimi AYNI parametrelerle kurar.
