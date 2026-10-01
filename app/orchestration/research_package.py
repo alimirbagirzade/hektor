@@ -215,7 +215,7 @@ def run_stage(
             env=worker_env(cfg),
             stdout=log,
             stderr=log,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         try:
             while child.poll() is None:

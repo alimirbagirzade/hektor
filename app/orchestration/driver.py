@@ -428,7 +428,7 @@ def _default_runner(
         env=env,
         # Av HER ZAMAN bu deponun kökünü tarar — sunucuyu kim nereden başlattıysa değil.
         cwd=str(_REPO_ROOT),
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     engine_procs.register(run_id, proc)
     stopped = False
