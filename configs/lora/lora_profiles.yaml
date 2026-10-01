@@ -202,4 +202,8 @@ moe30b_attn_long:
   eval_every_examples: 96
   eval_max_examples: 32
   load_best_model_at_end: true
+  # Kayıp ağırlığı (Kademe 2 F2-1) — KULLANICI KARARI 2026-10-01: token başına (HF varsayılanı,
+  # v13 ile aynı). v14'ün hedefi uzun/atıflı cevap; bedeli disiplin satırlarının kayıp
+  # sinyalindeki payının ~%2-4'e düşmesi → lora-eval disiplin setiyle ölçülecek.
+  loss_weighting: token
   note: "YEREL CPU, Qwen3-30B-A3B MoE — moe30b_attn_local + max_seq_length 6144 (v14 uzun RAG öz-damıtma örnekleri), tüm havuz, checkpoint/eval her 96 örnekte. Süre/RAM ölçülmedi; önce kısa ölçüm."

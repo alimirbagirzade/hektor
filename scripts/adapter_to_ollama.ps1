@@ -52,6 +52,33 @@ $null = New-Item -ItemType Directory -Force -Path $ggufDir
 function Step($m) { Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $m" -ForegroundColor Cyan }
 function Fail($m) { Write-Host "[HATA] $m" -ForegroundColor Red; exit 1 }
 
+# Koken anahtari (Kademe 2 F4-2): ara ciktilar (birlesik model, bf16 GGUF, nicemli GGUF) eskiden
+# YALNIZ var olduklari icin yeniden kullaniliyordu -> ayni adla yeniden egitimde Ollama ESKI
+# agirliklari servis eder, llm30 manifesti ise YENI adapter sha'sini kaydederdi. Her ciktinin
+# yanina kaynagini yazan bir .src dosyasi konur; anahtar uyusmazsa (ya da .src yoksa) zincir
+# durur, eski dosyayi silmen istenir (sessiz yeniden kullanim yok).
+if ($BaseRepo) {
+    $srcKey = "base:$BaseRepo"
+} else {
+    $w = Join-Path $root "models\adapters\$Adapter\adapter_model.safetensors"
+    if (-not (Test-Path $w)) { Fail "adapter agirligi yok: $w" }
+    $srcKey = "adapter:" + (Get-FileHash -Algorithm SHA256 -LiteralPath $w).Hash.ToLower()
+}
+$attnKey = if ($AttnQuant) { $AttnQuant } else { "-" }
+function Assert-Source($artifact, $key) {
+    $side = "$artifact.src"
+    if (-not (Test-Path $side)) {
+        Fail "$artifact var ama koken kaydi ($side) yok - hangi adapter'dan uretildigi bilinmiyor. Sil ve yeniden calistir."
+    }
+    $have = (Get-Content -LiteralPath $side -Raw).Trim()
+    if ($have -ne $key) {
+        Fail "$artifact BASKA bir kaynaktan uretilmis ($have != $key). Eski dosyayi sil ve yeniden calistir."
+    }
+}
+function Write-Source($artifact, $key) {
+    [System.IO.File]::WriteAllText("$artifact.src", $key)
+}
+
 # 0) Ad cakismasi (Kademe-2 D5): `ollama create` ayni adi SESSIZCE ezer; ad web'in canli
 # modeliyse (.env HEKTOR_LLM_MODEL) zincir onaysiz olarak canli modeli degistirirdi.
 $liveModel = ""
@@ -73,7 +100,11 @@ if ($BaseRepo) {
     }
     Step "1/5 base-only: birlestirme yok, snapshot -> $merged"
 } elseif (Test-Path (Join-Path $merged "merge_info.json")) {
-    Step "1/5 birlesik model zaten var: $merged (atlaniyor)"
+    $mi = Get-Content -LiteralPath (Join-Path $merged "merge_info.json") -Raw | ConvertFrom-Json
+    if ("adapter:$($mi.adapter_sha256)" -ne $srcKey) {
+        Fail "birlesik model $merged BASKA bir adapter agirligindan ($($mi.adapter_sha256)) - sil ve yeniden calistir."
+    }
+    Step "1/5 birlesik model zaten var ve adapter sha eslesiyor: $merged (atlaniyor)"
 } else {
     Step "1/5 birlestirme: $Adapter -> $merged"
     $margs = @()
@@ -84,7 +115,8 @@ if ($BaseRepo) {
 
 # 2) GGUF (bf16; f16 tasma riskine karsi bf16 korunur)
 if (Test-Path $bf16) {
-    Step "2/5 bf16 GGUF zaten var: $bf16 (atlaniyor)"
+    Assert-Source $bf16 $srcKey
+    Step "2/5 bf16 GGUF zaten var ve kaynagi eslesiyor: $bf16 (atlaniyor)"
 } else {
     Step "2/5 GGUF donusumu -> $bf16"
     $env:PYTHONPATH = Join-Path $Tools "spstub"
@@ -96,11 +128,14 @@ if (Test-Path $bf16) {
     Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
     if ($rc -ne 0 -or -not (Test-Path $part)) { Fail "GGUF donusumu basarisiz (cikis $rc)" }
     Move-Item $part $bf16
+    Write-Source $bf16 $srcKey
 }
 
-# 3) Nicemleme
+# 3) Nicemleme (anahtar: kaynak + nicemleme tarifi; dosya adi AttnQuant'i tasimaz)
+$quantKey = "$srcKey|$Quant|attn=$attnKey"
 if (Test-Path $quantOut) {
-    Step "3/5 $Quant zaten var: $quantOut (atlaniyor)"
+    Assert-Source $quantOut $quantKey
+    Step "3/5 $Quant zaten var ve tarif/kaynak eslesiyor: $quantOut (atlaniyor)"
 } else {
     Step "3/5 nicemleme $Quant (attention: $(if ($AttnQuant) { $AttnQuant } else { $Quant })) -> $quantOut"
     $part = "$quantOut.partial"
@@ -112,6 +147,7 @@ if (Test-Path $quantOut) {
     & (Join-Path $Tools "llama-bin\llama-quantize.exe") @qargs $bf16 $part $Quant
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $part)) { Fail "nicemleme basarisiz" }
     Move-Item $part $quantOut
+    Write-Source $quantOut $quantKey
 }
 
 # 4) Modelfile: sablon/parametreler base etiketinden, FROM yeni GGUF

@@ -496,8 +496,11 @@ def _scaffold_free(answer: str, system: str) -> str:
     Atılanlar: başlık satırları (markdown/numaralı/kalın etiket), sistem isteminde harfiyen geçen
     satırlar ("Bu bulgu doğrudan trading kuralına çevrilemez." gibi zorunlu cümleler) ve köşeli
     atıflar (`[p:c, s.9]` içindeki nokta cümleyi bölüp aynı kaynağa tekrarlı atfı "döngü"
-    gösteriyordu). İçerik cümlelerinin tekrarı aynen yakalanmaya devam eder.
+    gösteriyordu). İçerik cümlelerinin tekrarı aynen yakalanmaya devam eder. Ortak iskelet
+    kuralları (kod blokları, CSV/tablo, etiket satırları) eval ile aynı: `strip_scaffold`.
     """
+    from app.training.adapter_eval import strip_scaffold
+
     sys_norm = " ".join(_WORD_RE.findall(system.lower()))
     kept: list[str] = []
     for line in answer.splitlines():
@@ -507,7 +510,7 @@ def _scaffold_free(answer: str, system: str) -> str:
         if norm and len(norm) >= 12 and norm in sys_norm:
             continue
         kept.append(_BRACKET_ANY_RE.sub("", line))
-    return "\n".join(kept)
+    return strip_scaffold("\n".join(kept))
 
 
 def _audit_gate(answer: str) -> str | None:
