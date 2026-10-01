@@ -45,6 +45,7 @@ from typing import Any
 # bir route yeniden adlandırılırsa allow-list sessizce ölü kalmaz.
 ALLOWED: frozenset[tuple[str, str]] = frozenset(
     {
+        ("GET", "/api/research-package/status"),
         # --- Soru-cevap (RAG) ---
         ("POST", "/api/ask"),
         # --- RAG öğrenme hattı (güvenli otomasyon) ---

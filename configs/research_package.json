@@ -1,0 +1,19 @@
+{
+  "teacher_model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+  "wait_for_adapters": ["hektor_lora_v14_30b"],
+  "quiet_minutes": 15,
+  "min_available_ram_gb": 32,
+  "stage_timeout_minutes": 45,
+  "seed": 42,
+  "papers_per_cycle": 2,
+  "questions_per_cycle": 6,
+  "max_attempts": 3,
+  "interval_hours": {
+    "discovery": 24,
+    "ingestion": 6,
+    "cards": 6,
+    "data": 24,
+    "methods": 168,
+    "report": 24
+  }
+}

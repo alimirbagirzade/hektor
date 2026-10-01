@@ -940,6 +940,24 @@ uv run hektor-web
 
 ## 💻 CLI Komut Referansı
 
+### Eğitim sonrası araştırma paketi
+
+Web: **15 · AJAN HARİTASI → Motor seç → Araştırma döngüsünü çalıştır**.
+Codex/Claude CLI planı inceler; yerel işçiler araştırma, kontrollü RAG ve aday veri
+aşamalarını sırayla yürütür. İkinci inceleme motoru isteğe bağlıdır. Eğitimler
+bitene kadar bekler; sekme kapansa da web sunucusu açıkken sürer. Yeni kod için web
+yeniden başlatılmalıdır. Araştırmayı durdur düğmesi çalışan eğitime dokunmaz.
+
+| Komut | İşlev |
+|---|---|
+| `uv run --no-sync hektor research-package` | Salt-okunur plan, eğitim/bellek/durdurma engelleri |
+| `uv run --no-sync hektor research-package --run` | Eğitimler tamamlandıysa vadesi gelen tek araştırma/RAG/veri aşaması |
+| `uv run --no-sync hektor research-package --pause` | Paket işlerini duraklat |
+| `uv run --no-sync hektor research-package --resume` | Yalnız paket duraklatmasını kaldır |
+
+Reçete `configs/research_package.json`; aday veri ayrı staging dizinine yazılır.
+Yeni eğitim veya model terfisi yapılmaz. [Kapsam, bütçe ve sınırlar](docs/PROTOKOL_ARASTIRMA_PAKETI.md).
+
 ### Temel Akış
 
 ```bash

@@ -161,7 +161,16 @@ async def _lifespan(app: FastAPI):
                     get_corpus_bm25()  # SQLite'tan kurar + cache'ler (build-lock korumalı)
 
             _threading.Thread(target=_warm_bm25, name="bm25-warmup", daemon=True).start()
-    yield
+    # Bu yönetici ayrı ve varsayılan PASİF; eski global anahtar kapalı kalabilir.
+    from app.orchestration.research_service import get_research_service
+
+    research_service = get_research_service()
+    if research_service.state().get("enabled"):
+        research_service.ensure_loop()
+    try:
+        yield
+    finally:
+        await research_service.shutdown()
 
 
 # Keşif yüzeyi: `/api/docs` ve `/api/openapi.json` FastAPI'nin yerleşik uçlarıdır ve
@@ -268,6 +277,9 @@ app.include_router(_feedback_router)
 app.include_router(_sentinel_router)
 app.include_router(_agent_graph_router)
 app.include_router(_engines_router)
+from app.web.research_package_routes import router as _research_package_router  # noqa: E402
+
+app.include_router(_research_package_router)
 
 
 @app.get("/api/status", response_model=StatusResponse, dependencies=[api_auth])

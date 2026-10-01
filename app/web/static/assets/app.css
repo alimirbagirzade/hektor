@@ -1,3 +1,8 @@
+#rpDetails {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* HEKTOR — trading research · "Bronz Defter" tasarım: Spectral serif başlık,
    Plus Jakarta Sans gövde, sıcak parşömen zemin, heritage yalnız tipografi
    karakterinde (bölüm numaraları bronz serif). CVD-güvenli Okabe-Ito semantik
