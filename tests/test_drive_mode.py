@@ -480,6 +480,9 @@ def test_sur_modu_mcp_yuzeyi_allowlisti_asmaz() -> None:
     from mcp_server.allowlist import ALLOWED
 
     # Sür MCP config'i hektor_mcp.py'yi işaret eder; o da filter_spec ile budanır.
-    assert len(ALLOWED) == 21, "allow-list yüzeyi beklenmedik biçimde değişti"
+    assert len(ALLOWED) == 22, "allow-list yüzeyi beklenmedik biçimde değişti"
+    assert ("GET", "/api/research-package/status") in ALLOWED
+    assert ("POST", "/api/research-package/start") not in ALLOWED
+    assert ("POST", "/api/research-package/stop") not in ALLOWED
     cfg = build_mcp_config("/repo")
     assert any("hektor_mcp.py" in a for a in cfg["mcpServers"]["hektor"]["args"])

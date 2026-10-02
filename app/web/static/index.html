@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>HEKTOR — Trading Research Terminal</title>
-    <link rel="stylesheet" href="/assets/app.css?v=13" />
+    <link rel="stylesheet" href="/assets/app.css?v=14" />
     <link rel="stylesheet" href="/assets/canli-badge.css?v=1" />
   </head>
   <body>
@@ -1002,9 +1002,9 @@
             Ajanlar birbirini nasıl <strong>devreye sokar</strong> görünür: <strong>düz ok</strong>
             akış zinciri (ordan buraya gider), <strong>ince kesik çizgi</strong> veri bağı
             (kim kimle ilişkili). Çalışan ajan <em>yanar</em> (nabız) ve yolu <em>ışıklı akar</em>.
-            Ana ajan (büyük yeşil, <code>claude -p</code>) diğerlerini devreye sokar.
-            <strong>Salt-okuma</strong> — harita hiçbir şeyi kendisi başlatmaz; tetik senin
-            onayınla ve onay kapısında durur (Kural 8).
+            Araştırma döngüsü aşağıdaki Çalıştır düğmesiyle açılır; seçilen motor planı
+            inceler, yerel işçiler aşamaları yürütür. Haritadaki eğitim hattının
+            ayrı tetik ve onay kapıları korunur (Kural 8).
           </p>
         </div>
 
@@ -1021,6 +1021,17 @@
             <button class="btn btn-sm" id="amEngineRescanBtn" type="button">↻ Yeniden tara</button>
           </div>
           <p class="muted small am-engine-note" id="amEngineNote">—</p>
+
+          <h3>Sürekli araştırma ve veri hazırlığı</h3>
+          <p class="muted small">Çalıştır: seçili motor planı inceler; makale arama → kontrollü RAG → kart → aday veri → yöntem raporu döngüsü sürer. Eğitimler bitene kadar bekler. CLI abonelik kotası kullanılır; yeni LoRA eğitimi ayrıca onay gerektirir.</p>
+          <label for="rpPeer">İkinci inceleme motoru (isteğe bağlı)</label>
+          <select id="rpPeer" class="am-engine-sel"><option value="">Yok</option></select>
+          <div class="orc-actions">
+            <button class="btn btn-primary" id="rpStart" type="button">▶ Araştırma döngüsünü çalıştır</button>
+            <button class="btn" id="rpStop" type="button" disabled>■ Araştırmayı durdur</button>
+          </div>
+          <p id="rpStatus" role="status" aria-live="polite">Araştırma durumu yükleniyor…</p>
+          <pre id="rpDetails" class="muted small"></pre>
 
           <div class="orc-actions">
             <button class="btn btn-primary am-trigger" id="amTriggerBtn">⚡ EĞİTİMİ DEVREYE SOK</button>
@@ -1182,7 +1193,7 @@
       </div>
     </div>
 
-    <script src="/assets/app.js?v=16"></script>
+    <script src="/assets/app.js?v=17"></script>
     <script src="/assets/canli-badge.js?v=1"></script>
   </body>
 </html>

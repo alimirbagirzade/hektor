@@ -5741,5 +5741,32 @@ def ingestion_quality_scan_cmd(
         console.print("[green]KAYDEDİLDİ[/] (paper_ingestion_runs + papers.quality_score)")
 
 
+@app.command("research-package")
+def research_package_cmd(
+    config: Path | None = typer.Option(None, "--config", help="Paket reçetesi JSON yolu"),
+    run: bool = typer.Option(False, "--run", help="Kapılar uygunsa tek aşama çalıştır"),
+    pause: bool = typer.Option(False, "--pause", help="Paket işlerini duraklat"),
+    resume: bool = typer.Option(False, "--resume", help="Yalnız paket duraklatmasını kaldır"),
+) -> None:
+    """Eğitim sonrası araştırma/RAG/veri paketi; varsayılan salt-okunur plan."""
+    from app.orchestration.research_package import control, tick
+
+    root = get_settings().root
+    if sum((run, pause, resume)) > 1:
+        console.print("[red]--run, --pause ve --resume birlikte kullanılamaz.[/red]")
+        raise typer.Exit(2)
+    try:
+        if pause or resume:
+            console.print_json(data=control(root, "pause" if pause else "resume"))
+            return
+        result = tick(root, config or root / "configs" / "research_package.json", execute=run)
+    except (OSError, ValueError, TypeError) as exc:
+        console.print(f"[red]Araştırma paketi durdu: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print_json(data=result)
+    if result.get("outcome", {}).get("error"):
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

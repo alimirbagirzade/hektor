@@ -20,7 +20,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -369,13 +368,9 @@ def _resolve_executable(command: list[str]) -> list[str]:
     """
     if not command:
         return command
-    # PATH'ten cwd ve boş girdileri at (boş girdi POSIX'te "geçerli dizin" demektir).
-    yol = os.pathsep.join(
-        p
-        for p in os.environ.get("PATH", "").split(os.pathsep)
-        if p and Path(p).resolve() != Path.cwd().resolve()
-    )
-    tam = shutil.which(command[0], path=yol)
+    from app.orchestration.executable import resolve_cli
+
+    tam = resolve_cli(command[0])
     return [tam, *command[1:]] if tam else command
 
 
@@ -396,6 +391,8 @@ def _default_runner(
     env: dict[str, str] | None = None,
     *,
     run_id: str = "",
+    stop_requested: Callable[[], bool] | None = None,
+    stdout_only: bool = False,
 ) -> tuple[int, str]:
     """Motoru doğur ve KESİLEBİLİR biçimde bekle.
 
@@ -419,6 +416,8 @@ def _default_runner(
     Ayrıca sabitlenmemiş cwd, avın YANLIŞ AĞACI tarayıp "temiz" demesine yol açardı.
     """
     command = _resolve_executable(command)
+    if not command or not Path(command[0]).is_absolute():
+        raise FileNotFoundError("Motor güvenilir PATH dizinlerinde bulunamadı.")
     proc = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -429,6 +428,7 @@ def _default_runner(
         env=env,
         # Av HER ZAMAN bu deponun kökünü tarar — sunucuyu kim nereden başlattıysa değil.
         cwd=str(_REPO_ROOT),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     engine_procs.register(run_id, proc)
     stopped = False
@@ -449,7 +449,7 @@ def _default_runner(
                 out, err = proc.communicate(timeout=min(STOP_POLL_S, remaining))
                 break
             except subprocess.TimeoutExpired:
-                if _stop_all_active():
+                if _stop_all_active() or (stop_requested and stop_requested()):
                     stopped = True
                     if run_id:
                         engine_procs.terminate_run(run_id)
@@ -460,10 +460,12 @@ def _default_runner(
                         out, err = proc.communicate(timeout=DEFAULT_GRACE_S)
                     break
     finally:
+        if proc.poll() is None:
+            _terminate_single(proc)
         engine_procs.unregister(run_id, proc)
     if stopped:
         return STOPPED_RC, (out or "") + (err or "")
-    return proc.returncode, (out or "") + (err or "")
+    return proc.returncode, (out or "") + ("" if stdout_only else (err or ""))
 
 
 def _terminate_single(proc: subprocess.Popen) -> None:

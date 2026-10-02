@@ -237,7 +237,8 @@ def test_motor_depo_kokunde_kosar(monkeypatch):
 
     monkeypatch.setattr(driver.subprocess, "Popen", sahte_popen)
     monkeypatch.setattr(driver, "_stop_all_active", lambda: False)
-    driver._default_runner(["echo", "x"], timeout=5, run_id="cwd-testi")
+    # Windows'ta echo yalnız kabuk yerleşiğidir; gerçek PATH ikilisi kullan.
+    driver._default_runner([sys.executable, "-V"], timeout=5, run_id="cwd-testi")
 
     assert yakalanan.get("cwd") == str(driver._REPO_ROOT), (
         f"cwd depo köküne pinlenmedi: {yakalanan.get('cwd')!r}"

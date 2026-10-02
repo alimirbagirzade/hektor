@@ -159,7 +159,7 @@
       "Tüm ajanların sağlığını tek bakışta gör. Uyarı/kritik varsa öneri " +
       "metnindeki adımı uygula; nöbetçi hiçbir şeyi kendisi durdurmaz.",
     agentmap:
-      "Işıklı yol: hangi ajan hangisini devreye sokar. ⚡ ile ana ajan (claude -p) " +
+      "Araştırma döngüsünü Çalıştır ile aç; eğitimler bitene kadar bekler. ⚡ ile eğitim hattı " +
       "otonom sürüşü başlatır; gerçek eğitim yine onay kapısında durur (Kural 8).",
   };
   function updateNextStep(name) {
@@ -5033,6 +5033,7 @@
       }
       amRefreshOnce();
       amRefreshGate();
+      rpRefresh();
     }, 7000);
   }
 
@@ -5109,6 +5110,68 @@
       sel.value = prev;
     }
     amRenderEngineNote();
+    var peer = document.getElementById("rpPeer");
+    var previousPeer = peer.value;
+    peer.innerHTML = '<option value="">Yok</option>';
+    amEngines.forEach(function (e) {
+      if (!e.selectable) return;
+      var option = document.createElement("option");
+      option.value = e.name;
+      option.textContent = e.label;
+      peer.appendChild(option);
+    });
+    peer.value = previousPeer;
+  }
+
+  var rpBusy = false;
+  var rpEnabled = false;
+  function rpRender(d) {
+    var state = d.service || {};
+    var plan = d.plan || {};
+    rpEnabled = !!state.enabled;
+    var labels = { disabled: "Kapalı", armed: "Kuruldu", waiting: "Bekliyor", running: "Çalışıyor", idle: "Sıradaki zamanı bekliyor", backoff: "Hata sonrası bekliyor", needs_attention: "İnceleme gerekiyor" };
+    var stages = { discovery: "Makale arama", ingestion: "RAG işleme", cards: "Bilgi kartları", data: "Aday veri", methods: "Yöntem araştırması", report: "Rapor" };
+    document.getElementById("rpStatus").textContent = (labels[state.status] || state.status) +
+      " · Motorlar: " + (state.engines || []).join(" + ") +
+      " · Sıradaki: " + (stages[plan.next_stage] || "Planlanan zamanı bekliyor");
+    var lines = (plan.blocked || []).slice();
+    Object.keys(plan.state || {}).forEach(function (stage) {
+      var row = plan.state[stage];
+      lines.push((stages[stage] || stage) + ": " + row.status +
+        (row.result && row.result.error ? " — " + row.result.error : ""));
+    });
+    (state.last_reviews || []).forEach(function (r) { lines.push(r.engine + ": " + r.reason); });
+    document.getElementById("rpDetails").textContent = lines.join("\n");
+    document.getElementById("rpStart").disabled = rpBusy || rpEnabled;
+    document.getElementById("rpStop").disabled = rpBusy || !rpEnabled;
+    document.getElementById("rpPeer").disabled = rpBusy || rpEnabled;
+  }
+  function rpRefresh() {
+    return api("/research-package/status").then(rpRender).catch(function (e) {
+      document.getElementById("rpStatus").textContent = "Araştırma durumu alınamadı: " + e.message;
+    });
+  }
+  function rpControl(action) {
+    if (rpBusy) return;
+    var selected = amSelectedEngine();
+    if (action === "start" && !selected) { toast("Önce kullanılabilir bir motor seç.", true); return; }
+    var names = selected ? [selected.name] : [];
+    var peer = document.getElementById("rpPeer").value;
+    if (action === "start" && peer) {
+      if (names.indexOf(peer) !== -1) { toast("İkinci motor farklı olmalı.", true); return; }
+      names.push(peer);
+    }
+    rpBusy = true;
+    document.getElementById("rpStart").disabled = true;
+    document.getElementById("rpStop").disabled = true;
+    api("/research-package/" + action, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(action === "start" ? { engines: names } : {})
+    })
+      .then(rpRender)
+      .catch(function (e) { toast("Araştırma işlemi başarısız: " + e.message, true); })
+      .finally(function () { rpBusy = false; rpRefresh(); });
   }
 
   function amRenderEngineNote() {
@@ -5343,6 +5406,13 @@
   }
 
   function loadAgentMap() {
+    var rpStart = document.getElementById("rpStart");
+    if (rpStart && !rpStart._wired) {
+      rpStart._wired = true;
+      rpStart.addEventListener("click", function () { rpControl("start"); });
+      document.getElementById("rpStop").addEventListener("click", function () { rpControl("stop"); });
+    }
+    rpRefresh();
     var canvas = document.getElementById("amCanvas");
     if (canvas && !canvas._wired) {
       canvas._wired = true; // delegasyon: #amCanvas kalıcı (innerHTML yenilense de listener durur)

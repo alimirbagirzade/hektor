@@ -33,6 +33,50 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-01 — tek tuş araştırma paketi (doğrulandı; eğitim sonrası canlı pilot bekliyor)
+
+Kullanıcı kapsamı: araştırma + kontrollü RAG işleme + aday veri hazırlığı; yeni ağır
+eğitim yalnız önerilir. `hektor research-package` salt-okunur plan verir; `--run`
+yalnız vadesi gelen tek aşamayı çalıştırır. Reçete `configs/research_package.json`,
+protokol `docs/PROTOKOL_ARASTIRMA_PAKETI.md`. Ayrı temel model işçisi; `.env`, mevcut
+web döngüleri ve kanonik v14 eğitim verisi değiştirilmedi. Çıktı ayrı
+`data/research_package/staging/` altında birikir. Eğitim/onay/terfi/git işlemi yok.
+
+Web: **15 · AJAN HARİTASI → Motor seç → Araştırma döngüsünü çalıştır**. Kalıcı
+web yöneticisi, seçilen Codex/Claude CLI'ına sınırlı planı inceletip yerel aşamaları
+seri yürütür; ikinci inceleme motoru isteğe bağlıdır. CLI kararı kod olarak
+çalıştırılmaz; stdout kararı stderr'deki istem/günlükten ayrılır. Eksik/yanlış karar
+ve ret işi durdurur. Yeni LoRA eğitimi başlatılmaz. Eğitim sürerken CLI de doğmaz.
+Araştırmayı durdur yalnız paketin süreçlerini kapatır. Web sunucusu açık kalmalıdır;
+yeniden açılışta etkinlik kaydı korunur. Bu makinede Codex kurulu, Claude yok;
+Gemini mevcut kısıtlama profili olmadığı için kapalıdır.
+
+Codex sohbet heartbeat'i **Hektor eğitim sonrası araştırma**
+(`hektor-e-itim-sonras-ara-t-rma`) saatlik kayıtlı. Eğitim sürerken yalnız plan/engelleri
+okur; ilk gerçek işi tüm kayıtlı koşular tamamlandıktan, 15 dk beklemeden ve bellek
+kapısından sonra yapar. Değişmeyen durumda sessizdir. Eski zamanlayıcıları ayrıca
+açmayın. Web yönetimi etkinse heartbeat yalnız izler ve dış `--run` engellenir.
+Paket durdurma: `hektor research-package --pause`; devam: `--resume`.
+
+Son doğrulama: **2900 geçti, 4 dışlanan, 0 hata** (`not ollama and not slow`);
+ruff format/lint, mypy (269 kaynak), `node --check` ve diff kontrolü geçti.
+Önceki Windows CWD sahte CLI hatası mutlak PATH adaylarıyla düzeltildi; ilgili
+regresyon testi artık geçiyor. MCP 22 araç üretiyor; yeni durum GET'i var,
+başlat/durdur uçları MCP dışı ve insan scope'una bağlı.
+
+Yalıtılmış boş veri kökü ve 8771 test sunucusunda tarayıcıyla Çalıştır → Bekliyor,
+yenilemede durumun korunması ve Durdur → Kapalı doğrulandı; test sunucusu kapatıldı.
+Gerçek dry-run hâlâ v14 + eğitim kilidi/süreçleri + RAM nedeniyle engelli.
+Gerçek CLI/Ollama/keşif işi başlatılmadı; eğitim sonrası ilk sınırlı tur canlı pilottur.
+**8765'teki mevcut web süreci yeniden başlatılmadı**: yeni Python uçları için güvenli
+bir zamanda yeniden başlatma gerekir. `.env` ve v14 süreçleri değiştirilmedi.
+
+İlk sürümün sınırları: mevcut canlı RAG indeksine kontrollü ekleme; ayrı aday indeks
+terfisi yok. Kaynak alıntılı yöntem önerisi bağımsız derin adversarial doğrulama
+değildir. Tüm Hektor süreçleri için ortak kaynak kilidi henüz yok; paket yeni eğitim
+görünce kendi işçisini durdurur, Ollama sunucu isteğinin anında iptalini garanti etmez.
+Bu konular protokolde kullanıcıyla tartışılacak geliştirmeler olarak listelendi.
+
 | Alan | Durum |
 |---|---|
 | Kapı (`make ci`) | **CI (Linux) ✅** PR #27 (`claude/lora-30b-a3b-prep` → main) `9cf1034` "lint · types · tests (offline)" success. #26 main'e SQUASH ile birleşmişti → #27 "dirty" idi; squash ağacı `f92a22d` ile birebir aynı olduğu doğrulanıp `-s ours` ile birleştirildi (içerik kaybı yok). **Yerel (Windows):** ruff + mypy (264) + pytest **2854+ passed**. Not: arka planda `storage/`'a yazan süreç (synth-distill/web) varken tam test koşusunda izolasyon koruması nadiren ERROR verebilir — tek başına tekrar koş. |
