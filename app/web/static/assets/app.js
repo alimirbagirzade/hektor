@@ -203,6 +203,10 @@
     if (name === "feedback") loadFeedback();
     if (name === "sentinel") loadSentinel();
     if (name === "agentmap") loadAgentMap();
+    if (name === "learning") {
+      loadLearningDashboard();
+      loadRagLoopStatus();
+    }
   }
 
   function showGroupTabs(groupKey) {
@@ -3084,6 +3088,7 @@
   let _lrnRuns = [];
 
   async function loadLearningDashboard() {
+    rpRefresh();
     try {
       const [sum, evalData, runsData, growthData, undData] = await Promise.all([
         api('/learning/summary', { method: 'GET' }),       // api() = auth header + hata
@@ -3126,11 +3131,7 @@
   const lrnRefreshBtn = document.getElementById('lrnRefreshBtn');
   if (lrnRefreshBtn) lrnRefreshBtn.addEventListener('click', loadLearningDashboard);
 
-  // Auto-load when tab is clicked
-  document.querySelectorAll('.tab[data-tab="learning"]').forEach(btn => {
-    btn.addEventListener('click', loadLearningDashboard);
-    btn.addEventListener('click', loadRagLoopStatus);
-  });
+  // Tıklama, doğrudan bağlantı ve geri/ileri gezinme ortak runTabLoader yolundadır.
 
   // ---------- RAG öğrenme döngüsü (otonom, sunucu-taraflı) ----------
   var _RAG_STAGE_LABELS = {
@@ -3287,7 +3288,10 @@
   // ÖĞRENME sekmesi açıkken döngü durumunu canlı tut.
   setInterval(function () {
     var panel = document.getElementById('panel-learning');
-    if (panel && panel.classList.contains('active')) loadRagLoopStatus();
+    if (panel && panel.classList.contains('active')) {
+      loadRagLoopStatus();
+      rpRefresh();
+    }
   }, 15000);
 
   // ---------- egitim rozeti (ust bar) ----------
@@ -5131,24 +5135,39 @@
     rpEnabled = !!state.enabled;
     var labels = { disabled: "Kapalı", armed: "Kuruldu", waiting: "Bekliyor", running: "Çalışıyor", idle: "Sıradaki zamanı bekliyor", backoff: "Hata sonrası bekliyor", needs_attention: "İnceleme gerekiyor" };
     var stages = { discovery: "Makale arama", ingestion: "RAG işleme", cards: "Bilgi kartları", data: "Aday veri", methods: "Yöntem araştırması", report: "Rapor" };
-    document.getElementById("rpStatus").textContent = (labels[state.status] || state.status) +
+    var summary = (labels[state.status] || state.status || "Bilinmiyor") +
       " · Motorlar: " + (state.engines || []).join(" + ") +
       " · Sıradaki: " + (stages[plan.next_stage] || "Planlanan zamanı bekliyor");
     var lines = (plan.blocked || []).slice();
+    if (lines.indexOf("Eğitim başlatma kilidi var.") !== -1) {
+      lines.push("Eğitim bitmiş olsa da başlatma kilidi işi engeller. Kilit otomatik kaldırılmaz; süreç ve tamamlanma kayıtları incelenmelidir.");
+    }
+    if (state.last_checked) lines.push("Son yönetici kontrolü: " + new Date(state.last_checked * 1000).toLocaleString("tr-TR"));
+    if (state.retry_after > Date.now() / 1000) lines.push("Yeniden deneme: " + new Date(state.retry_after * 1000).toLocaleString("tr-TR"));
+    if (state.last_error) lines.push("Yönetici hatası: " + state.last_error);
+    var outcome = state.last_result && state.last_result.outcome;
+    if (outcome && outcome.error) lines.push("Son tur hatası: " + outcome.error);
     Object.keys(plan.state || {}).forEach(function (stage) {
       var row = plan.state[stage];
       lines.push((stages[stage] || stage) + ": " + row.status +
         (row.result && row.result.error ? " — " + row.result.error : ""));
     });
     (state.last_reviews || []).forEach(function (r) { lines.push(r.engine + ": " + r.reason); });
-    document.getElementById("rpDetails").textContent = lines.join("\n");
+    ["rpStatus", "lrnResearchStatus"].forEach(function (id) {
+      document.getElementById(id).textContent = summary;
+    });
+    ["rpDetails", "lrnResearchDetails"].forEach(function (id) {
+      document.getElementById(id).textContent = lines.join("\n");
+    });
     document.getElementById("rpStart").disabled = rpBusy || rpEnabled;
     document.getElementById("rpStop").disabled = rpBusy || !rpEnabled;
     document.getElementById("rpPeer").disabled = rpBusy || rpEnabled;
   }
   function rpRefresh() {
     return api("/research-package/status").then(rpRender).catch(function (e) {
-      document.getElementById("rpStatus").textContent = "Araştırma durumu alınamadı: " + e.message;
+      ["rpStatus", "lrnResearchStatus"].forEach(function (id) {
+        document.getElementById(id).textContent = "Araştırma durumu alınamadı: " + e.message;
+      });
     });
   }
   function rpControl(action) {

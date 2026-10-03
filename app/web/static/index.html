@@ -662,6 +662,14 @@
       <section class="panel" id="panel-learning">
         <div class="panel-head"><h2>Öğrenme Dinamikleri</h2></div>
 
+        <div class="card">
+          <h3>Eğitim sonrası araştırma paketi</h3>
+          <p id="lrnResearchStatus" role="status" aria-live="polite">Araştırma durumu yükleniyor…</p>
+          <pre id="lrnResearchDetails" class="muted small"></pre>
+          <a class="btn btn-primary" href="#sekme=agentmap">Araştırma paketini yönet</a>
+          <p class="muted small">Makale arama → kontrollü RAG → kart → aday veri → yöntem önerisi. Web sunucusu açık kaldığı sürece çalışır; yeni ağır LoRA eğitimi başlatmaz. Etkin paket için aşağıdaki eski RAG döngüsünü ayrıca açmayın.</p>
+        </div>
+
         <!-- RAG Öğrenme Döngüsü (otonom, sunucu-taraflı) -->
         <div class="card" style="margin-bottom:1rem;border:1px solid #334155">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -670,8 +678,8 @@
           </div>
           <p class="muted small" style="margin:.4rem 0 .8rem">
             Sunucu-taraflı arka plan döngüsü: arXiv'den yeni makale çek → indeksle →
-            bilgi kartı üret → anlama skorla → RAG ustalığını güncelle. Tarayıcı/web
-            kapansa da sürer. <strong>Açmadıkça çalışmaz.</strong> LoRA eğitimi
+            bilgi kartı üret → anlama skorla → RAG ustalığını güncelle. Tarayıcı
+            kapansa da web sunucusu açıkken sürer. <strong>Açmadıkça çalışmaz.</strong> LoRA eğitimi
             sürerken kendini duraklatır.
           </p>
 

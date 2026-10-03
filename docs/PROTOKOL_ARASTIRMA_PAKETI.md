@@ -5,6 +5,12 @@ yeni ağır eğitim için öneri sunulur. Paket mevcut eğitimler tamamlanmadan 
 
 ## Web'den tek tuş
 
+`09 · ÖĞRENME` sekmesinin üstündeki **Eğitim sonrası araştırma paketi** kartı,
+aynı yöneticinin durumunu, bekleme nedenlerini, son kontrol ve yeniden deneme
+zamanını gösterir. Sekme açıkken 15 saniyede yenilenir; **Araştırma paketini yönet**
+bağlantısı motor seçimi ve başlat/durdur kontrollerine götürür. İkinci döngü başlatmaz.
+Eğitim bitse bile başlatma kilidi mevcutsa paket bekler; web kilidi temizlemez.
+
 `15 · AJAN HARİTASI` → Motor seç → **Araştırma döngüsünü çalıştır**.
 İsteğe bağlı ikinci motor bağımsız plan incelemesi yapar; aynı motor iki kez seçilemez.
 Kurulu ve kısıtlanabilir Codex/Claude CLI'ları kendi abonelik oturumlarını kullanır.

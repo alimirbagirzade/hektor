@@ -33,6 +33,21 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-03 — araştırma paketinin Öğrenme sekmesine entegrasyonu
+
+Öğrenme sekmesinde paket durumu, motorlar, sıradaki aşama, engeller ve son yönetici
+kontrolü görünür; 15 saniyelik salt-okunur yenileme ve Ajan Haritası yönetim bağlantısı
+eklendi. Doğrudan `#sekme=learning` ile açılışta eğitim grafikleri/sayaçların yüklenmemesi
+düzeltildi. Eski RAG döngüsünün web kapanınca da süreceği yönündeki metin düzeltildi.
+Yerel web 8765 açık, araştırma yöneticisi Codex ile etkin fakat eğitim başlatma kilidi
+nedeniyle bekliyor. Kilit/STOP/.env değiştirilmedi; gerçek araştırma turu başlamadı.
+v14 eğitim günlüğü 3 Ekim 20:35'te 187/187 adım ve adapter kaydını bildiriyor;
+adayın karşılaştırmalı değerlendirmesi ayrı iştir.
+Doğrulama: çevrimdışı tam paket 2900 geçti / 4 dışlandı; araştırma testleri ayrıca
+38 geçti. Mypy (269 kaynak), JS sözdizimi ve tarayıcıda doğrudan bağlantı + yönetim
+geçişi doğrulandı. Ruff kaynak kontrolleri geçti; depo-geneli komutun karşılaştığı
+ilgisiz yerel `tmp/pdfs/build_v13.py` biçim/lint hataları bu değişikliğe dahil edilmedi.
+
 ### 2026-10-01 — tek tuş araştırma paketi (doğrulandı; eğitim sonrası canlı pilot bekliyor)
 
 Kullanıcı kapsamı: araştırma + kontrollü RAG işleme + aday veri hazırlığı; yeni ağır
