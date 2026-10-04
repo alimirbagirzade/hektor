@@ -16,6 +16,8 @@ param(
     [Parameter(Mandatory = $true)][string]$TemplateFrom,
     [string]$Quant = "Q4_K_M",
     [string]$Tools = "C:\HP\tools",
+    # Ayrı worktree, ana kurulumun mevcut Python ortamını açıkça kullanabilir.
+    [string]$PythonPath = "",
     # Bos = base etiketindeki deger (Qwen3-2507: 1 = KAPALI). v12'de dejenere tekrar
     # vetosu goruldu (2026-09-30) -> 1.1 ile yeniden olusturuldu. Uygulama (LocalLLM)
     # repeat_penalty GONDERMEZ, yani Modelfile degeri gecerlidir.
@@ -40,7 +42,8 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 $env:UV_NO_SYNC = "1"
 $env:PYTHONIOENCODING = "utf-8"
-$py = Join-Path $root ".venv\Scripts\python.exe"
+$py = if ($PythonPath) { $PythonPath } else { Join-Path $root ".venv\Scripts\python.exe" }
+if (-not (Test-Path -LiteralPath $py)) { throw "Python bulunamadı: $py" }
 $merged = Join-Path $root "models\merged\$Adapter"
 $ggufDir = Join-Path $root "models\gguf"
 $bf16 = Join-Path $ggufDir "$Adapter-bf16.gguf"

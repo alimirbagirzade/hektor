@@ -1,0 +1,26 @@
+{
+  "pytest_xml_sha256": "b1a4777d71b814fdbdac3c4324ce47403ccc396b7e0f0dc1cb20dda88158d539",
+  "pytest_log_sha256": "708225f48c5416d6b4db13fdaf78e69ce688a2c211fdf1ce225edcf1e039bbb4",
+  "suite_attributes": [
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2975",
+      "time": "270.421",
+      "timestamp": "2026-10-04T14:35:31.516896+03:00",
+      "hostname": "iuc1112213"
+    }
+  ],
+  "observed_summary": "2975 passed, 4 deselected, 1 warning in270.46s",
+  "epoch_accounting_check": {
+    "actual_forward_examples": 219,
+    "actual_optimizer_steps": 30,
+    "actual_epoch": 3.0,
+    "scope": "tiny CPU Trainer accounting check, not Hektor model quality test",
+    "passed": true
+  },
+  "scope": "Code suite and tiny Trainer arithmetic; not model answer acceptance",
+  "training_status": "started, completion and quality not yet verified"
+}
