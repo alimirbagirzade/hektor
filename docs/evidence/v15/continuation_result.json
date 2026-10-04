@@ -1,0 +1,49 @@
+{
+  "accepted": false,
+  "training": {
+    "actual_optimizer_steps": 30,
+    "actual_epoch": 3.0,
+    "unique_train_examples": 73,
+    "actual_example_exposures": 219,
+    "iteration_budget_field": 240,
+    "iteration_budget_not_processed_examples": true,
+    "validation_examples": 4,
+    "final_validation_loss": 3.2253026962280273,
+    "finite_history": true,
+    "runtime_from_rounded_stdout_s": 3030,
+    "loss_not_answer_accuracy": true,
+    "selection": "last_checkpoint_fixed_before_training",
+    "adapter_sha256": "0f785092758e408cea60cf568d951cfb73b779d73a188d8338c897198e4d3fa2"
+  },
+  "native_transfer": {
+    "positions": 117,
+    "max_diff": 0,
+    "max_kl": 0,
+    "loaded_lora_tensors": 384
+  },
+  "critical_question_ids": [
+    "S07",
+    "S09",
+    "S14",
+    "S20",
+    "S24",
+    "S28",
+    "S29"
+  ],
+  "critical_failed": true,
+  "common_condition_checks": {
+    "decoding": true,
+    "system_hash": true,
+    "dataset_hash": true,
+    "ollama_version": true,
+    "question_ids": true,
+    "prompt_hashes": true,
+    "chat_templates": true
+  },
+  "preservation_all_unchanged": true,
+  "quantization_diagnostic_exit": -1073740940,
+  "final_run": false,
+  "full_30_or_60_run": false,
+  "rag_2x2_run": false,
+  "raw_answers_not_published": true
+}
