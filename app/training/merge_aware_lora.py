@@ -74,5 +74,6 @@ def install_merge_aware(model: Any) -> list[str]:
             if parameter.dtype != torch.float32:
                 raise ValueError(f"{name}: LoRA parametreleri fp32 olmalı")
     for _, layer in layers:
-        layer.forward = MethodType(merged_weight_forward, layer)  # type: ignore[method-assign]
+        mutable_layer: Any = layer  # Çalışma anındaki dinamik metot bağlama sınırı.
+        mutable_layer.forward = MethodType(merged_weight_forward, layer)
     return [name for name, _ in layers]
