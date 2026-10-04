@@ -567,9 +567,16 @@
           sel.value = adapters[0];
         }
       })
-      .catch(function () {});
+      .catch(function (e) { toast("Eğitilen modeller alınamadı: " + e.message, true); });
   }
 
+  var modelChatLink = document.getElementById("lrnModelChatLink");
+  if (modelChatLink) modelChatLink.addEventListener("click", function () {
+    setTimeout(function () {
+      document.getElementById("trainedModelChat").scrollIntoView({ behavior: "smooth" });
+      document.getElementById("loraChatQuestion").focus({ preventScroll: true });
+    }, 0);
+  });
   var loraChatForm = document.getElementById("loraChatForm");
   if (loraChatForm) {
     loraChatForm.addEventListener("submit", function (e) {
@@ -4934,9 +4941,11 @@
   // aşamasında DURUR (Kural 8). Burada hattın son koşusuna bakıp, kapıda bekliyorsa
   // "ONAYLA VE EĞİTİMİ BAŞLAT" kutusunu açarız — onayı İNSAN verir, motor değil.
   function amRefreshGate() {
-    return api("/orchestration/runs?limit=1")
+    return api("/orchestration/runs?limit=20")
       .then(function (d) {
-        var run = ((d && d.runs) || [])[0] || null;
+        var runs = (d && d.runs) || [];
+        var run = runs.find(function (r) { return r.run_id === amCurrentRun; }) ||
+          runs.find(function (r) { return r.driver_running; }) || runs[0] || null;
         amGateRun = run;
         var box = document.getElementById("amGate");
         var info = document.getElementById("amGateInfo");
@@ -4952,6 +4961,7 @@
         }
         // Orkestrasyon insan kapısında `blocked` olabilirken motor hâlâ çalışabilir.
         // Şeridi DB durumundan değil, sunucunun gerçek alt-süreç kaydından sür.
+        if (run && run.driver_running) amSetLive(true);
         if (amDriving) {
           if (run && run.driver_running) {
             var live = document.getElementById("amLiveText");
@@ -5114,25 +5124,52 @@
       sel.value = prev;
     }
     amRenderEngineNote();
-    var peer = document.getElementById("rpPeer");
-    var previousPeer = peer.value;
-    peer.innerHTML = '<option value="">Yok</option>';
-    amEngines.forEach(function (e) {
-      if (!e.selectable) return;
-      var option = document.createElement("option");
-      option.value = e.name;
-      option.textContent = e.label;
-      peer.appendChild(option);
-    });
-    peer.value = previousPeer;
+
   }
 
   var rpBusy = false;
   var rpEnabled = false;
+  var rpEngines = [];
+  function rpEngineNote() {
+    var name = document.getElementById("rpEngine").value;
+    document.getElementById("rpEngineInfo").textContent = rpEngines.map(function (e) {
+      return e.label + ": " + (e.blocked_reason || e.connection_note || "") +
+        (!e.selectable && e.install_hint ? " " + e.install_hint : "") +
+        (e.name === name ? " (seçili)" : "");
+    }).join("\n");
+  }
+  function rpRenderEngines(d, state) {
+    rpEngines = d.engines || [];
+    ["rpEngine", "rpPeer"].forEach(function (id, index) {
+      var sel = document.getElementById(id);
+      var previous = state.enabled ? (state.engines || [])[index] || "" : sel.value;
+      sel.replaceChildren();
+      if (index) {
+        var empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "Tek motorla çalış (ikinci inceleyici kapalı)";
+        sel.appendChild(empty);
+      }
+      rpEngines.forEach(function (e) {
+        var option = document.createElement("option");
+        option.value = e.name;
+        option.textContent = e.label + (e.selectable ? "" : " — kullanılamaz");
+        option.disabled = !e.selectable;
+        sel.appendChild(option);
+      });
+      var keep = rpEngines.some(function (e) { return e.name === previous && (state.enabled || e.selectable); });
+      var first = rpEngines.find(function (e) { return e.selectable; });
+      sel.value = keep ? previous : (index ? "" : (first ? first.name : ""));
+      sel.disabled = rpBusy || !!state.enabled;
+    });
+    document.getElementById("rpEngine").onchange = rpEngineNote;
+    rpEngineNote();
+  }
   function rpRender(d) {
     var state = d.service || {};
     var plan = d.plan || {};
     rpEnabled = !!state.enabled;
+    rpRenderEngines(d, state);
     var labels = { disabled: "Kapalı", armed: "Kuruldu", waiting: "Bekliyor", running: "Çalışıyor", idle: "Sıradaki zamanı bekliyor", backoff: "Hata sonrası bekliyor", needs_attention: "İnceleme gerekiyor" };
     var stages = { discovery: "Makale arama", ingestion: "RAG işleme", cards: "Bilgi kartları", data: "Aday veri", methods: "Yöntem araştırması", report: "Rapor" };
     var summary = (labels[state.status] || state.status || "Bilinmiyor") +
@@ -5172,7 +5209,7 @@
   }
   function rpControl(action) {
     if (rpBusy) return;
-    var selected = amSelectedEngine();
+    var selected = rpEngines.find(function (e) { return e.name === document.getElementById("rpEngine").value && e.selectable; });
     if (action === "start" && !selected) { toast("Önce kullanılabilir bir motor seç.", true); return; }
     var names = selected ? [selected.name] : [];
     var peer = document.getElementById("rpPeer").value;
@@ -5463,6 +5500,7 @@
       er._wired = true;
       er.addEventListener("click", function () {
         amLoadEngines(true).then(function () {
+          rpRefresh();
           toast("Motorlar yeniden tarandı.");
         });
       });

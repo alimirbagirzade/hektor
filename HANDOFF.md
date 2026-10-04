@@ -33,6 +33,26 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-04 — araştırma motorları ve sürüş görünürlüğü
+
+Araştırma ana motoru eğitim sürücüsünden ayrıldı: Codex, Claude Code, sürümü
+kısıtlı Gemini CLI ve yerel Ollama plan incelemesi. Kurulu olmayan motorlar gerekçeli
+kapalıdır; ikinci inceleyici kapalı metni artık bağlantı yok izlenimi vermez.
+Autodrive HTTP kabulü ile süreç kaydı arasındaki yarış kapatıldı; aynı koşuya ikinci
+istek 409 alır, sayfa yenilemesi sürüş göstergesini geri yükler. Bu bir kesintisizlik
+veya otomatik eğitim yeniden başlatma garantisi değildir.
+Öğrenme'den doğrudan model sohbetine bağlantı var; API v14/v13/v12/v11 adapter'larını
+listeliyor. PEFT sohbeti Ollama gerektirmez; model değişiminde eski önbellek yeni
+model yüklenmeden bırakılır. Aktif eğitim sırasında sohbet 409 ile bekletilir;
+bu kontrol tüm süreçler arasında atomik kaynak kilidi değildir.
+Canlı araştırma eğitim başlatma kilidini bekliyor; kilit/STOP/onay değiştirilmedi.
+Doğrulama: tam koşuda 2907 geçti; eski limit=1 varsayımını kontrol eden tek test yeni
+koşu seçimine uyarlandı ve ilgili 73 test geçti. Ruff (ilgisiz tmp hariç), format,
+mypy 271 kaynak, JS sözdizimi ve MCP 22 araç üretimi geçti. Canlı web yeniden açıldı;
+motor seçenekleri ve Öğrenme → V14 seçili sohbet geçişi tarayıcıda doğrulandı.
+Gerçek CLI/Ollama araştırma incelemesi ve PEFT cevap üretimi bu doğrulamaya dahil değil.
+
+
 ### 2026-10-03 — araştırma paketinin Öğrenme sekmesine entegrasyonu
 
 Öğrenme sekmesinde paket durumu, motorlar, sıradaki aşama, engeller ve son yönetici
