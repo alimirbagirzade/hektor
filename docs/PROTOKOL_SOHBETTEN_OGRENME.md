@@ -39,17 +39,19 @@ Faz 2'dir.** Bulut kontrolü Faz 3'tür; Faz 1'de hiçbir bulut çağrısı yokt
 
 | Kontrol | Ne kanıtlar | Ne KANITLAMAZ |
 |---|---|---|
-| Hesap | `a op b = c` ifadesinin yeniden hesabı (`safe_eval`, eval/exec yok) | Açıklamanın geri kalanı |
-| Kaynak | İfadenin turun KENDİ parçalarıyla sözcüksel örtüşmesi | Anlamsal doğruluk |
+| Hesap | `a op b = c` ifadesinin yeniden hesabı (`safe_eval`, eval/exec yok) — yalnız kontrol edilen ifade; birimde başka söz varsa birim kapsanmış sayılmaz | Açıklamanın geri kalanı |
+| Kaynak benzerliği kontrolü | İfadenin turun KENDİ parçalarıyla sözcük örtüşmesi | Doğruluk — "artırır / artırmaz" gibi zıt ifadeleri AYIRAMAZ; bu yüzden hiçbir ifadeyi kapsanmış saymaz |
 | Atıf kimliği | `[paper:chunk]` turda getirildi mi | İddianın desteklendiği |
 | Güvenlik | Kural 1 (garanti/tavsiye/kesinlik, sır/PII) | — |
 | Backtest | Faz 2'ye kadar **yapılamaz** | — |
 | Kod testi | Test koşucusu yok → **yapılamaz** | — |
 
 Karar: çürüten kontrol (yanlış hesap, getirilmeyen atıf kimliği, Kural 1) → **reddedildi**;
-insan onayı bunu geçemez, önce metin düzeltilmeli. Tüm ifadeler kapsandıysa → **eğitime uygun
-(otomatik kanıtlı)**. Kısmi kapsam → **inceleme bekliyor**; gerekçeli insan onayı (≥10 kr)
-→ **eğitime uygun (insan onaylı)**, kısmi kapsam bilgisi korunur. Kontrol edilecek ifade
+insan onayı bunu geçemez, önce metin düzeltilmeli. Tüm ifadeler DETERMİNİSTİK kontrollerle
+(yalnız hesap) kapsandıysa → **eğitime uygun (otomatik kanıtlı)**. Kaynaklı iddia içeren her
+hedef → **inceleme bekliyor**: kaynak benzerliği tek başına otomatik uygunluk VERMEZ. Gerekçeli
+insan onayı (≥10 kr; onay ekranı her ifadeyi ve turun kaynak metinlerini yan yana gösterir) →
+**eğitime uygun (insan onaylı)**, kısmi kapsam bilgisi korunur. Kontrol edilecek ifade
 bulunamazsa → inceleme ("doğrulama başarısı değildir"). Trading performans iddiası backtest
 olmadan onaylanamaz. Önceki model cevapları hiçbir kontrolde kanıt sayılmaz.
 
@@ -82,6 +84,19 @@ olmadan onaylanamaz. Önceki model cevapları hiçbir kontrolde kanıt sayılmaz
 - "Eğitimde kullanıldı": bağlama = **planlandı**; `train_status.json` `data_sha256` eşleşmesi →
   **sürüyor / tamamlandı (`run_complete.json`) / başarısız**. Gözlem panelde "↻ Yenile" ile.
 
+## Ortak ağır iş kilidi (Faz 2 öncesi tamamlama)
+
+- `storage/heavy_job.lock` (`app/training/resource_lock.py`): eğitim (web, `start-train.ps1`,
+  doğrudan `hektor train --run`), model dönüşümü (`adapter_to_ollama.ps1`, `merge_adapter.py`)
+  ve karşılaştırma (`v15_compare`, `llm30_run`) TEK kilidi paylaşır. Edinme atomik
+  (`O_EXCL`); çöken sahip pid + başlangıç zamanıyla, yarım kalan web başlatması TTL ile bayat
+  sayılır; bayat kilit ayrı kırma mutex'i altında ve yalnız okunan token hâlâ duruyorsa kırılır.
+- Web başlatması kilidi `launching` alır, alt sürece devreder (`HEKTOR_HEAVY_LOCK_TOKEN`); alt
+  süreç `train --run` kilidi devralır. CLI yolu kilidi kendisi alır ve her çıkışta bırakır.
+- Kilit alındıktan SONRA sohbet kiralarına bakılır (sohbet önce kira yazar sonra kilide bakar)
+  → eğitim, cevap üretilirken başlamaz. Dönüşüm/karşılaştırma sürerken sohbet hiç cevaplamaz.
+- Sohbet kirası pid taşır: çöken sohbet süreci kirası TTL beklemeden bayat sayılır.
+
 ## Kaynak koruması (sunucuda)
 
 - Eğitim yoksa cevap verilir; cevap sonrası `/api/ps`'ten bellek ayak izi (RAM = toplam − VRAM,
@@ -92,8 +107,9 @@ olmadan onaylanamaz. Önceki model cevapları hiçbir kontrolde kanıt sayılmaz
   dışında ilk cevapta ya da **Kaynak ölç** ile alınır (kalıcı kilit yok).
 - Yarış: cevap üretilirken `storage/chat_leases/` kirası tutulur. Sohbet kirayı yazıp sonra
   eğitim kilidine bakar; `detached_launch` kilidi alıp sonra kiralara bakar (ön-kontrolde de).
-- **Sınır:** `scripts/start-train.ps1` / elle `hektor train --run` yolu kira denetimi yapmaz;
-  sohbet bu koşuları `train_status.json` pid'i ve log tazeliğiyle görür.
+- `scripts/start-train.ps1` / elle `hektor train --run` yolu da ortak kilidi alır ve kira
+  denetimi yapar (bkz. "Ortak ağır iş kilidi"). Seçili sohbet sürümünde geçersiz kayıt varsa
+  CLI eğitimi de durur.
 
 ## Yetki
 
@@ -107,10 +123,23 @@ Sürücü kapsamı konuşmaya yazamaz. Yeni uçlar MCP allow-list'ine eklenmedi.
   tabloları siler; Echo dahil diğer tablolara dokunmaz).
 - `data/learning/chat_datasets/` ve `data/lora_sft/chat_selection.json` elle kaldırılır.
 
-## Bilinen sınırlar (Faz 1)
+## Doğrulama durumu (2026-10-05)
 
-- Kaynak desteği sözcüksel örtüşmedir; anlamsal doğrulama değildir.
-- Gerçek bir Ollama cevabının uçtan uca akışı yalnız çevrimdışı sahte LLM ve yalıtılmış test
-  sunucusuyla doğrulandı; gerçek 30B modelle canlı tur, "Kaynak ölç" ve eğitim sırasındaki
-  davranış canlı ölçülmedi.
-- Kod adayları hiç otomatik doğrulanamaz; trading performans iddiaları Faz 2'ye kadar onaylanamaz.
+- **Gerçek modelle:** yalıtılmış kök (scratchpad, `RAG_EGITIM_DETAYLI_ANLATIM.pdf` gerçek
+  `nomic-embed-text` ile içe alındı) + `hektor-v12-30b`, eğitim yokken: "Kaynak ölç" (17.6 GB,
+  tamamı VRAM), iki turluk sohbet (aynı etiket + digest, 2. turun istemi 1. turun soru ve
+  cevabını içeriyor, `history_turn_ids` doğru, istem özeti kayıtlı).
+- **Tarayıcıda:** Düzelt (diyalog) → aday "inceleme bekliyor" + "Kaynak benzerliği — doğrulama
+  değil"; Gerekçeyle onayla (satır içi; <10 kr düğme kapalı; ifade + kaynak metinleri görünür);
+  Düzenle (satır içi; onay düşer, rev 2); Hatalı notu (satır içi). `window.prompt` kalmadı.
+- **Canlı süreçlerle:** CLI'dan alınan karşılaştırma kilidi çalışan sunucuda sohbeti kapattı;
+  ikinci edinme reddedildi; bırakınca sohbet açıldı.
+- **Henüz doğrulanmadı:** eğitim SÜRERKEN sohbet davranışı (eğitim başlatılmadı); gerçek
+  `adapter_to_ollama.ps1` koşusunda kilit (dönüşüm çalıştırılmadı).
+
+## Bilinen sınırlar
+
+- Kaynak benzerliği sözcük örtüşmesidir; anlamsal doğrulama değildir ve tek başına eğitim
+  uygunluğu vermez.
+- Kod adayları hiç otomatik doğrulanamaz; trading performans iddiaları yalnız kayıtlı backtest
+  koşusuyla eşleştirilebilir (Faz 2B).

@@ -4,9 +4,11 @@ Bir tur:
 1. Tur 'pending' olarak AYRILIR (aynı istek kimliği → aynı tur; çift cevap üretilmez).
 2. Kaynak koruması SUNUCUDA uygulanır (``resource_guard``); izin yoksa tur 'blocked'.
 3. Kira alınır (eğitim başlatmayla yarış), son N tur karakter bütçesiyle geçmiş olarak eklenir.
-4. Cevap ``RagAnswerer`` ile üretilir; model etiketi istek başında SABİTLENİR, digest cevaptan
-   önce (``/api/tags``) ve sonra (``/api/ps``) okunur → model değişimi sırasında her tur
-   gerçekten kullandığı kimlikle kaydedilir. Eğitim yoksa bellek ayak izi ölçülür.
+4. Cevap ``RagAnswerer`` ile üretilir; model etiketi istek başında konuşmanın YUVASINDAN
+   (``main`` | ``trial``; ``model_activation``) çözülüp SABİTLENİR — cevap sürerken yapılan
+   etkinleştirme bu turu etkilemez. Digest cevaptan önce (``/api/tags``) ve sonra
+   (``/api/ps``) okunur → her tur gerçekten kullandığı kimlikle kaydedilir. Eğitim yoksa bellek
+   ayak izi ölçülür. Deneme yuvası boşsa deneme sohbeti cevaplanmaz.
 
 Sohbet içeriği RAG indeksine YAZILMAZ; eğitim başlatılmaz.
 """
@@ -103,9 +105,28 @@ def send(
         return turn, True
     store.touch_conversation(conversation_id, title_if_empty=question)
 
+    from app.feedback.model_activation import describe_slot, resolve_chat_tag
+
     s = get_settings()
-    tag = s.effective_chat_model  # istek başında sabitlenir
+    slot = str((store.get_conversation(conversation_id) or {}).get("slot") or "main")
     turn_id = turn["turn_id"]
+    try:
+        tag = resolve_chat_tag(slot)  # istek başında SABİTLENİR (yuvadan)
+        slot_info = describe_slot(slot)
+    except Exception as exc:
+        tag = ""
+        slot_info = {"slot": slot, "error": str(exc)}
+    if not tag:
+        updated = store.update_turn(
+            turn_id,
+            status="blocked",
+            status_detail="Deneme yuvasında etkin model yok — deneme sohbeti cevaplanmadı."
+            if slot == "trial"
+            else f"Sohbet modeli çözülemedi: {slot_info.get('error', '')}",
+            model_info={"slot": slot},
+        )
+        assert updated is not None
+        return updated, False
 
     def _finish(**fields: Any) -> dict[str, Any]:
         updated = store.update_turn(turn_id, model_tag=tag, **fields)
@@ -113,7 +134,7 @@ def send(
         return updated
 
     try:
-        decision = check_chat_resources(transport)
+        decision = check_chat_resources(transport, tag=tag)
         if not decision.allowed:
             return _finish(status="blocked", status_detail=decision.reason), False
         lease, why = acquire_chat_lease(turn_id)
@@ -196,9 +217,20 @@ def send(
                     "digest_note": note,
                     "origin": model_origin(tag),
                     "footprint": footprint,
-                    "setting_source": "HEKTOR_CHAT_MODEL"
-                    if s.chat_model.strip()
-                    else "HEKTOR_LLM_MODEL (chat_model boş)",
+                    "slot": slot,
+                    "slot_source": slot_info.get("source", ""),
+                    "slot_evaluation": slot_info.get("evaluation", ""),
+                    "slot_decision": slot_info.get("decision", ""),
+                    "activation_version": slot_info.get("record_version", 0),
+                    "setting_source": (
+                        "etkinleştirme kaydı"
+                        if not slot_info.get("virtual", True)
+                        else (
+                            "HEKTOR_CHAT_MODEL"
+                            if s.chat_model.strip()
+                            else "HEKTOR_LLM_MODEL (chat_model boş)"
+                        )
+                    ),
                 },
                 sources=[_source_dict(c) for c in ans.sources],
                 checks=checks,
@@ -214,9 +246,10 @@ def send(
         release_chat_lease(lease)
 
 
-def measure(transport: Any = None, llm: Any = None) -> dict[str, Any]:
+def measure(transport: Any = None, llm: Any = None, slot: str = "main") -> dict[str, Any]:
     """Kontrollü ilk ölçüm: eğitim YOKKEN modeli kısa üretimle yükle, ayak izini kaydet."""
     from app.brain.local_llm import LLMUnavailable, LocalLLM
+    from app.feedback.model_activation import resolve_chat_tag
     from app.feedback.model_identity import match_entry, ollama_ps, record_footprint
     from app.feedback.resource_guard import (
         acquire_chat_lease,
@@ -225,9 +258,11 @@ def measure(transport: Any = None, llm: Any = None) -> dict[str, Any]:
     )
 
     act = training_activity()
-    if act["active"] or act["starting"]:
-        raise RuntimeError("Eğitim sürüyor/başlatılıyor — ölçüm eğitim dışında yapılır.")
-    tag = get_settings().effective_chat_model
+    if act["active"] or act["starting"] or act.get("heavy"):
+        raise RuntimeError("Eğitim/ağır iş sürüyor — ölçüm eğitim dışında yapılır.")
+    tag = resolve_chat_tag(slot)
+    if not tag:
+        raise RuntimeError("Bu yuvada etkin model yok; ölçülecek model yok.")
     lease, why = acquire_chat_lease(f"measure-{hashlib.sha1(utcnow().encode()).hexdigest()[:8]}")
     if lease is None:
         raise RuntimeError(why)

@@ -108,6 +108,11 @@ class LearningService:
     def learn(self, turn_id: str, domain: str | None = None) -> tuple[dict[str, Any], bool]:
         """'Öğrensin': model cevabı hedef. Aynı tur için ikinci tıklama aynı adayı döndürür."""
         turn = self._trainable_turn(turn_id)
+        if (turn.get("model_info") or {}).get("slot") == "trial":
+            raise LearningError(
+                "Deneme sohbetindeki modelin cevabı 'Öğrensin' ile eğitim hedefi olamaz (model "
+                "kabul edilmedi). Doğru metni 'Düzelt' ile yazabilirsiniz."
+            )
         target = turn["raw_answer"] or turn["answer"]
         return self._create(turn, "learn", target, domain, spans=[])
 
@@ -150,7 +155,10 @@ class LearningService:
             flagged_spans=spans,
             domain=dom,
             domain_source="user" if domain else "auto",
+            # as_of = BİLGİNİN kullanılabilir olduğu an (tur cevaplandığında). Fiyat verisinin
+            # bitişi DEĞİLDİR; koşu bağlanırsa koşu zamanına ilerler (link_run).
             as_of=turn["created_at"],
+            time_meta={"knowledge_available_at": turn["created_at"], "basis": "tur zamanı"},
         )
         if created:
             cand = self.recompute(cand["candidate_id"])
@@ -205,6 +213,66 @@ class LearningService:
         )
         return self.recompute(candidate_id)
 
+    # ── test koşusu bağlantısı (zaman alanları ayrı) ─────────────────────────
+
+    def link_run(self, candidate_id: str, run_id: str) -> dict[str, Any]:
+        """Adayı kayıtlı bir strateji test koşusuna bağla.
+
+        Zaman alanları AYRI tutulur: veri başlangıç/bitişi, test dönemi, strateji oluşturma,
+        koşu zamanı ve bilgi zamanı. Bilgi zamanı = max(tur zamanı, koşu zamanı) — sonuç ancak
+        koşu bitince bilinir; fiyat verisinin bitiş tarihi bilgi zamanı DEĞİLDİR. Aday, strateji
+        AİLESİNE bağlanır (yakın varyantlar train/eval'e bölünmez). İnsan onayı düşer.
+        """
+        from app.trading.strategy_store import StrategyStore
+
+        cand = self._cand(candidate_id)
+        turn = self._turn(cand["turn_id"])
+        st = StrategyStore()
+        run = st.get_run(run_id)
+        if run is None:
+            raise KeyError(f"Koşu bulunamadı: {run_id}")
+        strat = st.get_strategy(run["strategy_id"])
+        times = dict((run.get("result") or {}).get("times") or {})
+        knowledge = max(str(turn["created_at"]), str(run["run_at"]))
+        meta = {
+            "run_id": run_id,
+            "strategy_id": run["strategy_id"],
+            "stage": run["stage"],
+            "fingerprint": run["fingerprint"],
+            "data_start": times.get("data_start", ""),
+            "data_end": times.get("data_end", ""),
+            "period_start": run["period_start"],
+            "period_end": run["period_end"],
+            "strategy_created_at": (strat or {}).get("created_at", ""),
+            "backtest_run_at": run["run_at"],
+            "turn_at": turn["created_at"],
+            "knowledge_available_at": knowledge,
+            "basis": "max(tur zamanı, koşu zamanı)",
+        }
+        self.store.update_candidate(
+            candidate_id,
+            time_meta=meta,
+            as_of=knowledge,
+            strategy_family=run["family_id"],
+            domain="trading",
+            domain_source="user",
+            human_approval={},
+        )
+        return self.recompute(candidate_id)
+
+    def _run_link(self, cand: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        run_id = str((cand.get("time_meta") or {}).get("run_id") or "")
+        if not run_id:
+            return None
+        from app.trading.strategy_store import StrategyStore
+
+        st = StrategyStore()
+        run = st.get_run(run_id)
+        strat = st.get_strategy(run["strategy_id"]) if run else None
+        if run is None or strat is None:
+            return None
+        return run, strat
+
     # ── yeniden hesaplama ────────────────────────────────────────────────────
 
     def recompute(self, candidate_id: str) -> dict[str, Any]:
@@ -215,6 +283,7 @@ class LearningService:
             question=turn["question"],
             sources=turn["sources"],
             domain=cand["domain"],
+            run_link=self._run_link(cand),
         )
         status, reason, codes, vclass = decide(verification, cand["human_approval"])
         verification["class"] = vclass
@@ -290,6 +359,25 @@ class LearningService:
                 fam = self.store.get_family(fid)
                 if fam is not None:
                     matched[fid] = fam
+        sfam = str(cand.get("strategy_family") or "")
+        if sfam:
+            # Strateji ailesi BASKINDIR: aynı stratejinin varyantları tek ailede, zaman bölmeli.
+            root = "fam_" + sfam
+            if self.store.get_family(root) is None:
+                self.store.upsert_family(root, split="time", domain="trading", anchor_question=q)
+            others = {fid: f for fid, f in matched.items() if fid != root}
+            if any(f["split"] != "time" for f in others.values()):
+                names = ", ".join(f"{fid}={f['split']}" for fid, f in sorted(others.items()))
+                return "", (
+                    "Sızıntı çatışması: strateji ailesi, sabit bölmeli bir soru ailesine "
+                    f"bağlanıyor ({names}). Otomatik eğitime alınmadı."
+                )
+            for fid in others:
+                self.store.upsert_family(fid, merged_into=root)
+                for member in self.store.list_candidates():
+                    if member["family_id"] == fid:
+                        self.store.update_candidate(member["candidate_id"], family_id=root)
+            return root, ""
         if not matched:
             fid = "fam_" + hashlib.sha256(_norm(q).encode()).hexdigest()[:12]
             fam = self.store.get_family(fid)
@@ -451,6 +539,18 @@ class LearningService:
                     "conversation_id": turn.get("conversation_id", ""),
                     "turn_index": turn.get("turn_index"),
                     "split": fam["split"] if fam else "",
+                    # İnceleyici iddiayı KAYNAK METNİYLE karşılaştırabilsin (benzerlik skoru
+                    # doğrulama değildir; karar insanın).
+                    "sources": [
+                        {
+                            "paper_id": s.get("paper_id", ""),
+                            "chunk_id": s.get("chunk_id", ""),
+                            "title": s.get("title", ""),
+                            "page": s.get("page"),
+                            "text": str(s.get("text") or "")[:2500],
+                        }
+                        for s in turn.get("sources", [])
+                    ],
                 }
             )
             if len(out) >= limit:

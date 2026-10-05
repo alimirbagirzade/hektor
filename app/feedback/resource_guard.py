@@ -11,9 +11,13 @@ Karar YALNIZ ölçüme dayanır, varsayılan değer uydurulmaz:
     eğitim DIŞINDA ilk cevapta ya da "Kaynak ölç" ile alınır → kalıcı kilit yok.
 
 Yarış: cevap üretimi sırasında ``storage/chat_leases/`` altında bir KİRA dosyası tutulur. Sohbet
-önce kirayı yazar SONRA eğitim durumuna bakar; eğitim başlatma (``detached_launch``) önce kendi
-atomik başlatma kilidini alır SONRA kiralara bakar. İki taraf da bayrağını yazdıktan sonra
-diğerini okuduğundan ikisi birden ilerleyemez (en kötü ihtimalle ikisi de geri çekilir).
+önce kirayı yazar SONRA ortak ağır iş kilidine (``app.training.resource_lock``) bakar; eğitim
+(web, ``start-train.ps1``, doğrudan ``hektor train --run``), model dönüşümü ve karşılaştırma önce
+o kilidi alır SONRA kiralara bakar. İki taraf da bayrağını yazdıktan sonra diğerini okuduğundan
+ikisi birden ilerleyemez (en kötü ihtimalle ikisi de geri çekilir).
+
+Dönüşüm / karşılaştırma sürerken sohbet cevabı HİÇ üretilmez (bellek + karşılaştırmanın servis
+koşulları bozulmasın). Kira, sahibinin pid'ini taşır: süreç çökerse kira hemen bayat sayılır.
 """
 
 from __future__ import annotations
@@ -47,14 +51,15 @@ class GuardDecision:
 def training_activity(root: Path | None = None) -> dict[str, Any]:
     """Eğitim sürüyor mu / başlatılıyor mu (salt-okuma)."""
     from app.training import detached_launch as dl
+    from app.training import resource_lock
 
     r = root or get_settings().root
-    starting = False
-    lock = dl._launch_lock_path(r)
-    with contextlib.suppress(OSError):
-        starting = lock.exists() and (time.time() - lock.stat().st_mtime) <= dl._LAUNCH_LOCK_TTL
-    active = False
-    source = ""
+    lock = resource_lock.status(r)
+    info = lock["info"] or {}
+    kind = str(info.get("kind") or "") if lock["held"] else ""
+    starting = kind == "training" and info.get("state") in ("launching", "writing")
+    active = kind == "training" and not starting
+    source = "kilit" if active else ""
     try:
         from app.web.training_manager import get_training_manager
 
@@ -63,9 +68,16 @@ def training_activity(root: Path | None = None) -> dict[str, Any]:
             active, source = True, "web"
     except Exception:
         pass
-    if not active and dl.is_detached_training_running(r):
+    if not active and not starting and dl.is_detached_training_running(r):
         active, source = True, "detached"
-    return {"active": active, "starting": starting, "source": source}
+    heavy = kind if kind in ("conversion", "comparison") else ""
+    return {
+        "active": active,
+        "starting": starting,
+        "source": source,
+        "heavy": heavy,
+        "heavy_detail": resource_lock.describe(info) if kind else "",
+    }
 
 
 # ── kira (lease) ─────────────────────────────────────────────────────────────
@@ -82,14 +94,19 @@ def active_chat_leases(root: Path | None = None, ttl_s: float | None = None) -> 
     d = _lease_dir(r)
     if not d.is_dir():
         return out
+    from app.training.resource_lock import owner_alive
+
     now = time.time()
     for p in sorted(d.glob("lease-*.json")):
         try:
             if now - p.stat().st_mtime > ttl:
                 continue  # bayat kira yok sayılır (çöken üretim kalıcı engel olmasın)
-            out.append(json.loads(p.read_text(encoding="utf-8")))
+            data = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
+        if isinstance(data, dict) and data.get("pid") and not owner_alive(data):
+            continue  # sahibi çökmüş: TTL'i beklemeden bayat
+        out.append(data)
     return out
 
 
@@ -114,11 +131,18 @@ def acquire_chat_lease(token: str, root: Path | None = None) -> tuple[Path | Non
         fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         return None, "Bu istek zaten işleniyor."
+    from app.training.resource_lock import process_create_time
+
+    pid = os.getpid()
+    rec = {"token": token, "pid": pid, "pid_create_time": process_create_time(pid)}
     try:
-        os.write(fd, json.dumps({"token": token, "pid": os.getpid(), "at": time.time()}).encode())
+        os.write(fd, json.dumps({**rec, "at": time.time()}).encode())
     finally:
         os.close(fd)
     act = training_activity(r)
+    if act.get("heavy"):
+        release_chat_lease(path)
+        return None, f"{act['heavy_detail']} — cevap üretimi bu an başlatılmadı."
     if act["starting"] or act["active"]:
         release_chat_lease(path)
         return None, "Eğitim başlatılıyor/sürüyor — cevap üretimi bu an başlatılmadı."
@@ -157,6 +181,14 @@ def evaluate(
             {"name": e.get("name"), **footprint_from_ps(e)} for e in (ps_entries or [])
         ],
     }
+    if activity.get("heavy"):
+        return GuardDecision(
+            False,
+            f"{activity.get('heavy_detail') or 'Ağır iş sürüyor'} — bellek ve karşılaştırma "
+            "koşulları bozulmasın diye cevaplama kapalı. Geçmiş ve inceleme açık.",
+            activity,
+            details,
+        )
     if not activity.get("active") and not activity.get("starting"):
         return GuardDecision(True, "Eğitim yok — cevap verilebilir.", activity, details)
     if activity.get("starting") and not activity.get("active"):
@@ -233,16 +265,23 @@ def evaluate(
     )
 
 
-def check_chat_resources(transport: Any = None) -> GuardDecision:
-    """Canlı ölçümleri topla ve karar ver (yazma yok)."""
+def check_chat_resources(
+    transport: Any = None, *, tag: str | None = None, slot: str = "main"
+) -> GuardDecision:
+    """Canlı ölçümleri topla ve karar ver (yazma yok). ``tag`` yoksa yuvadan çözülür."""
     from app.agents.system_profiler.profiler import _memory_info
     from app.feedback.model_identity import ollama_ps, read_footprint
     from app.training.train_load_doctor import _nvidia_smi_memory_gb
 
     s = get_settings()
-    tag = s.effective_chat_model
+    if tag is None:
+        from app.feedback.model_activation import resolve_chat_tag
+
+        tag = resolve_chat_tag(slot)
+        if not tag:
+            return GuardDecision(False, "Bu yuvada etkin model yok.", training_activity(), {})
     activity = training_activity()
-    if not activity["active"] and not activity["starting"]:
+    if not activity["active"] and not activity["starting"] and not activity.get("heavy"):
         return evaluate(
             tag,
             activity=activity,

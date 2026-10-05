@@ -144,5 +144,17 @@ def main() -> int:
     return 0
 
 
+def _locked_main() -> int:
+    """Karşılaştırma koşusu ortak ağır iş kilidi altında (eğitim/dönüşüm/sohbetle çakışmaz)."""
+    from app.training.resource_lock import HeavyJobBusy, hold
+
+    try:
+        with hold("comparison", "v15_compare"):
+            return main()
+    except HeavyJobBusy as exc:
+        print(f"HATA: {exc}", file=sys.stderr, flush=True)
+        return 9
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_locked_main())

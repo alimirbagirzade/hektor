@@ -53,7 +53,15 @@ $ollama = (Get-Command ollama -ErrorAction SilentlyContinue).Source
 if (-not $ollama) { $ollama = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe" }
 $null = New-Item -ItemType Directory -Force -Path $ggufDir
 function Step($m) { Write-Host "[$(Get-Date -Format 'HH:mm:ss')] $m" -ForegroundColor Cyan }
-function Fail($m) { Write-Host "[HATA] $m" -ForegroundColor Red; exit 1 }
+$script:lockToken = ""
+function Release-HeavyLock {
+    if ($script:lockToken) {
+        & $py -m app.training.resource_lock release --token $script:lockToken | Out-Null
+        $script:lockToken = ""
+        Remove-Item Env:HEKTOR_HEAVY_LOCK_TOKEN -ErrorAction SilentlyContinue
+    }
+}
+function Fail($m) { Write-Host "[HATA] $m" -ForegroundColor Red; Release-HeavyLock; exit 1 }
 
 # Koken anahtari (Kademe 2 F4-2): ara ciktilar (birlesik model, bf16 GGUF, nicemli GGUF) eskiden
 # YALNIZ var olduklari icin yeniden kullaniliyordu -> ayni adla yeniden egitimde Ollama ESKI
@@ -94,6 +102,14 @@ $existing = (& $ollama list 2>$null) -match ("^" + [regex]::Escape($OllamaName) 
 if (-not $Force -and ($existing -or $OllamaName -eq $liveModel -or "$OllamaName`:latest" -eq $liveModel)) {
     Fail "Ollama adi '$OllamaName' zaten var ya da web'in canli modeli (.env) - uzerine yazmak icin -Force."
 }
+
+# Ortak agir is kilidi (egitim/donusum/karsilastirma tek kilit; sohbet cevabi uretilirken
+# baslamaz). Kilit bu PowerShell surecine baglidir; surec olurse bayat sayilir. Alt
+# python surecleri (merge_adapter) kilidi HEKTOR_HEAVY_LOCK_TOKEN ile devralir.
+$tok = & $py -m app.training.resource_lock acquire --kind conversion --owner "adapter_to_ollama:$Adapter" --pid $PID
+if ($LASTEXITCODE -ne 0 -or -not $tok) { Fail "agir is kilidi alinamadi (egitim/karsilastirma/sohbet suruyor olabilir)" }
+$script:lockToken = ($tok | Select-Object -Last 1).Trim()
+$env:HEKTOR_HEAVY_LOCK_TOKEN = $script:lockToken
 
 # 1) Birlestir (PEFT merge_and_unload + oncesi/sonrasi logit dogrulamasi)
 if ($BaseRepo) {
@@ -184,4 +200,5 @@ if ($LASTEXITCODE -ne 0) { Fail "ollama create basarisiz" }
 $tpl = (& $ollama show $OllamaName --template) -join "`n"
 if ($tpl -match "`r") { Fail "olusturulan sablonda CR karakteri var - egitim sablonuyla uyusmaz" }
 $sha = (Get-FileHash -Algorithm SHA256 $quantOut).Hash.ToLowerInvariant()
+Release-HeavyLock
 Step "TAMAM: $OllamaName hazir · GGUF sha256=$($sha.Substring(0,16))… · $quantOut"

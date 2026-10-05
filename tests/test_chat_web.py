@@ -59,7 +59,16 @@ def test_chat_flow_end_to_end(client) -> None:
     corr = client.post(
         f"/api/chat/turns/{r2['turn_id']}/correct", json={"text": SUPPORTED_SENTENCE}
     ).json()
-    assert corr["candidate"]["status"] == "eligible"
+    # Kaynak benzerliği tek başına otomatik uygunluk vermez → inceleme; gerekçeli onayla uygun.
+    assert corr["candidate"]["status"] == "review"
+    cid = corr["candidate"]["candidate_id"]
+    short = client.post(f"/api/learn/candidates/{cid}/approve", json={"reason": "kısa"})
+    assert short.status_code == 422
+    ok = client.post(
+        f"/api/learn/candidates/{cid}/approve",
+        json={"reason": "Kaynak parçasıyla elle karşılaştırıldı."},
+    ).json()
+    assert ok["status"] == "eligible" and ok["verification"]["class"] == "human"
 
     conv_detail = client.get(f"/api/chat/conversations/{conv}").json()
     assert len(conv_detail["turns"]) == 2

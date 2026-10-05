@@ -185,6 +185,9 @@ def _train_line(cand: dict[str, Any], turn: dict[str, Any], vclass: str) -> str:
             "verification_class": vclass,
             "model_tag": turn["model_tag"],
             "as_of": cand["as_of"],
+            # Zaman alanları AYRI (veri / strateji / koşu / bilgi); bölme bilgi zamanına göre.
+            "time_meta": cand.get("time_meta") or {},
+            "strategy_family": cand.get("strategy_family") or "",
         },
     ).to_jsonl_line()
 
@@ -203,6 +206,9 @@ def _eval_line(cand: dict[str, Any], turn: dict[str, Any], vclass: str) -> str:
             "verification_class": vclass,
             "model_tag": turn["model_tag"],
             "as_of": cand["as_of"],
+            # Zaman alanları AYRI (veri / strateji / koşu / bilgi); bölme bilgi zamanına göre.
+            "time_meta": cand.get("time_meta") or {},
+            "strategy_family": cand.get("strategy_family") or "",
         },
         ensure_ascii=False,
         sort_keys=True,

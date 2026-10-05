@@ -33,6 +33,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.config import DEFAULT_TRAIN_PROFILE, get_settings
+from app.training import resource_lock
 
 log = logging.getLogger(__name__)
 
@@ -54,39 +55,36 @@ _TRAIN_BATCH_SIZE = 1
 _LIVE_LOG_AGE_MIN = 150.0
 # Geçerli adapter adı (path traversal/CLI argüman güvenliği): yalnız harf/rakam/_/-.
 _ADAPTER_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-# Çift-başlatma yarışını kapatan atomik kilit (log yazılmadan önceki pencere için).
-_LAUNCH_LOCK_TTL = 120.0
+# Eski adın uyumu: başlatma penceresinin TTL'i artık ortak kilitte (resource_lock).
+_LAUNCH_LOCK_TTL = resource_lock.LAUNCH_TTL_S
 
 
 def _launch_lock_path(root: Path) -> Path:
-    return root / "storage" / ".training_launching"
+    """Ortak ağır iş kilidinin yolu (eski ``.training_launching`` yerine)."""
+    return resource_lock.lock_path(root)
+
+
+# Bu süreçte alınmış başlatma kilitlerinin token'ları (kök → token).
+_LAUNCH_TOKENS: dict[str, str] = {}
 
 
 def _acquire_launch_lock(root: Path) -> bool:
-    """Atomik kilit al (O_EXCL). Eş-zamanlı ikinci başlatmayı engeller.
+    """Ortak ağır iş kilidini ``launching`` durumunda al (atomik, O_EXCL).
 
-    Bayat kilit (> TTL) temizlenir; eğitim sürerken zaten log-tazeliği guard'ı
-    (is_running) korur — bu kilit yalnız spawn ile ilk-log arasındaki pencere için.
+    Eğitim, dönüşüm ve karşılaştırma aynı kilidi paylaşır (``resource_lock``). Çöken
+    sahibin kilidi pid ölçümüyle, yarım kalan başlatma ``LAUNCH_TTL_S`` ile bayat sayılır.
     """
-    lock = _launch_lock_path(root)
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    if lock.exists() and (time.time() - lock.stat().st_mtime) > _LAUNCH_LOCK_TTL:
-        with contextlib.suppress(Exception):
-            lock.unlink()
-    try:
-        fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
+    info, _why = resource_lock.acquire(
+        "training", "launch", root=root, pid=os.getpid(), state="launching"
+    )
+    if info is None:
         return False
-    try:
-        os.write(fd, str(int(time.time())).encode())
-    finally:
-        os.close(fd)
+    _LAUNCH_TOKENS[str(root)] = str(info["token"])
     return True
 
 
 def _release_launch_lock(root: Path) -> None:
-    with contextlib.suppress(Exception):
-        _launch_lock_path(root).unlink()
+    resource_lock.release(_LAUNCH_TOKENS.pop(str(root), None), root=root)
 
 
 def _count_lines(path: Path) -> int:
@@ -593,6 +591,8 @@ _EARLY_EXIT_HINTS = {
     4: "train-load-doctor NO-GO (rakip GPU/LLM yükü) — ayrıntı logs/train-full.log",
     5: "karışım ağırlığı kararı yok — `uv run hektor mix weights`",
     6: "eğitim verisinde eval sızıntısı — `uv run hektor mix leakage`",
+    8: "ortak ağır iş kilidi tutuluyor ya da sohbet cevabı üretiliyor",
+    10: "Kademe 2 kaydı yok/geçersiz — derin av sonrası `uv run hektor kademe2-kayit`",
 }
 
 
@@ -717,6 +717,13 @@ def preflight_launch(
     if gate_blockers:
         return _fail("Kalite kapısı NO-GO — eğitim başlatılmadı: " + " | ".join(gate_blockers[:3]))
 
+    # Kademe 2 derin av kaydı HER eğitimden önce zorunlu (CLAUDE.md) — onay tüketilmeden önce.
+    from app.training import easy_train
+
+    k2 = easy_train.kademe2_check()
+    if k2:
+        return _fail(k2)
+
     # Sızıntı kapısı (alt süreç de uygular, 6 ile çıkar) — onay yanmadan önce burada.
     try:
         from app.lora.mix_cli import run_leakage_check
@@ -805,9 +812,13 @@ def launch(
         return _fail(str(pre.get("message", "Ön-kontrol başarısız.")))
     n_train = int(pre.get("n_train", 0))
 
-    # Atomik kilit: iki eş-zamanlı istek (çift-tık/retry) çift süreç başlatmasın.
+    # Atomik ortak kilit: iki eş-zamanlı istek (çift-tık/retry) ya da terminalden başlatılmış
+    # eğitim/dönüşüm/karşılaştırma varken çift süreç başlamasın.
     if not _acquire_launch_lock(root):
-        return _fail("Eğitim şu an başlatılıyor — lütfen birkaç saniye bekle.")
+        return _fail(
+            (resource_lock.blocker(root) or "Eğitim şu an başlatılıyor") + " — lütfen bekle."
+        )
+    lock_token = _LAUNCH_TOKENS.get(str(root), "")
 
     spawned = False
     try:
@@ -850,6 +861,9 @@ def launch(
         env["HEKTOR_TRAIN_SUPERVISED"] = "1"
         # Bu yol hiçbir zaman nöbetçi kurtarması değildir (o start-train.ps1 -Supervised).
         env.pop("HEKTOR_TRAIN_RECOVERY", None)
+        # Ortak kilit alt sürece devredilir: `train --run` bu token'la kilidi DEVRALIR,
+        # kendi başına ikinci kilit almaya çalışmaz.
+        env[resource_lock.TOKEN_ENV] = lock_token
         # Taze başlatma ASLA checkpoint'ten devam etmez (Kademe-2 B12): sunucu, önceden
         # `start-train.ps1 -Resume` koşmuş bir kabuktan açıldıysa RESUME=1 miras kalırdı.
         env["HEKTOR_TRAIN_RESUME"] = "0"
@@ -893,6 +907,9 @@ def launch(
             out_f.close()
             err_f.close()
 
+        # Kilit artık alt sürecin ömrüne bağlı (sunucu kapansa da eğitim sürdükçe tutulur;
+        # alt süreç çökerse pid ölçümüyle bayat sayılır).
+        resource_lock.transfer(lock_token, proc.pid, root=root)
         (root / "storage").mkdir(parents=True, exist_ok=True)
         # pid kaydı (Phase 2): /api/training/stop detached koşuyu pid ile durdurabilsin.
         # Reçetenin tamamı yazılır — nöbetçi yeniden başlatırken profil/örnek tavanını
@@ -925,6 +942,8 @@ def launch(
         if rc is not None:
             with contextlib.suppress(OSError):
                 status_file.unlink()
+            resource_lock.release(lock_token, root=root)
+            _LAUNCH_TOKENS.pop(str(root), None)
             hint = _EARLY_EXIT_HINTS.get(rc, "ayrıntı: logs/train-full-err.log")
             log.warning("Detached eğitim hemen çıktı (çıkış kodu %d): %s", rc, hint)
             return _fail(f"Eğitim BAŞLAMADI — alt süreç hemen çıktı (çıkış kodu {rc}): {hint}.")
@@ -950,10 +969,12 @@ def launch(
             "adapter": adapter_name,
         }
     finally:
-        # Spawn başarısızsa kilidi hemen bırak; başarılıysa TTL ile (log-tazeliği
-        # guard'ı devralana kadar) tutulur.
+        # Spawn başarısızsa kilidi hemen bırak; başarılıysa kilit alt sürecindir (devredildi;
+        # alt süreç bitince bırakır, çökerse pid ölçümüyle bayat sayılır).
         if not spawned:
             _release_launch_lock(root)
+        else:
+            _LAUNCH_TOKENS.pop(str(root), None)
 
 
 # --------------------------------------------------------------------------
