@@ -32,6 +32,9 @@
     if (detail && typeof detail === "string" && !/^HTTP \d+$/i.test(detail)) {
       return detail; // backend zaten anlamlı bir mesaj verdiyse onu koru
     }
+    if (detail && detail.problems && detail.problems.length) {
+      return "Eksik/hatalı alan: " + detail.problems.join(" · ");
+    }
     switch (status) {
       case 400:
         return "Geçersiz istek — girdiyi kontrol edin.";
@@ -118,7 +121,7 @@
   // 11 sekme 5 mantıklı gruba toplanır. data-tab değerleri ve panel-<name>
   // ID'leri DEĞİŞMEZ; bu yalnız üst-navigasyon + görünürlük katmanıdır.
   var TAB_GROUPS = [
-    { key: "kesfet", tabs: ["research", "rlm"] },
+    { key: "kesfet", tabs: ["chat", "learnpool", "research", "rlm"] },
     { key: "kutuphane", tabs: ["papers"] },
     { key: "trader", tabs: ["trader", "backtest"] },
     { key: "egitim", tabs: ["review", "training", "eval", "orchestration", "feedback"] },
@@ -138,6 +141,11 @@
     izleme: "İzleme & sağlık",
   };
   var NEXT_STEPS = {
+    chat:
+      "Soru sor; cevabın altındaki Öğrensin/Düzelt yalnız seçtiğin içeriği eğitim adayı yapar. " +
+      "Eğitim kendiliğinden başlamaz.",
+    learnpool:
+      "İnceleme bekleyenleri düzelt ya da gerekçeyle onayla; yeterli veri olunca veri sürümü oluştur.",
     research: "Sonuç gelmiyorsa önce Kütüphane'den makale ekle, sonra burada soru sor.",
     rlm: "Daha titiz, iddia-düzeyi kaynak-doğrulamalı cevap için bir koşuya tıkla.",
     papers: "PDF sürükle-bırak ya da arXiv'den çek; sonra Keşfet & sor'da soru sor.",
@@ -187,13 +195,18 @@
   }
 
   function runTabLoader(name) {
+    if (name === "chat") loadChat();
+    if (name === "learnpool") loadLearnPool();
     if (name === "papers") loadPapers();
     if (name === "trader") {
       loadTraderBrain();
       loadLoraAdapters();
     }
     if (name === "backtest") loadBacktestHistory();
-    if (name === "training") loadTrainingStatus();
+    if (name === "training") {
+      loadTrainingStatus();
+      loadTrainFlow();
+    }
     if (name === "review") loadPendingCards();
     if (name === "eval") loadEvalSets();
     if (name === "about") loadSystemStatus();
@@ -225,7 +238,7 @@
   }
 
   function setActiveTab(name, opts) {
-    if (!validTab(name)) name = "research";
+    if (!validTab(name)) name = "chat";
     opts = opts || {};
     showGroupTabs(TAB_TO_GROUP[name].key);
     tabs.forEach(function (t) {
@@ -313,7 +326,7 @@
       if (!willOpen) {
         var active = document.querySelector(".tab.active");
         var g = active ? TAB_TO_GROUP[active.getAttribute("data-tab")] : null;
-        if (g && isAdvancedGroup(g.key)) setActiveTab("research");
+        if (g && isAdvancedGroup(g.key)) setActiveTab("chat");
       }
     });
   }
@@ -326,7 +339,7 @@
         if (validTab(saved)) name = saved;
       } catch (e) {}
     }
-    if (!name) name = "research";
+    if (!name) name = "chat";
     // Gelişmiş toggle: saklı tercih VEYA restore edilen sekme gelişmiş gruptaysa aç
     // (aksi hâlde gizli grupta aktif sekmede kalıp toggle'ı kapalı göstermek çelişir).
     var savedAdvanced = false;
@@ -335,7 +348,7 @@
     } catch (e) {}
     var restoredGroup = TAB_TO_GROUP[name] ? TAB_TO_GROUP[name].key : null;
     applyAdvanced(savedAdvanced || isAdvancedGroup(restoredGroup));
-    // 'research' varsayılan zaten aktif; ilk yüklemede onun loader'ı yok.
+    // 'research' paneli loader'sızdır; 'chat' (varsayılan) kendi loader'ını çalıştırır.
     setActiveTab(name, { runLoader: name !== "research" });
   }
 
@@ -573,7 +586,10 @@
   var modelChatLink = document.getElementById("lrnModelChatLink");
   if (modelChatLink) modelChatLink.addEventListener("click", function () {
     setTimeout(function () {
-      document.getElementById("trainedModelChat").scrollIntoView({ behavior: "smooth" });
+      var tmc = document.getElementById("trainedModelChat");
+      // Bölüm katlanır <details> (Gelişmiş / teşhis); bağlantıdan gelince açılsın.
+      if (tmc && "open" in tmc) tmc.open = true;
+      if (tmc) tmc.scrollIntoView({ behavior: "smooth" });
       document.getElementById("loraChatQuestion").focus({ preventScroll: true });
     }, 0);
   });
@@ -5527,6 +5543,1452 @@
     amRefreshOnce();
     amRefreshGate();
     amStartPoll();
+  }
+
+  // ---------- 00 · SOHBET (tek ekran) + 16 · ÖĞRENME HAVUZU (Faz 1) ----------
+  // Sunucu tek doğruluk kaynağıdır: her işlemden sonra konuşma /api/chat'ten yeniden okunur.
+  // Hiçbir düğme eğitim başlatmaz; model adı daima API'den okunur (sabit model adı yok).
+  var CHAT_KEY = "hektor_chat_conversation";
+  var SLOT_KEY = "hektor_chat_slot";
+  var chatState = { conv: null, turns: [], busy: false, wired: false, slot: "main" };
+  try {
+    if (window.localStorage.getItem(SLOT_KEY) === "trial") chatState.slot = "trial";
+  } catch (e) {}
+  var EVAL_LABEL = {
+    baseline_unevaluated: "Başlangıç kaydı — karşılaştırmadan geçmedi (değerlendirilmiş sayılmaz)",
+    compared: "Karşılaştırmadan geçti",
+  };
+  var LP_STATUS = {
+    review: "İnceleme bekliyor",
+    eligible: "Eğitime uygun",
+    rejected: "Reddedildi",
+    excluded: "Hariç tutuldu",
+    conflict: "Çatışma",
+    leak: "Eval sızıntısı",
+    duplicate: "Yinelenen",
+  };
+  var LP_STATUS_CLS = {
+    review: "badge-warning",
+    eligible: "badge-success",
+    rejected: "badge-danger",
+    excluded: "badge-info",
+    conflict: "badge-danger",
+    leak: "badge-danger",
+    duplicate: "badge-info",
+  };
+  var CHECK_KIND = {
+    hesap: "Hesap",
+    kaynak_benzerligi: "Kaynak benzerliği kontrolü",
+    kaynak: "Kaynak benzerliği (eski kayıt)",
+    atif_kimligi: "Atıf kimliği",
+    guvenlik: "Güvenlik (Kural 1)",
+    backtest: "Backtest",
+    kod_testi: "Kod testi",
+  };
+  var CHECK_STATUS = {
+    gecti: "doğrulandı",
+    kismi: "kısmi",
+    kaldi: "çürütüldü",
+    desteklenmedi: "desteklenmedi",
+    yapilamadi: "yapılamadı",
+    uygulanmadi: "uygulanmadı",
+    benzer: "benzer — doğrulama değil",
+    kismen_benzer: "kısmen benzer — doğrulama değil",
+    benzerlik_yok: "benzerlik yok",
+    eslesti: "kayıtlı hesapla eşleşti",
+    eslesmedi: "kayıtlı hesapla eşleşmedi",
+  };
+  var CHECK_CLS = {
+    gecti: "badge-success",
+    kismi: "badge-warning",
+    kaldi: "badge-danger",
+    desteklenmedi: "badge-warning",
+    yapilamadi: "badge-info",
+    uygulanmadi: "badge-info",
+    // Benzerlik bir doğrulama değildir → "başarı" rengi KULLANILMAZ.
+    benzer: "badge-info",
+    kismen_benzer: "badge-info",
+    benzerlik_yok: "badge-warning",
+    eslesti: "badge-success",
+    eslesmedi: "badge-danger",
+  };
+
+  // Arayüz içi düzenleyici (window.prompt yerine). Kartın içine açılır; aynı anda tek editör.
+  // opts: {title, help(html), value, minLen, rows, submit, onSubmit(text) → Promise}
+  function inlineEditor(host, opts) {
+    var prev = document.querySelector(".inline-editor");
+    if (prev) prev.parentNode.removeChild(prev);
+    var form = document.createElement("form");
+    form.className = "inline-editor";
+    form.innerHTML =
+      '<div class="inline-editor-title">' + esc(opts.title || "") + "</div>" +
+      (opts.help ? '<div class="inline-editor-help">' + opts.help + "</div>" : "") +
+      '<textarea class="inline-editor-text" rows="' + (opts.rows || 3) + '"></textarea>' +
+      '<div class="inline-editor-foot"><span class="muted small inline-editor-count"></span>' +
+      '<button type="button" class="btn btn-sm btn-ghost" data-ie="cancel">Vazgeç</button>' +
+      '<button type="submit" class="btn btn-sm" data-ie="ok">' + esc(opts.submit || "Kaydet") + "</button></div>";
+    host.appendChild(form);
+    var ta = form.querySelector("textarea");
+    var cnt = form.querySelector(".inline-editor-count");
+    var ok = form.querySelector('[data-ie="ok"]');
+    ta.value = opts.value || "";
+    function upd() {
+      var n = (ta.value || "").trim().length;
+      var min = opts.minLen || 0;
+      cnt.textContent = min ? n + " / en az " + min + " karakter" : n + " karakter";
+      ok.disabled = n < min;
+    }
+    ta.addEventListener("input", upd);
+    upd();
+    form.querySelector('[data-ie="cancel"]').addEventListener("click", function () {
+      form.parentNode.removeChild(form);
+    });
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var text = (ta.value || "").trim();
+      if (text.length < (opts.minLen || 0)) return;
+      ok.disabled = true;
+      Promise.resolve(opts.onSubmit(text))
+        .then(function () {
+          if (form.parentNode) form.parentNode.removeChild(form);
+        })
+        .catch(function (err) {
+          toast(err.message, true);
+          ok.disabled = false;
+        });
+    });
+    ta.focus();
+    return form;
+  }
+
+  function newRequestId() {
+    try {
+      if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    } catch (e) {}
+    return "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+  function postJson(path, body) {
+    return api(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+  }
+  function shortDigest(d) {
+    if (!d) return "";
+    var s = String(d).replace(/^sha256:/, "");
+    return s.slice(0, 12) + "…";
+  }
+  function nl2br(s) {
+    return esc(s).replace(/\n/g, "<br>");
+  }
+
+  // Türe göre sonuç dili: atıf kimliğinin geçerli olması iddianın desteklendiği anlamına
+  // GELMEZ; bu yüzden "doğrulandı" yalnız hesap için, kaynak için "desteklendi" kullanılır.
+  var CHECK_STATUS_BY_KIND = {
+    atif_kimligi: { gecti: "geçerli", kaldi: "geçersiz (getirilmeyen kimlik)" },
+    kaynak: { gecti: "benzer (eski kayıt; doğrulama değil)" },
+    guvenlik: { gecti: "temiz", kaldi: "ihlal" },
+  };
+  function checkBadge(c) {
+    var byKind = CHECK_STATUS_BY_KIND[c.kind] || {};
+    var label = (CHECK_KIND[c.kind] || c.kind) + " " + (byKind[c.status] || CHECK_STATUS[c.status] || c.status);
+    if (c.scope) label += " (" + c.scope + ")";
+    return (
+      '<span class="badge ' + (CHECK_CLS[c.status] || "badge-info") + '" title="' +
+      esc(c.detail || "") + '">' + esc(label) + "</span>"
+    );
+  }
+
+  // --- yuva (ana / deneme) ---
+  function setSlot(slot) {
+    chatState.slot = slot === "trial" ? "trial" : "main";
+    try {
+      window.localStorage.setItem(SLOT_KEY, chatState.slot);
+    } catch (e) {}
+    document.querySelectorAll("#chatSlotToggle [data-slot]").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-slot") === chatState.slot);
+    });
+    var banner = document.getElementById("chatTrialBanner");
+    if (banner) {
+      banner.hidden = chatState.slot !== "trial";
+      banner.textContent =
+        "DENEME SOHBETİ — bu konuşmayı kabul edilmemiş (ya da henüz etkinleştirilmemiş) aday model " +
+        "cevaplar. Cevaplar ana modelin kalitesini göstermez; bu modelin cevabı 'Öğrensin' ile eğitim hedefi olamaz.";
+    }
+    var main = document.querySelector(".chat-main");
+    if (main) main.classList.toggle("chat-main-trial", chatState.slot === "trial");
+  }
+
+  // --- model kimliği + kaynak durumu ---
+  function loadChatModel() {
+    var q = "?slot=" + encodeURIComponent(chatState.slot);
+    api("/chat/model" + q, { method: "GET" })
+      .then(function (m) {
+        var tag = document.getElementById("chatModelTag");
+        var dig = document.getElementById("chatModelDigest");
+        var org = document.getElementById("chatModelOrigin");
+        if (tag) {
+          tag.textContent = m.tag || (chatState.slot === "trial" ? "deneme yuvası boş" : "—");
+          var si = m.slot_info || {};
+          var lbl = EVAL_LABEL[si.evaluation] || "";
+          if (chatState.slot === "trial" && si.decision_label) lbl = "Karar: " + si.decision_label;
+          tag.title = lbl;
+          if (lbl) tag.textContent += "  ·  " + lbl;
+        }
+        if (dig) {
+          dig.textContent = m.digest
+            ? "digest " + shortDigest(m.digest)
+            : m.ollama_reachable === false
+            ? "Ollama'ya ulaşılamadı — digest bilinmiyor"
+            : m.installed === false
+            ? "Ollama'da bu etiket yok"
+            : "";
+          dig.title = m.digest || "";
+        }
+        if (org) {
+          var o = m.origin;
+          org.textContent =
+            "ayar: " + (m.setting_source || "—") + " · köken: " +
+            (o ? o.adapter + " (" + o.quant + ", " + o.record + " — digest eşleşmesi doğrulanmadı)"
+               : "köken kaydı yok");
+        }
+      })
+      .catch(function () {});
+    api("/chat/resources" + q, { method: "GET" })
+      .then(function (d) {
+        var el = document.getElementById("chatResource");
+        var send = document.getElementById("chatSendBtn");
+        if (el) {
+          el.innerHTML =
+            '<span class="dot ' + (d.allowed ? "dot-ok" : "dot-err") + '"></span> ' +
+            esc(d.reason || "");
+        }
+        if (send && !chatState.busy) send.disabled = !d.allowed;
+        var mb = document.getElementById("chatMeasureBtn");
+        if (mb) {
+          var tr = d.training || {};
+          mb.disabled = !!(tr.active || tr.starting);
+          var fp = (d.details || {}).footprint;
+          mb.title = fp
+            ? "Son ölçüm " + (fp.measured_at || "") + ": RAM " + fp.ram_gb + " GB, VRAM " +
+              fp.vram_gb + " GB. Yeniden ölçmek modeli yükler (eğitim yokken)."
+            : "Bu model için ölçüm yok. Eğitim yokken modeli kısa bir üretimle yükleyip " +
+              "bellek ayak izini kaydeder.";
+        }
+      })
+      .catch(function () {});
+  }
+
+  // --- konuşmalar ---
+  function loadConversations() {
+    var box = document.getElementById("chatConvList");
+    if (!box) return Promise.resolve();
+    return api("/chat/conversations", { method: "GET" })
+      .then(function (d) {
+        var list = d.conversations || [];
+        if (!list.length) {
+          box.innerHTML = '<p class="muted small">Henüz konuşma yok.</p>';
+          return;
+        }
+        box.innerHTML = list
+          .map(function (c) {
+            var active = chatState.conv && chatState.conv.conversation_id === c.conversation_id;
+            return (
+              '<button type="button" class="chat-conv' + (active ? " active" : "") +
+              '" data-conv="' + esc(c.conversation_id) + '">' +
+              (c.slot === "trial" ? '<span class="badge badge-warning">DENEME</span> ' : "") +
+              esc(c.title || "(başlıksız)") + ' <span class="muted small">' +
+              esc(String(c.n_turns || 0)) + " tur</span></button>"
+            );
+          })
+          .join("");
+      })
+      .catch(function (e) {
+        box.innerHTML = '<p class="muted small">Hata: ' + esc(e.message) + "</p>";
+      });
+  }
+
+  function openConversation(id) {
+    return api("/chat/conversations/" + encodeURIComponent(id), { method: "GET" })
+      .then(function (d) {
+        chatState.conv = d.conversation;
+        chatState.turns = d.turns || [];
+        if ((d.conversation || {}).slot && d.conversation.slot !== chatState.slot) {
+          setSlot(d.conversation.slot);
+          loadChatModel();
+        }
+        try {
+          window.localStorage.setItem(CHAT_KEY, id);
+        } catch (e) {}
+        renderThread();
+        loadConversations();
+      });
+  }
+
+  function newConversation() {
+    return postJson("/chat/conversations", { slot: chatState.slot }).then(function (c) {
+      chatState.conv = c;
+      chatState.turns = [];
+      try {
+        window.localStorage.setItem(CHAT_KEY, c.conversation_id);
+      } catch (e) {}
+      renderThread();
+      loadConversations();
+      return c;
+    });
+  }
+
+  function historyPart(prompt) {
+    var i = (prompt || "").indexOf("SOURCES / KAYNAKLAR:");
+    return i > 0 ? prompt.slice(0, i).trim() : "";
+  }
+
+  function candidateLine(c) {
+    var kind = c.kind === "learn" ? "Öğrensin" : "Düzeltme";
+    var v = c.verification || {};
+    var cls = v["class"] === "human" ? " · insan onaylı" : v["class"] === "auto" ? " · otomatik kanıtlı" : "";
+    return (
+      '<div class="chat-cand"><strong>' + esc(kind) + ":</strong> " +
+      '<span class="badge ' + (LP_STATUS_CLS[c.status] || "badge-info") + '">' +
+      esc(LP_STATUS[c.status] || c.status) + esc(cls) + "</span> " +
+      (v.checks || []).filter(function (k) { return k.status !== "uygulanmadi"; }).map(checkBadge).join(" ") +
+      (c.status_reason ? '<div class="muted small">' + esc(c.status_reason) + "</div>" : "") +
+      "</div>"
+    );
+  }
+
+  function renderTurn(t) {
+    // Model yalnız gerçekten cevap ürettiyse kimliğiyle gösterilir; çağrılmadıysa açıkça söylenir.
+    var m = t.llm_used && t.model_tag
+      ? esc(t.model_tag) + (t.model_digest ? " · " + esc(shortDigest(t.model_digest)) : "")
+      : t.status === "pending" ? "" : "model çağrılmadı";
+    var trialTurn = (t.model_info || {}).slot === "trial";
+    var head = '<div class="chat-turn-head">Tur ' + esc(String(t.turn_index)) + " · Hektor" +
+      (trialTurn ? ' <span class="badge badge-warning" title="Kabul edilmemiş aday model">DENEME MODELİ</span>' : "") +
+      (m ? ' <span class="muted small">(' + m + ")</span>" : "") + "</div>";
+    var body;
+    if (t.status === "answered" || t.status === "no_llm") {
+      body = '<div class="chat-answer" data-answer-turn="' + esc(t.turn_id) + '">' + nl2br(t.answer) + "</div>";
+    } else if (t.status === "pending") {
+      body = '<div class="chat-answer muted"><span class="spinner"></span> cevap üretiliyor…</div>';
+    } else {
+      body = '<div class="chat-answer chat-blocked">' +
+        (t.status === "blocked" ? "Cevaplama kapalı: " : "Hata: ") + esc(t.status_detail) + "</div>";
+    }
+    var srcs = (t.sources || []);
+    var srcHtml = srcs.length
+      ? '<details class="chat-meta"><summary>Kaynaklar (' + srcs.length + ")</summary>" +
+        srcs.map(function (s) {
+          return '<div class="source-chip"><span class="cite">[' + esc(s.paper_id) + ":" +
+            esc(s.chunk_id) + (s.page ? ", s." + esc(String(s.page)) : "") + "]" +
+            (s.title ? " — " + esc(s.title) : "") + "</span></div>";
+        }).join("") + "</details>"
+      : "";
+    var checks = t.checks || [];
+    var hist = checks.filter(function (c) { return c.kind === "gecmis"; })[0];
+    var histHtml = "";
+    if (t.status === "answered") {
+      var idx = (hist && hist.turn_indexes) || [];
+      histHtml = idx.length
+        ? '<details class="chat-meta"><summary>Modele aktarılan geçmiş: ' +
+          idx.map(function (i) { return "Tur " + i; }).join(", ") +
+          (hist.truncated ? " (kısaltıldı)" : "") + "</summary><pre class=\"chat-pre\">" +
+          esc(historyPart(t.user_prompt)) + "</pre></details>"
+        : '<div class="muted small">Modele geçmiş aktarılmadı.</div>';
+    }
+    var other = checks.filter(function (c) { return c.kind !== "gecmis"; });
+    var checkHtml = other.length
+      ? '<div class="chat-meta">Kontroller: ' + other.map(checkBadge).join(" ") + "</div>"
+      : "";
+    var answered = t.status === "answered";
+    var fb = t.feedback || "";
+    var actions = "";
+    if (t.status === "answered" || t.status === "no_llm") {
+      actions =
+        '<div class="chat-actions" data-turn="' + esc(t.turn_id) + '">' +
+        '<button type="button" class="btn btn-sm' + (fb === "useful" ? " btn-on" : "") + '" data-act="useful">Faydalı</button>' +
+        '<button type="button" class="btn btn-sm' + (fb === "wrong" ? " btn-on" : "") + '" data-act="wrong" title="Hata kuyruğuna ekler. Önce cevapta hatalı kısmı seçebilirsiniz.">Hatalı</button>' +
+        (answered ? '<button type="button" class="btn btn-sm" data-act="correct" title="Doğru metni yazın; eğitim adayı olur ve kontrol edilir.">Düzelt</button>' +
+          (trialTurn ? "" : '<button type="button" class="btn btn-sm" data-act="learn" title="Bu cevap eğitim adayı olur (kontrollerden geçer).">Öğrensin</button>') +
+          '<button type="button" class="btn btn-sm" data-act="strategy" title="Cevaptaki stratejiyi taslağa çevir, kontrol et ve gerçek veride test et.">Strateji testi</button>' : "") +
+        '<button type="button" class="btn btn-sm btn-ghost" data-act="exclude">' +
+        (t.excluded ? "Hariç tutmayı kaldır" : "⋯ Eğitimden hariç tut") + "</button>" +
+        "</div>";
+    }
+    var state = '<div class="chat-state muted small">● Kaydedildi' +
+      (fb === "useful" ? " · Faydalı işaretlendi (aday değil)" : "") +
+      (fb === "wrong" ? " · Hata kuyruğunda" : "") +
+      (t.excluded ? " · Eğitimden hariç" : "") + "</div>";
+    var cands = (t.candidates || []).map(candidateLine).join("");
+    return (
+      '<div class="chat-turn"><div class="chat-q"><div class="chat-turn-head">Tur ' +
+      esc(String(t.turn_index)) + " · Sen</div>" + nl2br(t.question) + "</div>" +
+      '<div class="chat-a">' + head + body + srcHtml + histHtml + checkHtml + actions + state +
+      cands + "</div></div>"
+    );
+  }
+
+  function renderThread() {
+    var box = document.getElementById("chatThread");
+    if (!box) return;
+    if (!chatState.conv) {
+      box.innerHTML = '<p class="muted">Yeni bir konuşma başlatın ya da soldan seçin.</p>';
+      return;
+    }
+    if (!chatState.turns.length) {
+      box.innerHTML = '<p class="muted">Bu konuşmada henüz tur yok. İlk sorunuzu yazın.</p>';
+      return;
+    }
+    box.innerHTML = chatState.turns.map(renderTurn).join("");
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function reloadCurrent() {
+    if (chatState.conv) return openConversation(chatState.conv.conversation_id);
+    return Promise.resolve();
+  }
+
+  function sendChat(e) {
+    e.preventDefault();
+    if (chatState.busy) return;
+    var input = document.getElementById("chatInput");
+    var q = (input.value || "").trim();
+    if (q.length < 3) {
+      toast("Soru çok kısa.", true);
+      return;
+    }
+    var btn = document.getElementById("chatSendBtn");
+    var topk = parseInt(document.getElementById("chatTopk").value, 10) || null;
+    var reqId = newRequestId();
+    chatState.busy = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>ÜRETİLİYOR';
+    var ensure = chatState.conv ? Promise.resolve(chatState.conv) : newConversation();
+    ensure
+      .then(function (conv) {
+        chatState.turns.push({ turn_index: chatState.turns.length + 1, question: q, status: "pending", checks: [], sources: [] });
+        renderThread();
+        return postJson("/ask", {
+          question: q,
+          top_k: topk,
+          conversation_id: conv.conversation_id,
+          client_request_id: reqId,
+        });
+      })
+      .then(function (r) {
+        input.value = "";
+        if (r.turn_status === "blocked") toast("Cevaplama kapalı: " + (r.status_detail || ""), true);
+        return reloadCurrent();
+      })
+      .catch(function (err) {
+        toast(err.message, true);
+        return reloadCurrent();
+      })
+      .finally(function () {
+        chatState.busy = false;
+        btn.textContent = "GÖNDER →";
+        btn.disabled = false;
+        loadChatModel();
+      });
+  }
+
+  function selectionSpan(turnId) {
+    var t = chatState.turns.filter(function (x) { return x.turn_id === turnId; })[0];
+    var sel = window.getSelection ? String(window.getSelection()) : "";
+    if (!t || !sel.trim()) return [];
+    var i = (t.answer || "").indexOf(sel);
+    return i >= 0 ? [{ start: i, end: i + sel.length, note: "" }] : [];
+  }
+
+  function onChatAction(ev) {
+    var b = ev.target.closest("button[data-act]");
+    if (!b) return;
+    var wrap = b.closest("[data-turn]");
+    if (!wrap) return;
+    var turnId = wrap.getAttribute("data-turn");
+    var act = b.getAttribute("data-act");
+    var t = chatState.turns.filter(function (x) { return x.turn_id === turnId; })[0] || {};
+    var base = "/chat/turns/" + encodeURIComponent(turnId);
+    var p;
+    if (act === "useful") {
+      p = postJson(base + "/feedback", { label: t.feedback === "useful" ? "" : "useful" });
+    } else if (act === "wrong") {
+      var spans = selectionSpan(turnId);
+      inlineEditor(wrap, {
+        title: "Neyi hatalı buldunuz? (isteğe bağlı)",
+        help: spans.length ? "Seçili kısım işaretlenecek." : "İpucu: cevapta hatalı kısmı seçip sonra “Hatalı”ya basabilirsiniz.",
+        submit: "Hata kuyruğuna ekle",
+        onSubmit: function (note) {
+          return postJson(base + "/feedback", { label: "wrong", note: note, spans: spans }).then(reloadCurrent);
+        },
+      });
+      return;
+    } else if (act === "learn") {
+      b.disabled = true;
+      p = postJson(base + "/learn", {}).then(function (r) {
+        toast(r.created ? "Eğitim adayı oluşturuldu — kontroller çalıştı." : "Bu cevap zaten aday.");
+      });
+    } else if (act === "correct") {
+      openCorrectDialog(t);
+      return;
+    } else if (act === "strategy") {
+      openStrategyDialog(t);
+      return;
+    } else if (act === "exclude") {
+      if (t.excluded) {
+        p = postJson(base + "/exclude", { excluded: false, reason: "" });
+      } else {
+        inlineEditor(wrap, {
+          title: "Eğitimden hariç tutma nedeni (isteğe bağlı)",
+          help: "Tur ve adayları eğitimden çıkar; eski veri sürümü dosyaları değişmez, seçili sürümle eğitim başlatma durur.",
+          submit: "Hariç tut",
+          onSubmit: function (why) {
+            return postJson(base + "/exclude", { excluded: true, reason: why || "" }).then(reloadCurrent);
+          },
+        });
+        return;
+      }
+    }
+    if (p) {
+      p.then(reloadCurrent).catch(function (err) {
+        toast(err.message, true);
+        reloadCurrent();
+      });
+    }
+  }
+
+  var correctTurnId = null;
+  function openCorrectDialog(t) {
+    var dlg = document.getElementById("chatCorrectDlg");
+    var ta = document.getElementById("chatCorrectText");
+    if (!dlg || !ta) return;
+    correctTurnId = t.turn_id;
+    var existing = (t.candidates || []).filter(function (c) { return c.kind === "correct"; })[0];
+    ta.value = existing && existing.target_text ? existing.target_text : (t.raw_answer || t.answer || "");
+    document.getElementById("chatCorrectSpans").value = JSON.stringify(selectionSpan(t.turn_id));
+    if (dlg.showModal) dlg.showModal();
+    else dlg.setAttribute("open", "");
+  }
+  function saveCorrection(e) {
+    e.preventDefault();
+    var dlg = document.getElementById("chatCorrectDlg");
+    var text = (document.getElementById("chatCorrectText").value || "").trim();
+    var dom = document.getElementById("chatCorrectDomain").value || null;
+    var spans = [];
+    try {
+      spans = JSON.parse(document.getElementById("chatCorrectSpans").value || "[]");
+    } catch (err) {}
+    if (!text || !correctTurnId) return;
+    postJson("/chat/turns/" + encodeURIComponent(correctTurnId) + "/correct", {
+      text: text,
+      domain: dom,
+      spans: spans,
+    })
+      .then(function (r) {
+        toast(r.created ? "Düzeltme aday olarak kaydedildi." : "Düzeltme güncellendi.");
+        if (dlg.close) dlg.close();
+        else dlg.removeAttribute("open");
+        return reloadCurrent();
+      })
+      .catch(function (err) {
+        toast(err.message, true);
+      });
+  }
+
+  function loadChat() {
+    if (!chatState.wired) {
+      chatState.wired = true;
+      var f = document.getElementById("chatForm");
+      if (f) f.addEventListener("submit", sendChat);
+      var nb = document.getElementById("chatNewBtn");
+      if (nb) nb.addEventListener("click", function () { newConversation(); });
+      var st = document.getElementById("chatSlotToggle");
+      if (st) st.addEventListener("click", function (ev) {
+        var b = ev.target.closest("[data-slot]");
+        if (!b) return;
+        var slot = b.getAttribute("data-slot");
+        if (slot === chatState.slot) return;
+        setSlot(slot);
+        chatState.conv = null;
+        chatState.turns = [];
+        try {
+          window.localStorage.removeItem(CHAT_KEY);
+        } catch (e) {}
+        renderThread();
+        loadConversations();
+        loadChatModel();
+      });
+      var list = document.getElementById("chatConvList");
+      if (list) list.addEventListener("click", function (ev) {
+        var c = ev.target.closest("[data-conv]");
+        if (c) openConversation(c.getAttribute("data-conv"));
+      });
+      var th = document.getElementById("chatThread");
+      if (th) th.addEventListener("click", onChatAction);
+      var cf = document.getElementById("chatCorrectForm");
+      if (cf) cf.addEventListener("submit", saveCorrection);
+      var cc = document.getElementById("chatCorrectCancel");
+      if (cc) cc.addEventListener("click", function () {
+        var dlg = document.getElementById("chatCorrectDlg");
+        if (dlg && dlg.close) dlg.close();
+        else if (dlg) dlg.removeAttribute("open");
+      });
+      var mb = document.getElementById("chatMeasureBtn");
+      if (mb) mb.addEventListener("click", function () {
+        mb.disabled = true;
+        toast("Ölçüm: model yükleniyor (dakikalar sürebilir)…");
+        postJson("/chat/measure", {})
+          .then(function (r) {
+            var fp = r.footprint || {};
+            toast("Ölçüldü: RAM " + fp.ram_gb + " GB, VRAM " + fp.vram_gb + " GB.");
+          })
+          .catch(function (err) { toast(err.message, true); })
+          .finally(loadChatModel);
+      });
+    }
+    setSlot(chatState.slot);
+    loadChatModel();
+    var saved = null;
+    try {
+      saved = window.localStorage.getItem(CHAT_KEY);
+    } catch (e) {}
+    loadConversations();
+    if (!chatState.conv && saved) {
+      openConversation(saved).catch(function () {
+        chatState.conv = null;
+        renderThread();
+      });
+    } else {
+      renderThread();
+    }
+  }
+
+  // --- strateji testi (sohbetten gerçek veride test) ---
+  var stState = { turn: null, draft: null, saved: null, source: {}, wired: false };
+  var COST_KEYS = ["commission_bps_per_side", "slippage_bps_per_side", "spread_bps", "funding_bps_per_day"];
+
+  function stForm() {
+    return document.getElementById("stForm");
+  }
+  function numOrNull(v) {
+    if (v === "" || v === null || v === undefined) return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+  function fillStrategyForm(d) {
+    var f = stForm();
+    d = d || {};
+    f.name.value = d.name || "";
+    f.market.value = d.market || "";
+    f.timeframe.value = d.timeframe || "";
+    f.direction.value = d.direction || "";
+    f.indicators.value = (d.indicators || []).map(function (i) { return i.name + ":" + i.period; }).join(", ");
+    f.entry_rules.value = (d.entry_rules || []).join("\n");
+    f.exit_rules.value = (d.exit_rules || []).join("\n");
+    var st = d.stop || {};
+    f.stop_type.value = st.type || "none";
+    f.stop_value.value = st.value == null ? "" : st.value;
+    f.stop_atr.value = st.atr_period || 14;
+    var tp = d.take_profit || {};
+    f.tp_type.value = tp.type || "none";
+    f.tp_value.value = tp.value == null ? "" : tp.value;
+    var sz = d.sizing || {};
+    f.size_type.value = sz.type || "fixed_fraction";
+    f.fraction.value = sz.fraction == null ? "" : sz.fraction;
+    f.risk_pct.value = sz.risk_pct == null ? "" : sz.risk_pct;
+    f.max_leverage.value = sz.max_leverage || 1;
+    var c = d.costs || {};
+    COST_KEYS.forEach(function (k) { f[k].value = c[k] == null ? "" : c[k]; });
+    var zr = c.zero_reasons || {};
+    f.zero_reasons.value = Object.keys(zr).map(function (k) { return k + ": " + zr[k]; }).join("\n");
+    stState.unsupported = (d.unsupported_rules || []).slice();
+    renderUnsupported();
+  }
+  function renderUnsupported() {
+    var box = document.getElementById("stUnsupported");
+    var u = stState.unsupported || [];
+    box.innerHTML = u.length
+      ? '<div class="chat-blocked"><strong>Desteklenmeyen kurallar (' + u.length + ")</strong> — önemli olan varsa asıl strateji test EDİLEMEZ:<ul>" +
+        u.map(function (x) {
+          return "<li>" + (x.important ? '<span class="badge badge-danger">ÖNEMLİ</span> ' : '<span class="badge badge-info">bilgi</span> ') +
+            esc(x.text) + (x.why ? ' <span class="muted">(' + esc(x.why) + ")</span>" : "") + "</li>";
+        }).join("") + "</ul></div>"
+      : '<div class="muted">Desteklenmeyen kural yok.</div>';
+  }
+  function readStrategyForm() {
+    var f = stForm();
+    var lines = function (s) { return (s || "").split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean); };
+    var zr = {};
+    lines(f.zero_reasons.value).forEach(function (ln) {
+      var i = ln.indexOf(":");
+      if (i > 0) zr[ln.slice(0, i).trim()] = ln.slice(i + 1).trim();
+    });
+    var costs = { zero_reasons: zr };
+    COST_KEYS.forEach(function (k) { costs[k] = numOrNull(f[k].value); });
+    return {
+      name: f.name.value.trim(),
+      market: f.market.value.trim(),
+      timeframe: f.timeframe.value,
+      direction: f.direction.value || null,
+      indicators: (f.indicators.value || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean).map(function (x) {
+        var p = x.split(":");
+        return { name: p[0].trim().toUpperCase(), period: parseInt(p[1], 10) || 14 };
+      }),
+      entry_rules: lines(f.entry_rules.value),
+      exit_rules: lines(f.exit_rules.value),
+      stop: { type: f.stop_type.value, value: numOrNull(f.stop_value.value), atr_period: parseInt(f.stop_atr.value, 10) || 14 },
+      take_profit: { type: f.tp_type.value, value: numOrNull(f.tp_value.value) },
+      sizing: { type: f.size_type.value, fraction: numOrNull(f.fraction.value), risk_pct: numOrNull(f.risk_pct.value),
+        max_leverage: numOrNull(f.max_leverage.value) || 1 },
+      costs: costs,
+      unsupported_rules: stState.unsupported || [],
+    };
+  }
+  function renderSaved(rec) {
+    stState.saved = rec;
+    var box = document.getElementById("stSaved");
+    if (!rec) { box.innerHTML = ""; return; }
+    var r = rec.readable || {};
+    var simp = "";
+    if (!rec.testable) {
+      var opts = (rec.spec.unsupported_rules || []).map(function (u) {
+        return '<label><input type="checkbox" data-drop="' + esc(u.text) + '"/> ' + esc(u.text) + "</label>";
+      }).concat((rec.spec.entry_rules || []).concat(rec.spec.exit_rules || []).map(function (x) {
+        return '<label><input type="checkbox" data-remove="' + esc(x) + '"/> kural: ' + esc(x) + "</label>";
+      })).join("<br>");
+      simp = '<div class="st-simplify"><strong>Basitleştirilmiş strateji oluştur</strong> — çıkarılacakları AÇIKÇA seçin; ' +
+        "ayrı kimlikle kaydedilir, asıl strateji test edilmiş SAYILMAZ.<br>" + opts +
+        '<br><button type="button" class="btn btn-sm" id="stSimplifyBtn">Basitleştirilmiş stratejiyi oluştur</button></div>';
+    }
+    box.innerHTML = '<div class="lp-card"><div><strong>Kaydedildi:</strong> ' + esc(rec.strategy_id) + " · aile " + esc(rec.family_id) +
+      (rec.spec.simplified_from ? ' · <span class="badge badge-warning">BASİTLEŞTİRİLMİŞ</span> (asıl: ' + esc(rec.spec.simplified_from) +
+        "; çıkarılan: " + esc((rec.spec.removed_rules || []).join(" | ")) + ")" : "") +
+      " · " + (rec.testable ? '<span class="badge badge-success">test edilebilir</span>' : '<span class="badge badge-danger">test engelli</span>') +
+      "</div><pre class=\"chat-pre\">" + esc(JSON.stringify(r, null, 2)) + "</pre>" + simp + "</div>";
+  }
+  function loadDataFiles() {
+    var sel = document.getElementById("stDataFile");
+    return api("/strategy/data-files", { method: "GET" }).then(function (d) {
+      var fs = d.files || [];
+      sel.innerHTML = fs.length
+        ? fs.map(function (x) { return '<option value="' + esc(x.name) + '">' + esc(x.name) + "</option>"; }).join("")
+        : '<option value="">(veri dosyası yok — CSV yükleyin)</option>';
+    });
+  }
+  function renderRun(run) {
+    var res = run.result || {};
+    var m = res.metrics || {};
+    var c = res.counters || {};
+    var t = res.times || {};
+    var oosCls = run.oos_status === "gelistirmede_kullanildi" ? "badge-warning" : run.oos_status === "final_tek_kullanim" ? "badge-llm" : "badge-info";
+    var defs = res.metric_definitions || {};
+    var row = function (k, label, unit) {
+      var v = m[k];
+      return "<tr><td title=\"" + esc(defs[k] || "") + "\">" + esc(label) + "</td><td>" + (v === null || v === undefined ? "tanımsız" : esc(String(v)) + (unit || "")) + "</td></tr>";
+    };
+    document.getElementById("stResult").innerHTML =
+      '<div class="lp-card"><div><strong>' + esc(res.stage_label || run.stage) + "</strong> · " + esc(run.period_start) + " → " + esc(run.period_end) +
+      ' · <span class="badge ' + oosCls + '">' + esc(run.oos_status) + "</span></div>" +
+      '<div class="small">' + esc(res.oos_note || "") + " Aile doğrulama denemesi: " + esc(String(res.family_validation_trials || 0)) + "</div>" +
+      ((res.warnings || []).length ? '<div class="chat-blocked small">' + res.warnings.map(esc).join("<br>") + "</div>" : "") +
+      '<table class="lp-table">' + row("total_return_pct", "Toplam getiri (maliyetli)", " %") + row("max_drawdown_pct", "Azami düşüş", " %") +
+      row("sharpe", "Sharpe") + row("n_trades", "İşlem sayısı") + row("win_rate_pct", "Kazanan işlem", " %") + row("profit_factor", "Profit factor") +
+      row("exposure_pct", "Piyasada kalma", " %") + row("costs_pct", "Toplam maliyet (özsermaye %)", " %") + "</table>" +
+      '<div class="small">Çıkış nedenleri: stop ' + esc(String(c.stop_exits || 0)) + " · gap-stop " + esc(String(c.gap_stop_exits || 0)) +
+      " · hedef " + esc(String(c.tp_exits || 0)) + " · kural " + esc(String(c.rule_exits || 0)) + " · dönem sonu " + esc(String(c.end_exits || 0)) +
+      " · aynı barda stop önce " + esc(String(c.same_bar_stop_first || 0)) + "</div>" +
+      '<div class="small">Sızıntı (önek) kontrolü: ' + ((res.leak_check || {}).ok ? "geçti" : "KALDI") + " · motor " + esc(run.engine_version) +
+      " · metrik " + esc(run.metrics_version) + " · parmak izi " + esc((run.fingerprint || "").slice(0, 12)) + "…</div>" +
+      '<div class="small muted">Veri ' + esc(t.data_start || "") + " → " + esc(t.data_end || "") + " · strateji " + esc(t.strategy_created_at || "") +
+      " · koşu/bilgi zamanı " + esc(t.knowledge_available_at || "") + "</div>" +
+      '<details><summary>Varsayımlar</summary><ul>' + (res.assumptions || []).map(function (a) { return "<li>" + esc(a) + "</li>"; }).join("") + "</ul></details>" +
+      '<div class="small"><strong>' + esc(res.disclaimer || "") + "</strong></div></div>";
+  }
+  function openStrategyDialog(t) {
+    var dlg = document.getElementById("strategyDlg");
+    if (!dlg) return;
+    stState.turn = t;
+    stState.source = {};
+    document.getElementById("stDraftInfo").textContent = "Tur " + t.turn_index + " · " + (t.model_tag || "");
+    document.getElementById("stNotes").innerHTML = "";
+    document.getElementById("stResult").innerHTML = "";
+    document.getElementById("stDataReport").innerHTML = "";
+    fillStrategyForm(null);
+    renderSaved(null);
+    if (!stState.wired) wireStrategyDialog();
+    loadDataFiles().catch(function () {});
+    api("/strategy/turn/" + encodeURIComponent(t.turn_id), { method: "GET" }).then(function (d) {
+      var items = d.items || [];
+      if (items.length) {
+        var last = items[items.length - 1];
+        fillStrategyForm(last.spec);
+        api("/strategy/" + encodeURIComponent(last.strategy_id), { method: "GET" }).then(renderSaved);
+      }
+    }).catch(function () {});
+    if (dlg.showModal) dlg.showModal();
+    else dlg.setAttribute("open", "");
+  }
+  function wireStrategyDialog() {
+    stState.wired = true;
+    var dlg = document.getElementById("strategyDlg");
+    document.getElementById("stCloseBtn").addEventListener("click", function () {
+      if (dlg.close) dlg.close(); else dlg.removeAttribute("open");
+    });
+    document.getElementById("stDraftBtn").addEventListener("click", function (ev) {
+      var b = ev.target;
+      b.disabled = true;
+      document.getElementById("stNotes").innerHTML = '<span class="spinner"></span> yerel model taslak çıkarıyor…';
+      postJson("/strategy/draft", { turn_id: stState.turn.turn_id })
+        .then(function (r) {
+          stState.source = r.source || {};
+          fillStrategyForm(r.draft);
+          document.getElementById("stNotes").innerHTML =
+            (r.notes || []).map(function (n) { return '<div class="muted">• ' + esc(n) + "</div>"; }).join("") +
+            ((r.problems || []).length ? '<div class="chat-blocked">Formda tamamlanması gerekenler: ' + esc(r.problems.join(" · ")) + "</div>"
+              : '<div class="muted">Taslak geçerli görünüyor — yine de okuyup kontrol edin.</div>');
+        })
+        .catch(function (e) { document.getElementById("stNotes").innerHTML = '<div class="chat-blocked">' + esc(e.message) + "</div>"; })
+        .finally(function () { b.disabled = false; });
+    });
+    stForm().addEventListener("submit", function (e) {
+      e.preventDefault();
+      var body = { spec: readStrategyForm(), source: Object.assign({ turn_id: stState.turn.turn_id }, stState.source) };
+      if (stState.saved) body.parent_id = stState.saved.strategy_id;
+      postJson("/strategy", body)
+        .then(function (rec) {
+          toast(rec.created ? "Strateji kaydedildi." : "Aynı içerik zaten kayıtlı.");
+          return api("/strategy/" + encodeURIComponent(rec.strategy_id), { method: "GET" }).then(renderSaved);
+        })
+        .catch(function (err) { toast(err.message, true); });
+    });
+    document.getElementById("stSaved").addEventListener("click", function (ev) {
+      if (!ev.target.closest("#stSimplifyBtn")) return;
+      var box = document.getElementById("stSaved");
+      var drop = [].slice.call(box.querySelectorAll("[data-drop]:checked")).map(function (x) { return x.getAttribute("data-drop"); });
+      var rem = [].slice.call(box.querySelectorAll("[data-remove]:checked")).map(function (x) { return x.getAttribute("data-remove"); });
+      postJson("/strategy/" + encodeURIComponent(stState.saved.strategy_id) + "/simplify", { remove_rules: rem, drop_unsupported: drop })
+        .then(function (rec) {
+          toast("Basitleştirilmiş strateji ayrı kimlikle oluşturuldu.");
+          fillStrategyForm(rec.spec);
+          return api("/strategy/" + encodeURIComponent(rec.strategy_id), { method: "GET" }).then(renderSaved);
+        })
+        .catch(function (err) { toast(err.message, true); });
+    });
+    document.getElementById("stUpload").addEventListener("change", function (ev) {
+      var f = ev.target.files && ev.target.files[0];
+      if (!f) return;
+      var fd = new FormData();
+      fd.append("file", f);
+      api("/strategy/data-upload", { method: "POST", body: fd })
+        .then(function (r) { toast("Yüklendi: " + r.name); return loadDataFiles().then(function () { document.getElementById("stDataFile").value = r.name; }); })
+        .catch(function (err) { toast(err.message, true); });
+    });
+    document.getElementById("stCheckBtn").addEventListener("click", function () {
+      var box = document.getElementById("stDataReport");
+      box.innerHTML = '<span class="spinner"></span> denetleniyor…';
+      postJson("/strategy/data-check", {
+        data_file: document.getElementById("stDataFile").value,
+        timeframe: stForm().timeframe.value,
+        tz: document.getElementById("stTz").value || null,
+      })
+        .then(function (d) {
+          var r = d.report || {};
+          var p = d.protocol || {};
+          box.innerHTML = '<div class="lp-card">' + esc(r.file_name) + " · " + esc(String(r.rows_clean)) + "/" + esc(String(r.rows_raw)) + " satır · " +
+            esc(r.start) + " → " + esc(r.end) + " · saat dilimi: " + esc(r.tz_source) +
+            "<br>Temizlik: " + esc((r.actions || []).join(" · ") || "gerekmedi") +
+            "<br>Boşluklar: " + esc(String((r.gaps || {}).n_gaps || 0)) + " (≈" + esc(String((r.gaps || {}).estimated_missing_bars || 0)) + " bar, doldurulmadı)" +
+            "<br>Dönemler: geliştirme → " + esc(p.dev_end || "") + " · doğrulama → " + esc(p.val_end || "") + " · sonrası final (tek kullanım)" +
+            (p.note ? ' <span class="muted">(' + esc(p.note) + ")</span>" : "") +
+            '<br><span class="muted">dosya sha ' + esc((r.file_sha256 || "").slice(0, 12)) + "… · temiz veri sha " + esc((r.clean_sha256 || "").slice(0, 12)) + "…</span></div>";
+        })
+        .catch(function (err) { box.innerHTML = '<div class="chat-blocked">' + esc(err.message) + "</div>"; });
+    });
+    dlg.addEventListener("click", function (ev) {
+      var b = ev.target.closest("button[data-stage]");
+      if (!b) return;
+      if (!stState.saved) { toast("Önce formu kaydedin.", true); return; }
+      b.disabled = true;
+      document.getElementById("stResult").innerHTML = '<span class="spinner"></span> test koşuyor…';
+      postJson("/strategy/" + encodeURIComponent(stState.saved.strategy_id) + "/run", {
+        data_file: document.getElementById("stDataFile").value,
+        tz: document.getElementById("stTz").value || null,
+        stage: b.getAttribute("data-stage"),
+      })
+        .then(renderRun)
+        .catch(function (err) { document.getElementById("stResult").innerHTML = '<div class="chat-blocked">' + esc(err.message) + "</div>"; })
+        .finally(function () { b.disabled = false; });
+    });
+  }
+
+  // --- kolay eğitim akışı (özet onayı) ---
+  var tfState = { snap: null, wired: false, requestId: null };
+  function tfVal(id, v) {
+    var el = document.getElementById(id);
+    if (el && v !== undefined && v !== null && el.value === "") el.value = v;
+  }
+  function tfSettings() {
+    return {
+      adapter_name: (document.getElementById("tfAdapter").value || "").trim(),
+      base_model: (document.getElementById("tfBase").value || "").trim() || null,
+      profile: (document.getElementById("tfProfile").value || "").trim() || null,
+      mix_profile: (document.getElementById("tfMix").value || "").trim() || null,
+      max_examples: parseInt(document.getElementById("tfMax").value, 10) || 0,
+    };
+  }
+  function tfRenderSnap(r) {
+    tfState.snap = r;
+    tfState.requestId = null;
+    document.getElementById("tfSummary").innerHTML = r
+      ? '<div class="lp-card"><strong>Onaylanacak özet:</strong> ' + esc(r.summary || "") +
+        '<div class="muted">Anlık görüntü ' + esc(r.snapshot_id) + " · " + esc(r.created_at || "") + "</div></div>"
+      : document.getElementById("tfSummary").innerHTML;
+    document.getElementById("tfLaunchBtn").disabled = !r;
+  }
+  function loadTrainFlow() {
+    if (!tfState.wired) {
+      tfState.wired = true;
+      document.getElementById("tfRefreshBtn").addEventListener("click", loadTrainFlow);
+      document.getElementById("tfSnapBtn").addEventListener("click", function () {
+        var out = document.getElementById("tfResult");
+        out.innerHTML = '<span class="spinner"></span> anlık görüntü hazırlanıyor…';
+        postJson("/train-flow/snapshot", tfSettings())
+          .then(function (r) { tfRenderSnap(r); out.innerHTML = '<span class="muted">Hazır. Özeti okuyup onaylayın.</span>'; })
+          .catch(function (e) { out.innerHTML = '<div class="chat-blocked">' + esc(e.message) + "</div>"; });
+      });
+      document.getElementById("tfLaunchBtn").addEventListener("click", function () {
+        if (!tfState.snap) return;
+        var out = document.getElementById("tfResult");
+        var b = document.getElementById("tfLaunchBtn");
+        b.disabled = true;
+        // Aynı onay tıklaması tekrarlanırsa (çift tık / yeniden deneme) aynı istek kimliği → çift eğitim yok.
+        tfState.requestId = tfState.requestId || newRequestId();
+        postJson("/train-flow/launch", { snapshot_id: tfState.snap.snapshot_id, request_id: tfState.requestId })
+          .then(function (r) {
+            if (r.status === "needs_approval") {
+              tfState.requestId = null;
+              out.innerHTML = '<div class="chat-blocked">' + esc(r.message) + "<br>Onay: <code>" + esc(r.approve_command) + "</code></div>";
+            } else if (r.status === "blocked") {
+              tfState.requestId = null;
+              out.innerHTML = '<div class="chat-blocked">' + esc(r.message) + "<ul>" + (r.problems || []).map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("") + "</ul></div>";
+            } else {
+              out.innerHTML = '<div class="lp-card">' + esc(r.status) + ": " + esc(r.message) + (r.replayed ? " (aynı istek — yeniden başlatılmadı)" : "") + "</div>";
+            }
+          })
+          .catch(function (e) { tfState.requestId = null; out.innerHTML = '<div class="chat-blocked">' + esc(e.message) + "</div>"; })
+          .finally(function () { b.disabled = !tfState.snap; });
+      });
+    }
+    api("/train-flow/state", { method: "GET" })
+      .then(function (d) {
+        var s = d.settings || {};
+        tfVal("tfAdapter", s.adapter_name);
+        tfVal("tfBase", s.base_model);
+        tfVal("tfProfile", s.profile);
+        tfVal("tfMix", s.mix_profile);
+        tfVal("tfMax", s.max_examples);
+        if (!tfState.snap) {
+          document.getElementById("tfSummary").innerHTML = '<div class="small">Ayarlar: <strong>' + esc(s._source || "") + "</strong> — adapter " +
+            esc(s.adapter_name || "(girilmeli)") + " · profil " + esc(s.profile || "") + " · karışım " + esc(s.mix_profile || "özel") +
+            " · temel " + esc(s.base_model || "") + "</div>";
+        }
+        var rd = d.readiness || {};
+        document.getElementById("tfReady").innerHTML = "<ul>" + (rd.items || []).map(function (i) {
+          return "<li>" + (i.ok ? "✓" : "✗") + " " + esc(i.key) + ": " + esc(i.detail) + "</li>";
+        }).join("") + '</ul><div class="muted">' + esc(rd.note || "") + "</div>";
+      })
+      .catch(function (e) {
+        document.getElementById("tfReady").innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>";
+      });
+  }
+
+  // --- öğrenme havuzu ---
+  var lpState = { tab: "review", wired: false };
+
+  function lpCounters(s) {
+    var bs = s.by_status || {};
+    var el = document.getElementById("lpCounters");
+    if (!el) return;
+    var rej = s.rejected_by || {};
+    var rejTxt = Object.keys(rej).map(function (k) { return k + " " + rej[k]; }).join(" · ");
+    var tu = s.training_use || {};
+    var fam = s.families || {};
+    el.innerHTML =
+      '<div class="lp-grid">' +
+      '<div class="lp-box"><div class="lp-num">' + esc(String(s.collected || 0)) + '</div><div class="lp-lbl">Toplandı</div><div class="muted small">Öğrensin + Düzelt</div></div>' +
+      '<div class="lp-box"><div class="lp-num">' + esc(String((s.eligible || {}).total || 0)) + '</div><div class="lp-lbl">Doğrulandı / eğitime uygun</div><div class="muted small">otomatik ' + esc(String((s.eligible || {}).auto || 0)) + " · insan onaylı " + esc(String((s.eligible || {}).human || 0)) + "</div></div>" +
+      '<div class="lp-box"><div class="lp-num">' + esc(String((tu.running || 0) + (tu.completed || 0) + (tu.failed || 0))) + '</div><div class="lp-lbl">Eğitimde kullanıldı</div><div class="muted small">planlandı ' + esc(String(tu.planned || 0)) + " · sürüyor " + esc(String(tu.running || 0)) + " · tamamlandı " + esc(String(tu.completed || 0)) + " · başarısız " + esc(String(tu.failed || 0)) + "</div></div>" +
+      "</div>" +
+      '<div class="lp-sub">İnceleme bekliyor <strong>' + esc(String(bs.review || 0)) + "</strong> · Reddedildi <strong>" + esc(String(bs.rejected || 0)) + "</strong>" + (rejTxt ? " (" + esc(rejTxt) + ")" : "") +
+      " · Hariç <strong>" + esc(String(bs.excluded || 0)) + "</strong> · Çatışma <strong>" + esc(String(bs.conflict || 0)) +
+      "</strong> · Eval sızıntısı <strong>" + esc(String(bs.leak || 0)) + "</strong> · Yinelenen <strong>" + esc(String(bs.duplicate || 0)) +
+      "</strong> · Hata kuyruğu (düzeltmesiz) <strong>" + esc(String(s.errors_open || 0)) + "</strong></div>" +
+      '<div class="lp-sub">Eğitim bölmesindeki (train/zaman) uygun aile: <strong>' + esc(String(fam.eligible_train_or_time || 0)) + " / " + esc(String(fam.threshold || 0)) +
+      '</strong> <span class="muted small">' + esc(fam.threshold_note || "") + "</span></div>" +
+      '<div class="muted small">' + esc(s.training_use_note || "") + "</div>";
+  }
+
+  function lpCandidateCard(c) {
+    var v = c.verification || {};
+    var cov = v.coverage || {};
+    var ha = c.human_approval || {};
+    var checks = (v.checks || []).map(checkBadge).join(" ");
+    var unc = (cov.uncovered || []);
+    var cls = v["class"] === "human" ? "insan onaylı" : v["class"] === "auto" ? "otomatik kanıtlı" : "";
+    return (
+      '<div class="lp-card" data-cand="' + esc(c.candidate_id) + '">' +
+      '<div class="lp-card-head"><span class="badge ' + (LP_STATUS_CLS[c.status] || "badge-info") + '">' + esc(LP_STATUS[c.status] || c.status) + "</span> " +
+      (cls ? '<span class="badge badge-llm">' + esc(cls) + "</span> " : "") +
+      '<span class="muted small">' + esc(c.kind === "learn" ? "Öğrensin" : "Düzeltme") + " · alan: " + esc(c.domain) +
+      " · aile: " + esc(c.family_id || "—") + (c.split ? " (" + esc(c.split) + ")" : "") +
+      " · model: " + esc(c.model_tag || "—") + " · rev " + esc(String(c.revision)) + "</span></div>" +
+      '<div class="lp-q"><strong>Soru:</strong> ' + esc(c.question) + "</div>" +
+      '<details><summary>Hedef metin (' + esc(String((c.target_text || "").length)) + " kr)</summary><div class=\"lp-target\">" + nl2br(c.target_text) + "</div></details>" +
+      '<div class="lp-checks">' + checks + "</div>" +
+      '<div class="muted small">Kapsam: ' + esc(String(cov.covered || 0)) + "/" + esc(String(cov.units || 0)) + " ifade deterministik kontrollerle (hesap) kapsandı." +
+      (cov.needs_review ? " " + esc(String(cov.needs_review)) + " kaynaklı ifade yalnız sözcük benzerliğiyle karşılaştırıldı — insan incelemesi gerekir." : "") +
+      (unc.length ? ' <details class="inline-details"><summary>kontrol edilemeyen ' + unc.length + "</summary><ul>" + unc.map(function (u) { return "<li>" + esc(u) + "</li>"; }).join("") + "</ul></details>" : "") + "</div>" +
+      (c.status_reason ? '<div class="small">' + esc(c.status_reason) + "</div>" : "") +
+      (ha.reason ? '<div class="small">İnsan onayı: “' + esc(ha.reason) + "” (" + esc(ha.at || "") + ")</div>" : "") +
+      ((c.time_meta || {}).run_id ? '<div class="small muted">Bağlı koşu ' + esc(c.time_meta.run_id) + " (" + esc(c.time_meta.stage || "") +
+        ") · veri " + esc(c.time_meta.data_start || "") + " → " + esc(c.time_meta.data_end || "") + " · strateji " + esc(c.time_meta.strategy_created_at || "") +
+        " · koşu " + esc(c.time_meta.backtest_run_at || "") + " · bilgi zamanı " + esc(c.time_meta.knowledge_available_at || "") + "</div>" : "") +
+      '<div class="lp-actions">' +
+      '<button type="button" class="btn btn-sm" data-lp="edit">Düzenle / eksik kısmı çıkar</button>' +
+      '<button type="button" class="btn btn-sm" data-lp="linkrun" title="Bu turdan yapılmış strateji test koşusunu bağla: performans iddiası kayıtlı hesapla karşılaştırılır.">Test koşusu bağla</button>' +
+      (c.status === "review" ? '<button type="button" class="btn btn-sm" data-lp="approve" title="Çürütülmüş ifadeleri ve backtest’siz performans iddiasını onay geçerli kılamaz.">Gerekçeyle onayla</button>' : "") +
+      "</div></div>"
+    );
+  }
+
+  // Onay öncesi inceleme: her ifade + benzerlik etiketi + turun kaynak metinleri.
+  function lpReviewHelp(c) {
+    var rows = ((c.verification || {}).coverage || {}).rows || [];
+    var simLbl = { benzer: "sözcükçe benzer", kismen: "kısmen benzer", yok: "benzerlik yok" };
+    var list = rows.map(function (r) {
+      var tag = r.by === "hesap"
+        ? (r.ok ? "hesap tuttu" : "hesap tutmadı")
+        : (simLbl[r.similarity] || r.similarity || "—") + " · elle kontrol et";
+      return "<li>" + esc(r.text) + ' <span class="muted small">(' + esc(tag) + ")</span></li>";
+    }).join("");
+    var srcs = (c.sources || []).map(function (s) {
+      return '<details class="inline-details"><summary>[' + esc(s.paper_id) + ":" + esc(s.chunk_id) + "]" +
+        (s.title ? " " + esc(s.title) : "") + "</summary><div class=\"lp-target\">" + nl2br(s.text || "") + "</div></details>";
+    }).join("");
+    return '<div class="small">Sözcük benzerliği doğrulama değildir (“artırır/artırmaz” ayrılamaz). ' +
+      "Her ifadeyi aşağıdaki kaynak metinleriyle karşılaştırın; çürütülmüş ifade ve backtest’siz performans iddiası onaylanamaz.</div>" +
+      (list ? "<ul>" + list + "</ul>" : "") +
+      (srcs ? '<div class="small"><strong>Turun kaynakları:</strong></div>' + srcs : '<div class="muted small">Bu turda kaynak getirilmedi.</div>');
+  }
+
+  function lpRenderList(items, kind) {
+    var box = document.getElementById("lpList");
+    if (!box) return;
+    if (!items.length) {
+      box.innerHTML = '<p class="muted">Bu listede kayıt yok.</p>';
+      return;
+    }
+    if (kind === "errors") {
+      box.innerHTML = items.map(function (e) {
+        return '<div class="lp-card"><div class="lp-card-head">' +
+          (e.has_correction ? '<span class="badge badge-rag">düzeltme var</span>' : '<span class="badge badge-warning">düzeltme yok</span>') +
+          ' <span class="muted small">Tur ' + esc(String(e.turn_index)) + " · model: " + esc(e.model_tag || "—") + "</span></div>" +
+          '<div class="lp-q"><strong>Soru:</strong> ' + esc(e.question) + "</div>" +
+          (e.note ? '<div class="small">Not: ' + esc(e.note) + "</div>" : "") +
+          '<details><summary>Model cevabı</summary><div class="lp-target">' + nl2br(e.answer) + "</div></details>" +
+          '<div class="muted small">Doğru cevap olmadan eğitim örneği ya da puanlanabilir test sayılmaz. Sohbette “Düzelt” ile eşleştirin.</div></div>';
+      }).join("");
+      return;
+    }
+    if (kind === "echo") {
+      box.innerHTML = '<p class="muted small">Eski Echo kayıtları — salt okunur (Faz 1’de taşınmaz).</p>' +
+        items.map(function (e) {
+          return '<div class="lp-card"><span class="badge badge-info">' + esc(e.status) + '</span> <span class="muted small">' + esc(e.created_at || "") + "</span>" +
+            '<div class="lp-q"><strong>Soru:</strong> ' + esc(e.question) + "</div>" +
+            '<div class="small"><strong>Düzeltme:</strong> ' + esc(e.correction) + "</div></div>";
+        }).join("");
+      return;
+    }
+    lpState.items = items;
+    box.innerHTML = items.map(lpCandidateCard).join("");
+  }
+
+  function lpLoadList() {
+    var t = lpState.tab;
+    var p;
+    if (t === "errors") p = api("/learn/errors", { method: "GET" });
+    else if (t === "echo") p = api("/learn/legacy-echo", { method: "GET" });
+    else if (t === "other") p = api("/learn/candidates", { method: "GET" }).then(function (d) {
+      return { items: (d.items || []).filter(function (c) { return ["excluded", "conflict", "leak", "duplicate"].indexOf(c.status) >= 0; }) };
+    });
+    else p = api("/learn/candidates?status=" + encodeURIComponent(t), { method: "GET" });
+    p.then(function (d) { lpRenderList(d.items || [], t === "errors" || t === "echo" ? t : "cand"); })
+      .catch(function (e) {
+        var box = document.getElementById("lpList");
+        if (box) box.innerHTML = '<p class="muted">Hata: ' + esc(e.message) + "</p>";
+      });
+    document.querySelectorAll("#lpTabs [data-lptab]").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-lptab") === t);
+    });
+  }
+
+  function lpRenderVersions(d) {
+    var box = document.getElementById("lpVersions");
+    if (!box) return;
+    var vs = d.versions || [];
+    var sel = d.selection;
+    var head = sel ? '<div class="small">Eğitim verisine seçili sürüm: <strong>' + esc(sel.version_id) + "</strong></div>" : '<div class="muted small">Eğitim verisine seçili sohbet sürümü yok.</div>';
+    if (!vs.length) {
+      box.innerHTML = head + '<p class="muted small">Henüz veri sürümü yok.</p>';
+      return;
+    }
+    box.innerHTML = head + '<table class="lp-table"><thead><tr><th>Sürüm</th><th>train / eval</th><th>aile (train/eval)</th><th>geçersizleşen</th><th>bağlandı / koşular</th><th>oluşturma</th></tr></thead><tbody>' +
+      vs.map(function (v) {
+        var runs = (v.runs || []).map(function (r) { return esc(r.adapter) + ": " + esc(r.state); }).join(", ");
+        return "<tr><td><strong>" + esc(v.version_id) + "</strong>" + (v.selected ? ' <span class="badge badge-rag">seçili</span>' : "") + "</td>" +
+          "<td>" + esc(String(v.n_train)) + " / " + esc(String(v.n_eval)) + "</td>" +
+          "<td>" + esc(String(v.n_train_families)) + " / " + esc(String(v.n_eval_families)) + "</td>" +
+          "<td>" + (v.invalid_members ? '<span class="badge badge-danger" title="' + esc((v.invalid_reasons || []).join("; ")) + '">' + esc(String(v.invalid_members)) + "</span>" : "0") + "</td>" +
+          "<td>" + ((v.bindings || []).length ? "evet" : "hayır") + (runs ? " · " + runs : "") + "</td>" +
+          "<td class=\"muted small\">" + esc(v.created_at || "") + "</td></tr>";
+      }).join("") + "</tbody></table>";
+  }
+
+  function lpPreview() {
+    var inc = document.getElementById("lpIncludeHuman");
+    var box = document.getElementById("lpPreview");
+    var btn = document.getElementById("lpCreateBtn");
+    box.innerHTML = '<span class="spinner"></span> özet hesaplanıyor…';
+    postJson("/learn/datasets/preview", { include_human: !!(inc && inc.checked) })
+      .then(function (p) {
+        var sh = p.projected_share || {};
+        var tts = p.trading_time_split || {};
+        box.innerHTML =
+          '<div class="lp-preview">' +
+          "<div><strong>" + esc(String(p.n_train)) + "</strong> train örnek (" + esc(String(p.n_train_families)) + " aile) · <strong>" + esc(String(p.n_eval)) + "</strong> eval örnek (" + esc(String(p.n_eval_families)) + " aile) — eval örnekleri eğitim dosyasına girmez.</div>" +
+          "<div>Kanonik setle birleşince: satır payı <strong>%" + (100 * (sh.row_share || 0)).toFixed(2) + "</strong> · eğitim hedef token payı <strong>%" + (100 * (sh.token_share || 0)).toFixed(2) + "</strong> (üst sınır %" + (100 * (sh.max_share || 0)).toFixed(0) + "; " + esc(sh.token_method || p.token_method || "") + ")</div>" +
+          ((sh.dropped_families || []).length ? '<div class="small">Sınır nedeniyle birleştirmede alınmayacak aile: ' + esc(String(sh.dropped_families.length)) + " (tekrarla çoğaltma yok)</div>" : "") +
+          (tts.families ? '<div class="small">Trading aileleri zaman sırasıyla: ' + esc(String(tts.families)) + " aile, " + esc(String(tts.eval_families)) + " eval (en yeni).</div>" : "") +
+          '<div class="muted small">Dışlanan: hariç ' + esc(String(p.excluded_candidates)) + " · sızıntı " + esc(String(p.leak_candidates)) + (p.skipped_human ? " · insan onaylı (dahil edilmedi) " + esc(String(p.skipped_human)) : "") + "</div>" +
+          (p.existing_version ? '<div class="small">Aynı içerik zaten var: <strong>' + esc(p.existing_version) + "</strong> (yeni sürüm açılmaz).</div>" : "") +
+          '<div class="muted small">' + esc(p.note || "") + "</div></div>";
+        btn.disabled = !(p.n_train || p.n_eval);
+      })
+      .catch(function (e) {
+        box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>";
+      });
+  }
+
+  function lpCreate() {
+    var inc = document.getElementById("lpIncludeHuman");
+    var btn = document.getElementById("lpCreateBtn");
+    btn.disabled = true;
+    postJson("/learn/datasets", { include_human: !!(inc && inc.checked) })
+      .then(function (r) {
+        toast(r.created ? "Veri sürümü oluşturuldu: " + r.version.version_id : "Aynı içerik zaten var: " + r.version.version_id);
+        loadLearnPool();
+      })
+      .catch(function (e) { toast(e.message, true); })
+      .finally(function () { btn.disabled = false; });
+  }
+
+  function onLpAction(ev) {
+    var b = ev.target.closest("button[data-lp]");
+    if (!b) return;
+    var card = b.closest("[data-cand]");
+    var id = card && card.getAttribute("data-cand");
+    if (!id) return;
+    var act = b.getAttribute("data-lp");
+    var path = "/learn/candidates/" + encodeURIComponent(id);
+    var cand = (lpState.items || []).filter(function (x) { return x.candidate_id === id; })[0] || {};
+    if (act === "approve") {
+      inlineEditor(card, {
+        title: "Gerekçeyle onayla (en az 10 karakter)",
+        help: lpReviewHelp(cand),
+        minLen: 10,
+        rows: 3,
+        submit: "Onayla",
+        onSubmit: function (reason) {
+          return postJson(path + "/approve", { reason: reason }).then(function () {
+            toast("Onaylandı.");
+            loadLearnPool();
+          });
+        },
+      });
+    } else if (act === "linkrun") {
+      api("/strategy/turn/" + encodeURIComponent(cand.turn_id), { method: "GET" }).then(function (d) {
+        var runs = [];
+        (d.items || []).forEach(function (s) {
+          (s.runs || []).forEach(function (r) { runs.push({ r: r, s: s }); });
+        });
+        if (!runs.length) {
+          toast("Bu turdan yapılmış strateji test koşusu yok — önce sohbette 'Strateji testi'.", true);
+          return;
+        }
+        inlineEditor(card, {
+          title: "Bağlanacak koşu kimliği (aşağıdan kopyalayın)",
+          help: "<ul>" + runs.map(function (x) {
+            var m = x.r.metrics || {};
+            return "<li><code>" + esc(x.r.run_id) + "</code> · " + esc(x.r.stage) + " · " + esc(x.r.period_start.slice(0, 10)) + " → " +
+              esc(x.r.period_end.slice(0, 10)) + " · getiri %" + esc(String(m.total_return_pct)) + " · " + esc(x.s.name) + "</li>";
+          }).join("") + "</ul>Bağlayınca insan onayı düşer; bilgi zamanı koşu zamanına ilerler (fiyat verisinin bitişi DEĞİL).",
+          value: runs[runs.length - 1].r.run_id,
+          minLen: 5,
+          submit: "Bağla ve yeniden kontrol et",
+          onSubmit: function (runId) {
+            return postJson(path + "/link-run", { run_id: runId }).then(function () {
+              toast("Koşu bağlandı; kontroller yeniden çalıştı.");
+              loadLearnPool();
+            });
+          },
+        });
+      }).catch(function (e) { toast(e.message, true); });
+    } else if (act === "edit") {
+      inlineEditor(card, {
+        title: "Hedef metni düzenle / eksik kısmı çıkar",
+        help: "Kaydedince insan onayı (varsa) düşer ve tüm kontroller yeniden çalışır.",
+        value: cand.target_text || "",
+        minLen: 1,
+        rows: 8,
+        submit: "Kaydet ve yeniden kontrol et",
+        onSubmit: function (text) {
+          return postJson(path + "/edit", { text: text }).then(function () {
+            toast("Güncellendi ve yeniden kontrol edildi.");
+            loadLearnPool();
+          });
+        },
+      });
+    }
+  }
+
+  // --- modeller: ana / deneme yuvaları (Faz 2A) ---
+  var modelsState = { data: null };
+  function modelsRender(d) {
+    modelsState.data = d;
+    var box = document.getElementById("modelsBox");
+    if (!box) return;
+    var main = d.main || {};
+    var mrec = d.main_record || {};
+    var trec = d.trial_record;
+    var cons = d.consistency || {};
+    var prev = mrec.previous;
+    var html =
+      '<div class="models-slots">' +
+      '<div class="models-slot"><div class="small"><strong>Ana sohbet modeli</strong></div>' +
+      "<div>" + esc(main.tag || "—") + (mrec.digest ? ' <span class="muted small">' + esc(shortDigest(mrec.digest)) + "</span>" : "") + "</div>" +
+      '<div class="small">' + esc(EVAL_LABEL[main.evaluation] || main.evaluation || "") + (main.virtual ? " · ayardan (henüz etkinleştirme kaydı yok)" : "") + "</div>" +
+      (prev ? '<div class="small muted">Önceki: ' + esc(prev.tag || "—") + (prev.digest ? " (" + esc(shortDigest(prev.digest)) + ")" : "") +
+        ' <button type="button" class="btn btn-sm" data-mact="rollback">Önceki ana modele dön</button></div>' : "") +
+      "</div>" +
+      '<div class="models-slot models-slot-trial"><div class="small"><strong>Deneme sohbeti modeli</strong></div>' +
+      (trec ? "<div>" + esc(trec.tag) + ' <span class="badge badge-warning">' + esc((d.trial || {}).decision_label || trec.decision || "") + "</span></div>" +
+        '<button type="button" class="btn btn-sm" data-mact="clear-trial">Deneme yuvasını boşalt</button>'
+        : '<div class="muted small">Boş — deneme sohbeti cevaplanmaz.</div>') +
+      "</div></div>";
+    if (!cons.consistent) {
+      html += '<div class="small chat-blocked">Tutarsızlık: etkinleştirme kaydı adapter “' + esc(cons.activation_adapter || "yok") +
+        "”, kayıt defteri production “" + esc(cons.registry_production || "yok") + '”. <button type="button" class="btn btn-sm" data-mact="repair">Kayıt defterini eşitle</button></div>';
+    }
+    if ((d.main_record || {}) && d.recovery_error) html += '<div class="small chat-blocked">' + esc(d.recovery_error) + "</div>";
+    var cands = d.candidates || [];
+    html += cands.length
+      ? '<table class="lp-table"><thead><tr><th>Aday</th><th>Karar</th><th>Karşılaştırma</th><th></th></tr></thead><tbody>' +
+        cands.map(function (c) {
+          var cls = c.decision === "kabul" ? "badge-success" : c.decision === "yetersiz_kanit" ? "badge-warning" : "badge-danger";
+          return "<tr><td>" + esc(c.candidate_tag) + ' <span class="muted small">' + esc(shortDigest(c.candidate_digest)) + "</span></td>" +
+            '<td><span class="badge ' + cls + '">' + esc(c.decision_label) + "</span></td>" +
+            '<td class="muted small">' + esc(c.comparison_id || "") + " · " + esc(c.decided_at || "") + "</td><td>" +
+            (c.main_allowed ? '<button type="button" class="btn btn-sm" data-mact="main" data-tag="' + esc(c.candidate_tag) + '">Ana model yap</button> ' : "") +
+            (c.trial_allowed ? '<button type="button" class="btn btn-sm" data-mact="trial" data-tag="' + esc(c.candidate_tag) + '">Deneme sohbetine al</button>' : "") +
+            (!c.main_allowed && !c.trial_allowed ? '<span class="muted small">kullanılamaz</span>' : "") +
+            "</td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<p class="muted small">Karşılaştırma kararı olan aday yok. Kararlar yalnız aday/aktif karşılaştırmasından gelir.</p>';
+    html += '<div class="muted small">' + esc(d.note || "") + "</div>";
+    box.innerHTML = html;
+  }
+  function loadModels() {
+    var box = document.getElementById("modelsBox");
+    if (!box) return;
+    api("/models/activation", { method: "GET" })
+      .then(modelsRender)
+      .catch(function (e) {
+        box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>";
+      });
+  }
+  function onModelsAction(ev) {
+    var b = ev.target.closest("button[data-mact]");
+    if (!b) return;
+    var act = b.getAttribute("data-mact");
+    var tag = b.getAttribute("data-tag") || "";
+    var host = b.closest(".models-slot") || b.closest("td") || document.getElementById("modelsBox");
+    function done(msg) {
+      return function () {
+        toast(msg);
+        loadModels();
+        loadChatModel();
+      };
+    }
+    if (act === "main") {
+      inlineEditor(host, {
+        title: "“" + tag + "” ana sohbet modeli olsun — gerekçe (en az 10 karakter)",
+        help: "Yalnız sonraki istekleri etkiler; devam eden cevap başladığı modelle biter. Kayıt defterindeki production kaydı da güncellenir.",
+        minLen: 10,
+        submit: "Ana model yap",
+        onSubmit: function (reason) {
+          return postJson("/models/activate-main", { tag: tag, reason: reason }).then(done("Ana model etkinleştirildi."));
+        },
+      });
+    } else if (act === "trial") {
+      postJson("/models/activate-trial", { tag: tag }).then(done("Deneme yuvasına alındı.")).catch(function (e) { toast(e.message, true); });
+    } else if (act === "clear-trial") {
+      postJson("/models/clear-trial", {}).then(done("Deneme yuvası boşaltıldı.")).catch(function (e) { toast(e.message, true); });
+    } else if (act === "repair") {
+      postJson("/models/repair-registry", {}).then(done("Kayıt defteri eşitlendi.")).catch(function (e) { toast(e.message, true); });
+    } else if (act === "rollback") {
+      inlineEditor(host, {
+        title: "Önceki ana modele dön — gerekçe (en az 10 karakter)",
+        help: "Önceki modelin Ollama'da bulunduğu ve digest'inin kayıttakiyle eşleştiği doğrulanır; eşleşmezse dönülmez.",
+        minLen: 10,
+        submit: "Geri dön",
+        onSubmit: function (reason) {
+          return postJson("/models/rollback", { reason: reason }).then(done("Önceki ana modele dönüldü."));
+        },
+      });
+    }
+  }
+
+  // --- kör inceleme (aday karşılaştırması) ---
+  var cmpState = { wired: false, open: null };
+  function loadCompare() {
+    var box = document.getElementById("cmpBox");
+    if (!box) return;
+    api("/compare", { method: "GET" })
+      .then(function (d) {
+        var items = d.items || [];
+        box.innerHTML = items.length
+          ? '<table class="lp-table"><thead><tr><th>Karşılaştırma</th><th>Rol</th><th>Durum</th><th>Soru / aile</th><th></th></tr></thead><tbody>' +
+            items.map(function (c) {
+              var act = c.status === "generated"
+                ? '<button type="button" class="btn btn-sm" data-cmp="review" data-id="' + esc(c.comparison_id) + '">İncele</button>'
+                : c.status === "reviewed"
+                ? '<button type="button" class="btn btn-sm" data-cmp="finalize" data-id="' + esc(c.comparison_id) + '">Kararı hesapla</button>'
+                : '<button type="button" class="btn btn-sm" data-cmp="result" data-id="' + esc(c.comparison_id) + '">Sonuç</button>';
+              return "<tr><td>" + esc(c.comparison_id) + '<div class="muted small">' + esc(c.created_at || "") + "</div></td><td>" + esc(c.role) +
+                "</td><td>" + esc(c.status) + "</td><td>" + esc(String(c.n_questions)) + " / " + esc(String(c.n_families)) + "</td><td>" + act + "</td></tr>";
+            }).join("") + '</tbody></table><div id="cmpDetail"></div>'
+          : '<p class="muted small">Karşılaştırma yok.</p>';
+      })
+      .catch(function (e) { box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  function renderBlind(id, items) {
+    var box = document.getElementById("cmpDetail");
+    cmpState.open = id;
+    box.innerHTML = '<form id="cmpForm">' + items.map(function (p) {
+      return '<div class="lp-card"><div class="small muted">' + esc(p.question_id) + " · aile " + esc(p.family) + " · " + esc(p.type) + "</div>" +
+        '<div class="lp-q"><strong>Soru:</strong> ' + esc(p.question) + "</div>" +
+        ((p.evidence || []).length ? '<details><summary>Kaynak kanıtı</summary><div class="lp-target">' + p.evidence.map(function (e) { return nl2br(e); }).join("<hr>") + "</div></details>" : "") +
+        p.answers.map(function (a) {
+          return '<div class="cmp-answer"><strong>' + esc(a.label) + ":</strong> " + nl2br(a.answer) +
+            '<div class="small">Puan <select data-q="' + esc(p.question_id) + '" data-l="' + esc(a.label) + '" data-k="score">' +
+            '<option value="">—</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select> ' +
+            '<label><input type="checkbox" data-q="' + esc(p.question_id) + '" data-l="' + esc(a.label) + '" data-k="critical"/> kritik hata</label></div></div>';
+        }).join("") + "</div>";
+    }).join("") + '<button type="submit" class="btn btn-primary">Puanları gönder</button></form>';
+    document.getElementById("cmpForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var scores = {};
+      var missing = 0;
+      box.querySelectorAll("select[data-k=score]").forEach(function (s) {
+        var q = s.getAttribute("data-q"), l = s.getAttribute("data-l");
+        scores[q] = scores[q] || {};
+        if (s.value === "") missing++;
+        var crit = box.querySelector('input[data-q="' + q + '"][data-l="' + l + '"]');
+        scores[q][l] = { score: parseInt(s.value, 10), critical: !!(crit && crit.checked) };
+      });
+      if (missing) { toast(missing + " cevap puanlanmadı.", true); return; }
+      postJson("/compare/" + encodeURIComponent(id) + "/review", { scores: scores })
+        .then(function () { toast("Puanlar kaydedildi."); loadCompare(); })
+        .catch(function (err) { toast(err.message, true); });
+    });
+  }
+  function renderCmpResult(r) {
+    var res = r.result || r;
+    var bs = res.bootstrap || {};
+    document.getElementById("cmpDetail").innerHTML = res.decision
+      ? '<div class="lp-card"><strong>Karar: ' + esc(res.decision) + "</strong> · rol " + esc(res.role || "") +
+        '<div class="small">Fark (aday − aktif, aile ortalaması): ' + esc((bs.point || 0).toFixed(3)) + " · GA [" + esc((bs.lo || 0).toFixed(3)) + ", " +
+        esc((bs.hi || 0).toFixed(3)) + "] · aile " + esc(String(bs.n_families || 0)) + " · temel referans " + esc(String(res.base_reference)) + "</div>" +
+        "<ul>" + (res.reasons || []).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" +
+        '<div class="small"><strong>' + esc(res.disclaimer || "") + "</strong></div></div>"
+      : '<span class="muted">Henüz karar yok.</span>';
+  }
+  function onCompareAction(ev) {
+    var b = ev.target.closest("button[data-cmp]");
+    if (!b) return;
+    var id = b.getAttribute("data-id");
+    var act = b.getAttribute("data-cmp");
+    if (act === "review") {
+      api("/compare/" + encodeURIComponent(id) + "/blind", { method: "GET" })
+        .then(function (d) { renderBlind(id, d.items || []); })
+        .catch(function (e) { toast(e.message, true); });
+    } else if (act === "finalize") {
+      postJson("/compare/" + encodeURIComponent(id) + "/finalize", {})
+        .then(function (r) { toast("Karar: " + r.decision); loadCompare(); setTimeout(function () { renderCmpResult(r); }, 300); loadModels(); })
+        .catch(function (e) { toast(e.message, true); });
+    } else {
+      api("/compare/" + encodeURIComponent(id), { method: "GET" }).then(renderCmpResult).catch(function (e) { toast(e.message, true); });
+    }
+  }
+
+  function loadLearnPool() {
+    if (!cmpState.wired) {
+      cmpState.wired = true;
+      var cb = document.getElementById("cmpBox");
+      if (cb) cb.addEventListener("click", onCompareAction);
+      var cr = document.getElementById("cmpRefreshBtn");
+      if (cr) cr.addEventListener("click", loadCompare);
+    }
+    loadCompare();
+    if (!modelsState.wired) {
+      modelsState.wired = true;
+      var mb = document.getElementById("modelsBox");
+      if (mb) mb.addEventListener("click", onModelsAction);
+      var mr = document.getElementById("modelsRefreshBtn");
+      if (mr) mr.addEventListener("click", loadModels);
+    }
+    loadModels();
+    if (!lpState.wired) {
+      lpState.wired = true;
+      var tabsEl = document.getElementById("lpTabs");
+      if (tabsEl) tabsEl.addEventListener("click", function (ev) {
+        var b = ev.target.closest("[data-lptab]");
+        if (!b) return;
+        lpState.tab = b.getAttribute("data-lptab");
+        lpLoadList();
+      });
+      var list = document.getElementById("lpList");
+      if (list) list.addEventListener("click", onLpAction);
+      var pb = document.getElementById("lpPreviewBtn");
+      if (pb) pb.addEventListener("click", lpPreview);
+      var cb = document.getElementById("lpCreateBtn");
+      if (cb) cb.addEventListener("click", lpCreate);
+      var rb = document.getElementById("lpRefreshBtn");
+      if (rb) rb.addEventListener("click", function () {
+        postJson("/learn/runs/sync", {}).catch(function () {}).finally(loadLearnPool);
+      });
+    }
+    api("/learn/summary", { method: "GET" })
+      .then(function (s) {
+        lpCounters(s);
+        lpRenderVersions(s);
+      })
+      .catch(function (e) {
+        var el = document.getElementById("lpCounters");
+        if (el) el.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>";
+      });
+    lpLoadList();
   }
 
   // ---------- init ----------

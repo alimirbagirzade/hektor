@@ -46,7 +46,10 @@ seviyesine göre kademeli tarama:
 | **2 — Derin adversarial av** | Çok-ajan workflow (finder + 2-oylu adversarial doğrulama) | **Ayda 1 + her LoRA eğitiminden ÖNCE (zorunlu)** veya ~25-30 commit'te | **Denetimli** (fix+push insan gözetiminde) |
 
 - **Kademe 2 her eğitimden önce zorunlu** — projenin tüm amacı backtest/eval'e güvenmek;
-  v5 regresyonu tam bu yüzden olmuştu. Eğitime başlamadan derin av çalıştır.
+  v5 regresyonu tam bu yüzden olmuştu. Eğitime başlamadan derin av çalıştır. Kod bunu
+  ZORLAR: her eğitim yolu (web, Auto-LoRA, kolay akış, `start-train.ps1`, `hektor train --run`,
+  `pretrain-gate`) temiz ağaç + bu kod özeti ve güncel eğitim verisi için kapanmış kayıt ister
+  (`uv run hektor kademe2-kayit --findings f.json --data-sha <sha> --evidence "..."`).
 - Kademe 1 raporu: `reports/bug-scan/scan-<tarih>.md` + HANDOFF özeti. Bulgular bir sonraki
   **denetimli** seansta düzeltilir (otomatik fix YOK — yanlış fix'i gözetimsiz main'e basma).
 - Derin av deseni: alt-sistem başına paralel finder → her bulgu adversarial doğrulama

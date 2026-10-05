@@ -146,6 +146,21 @@ class AdapterRegistry:
         self._write_all(records)
         return True
 
+    def archive_production(self) -> bool:
+        """Mevcut PRODUCTION kaydını APPROVED'a (arşiv) indir — adaptersiz ana modele dönüşte.
+
+        True → bir kayıt indirildi. Production yoksa hiçbir şey yazılmaz.
+        """
+        records = self.list_adapters()
+        changed = False
+        for record in records:
+            if record.status is AdapterStatus.PRODUCTION:
+                record.status = AdapterStatus.APPROVED
+                changed = True
+        if changed:
+            self._write_all(records)
+        return changed
+
     def reject(self, adapter_id: str, reason: str) -> bool:
         """Adapter'ı REJECTED olarak işaretle ve sebebini nota ekle."""
         records = self.list_adapters()

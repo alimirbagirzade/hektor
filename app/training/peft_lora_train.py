@@ -104,6 +104,8 @@ class PeftTrainConfig:
     # rsLoRA: ölçek alpha/r yerine alpha/sqrt(r) → yüksek r'de stabil, daha iyi öğrenme.
     # Varsayılan KAPALI (efektif büyüklüğü değiştirir; açılırsa lr yeniden ayarlanmalı).
     use_rslora: bool = False
+    # Ayrı deney: forward sırasında birleşik bf16 ağırlıkla eğitim/çıkarım.
+    merge_aware_bf16: bool = False
     # DoRA: ağırlığı yön + büyüklüğe ayırır; düşük r'de LoRA'yı sık geçer ama ~2× yavaş.
     use_dora: bool = False
     # init_lora_weights: "true"|"gaussian"|"pissa"|"olora"|"eva"|"loftq"|"corda"...
@@ -550,6 +552,8 @@ def recipe_summary(cfg: PeftTrainConfig) -> dict:
     techniques: list[str] = []
     if cfg.use_rslora:
         techniques.append("rsLoRA (alpha/sqrt(r) ölçek)")
+    if cfg.merge_aware_bf16:
+        techniques.append("deneysel merge-aware bf16 (cast yaklaşık gradyanı)")
     if cfg.use_dora:
         techniques.append("DoRA (ağırlık ayrıştırma)")
     init = normalize_init_lora_weights(cfg.init_lora_weights)
@@ -1148,6 +1152,24 @@ def train(cfg: PeftTrainConfig) -> dict:
         logger.info("Gradient checkpointing AKTİF (bellek ↓, adım ~%20-30 yavaş).")
     peft_config = LoraConfig(**build_lora_kwargs(cfg))
     model = get_peft_model(model, peft_config)
+    if cfg.merge_aware_bf16:
+        from app.training.merge_aware_lora import install_merge_aware
+
+        installed = install_merge_aware(model)
+        logger.info("Deneysel merge-aware bf16 LoRA: %d Linear", len(installed))
+        cfg.adapter_output_path.mkdir(parents=True, exist_ok=True)
+        (cfg.adapter_output_path / "reference_recipe.json").write_text(
+            json.dumps(
+                {
+                    "mode": "merge_aware_bf16_v1",
+                    "gradient": "cast_straight_through_approximation",
+                    "dropout": 0,
+                    "merge": "fp32_sum_then_bf16_cast_unsafe_with_finite_check",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     model.print_trainable_parameters()
 
     train_rows = _load_jsonl(cfg.train_jsonl)

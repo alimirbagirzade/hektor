@@ -33,6 +33,52 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-05 — Faz 2 (#31 ile main'e birleşti)
+
+Commit'ler: Faz 1 tamamlama `c993b78` · 2A `306aa61` · 2B `061df56` · zaman/iddia `90453a6` ·
+2C `ec8157e` · 2D `a9c1496`. Tam paket **3091 passed / 13 skipped**; ruff + mypy temiz.
+Belgeler: `docs/PROTOKOL_SOHBETTEN_OGRENME.md`, `docs/PROTOKOL_STRATEJI_TESTI.md`,
+`docs/PROTOKOL_ADAY_KARSILASTIRMA.md`.
+
+- **Faz 1 tamamlama:** ortak ağır iş kilidi (`storage/heavy_job.lock`; web, start-train.ps1,
+  CLI, dönüşüm, karşılaştırma); "Kaynak benzerliği" artık otomatik uygunluk vermez; arayüz içi
+  düzenleyici. Gerçek 30B (hektor-v12-30b) ile iki tur + Kaynak ölç + tarayıcı akışları doğrulandı.
+- **2A:** ana / deneme yuvası; mevcut model "başlangıç kaydı — değerlendirilmemiş"; ana model
+  yalnız `kabul` + digest; `yetersiz_kanit` yalnız deneme sohbeti; iki aşamalı günlüklü kayıt.
+- **2B:** sohbet cevabı → yerel model taslağı → okunur form → veri denetimi → geliştirme /
+  doğrulama / final (tek) dönem testi; stop, boyut ve birimli maliyetler gerçekten uygulanır.
+- **Zaman:** veri / strateji / koşu / bilgi zamanı ayrı; `as_of` = bilgi zamanı; strateji
+  aileleri; performans iddiası parmak izi + dönem + sayılarla "kayıtlı hesapla eşleşti".
+- **2C:** son ayarlar hazır; salt-okunur hazırlık; anlık görüntü + reçete; reçeteye bağlı onay;
+  Kademe 2 kaydı (`hektor kademe2-kayit`); idempotent başlatma.
+- **2D:** `candidate-verify` (run_complete tek başına yetmez); kilitli ölçüt; kör inceleme;
+  aile düzeyinde bootstrap; gizli final erişim kaydı; karar → 2A deposu.
+
+**Henüz doğrulanmadı (gerçek sistem):** gerçek piyasa CSV'siyle strateji testi (makinede OHLCV
+yok); eğitim sürerken sohbet; gerçek `adapter_to_ollama.ps1` koşusunda kilit; gerçek veriyle
+anlık görüntü → onay → başlatma; gerçek 30B aday/aktif/temel karşılaştırması ve gerçek
+adapter'da `candidate-verify`; gerçek kararla ana model etkinleştirme / geri dönüş.
+Kademe 2 kaydı TÜM eğitim yollarında zorunlu: web butonu / Auto-LoRA / kolay akış
+(`preflight_launch`), `hektor train --run` (start-train.ps1 — `-SkipGate` ile de aşılamaz —,
+doğrudan CLI, nöbetçi kurtarması; çıkış kodu 10) ve `pretrain-gate`. Kayıt bu kod özeti
+(temiz ağaç) + güncel `lora_sft.jsonl` özeti için olmalı: `hektor kademe2-kayit --data-sha …`.
+
+### 2026-10-05 — Sohbetten Öğrenme Faz 1 (#30 ile main'e birleşti)
+
+Tek ana sohbet (**00 · SOHBET**, Ollama+RAG, geçmişli, model kimlikli) + **16 · ÖĞRENME
+HAVUZU**. Yalnız **Öğrensin/Düzelt** aday üretir; Faydalı/Hatalı üretmez. Kapsamlı LLM'siz
+kontroller (hesap / kaynak / atıf kimliği / Kural 1; backtest ve kod testi "yapılamadı"),
+gerekçeli insan onayı ayrı sınıf. Aile düzeyinde kalıcı train/eval, köprü = sızıntı çatışması,
+trading zaman sıralı. Değişmez sürümler `data/learning/chat_datasets/chat_vN/` (eval ayrı
+dosya, eğitime girmez); kanonik birleştirme yalnız `assemble_sft.py --chat-dataset` seçimiyle,
+satır+hedef token payı ≤ %10. Seçili sürümde sonradan geçersizleşen kayıt → pretrain-gate +
+web/CLI başlatma kapısı NO-GO. Sunucu tarafı kaynak koruması (RAM/VRAM ayrı, ölçüme dayalı) +
+sohbet kirası ↔ başlatma kilidi. Eğitim/etkinleştirme/bulut YOK (Faz 2/3). Protokol:
+`docs/PROTOKOL_SOHBETTEN_OGRENME.md`. Yeni tablolar yalnız eklenir; geri alma
+`scripts/chat_learning_rollback.py`. **8765'teki web süreci yeniden başlatılmadı**; yeni uçlar
+için birleştirme sonrası güvenli bir zamanda yeniden başlatma gerekir. Canlı 30B tur, "Kaynak
+ölç" ve eğitim sırasındaki davranış gerçek Ollama ile ölçülmedi.
+
 ### 2026-10-04 — araştırma motorları ve sürüş görünürlüğü
 
 Araştırma ana motoru eğitim sürücüsünden ayrıldı: Codex, Claude Code, sürümü

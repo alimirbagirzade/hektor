@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>HEKTOR — Trading Research Terminal</title>
-    <link rel="stylesheet" href="/assets/app.css?v=14" />
+    <link rel="stylesheet" href="/assets/app.css?v=15" />
     <link rel="stylesheet" href="/assets/canli-badge.css?v=1" />
   </head>
   <body>
@@ -58,7 +58,9 @@
     </nav>
 
     <nav class="tabs" id="tabs">
-      <button class="tab active" data-tab="research"><span class="tab-num">01</span> · ARAŞTIRMA</button>
+      <button class="tab active" data-tab="chat"><span class="tab-num">00</span> · SOHBET</button>
+      <button class="tab" data-tab="learnpool"><span class="tab-num">16</span> · ÖĞRENME HAVUZU</button>
+      <button class="tab" data-tab="research"><span class="tab-num">01</span> · ARAŞTIRMA</button>
       <button class="tab" data-tab="papers"><span class="tab-num">02</span> · MAKALELER</button>
       <button class="tab" data-tab="trader"><span class="tab-num">03</span> · TRADER BEYİN</button>
       <button class="tab" data-tab="backtest"><span class="tab-num">04</span> · BACKTEST</button>
@@ -81,8 +83,202 @@
         <span id="nextStepText"></span>
       </div>
 
+      <!-- 00 · SOHBET (tek ana ekran; Ollama + RAG, geçmişli) -->
+      <section class="panel active" id="panel-chat">
+        <div class="chat-layout">
+          <aside class="chat-side">
+            <div class="slot-toggle" id="chatSlotToggle" role="group" aria-label="Sohbet yuvası">
+              <button type="button" class="btn btn-sm active" data-slot="main" title="Ana sohbet modeli">Ana sohbet</button>
+              <button type="button" class="btn btn-sm" data-slot="trial" title="Kabul edilmemiş aday modelle ayrı deneme sohbeti">Deneme sohbeti</button>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="chatNewBtn">+ Yeni konuşma</button>
+            <div id="chatConvList" class="chat-conv-list"><span class="muted small">Yükleniyor…</span></div>
+          </aside>
+          <div class="chat-main">
+            <div id="chatTrialBanner" class="chat-trial-banner" hidden></div>
+            <div class="chat-modelbar">
+              <div><strong>Cevaplayan model:</strong> <span id="chatModelTag">—</span>
+                <span class="muted small" id="chatModelDigest"></span></div>
+              <div class="muted small" id="chatModelOrigin">köken: —</div>
+              <div class="small chat-resource-row"><span id="chatResource"><span class="dot dot-idle"></span> kaynak durumu: —</span>
+                <button type="button" class="btn btn-sm" id="chatMeasureBtn">Kaynak ölç</button></div>
+            </div>
+            <div id="chatThread" class="chat-thread" aria-live="polite"></div>
+            <form id="chatForm" class="chat-form">
+              <textarea id="chatInput" rows="3" maxlength="2000"
+                placeholder="Sorunu yaz… (cevap indekslenmiş makalelere dayanır; kaynak yoksa model uydurmaz)"></textarea>
+              <div class="ask-row">
+                <label class="topk"><span class="jargon" title="Cevap için kaç kaynak parçası getirileceği.">top_k</span>
+                  <input type="number" id="chatTopk" min="1" max="20" value="6" /></label>
+                <span class="muted small">Konuşmanın tamamı saklanır; modele son turlar aktarılır (her cevapta hangileri olduğu görünür). Önceki cevaplar kaynak sayılmaz.</span>
+                <button type="submit" class="btn btn-primary" id="chatSendBtn">GÖNDER →</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <dialog id="strategyDlg" class="chat-dialog strategy-dlg">
+          <div class="st-head">
+            <h3>Strateji testi — sohbet cevabından</h3>
+            <button type="button" class="btn btn-sm btn-ghost" id="stCloseBtn">Kapat</button>
+          </div>
+          <p class="muted small">Yerel model cevabı taslağa çevirir; siz okunur formdan kontrol edip kaydeder ve testi
+            başlatırsınız. Şablon stratejiyle ikame yapılmaz. Maliyetler varsayılanla doldurulmaz. Sonuç “kayıtlı hesap”tır,
+            gelecekte başarı anlamına gelmez.</p>
+          <div class="st-step"><strong>1 · Taslak</strong>
+            <button type="button" class="btn btn-sm" id="stDraftBtn">Taslak çıkar (yerel model)</button>
+            <span class="muted small" id="stDraftInfo"></span></div>
+          <div id="stNotes" class="small"></div>
+          <form id="stForm" class="st-form">
+            <div class="st-grid">
+              <label>Ad <input name="name" required /></label>
+              <label>Piyasa <input name="market" required /></label>
+              <label>Zaman dilimi <select name="timeframe" required>
+                <option value="">— seçin —</option><option>1m</option><option>5m</option><option>15m</option>
+                <option>30m</option><option>1h</option><option>4h</option><option>1d</option><option>1w</option></select></label>
+              <label>Yön <select name="direction" required><option value="">— seçin —</option>
+                <option value="long">Uzun (long)</option><option value="short">Kısa (short)</option></select></label>
+            </div>
+            <label>Göstergeler (ör. EMA:20, EMA:50, RSI:14) <input name="indicators" /></label>
+            <div class="st-grid2">
+              <label>Giriş kuralları (her satır bir kural; hepsi VE) <textarea name="entry_rules" rows="3"></textarea></label>
+              <label>Çıkış kuralları (her satır bir kural; hepsi VE) <textarea name="exit_rules" rows="3"></textarea></label>
+            </div>
+            <div class="st-grid">
+              <label>Stop <select name="stop_type">
+                <option value="none">Yok</option><option value="fixed_pct">Sabit % (oran)</option>
+                <option value="atr_initial">ATR — girişte sabit</option><option value="atr_trailing">ATR — takip eden</option></select></label>
+              <label>Stop değeri <input name="stop_value" type="number" step="any" /></label>
+              <label>Stop ATR periyodu <input name="stop_atr" type="number" value="14" min="1" /></label>
+              <label>Hedef <select name="tp_type"><option value="none">Yok</option><option value="fixed_pct">Sabit % (oran)</option>
+                <option value="atr_multiple">ATR katı</option><option value="r_multiple">R katı</option></select></label>
+              <label>Hedef değeri <input name="tp_value" type="number" step="any" /></label>
+            </div>
+            <div class="st-grid">
+              <label>Pozisyon büyüklüğü <select name="size_type"><option value="fixed_fraction">Özsermaye katı (nominal)</option>
+                <option value="risk_per_trade">İşlem başına risk (stop'a göre)</option></select></label>
+              <label>Kat (1 = tam özsermaye) <input name="fraction" type="number" step="any" /></label>
+              <label>Risk oranı (0.01 = %1) <input name="risk_pct" type="number" step="any" /></label>
+              <label>Azami kaldıraç <input name="max_leverage" type="number" step="any" value="1" /></label>
+            </div>
+            <fieldset class="st-costs"><legend>Maliyetler — hepsi zorunlu; sıfırsa gerekçe yazın</legend>
+              <div class="st-grid">
+                <label>Komisyon (bp / dolum) <input name="commission_bps_per_side" type="number" step="any" min="0" /></label>
+                <label>Kayma (bp / dolum, aleyhe) <input name="slippage_bps_per_side" type="number" step="any" min="0" /></label>
+                <label>Makas (bp, tam) <input name="spread_bps" type="number" step="any" min="0" /></label>
+                <label>Fonlama (bp / gün) <input name="funding_bps_per_day" type="number" step="any" min="0" /></label>
+              </div>
+              <label>Sıfır maliyet gerekçeleri (her satır: alan_adı: gerekçe) <textarea name="zero_reasons" rows="2"
+                placeholder="funding_bps_per_day: spot işlem, fonlama yok"></textarea></label>
+            </fieldset>
+            <div id="stUnsupported" class="small"></div>
+            <div class="dlg-actions"><button type="submit" class="btn btn-primary">2 · Kaydet (okunur form onaylandı)</button></div>
+          </form>
+          <div id="stSaved" class="small"></div>
+          <div class="st-step"><strong>3 · Veri</strong>
+            <select id="stDataFile"></select>
+            <input type="file" id="stUpload" accept=".csv" />
+            <select id="stTz" title="Zaman damgalarında ofset yoksa saat dilimi">
+              <option value="">(damgada ofset var / epoch)</option><option value="UTC">UTC</option>
+              <option value="Europe/Istanbul">Europe/Istanbul</option><option value="Europe/London">Europe/London</option>
+              <option value="America/New_York">America/New_York</option></select>
+            <button type="button" class="btn btn-sm" id="stCheckBtn">Veriyi kontrol et</button></div>
+          <div id="stDataReport" class="small"></div>
+          <div class="st-step"><strong>4 · Test</strong>
+            <button type="button" class="btn btn-sm" data-stage="gelistirme">Geliştirme dönemi</button>
+            <button type="button" class="btn btn-sm" data-stage="dogrulama">Doğrulama (OOS)</button>
+            <button type="button" class="btn btn-sm" data-stage="final" title="Aile başına tek kullanım">Final (tek kullanım)</button></div>
+          <div id="stResult"></div>
+        </dialog>
+        <dialog id="chatCorrectDlg" class="chat-dialog">
+          <form id="chatCorrectForm">
+            <h3>Düzelt</h3>
+            <p class="muted small">Cevabın kopyası. Hatalı kısmı düzeltin ya da çıkarın. Kaydettiğinizde bu metin
+              <strong>eğitim adayı</strong> olur ve önce otomatik kontrollerden geçer; eğitim kendiliğinden başlamaz.</p>
+            <textarea id="chatCorrectText" rows="14"></textarea>
+            <input type="hidden" id="chatCorrectSpans" value="[]" />
+            <label>Alan
+              <select id="chatCorrectDomain">
+                <option value="">otomatik</option>
+                <option value="math">matematik</option>
+                <option value="paper">makale iddiası</option>
+                <option value="trading">trading</option>
+                <option value="code">kod</option>
+                <option value="general">genel</option>
+              </select>
+            </label>
+            <div class="dlg-actions">
+              <button type="button" class="btn" id="chatCorrectCancel">Vazgeç</button>
+              <button type="submit" class="btn btn-primary">Aday olarak kaydet</button>
+            </div>
+          </form>
+        </dialog>
+      </section>
+
+      <!-- 16 · ÖĞRENME HAVUZU -->
+      <section class="panel" id="panel-learnpool">
+        <div class="panel-head">
+          <h2>Öğrenme Havuzu</h2>
+          <p class="muted">Yalnız sohbette <strong>Öğrensin</strong> ya da <strong>Düzelt</strong> dediğiniz içerik aday olur.
+            <em>Toplandı</em>, <em>doğrulandı</em> ve <em>eğitimde kullanıldı</em> ayrı sayılır. Bu panel eğitim başlatmaz,
+            model etkinleştirmez.</p>
+        </div>
+        <div class="card">
+          <div class="lp-head-row">
+            <h3 class="lp-h3">Durum</h3>
+            <button type="button" class="btn btn-sm" id="lpRefreshBtn" title="Koşu kayıtlarını oku ve yenile">↻ Yenile</button>
+          </div>
+          <div id="lpCounters"><span class="muted">Yükleniyor…</span></div>
+        </div>
+        <div class="card" id="modelsCard">
+          <div class="lp-head-row">
+            <h3 class="lp-h3">Modeller — ana sohbet / deneme sohbeti</h3>
+            <button type="button" class="btn btn-sm" id="modelsRefreshBtn">↻ Yenile</button>
+          </div>
+          <p class="muted small">Ana modele yalnız karşılaştırma kararı <strong>Kabul</strong> olan aday geçer;
+            <strong>Yetersiz kanıt</strong> yalnız etiketli deneme sohbetinde kullanılabilir; reddedilen aday hiçbir yerde
+            kullanılamaz. Etkinleştirme yalnız sonraki istekleri etkiler.</p>
+          <div id="modelsBox"><span class="muted">Yükleniyor…</span></div>
+        </div>
+        <div class="card" id="cmpCard">
+          <div class="lp-head-row">
+            <h3 class="lp-h3">Kör inceleme — aday karşılaştırmaları</h3>
+            <button type="button" class="btn btn-sm" id="cmpRefreshBtn">↻ Yenile</button>
+          </div>
+          <p class="muted small">Cevaplar model kimliği olmadan (A/B/C) gösterilir; matematik soruları doğrulanmış
+            anahtarla otomatik puanlanmıştır. Ölçüt üretimden önce kilitlenmiştir. Karar bir LLM soru-cevap ölçümüdür,
+            trading performansı değildir; etkinleştirme ayrıca “Modeller” kartından yapılır. Üretim terminalden:
+            <code>uv run hektor compare-run …</code></p>
+          <div id="cmpBox"><span class="muted">Yükleniyor…</span></div>
+        </div>
+        <div class="card">
+          <div class="lp-tabs" id="lpTabs">
+            <button type="button" class="btn btn-sm active" data-lptab="review">İnceleme bekliyor</button>
+            <button type="button" class="btn btn-sm" data-lptab="eligible">Eğitime uygun</button>
+            <button type="button" class="btn btn-sm" data-lptab="rejected">Reddedilen</button>
+            <button type="button" class="btn btn-sm" data-lptab="errors">Hata kuyruğu</button>
+            <button type="button" class="btn btn-sm" data-lptab="other">Hariç / çatışma / sızıntı</button>
+            <button type="button" class="btn btn-sm" data-lptab="echo">Eski Echo (salt okunur)</button>
+          </div>
+          <div id="lpList"></div>
+        </div>
+        <div class="card">
+          <h3>Veri sürümleri</h3>
+          <p class="muted small">Sürüm değişmez bir anlık görüntüdür: train dosyası + ayrı eval dosyası + manifest.
+            Sonradan hariç tutma/ret eski sürümü değiştirmez; o sürüm eğitime seçiliyse eğitim başlatma kapısı durdurur.</p>
+          <label class="small"><input type="checkbox" id="lpIncludeHuman" checked /> İnsan onaylı adayları dahil et</label>
+          <div class="orc-actions">
+            <button type="button" class="btn" id="lpPreviewBtn">Özet göster</button>
+            <button type="button" class="btn btn-primary" id="lpCreateBtn" disabled>Veri sürümü oluştur</button>
+          </div>
+          <div id="lpPreview"></div>
+          <div id="lpVersions"></div>
+          <p class="muted small">Eğitim verisine bağlamak (Faz 2'de arayüze gelecek):
+            <code>uv run python scripts/assemble_sft.py --chat-dataset chat_vN</code></p>
+        </div>
+      </section>
+
       <!-- RESEARCH -->
-      <section class="panel active" id="panel-research">
+      <section class="panel" id="panel-research">
         <div class="intro-banner" id="introBanner" style="display:none">
           <button class="intro-close" id="introClose" type="button" aria-label="Bu açıklamayı kapat">✕</button>
           <h3>Hektor nasıl çalışır? · 3 adım</h3>
@@ -112,16 +308,22 @@
               <span class="jargon" title="Cevap için kaç kaynak parçası (chunk) getirileceği. Yüksek değer = daha çok bağlam ama daha yavaş.">top_k</span>
               <input type="number" id="topk" min="1" max="20" value="6" />
             </label>
+            <button type="submit" class="btn btn-primary" id="askBtn">
+              SORGULA →
+            </button>
+          </div>
+          <details class="diag-details">
+            <summary>⚙ Gelişmiş / teşhis — MLX adapter yolu (yalnız Apple Silicon)</summary>
+            <p class="muted small">Ana sohbet Ollama üzerinden çalışır. Bu yol eski tek-soru
+              ekranında korunur; adapter seçilirse cevap MLX ile üretilir ve sohbet geçmişine
+              kaydedilmez.</p>
             <label class="adapter-select-label">
               model
               <select id="adapterSelect">
                 <option value="">Ollama (varsayılan)</option>
               </select>
             </label>
-            <button type="submit" class="btn btn-primary" id="askBtn">
-              SORGULA →
-            </button>
-          </div>
+          </details>
         </form>
         <div id="askResult" class="result hidden"></div>
       </section>
@@ -233,9 +435,11 @@
           <div id="researchResult" class="result hidden"></div>
         </div>
 
-        <!-- Eğitilen Modelle Sohbet -->
-        <div class="training-section" id="trainedModelChat">
-          <h3>3 · Eğitilen Modelle Sohbet (LoRA)</h3>
+        <!-- Eğitilen Modelle Sohbet (Gelişmiş / teşhis) -->
+        <details class="training-section diag-details" id="trainedModelChat">
+          <summary><h3 class="diag-summary-h3">3 · Gelişmiş / teşhis — LoRA (PEFT) sohbeti</h3></summary>
+          <p class="muted small">Ana sohbet <strong>00 · SOHBET</strong> sekmesindedir (Ollama). Bu
+            yol geçmiş tutmaz ve öğrenme havuzuna aday üretmez; teşhis içindir.</p>
           <p class="muted small">
             Eğitilen LoRA adapter'ı (veya base model) ile <strong>LOKAL</strong> sohbet —
             Ollama gerektirmez. CPU'da yavaştır (cevap dakikalar sürebilir). Liste boşsa
@@ -271,7 +475,7 @@
             </div>
           </form>
           <div id="loraChatResult" class="result hidden"></div>
-        </div>
+        </details>
 
         <!-- Zincir Veri Seti -->
         <div class="training-section">
@@ -395,6 +599,32 @@
         <div class="panel-head">
           <h2><span class="jargon" title="Low-Rank Adaptation — büyük modeli baştan eğitmeden, küçük bir 'adapter' katmanıyla yerel olarak ince ayarlama yöntemi.">LoRA</span> Eğitimi</h2>
           <p class="muted">Butona bas → eğitim başlar, ilerlemeyi canlı izle. Terminal gerekmez.</p>
+        </div>
+
+        <!-- 0. Kolay eğitim (özet onayı) -->
+        <div class="training-section" id="tfSection">
+          <h3>0 · Kolay eğitim — özeti onayla</h3>
+          <p class="muted small">Son kullanılan ayarlar hazır gelir; ağırlıkları her seferinde yeniden girmezsiniz.
+            Hazırlık kontrolü salt okunurdur. Veri anlık görüntüsü ayrı ve açık bir adımdır. Onay bu reçeteye
+            (veri özeti, temel model, profil, karışım, hedef adapter) bağlıdır; biri değişirse eski onay kullanılamaz.
+            Eğitim kendiliğinden başlamaz.</p>
+          <div id="tfSummary" class="small"><span class="muted">Yükleniyor…</span></div>
+          <details id="tfDetails"><summary>Ayrıntılar (değiştir)</summary>
+            <div class="st-grid">
+              <label class="small">Hedef adapter adı <input id="tfAdapter" /></label>
+              <label class="small">Temel model <input id="tfBase" /></label>
+              <label class="small">LoRA profili <input id="tfProfile" /></label>
+              <label class="small">Karışım profili <input id="tfMix" /></label>
+              <label class="small">Örnek tavanı (0 = profil) <input id="tfMax" type="number" min="0" /></label>
+            </div>
+          </details>
+          <div id="tfReady" class="small"></div>
+          <div class="orc-actions">
+            <button type="button" class="btn" id="tfSnapBtn">Veri anlık görüntüsü + reçete hazırla</button>
+            <button type="button" class="btn btn-primary" id="tfLaunchBtn" disabled>Özeti onayla ve başlat</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="tfRefreshBtn">↻</button>
+          </div>
+          <div id="tfResult" class="small"></div>
         </div>
 
         <!-- 1. Dataset -->
@@ -1034,7 +1264,7 @@
           <h3>Sürekli araştırma ve veri hazırlığı</h3>
           <label for="rpEngine">Araştırma ana motoru</label>
           <select id="rpEngine" class="am-engine-sel"><option value="">Motorlar yükleniyor…</option></select>
-          <p id="rpEngineInfo" class="muted small" style="white-space: pre-line"></p>
+          <p id="rpEngineInfo" class="muted small rp-engine-info"></p>
           <p class="muted small">Çalıştır: seçili motor planı inceler; makale arama → kontrollü RAG → kart → aday veri → yöntem raporu döngüsü sürer. Eğitimler bitene kadar bekler. CLI abonelik kotası kullanılır; yeni LoRA eğitimi ayrıca onay gerektirir.</p>
           <label for="rpPeer">İkinci inceleme motoru (isteğe bağlı)</label>
           <select id="rpPeer" class="am-engine-sel"><option value="">Tek motorla çalış (ikinci inceleyici kapalı)</option></select>
@@ -1205,7 +1435,7 @@
       </div>
     </div>
 
-    <script src="/assets/app.js?v=17"></script>
+    <script src="/assets/app.js?v=19"></script>
     <script src="/assets/canli-badge.js?v=1"></script>
   </body>
 </html>

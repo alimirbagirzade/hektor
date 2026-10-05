@@ -216,3 +216,29 @@ def store():
     from app.memory.sqlite_store import SqliteStore
 
     return SqliteStore()
+
+
+# --- Kademe 2 eğitim kapısı ---
+#
+# Üretimde `easy_train.kademe2_check` TÜM eğitim yollarında zorunludur ve temiz bir git ağacı +
+# kapanmış kayıt ister. Testler git'siz geçici köklerde koştuğu için kapı varsayılan olarak
+# nötrlenir; kapının kendisini sınayan testler `real_kademe2_gate` fikstürünü ister.
+@pytest.fixture
+def real_kademe2_gate():
+    from app.training import easy_train
+
+    return easy_train.kademe2_blocker
+
+
+@pytest.fixture(autouse=True)
+def _neutral_kademe2_gate(request, monkeypatch):
+    if "real_kademe2_gate" in request.fixturenames:
+        from app.training import easy_train
+
+        monkeypatch.setattr(easy_train, "kademe2_check", easy_train.kademe2_blocker)
+        yield
+        return
+    from app.training import easy_train
+
+    monkeypatch.setattr(easy_train, "kademe2_check", lambda **kw: None)
+    yield

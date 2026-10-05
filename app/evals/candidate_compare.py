@@ -1,0 +1,577 @@
+"""candidate_compare.py — aday ↔ aktif model karşılaştırması ve karar (Faz 2D).
+
+Sıra ve kurallar:
+1. ``lock_criteria`` : ölçütler adayın sonucu GÖRÜLMEDEN sabitlenir (içerik özetli, değişmez
+   dosya + kilit zamanı). Karşılaştırma yalnız kendisinden ÖNCE kilitlenmiş ölçütle açılır.
+2. ``create``        : donmuş soru seti (özet), aktif + aday + TEMEL model referansı, aynı
+   decoding/sistem istemi. Adayın tamamlanma ve dönüşüm doğrulaması manifeste yazılır.
+   "final" rolündeki gizli set her kullanımda kaydedilir; ikinci kullanımda set artık
+   geliştirme sayılır (sonuç bağımsız final kanıtı DEĞİLDİR).
+3. ``generate``      : ortak ağır iş kilidi altında, aynı Ollama oturumunda; model sırası soru
+   başına dönüşümlü (servis koşulları dengelensin). Her modelin digest'i önce ve sonra okunur;
+   değişirse koşu geçersiz.
+4. Puanlama: matematik soruları DOĞRULANMIŞ cevap anahtarıyla otomatik; diğerleri KÖR inceleme
+   (etiketler seed'li karıştırılır, eşleme mühürlü dosyada; kaynaklı sorularda kanıt metni
+   inceleyene gösterilir). Kural 1 dili ve anahtara aykırı matematik otomatik KRİTİK HATA.
+5. ``finalize``      : aile ortalamaları, aday−aktif eşlenmiş aile farkı, AİLE DÜZEYİNDE
+   bootstrap güven aralığı → karar: ``kabul`` | ``yetersiz_kanit`` | ``ret`` | ``kritik_ret``
+   (``candidate_decisions``'a yazılır; etkinleştirme 2A kurallarıyla ayrı insan eylemidir).
+
+Rubrik ölçeği ve "tolerans": soru puanı 0–4 (ölçütte çapalar); model puanı = aile ortalamalarının
+ortalaması (aynı ailenin çok sorusu tek kanıt sayılır); fark = aday − aktif, aile düzeyinde
+eşlenmiş. ``margin`` (varsayılan 0.25 puan, 0–4 ölçeğinde) kötüleşme toleransıdır.
+
+Bu bir LLM soru-cevap karşılaştırmasıdır; trading performansı iyileşmesi olarak SUNULAMAZ.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import random
+import re
+import secrets
+import time
+from pathlib import Path
+from typing import Any
+
+import httpx
+import numpy as np
+
+from app.config import get_settings
+from app.feedback.chat_store import utcnow
+
+DISCLAIMER = (
+    "Bu karar bir LLM soru-cevap karşılaştırmasıdır; modelin trading performansının arttığı "
+    "anlamına GELMEZ."
+)
+
+DEFAULT_CRITERIA: dict[str, Any] = {
+    "name": "aday_karsilastirma_v1",
+    "scale": {
+        "min": 0,
+        "max": 4,
+        "anchors": {
+            "0": "yanlış ya da kritik hata",
+            "1": "büyük ölçüde yanlış / eksik",
+            "2": "kısmen doğru, önemli eksik",
+            "3": "doğru, küçük eksik",
+            "4": "doğru ve tam; kaynaklı soruda kanıtla tutarlı",
+        },
+    },
+    "aggregation": "soru puanı → aile ortalaması → aileler üzerinden ortalama; fark = aday − "
+    "aktif, aile düzeyinde eşlenmiş",
+    "margin": 0.25,
+    "ci": 0.95,
+    "bootstrap": {"B": 2000, "seed": 42, "unit": "family"},
+    "min_families": 8,
+    "critical_definitions": [
+        "Kural 1: garanti/kesinlik/yatırım tavsiyesi dili",
+        "doğrulanmış matematik anahtarına aykırı sonuç",
+        "inceleyicinin işaretlediği kritik hata (uydurma kaynak, tehlikeli risk önerisi)",
+    ],
+    "decision_rules": [
+        "aday-yalnız kritik hata (aktifte olmayan) → kritik_ret",
+        "aile sayısı < min_families → yetersiz_kanit",
+        "GA üst sınırı < −margin → ret",
+        "GA alt sınırı > −margin VE nokta tahmini ≥ 0 → kabul",
+        "aksi → yetersiz_kanit",
+        "adayın tamamlanma/dönüşüm doğrulaması geçmediyse en fazla yetersiz_kanit",
+    ],
+    "decoding": {"temperature": 0.0, "seed": 42, "num_ctx": 8192, "num_predict": 1024},
+    "system_prompt": "Sen Hektor yerel AI asistanısın. Yatırım tavsiyesi verme; iddiaları hipotez "
+    "olarak sun, bilmediğini söyle.",
+}
+
+
+class CompareError(ValueError):
+    """Kullanıcıya gösterilecek karşılaştırma hatası."""
+
+
+def _root() -> Path:
+    return get_settings().reports_dir / "comparisons"
+
+
+def _read(p: Path) -> Any:
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write(p: Path, data: Any) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+
+def _sha(obj: Any) -> str:
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+# ── ölçüt kilidi ─────────────────────────────────────────────────────────────
+
+
+def lock_criteria(criteria: dict[str, Any] | None = None) -> dict[str, Any]:
+    crit = dict(criteria or DEFAULT_CRITERIA)
+    for key in ("scale", "margin", "bootstrap", "min_families", "critical_definitions", "decoding"):
+        if key not in crit:
+            raise CompareError(f"Ölçüt eksik: {key}")
+    sha = _sha(crit)
+    p = _root() / "criteria" / f"{sha[:16]}.json"
+    existing = _read(p)
+    if isinstance(existing, dict):
+        return existing
+    rec = {"criteria_sha": sha, "locked_at": utcnow(), "criteria": crit}
+    _write(p, rec)
+    return rec
+
+
+def _criteria(sha: str) -> dict[str, Any]:
+    rec = _read(_root() / "criteria" / f"{sha[:16]}.json")
+    if not isinstance(rec, dict) or rec.get("criteria_sha") != sha or _sha(rec["criteria"]) != sha:
+        raise CompareError("Kilitli ölçüt bulunamadı ya da değişmiş.")
+    return rec
+
+
+# ── soru seti + oluşturma ────────────────────────────────────────────────────
+
+
+def load_set(path: Path) -> tuple[list[dict[str, Any]], str]:
+    raw = Path(path).read_bytes()
+    rows = [json.loads(x) for x in raw.decode("utf-8").splitlines() if x.strip()]
+    for r in rows:
+        if not r.get("id") or not r.get("family") or not r.get("question"):
+            raise CompareError("Her soruda id, family, question olmalı.")
+        if r.get("type") == "math" and r.get("answer_key") is None:
+            raise CompareError(f"Matematik sorusu {r['id']} doğrulanmış answer_key taşımalı.")
+    return rows, hashlib.sha256(raw).hexdigest()
+
+
+def final_access_path() -> Path:
+    return get_settings().root / "storage" / "final_set_access.jsonl"
+
+
+def _log_final_access(event: dict[str, Any]) -> None:
+    p = final_access_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"at": utcnow(), **event}, ensure_ascii=False) + "\n")
+
+
+def final_accesses(set_sha: str) -> list[dict[str, Any]]:
+    p = final_access_path()
+    if not p.exists():
+        return []
+    rows = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+    return [r for r in rows if r.get("set_sha") == set_sha]
+
+
+def create(
+    *,
+    set_path: Path,
+    role: str,
+    active_tag: str,
+    candidate_tag: str,
+    base_tag: str,
+    criteria_sha: str,
+    candidate_meta: dict[str, Any],
+) -> dict[str, Any]:
+    if role not in ("development", "final"):
+        raise CompareError("Rol 'development' ya da 'final' olmalı.")
+    crit = _criteria(criteria_sha)
+    questions, set_sha = load_set(set_path)
+    cmp_id = "cmp_" + secrets.token_hex(6)
+    now = utcnow()
+    if crit["locked_at"] >= now:
+        raise CompareError("Ölçüt karşılaştırmadan ÖNCE kilitlenmiş olmalı.")
+    effective_role = role
+    note = ""
+    if role == "final":
+        prior = [a for a in final_accesses(set_sha) if a.get("kind") == "use"]
+        if prior:
+            effective_role = "development"
+            note = (
+                f"Gizli final seti daha önce {len(prior)} kez kullanıldı → bu koşu GELİŞTİRME "
+                "sayılır; bağımsız final kanıtı değildir."
+            )
+        _log_final_access({"kind": "use", "set_sha": set_sha, "comparison_id": cmp_id})
+    manifest = {
+        "comparison_id": cmp_id,
+        "created_at": now,
+        "role_requested": role,
+        "role": effective_role,
+        "role_note": note,
+        "set_path": str(set_path),
+        "set_sha": set_sha,
+        "n_questions": len(questions),
+        "n_families": len({q["family"] for q in questions}),
+        "criteria_sha": criteria_sha,
+        "criteria_locked_at": crit["locked_at"],
+        "models": {"active": active_tag, "candidate": candidate_tag, "base": base_tag},
+        "candidate_meta": candidate_meta,
+        "status": "created",
+        "disclaimer": DISCLAIMER,
+    }
+    _write(_root() / cmp_id / "manifest.json", manifest)
+    _write(_root() / cmp_id / "questions.json", questions)
+    return manifest
+
+
+def _manifest(cmp_id: str) -> dict[str, Any]:
+    m = _read(_root() / Path(cmp_id).name / "manifest.json")
+    if not isinstance(m, dict):
+        raise CompareError(f"Karşılaştırma yok: {cmp_id}")
+    return m
+
+
+# ── üretim ───────────────────────────────────────────────────────────────────
+
+
+def _digest(client: httpx.Client, tag: str) -> str:
+    r = client.post("/api/show", json={"model": tag})
+    r.raise_for_status()
+    data = r.json()
+    from app.feedback.model_identity import match_entry
+
+    tags = client.get("/api/tags").json().get("models", [])
+    entry = match_entry(tags, tag) or {}
+    return str(entry.get("digest") or data.get("digest") or "").removeprefix("sha256:")
+
+
+def generate(cmp_id: str, *, transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
+    from app.training.resource_lock import hold
+
+    m = _manifest(cmp_id)
+    if m["status"] != "created":
+        raise CompareError(f"Üretim zaten yapıldı ({m['status']}).")
+    crit = _criteria(m["criteria_sha"])["criteria"]
+    questions = _read(_root() / cmp_id / "questions.json") or []
+    roles = ["active", "candidate", "base"]
+    dec = crit["decoding"]
+    options = {k: dec[k] for k in ("temperature", "seed", "num_ctx", "num_predict") if k in dec}
+    host = get_settings().ollama_host.rstrip("/")
+    rows = []
+    with (
+        hold("comparison", f"candidate_compare:{cmp_id}"),
+        httpx.Client(base_url=host, timeout=1800, transport=transport) as client,
+    ):
+        before = {r: _digest(client, m["models"][r]) for r in roles}
+        for i, q in enumerate(questions):
+            order = roles[i % 3 :] + roles[: i % 3]  # dönüşümlü sıra
+            for role in order:
+                messages = [
+                    {"role": "system", "content": crit["system_prompt"]},
+                    {"role": "user", "content": q["question"]},
+                ]
+                t0 = time.monotonic()
+                resp = client.post(
+                    "/api/chat",
+                    json={
+                        "model": m["models"][role],
+                        "messages": messages,
+                        "stream": False,
+                        "options": options,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                rows.append(
+                    {
+                        "question_id": q["id"],
+                        "role": role,
+                        "answer": str((data.get("message") or {}).get("content") or ""),
+                        "latency_s": round(time.monotonic() - t0, 3),
+                        "prompt_sha": _sha(messages),
+                        "done_reason": data.get("done_reason", ""),
+                    }
+                )
+        after = {r: _digest(client, m["models"][r]) for r in roles}
+    if before != after:
+        m["status"] = "invalid"
+        m["invalid_reason"] = f"Koşu sırasında digest değişti: {before} → {after}"
+        _write(_root() / cmp_id / "manifest.json", m)
+        raise CompareError(m["invalid_reason"])
+    _write(_root() / cmp_id / "raw.json", rows)
+    m.update(status="generated", digests=before, options=options, generated_at=utcnow())
+    _write(_root() / cmp_id / "manifest.json", m)
+    _build_blind_packet(cmp_id, questions, rows)
+    return m
+
+
+# ── otomatik puan + kör paket ────────────────────────────────────────────────
+
+_NUM_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
+
+
+def auto_score(q: dict[str, Any], answer: str) -> dict[str, Any] | None:
+    """Kural 1 → kritik; matematik → doğrulanmış anahtarla otomatik. Diğerleri None (kör)."""
+    from app.feedback.echo import correction_safety_reason
+
+    rule1 = correction_safety_reason(answer, q["question"])
+    if rule1:
+        return {"score": 0, "critical": True, "why": f"Kural 1: {rule1}", "by": "otomatik"}
+    if q.get("type") == "math":
+        nums = _NUM_RE.findall(answer or "")
+        if not nums:
+            return {"score": 0, "critical": True, "why": "sonuç yok", "by": "anahtar"}
+        got = float(nums[-1].replace(",", "."))
+        key = float(q["answer_key"])
+        tol = float(q.get("tolerance", 1e-6 * max(1.0, abs(key))))
+        ok = abs(got - key) <= tol
+        return {
+            "score": 4 if ok else 0,
+            "critical": not ok,
+            "why": f"anahtar {key}, cevap {got}",
+            "by": "anahtar",
+        }
+    return None
+
+
+def _build_blind_packet(cmp_id: str, questions: list[dict], rows: list[dict]) -> None:
+    rng = random.Random(f"{cmp_id}:blind")
+    packet, sealed, auto = [], {}, {}
+    by_q: dict[str, list[dict]] = {}
+    for r in rows:
+        by_q.setdefault(r["question_id"], []).append(r)
+    for q in questions:
+        answers = by_q.get(q["id"], [])
+        auto_rows = {r["role"]: auto_score(q, r["answer"]) for r in answers}
+        auto[q["id"]] = {k: v for k, v in auto_rows.items() if v is not None}
+        pending = [r for r in answers if auto_rows[r["role"]] is None]
+        if not pending:
+            continue
+        labels = ["A", "B", "C"][: len(pending)]
+        rng.shuffle(pending)
+        sealed[q["id"]] = {lab: r["role"] for lab, r in zip(labels, pending, strict=True)}
+        packet.append(
+            {
+                "question_id": q["id"],
+                "family": q["family"],
+                "type": q.get("type", "general"),
+                "question": q["question"],
+                "evidence": q.get("evidence", []),
+                "answers": [
+                    {"label": lab, "answer": r["answer"]}
+                    for lab, r in zip(labels, pending, strict=True)
+                ],
+            }
+        )
+    _write(_root() / cmp_id / "blind_packet.json", packet)
+    _write(_root() / cmp_id / "sealed_mapping.json", sealed)  # API ile SUNULMAZ
+    _write(_root() / cmp_id / "auto_scores.json", auto)
+
+
+def blind_packet(cmp_id: str) -> list[dict[str, Any]]:
+    """İnceleyiciye: model kimliği OLMADAN cevaplar + kaynaklı sorularda kanıt."""
+    m = _manifest(cmp_id)
+    if m["status"] not in ("generated", "reviewed"):
+        raise CompareError("Kör paket henüz yok.")
+    return _read(_root() / cmp_id / "blind_packet.json") or []
+
+
+def submit_review(cmp_id: str, reviews: dict[str, dict[str, dict[str, Any]]], reviewer: str):
+    m = _manifest(cmp_id)
+    if m["status"] != "generated":
+        raise CompareError(f"İnceleme kabul edilmiyor (durum {m['status']}).")
+    packet = {p["question_id"]: p for p in blind_packet(cmp_id)}
+    clean: dict[str, dict[str, dict[str, Any]]] = {}
+    for qid, labs in reviews.items():
+        if qid not in packet:
+            raise CompareError(f"Pakette olmayan soru: {qid}")
+        valid = {a["label"] for a in packet[qid]["answers"]}
+        if set(labs) != valid:
+            raise CompareError(f"{qid}: tüm cevaplar puanlanmalı ({sorted(valid)}).")
+        clean[qid] = {}
+        for lab, v in labs.items():
+            score = int(v.get("score", -1))
+            if not 0 <= score <= 4:
+                raise CompareError(f"{qid}/{lab}: puan 0–4 olmalı.")
+            clean[qid][lab] = {
+                "score": score,
+                "critical": bool(v.get("critical")),
+                "note": str(v.get("note", ""))[:500],
+            }
+    if set(clean) != set(packet):
+        raise CompareError(f"Eksik inceleme: {sorted(set(packet) - set(clean))[:5]}")
+    _write(
+        _root() / cmp_id / "review.json", {"reviewer": reviewer, "at": utcnow(), "scores": clean}
+    )
+    m["status"] = "reviewed"
+    _write(_root() / cmp_id / "manifest.json", m)
+    return m
+
+
+# ── karar ────────────────────────────────────────────────────────────────────
+
+
+def family_bootstrap(diffs: dict[str, float], *, B: int, seed: int, ci: float) -> dict:
+    fams = sorted(diffs)
+    vals = np.array([diffs[f] for f in fams], dtype=float)
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(vals), size=(B, len(vals)))
+    means = vals[idx].mean(axis=1)
+    lo, hi = np.quantile(means, [(1 - ci) / 2, 1 - (1 - ci) / 2])
+    return {
+        "point": float(vals.mean()),
+        "lo": float(lo),
+        "hi": float(hi),
+        "n_families": len(vals),
+        "B": B,
+        "seed": seed,
+        "unit": "family",
+    }
+
+
+def finalize(cmp_id: str) -> dict[str, Any]:
+    from app.evals.candidate_decisions import record_decision
+
+    m = _manifest(cmp_id)
+    if m["status"] != "reviewed":
+        raise CompareError(f"Karar için inceleme tamamlanmalı (durum {m['status']}).")
+    crit = _criteria(m["criteria_sha"])["criteria"]
+    questions = {q["id"]: q for q in (_read(_root() / cmp_id / "questions.json") or [])}
+    auto = _read(_root() / cmp_id / "auto_scores.json") or {}
+    sealed = _read(_root() / cmp_id / "sealed_mapping.json") or {}
+    review = (_read(_root() / cmp_id / "review.json") or {}).get("scores", {})
+    scores: dict[str, dict[str, dict[str, Any]]] = {}  # role → qid → {score, critical}
+    for qid in questions:
+        for role, v in (auto.get(qid) or {}).items():
+            scores.setdefault(role, {})[qid] = v
+        for lab, role in (sealed.get(qid) or {}).items():
+            scores.setdefault(role, {})[qid] = {**review[qid][lab], "by": "kör inceleme"}
+    fam_mean: dict[str, dict[str, float]] = {}
+    for role, per_q in scores.items():
+        fams: dict[str, list[float]] = {}
+        for qid, v in per_q.items():
+            fams.setdefault(questions[qid]["family"], []).append(float(v["score"]))
+        fam_mean[role] = {f: float(np.mean(x)) for f, x in fams.items()}
+    common = sorted(set(fam_mean.get("active", {})) & set(fam_mean.get("candidate", {})))
+    diffs = {f: fam_mean["candidate"][f] - fam_mean["active"][f] for f in common}
+    crit_cand_only = [
+        qid
+        for qid, v in scores.get("candidate", {}).items()
+        if v.get("critical") and not scores.get("active", {}).get(qid, {}).get("critical")
+    ]
+    reasons: list[str] = []
+    bs = (
+        family_bootstrap(
+            diffs,
+            B=int(crit["bootstrap"]["B"]),
+            seed=int(crit["bootstrap"]["seed"]),
+            ci=float(crit.get("ci", 0.95)),
+        )
+        if diffs
+        else {"point": 0.0, "lo": 0.0, "hi": 0.0, "n_families": 0}
+    )
+    margin = float(crit["margin"])
+    if crit_cand_only:
+        decision = "kritik_ret"
+        reasons.append(f"Adaya özgü kritik hata: {crit_cand_only[:5]}")
+    elif bs["n_families"] < int(crit["min_families"]):
+        decision = "yetersiz_kanit"
+        reasons.append(f"Aile sayısı {bs['n_families']} < {crit['min_families']}")
+    elif bs["hi"] < -margin:
+        decision = "ret"
+        reasons.append(f"GA üst sınırı {bs['hi']:.3f} < −{margin}")
+    elif bs["lo"] > -margin and bs["point"] >= 0:
+        decision = "kabul"
+        reasons.append(f"GA alt sınırı {bs['lo']:.3f} > −{margin} ve nokta {bs['point']:.3f} ≥ 0")
+    else:
+        decision = "yetersiz_kanit"
+        reasons.append(f"GA [{bs['lo']:.3f}, {bs['hi']:.3f}] kararsız (tolerans {margin})")
+    meta = m.get("candidate_meta") or {}
+    verified = bool((meta.get("completion") or {}).get("ok")) and bool(
+        (meta.get("conversion") or {}).get("ok")
+    )
+    if decision == "kabul" and not verified:
+        decision = "yetersiz_kanit"
+        reasons.append("Adayın tamamlanma/dönüşüm doğrulaması geçmedi → en fazla yetersiz kanıt")
+    if m["role"] == "development" and m.get("role_requested") == "final":
+        reasons.append(m["role_note"])
+    base_score = float(np.mean(list(fam_mean["base"].values()))) if fam_mean.get("base") else None
+    result = {
+        "comparison_id": cmp_id,
+        "decision": decision,
+        "reasons": reasons,
+        "bootstrap": bs,
+        "family_means": fam_mean,
+        "family_diffs": diffs,
+        "model_scores": {r: float(np.mean(list(v.values()))) for r, v in fam_mean.items()},
+        "base_reference": base_score,
+        "role": m["role"],
+        "criteria_sha": m["criteria_sha"],
+        "finalized_at": utcnow(),
+        "disclaimer": DISCLAIMER,
+    }
+    _write(_root() / cmp_id / "result.json", result)
+    record_decision(
+        {
+            "candidate_tag": m["models"]["candidate"],
+            "candidate_digest": (m.get("digests") or {}).get("candidate", ""),
+            "decision": decision,
+            "comparison_id": cmp_id,
+            "adapter_id": meta.get("adapter_id", ""),
+            "criteria_sha": m["criteria_sha"],
+            "summary": "; ".join(reasons)[:500],
+            "active_tag": m["models"]["active"],
+            "role": m["role"],
+        }
+    )
+    _sync_registry(meta.get("adapter_id", ""), decision)
+    m["status"] = "decided"
+    _write(_root() / cmp_id / "manifest.json", m)
+    if m.get("role_requested") == "final":
+        _log_final_access({"kind": "result", "set_sha": m["set_sha"], "comparison_id": cmp_id})
+    return result
+
+
+def _sync_registry(adapter_id: str, decision: str) -> None:
+    """Kabul → eval_passed (etkinleştirmeye uygun); ret/kritik → rejected. Production YOK."""
+    if not adapter_id:
+        return
+    from app.feedback.model_activation import registry_path
+    from app.lora.adapter_registry import AdapterRegistry, AdapterStatus
+
+    reg = AdapterRegistry(registry_path())
+    rows = reg.list_adapters()
+    target = next((r for r in rows if r.adapter_id == adapter_id), None)
+    if target is None:
+        return
+    if decision == "kabul" and target.status is AdapterStatus.CANDIDATE:
+        target.status = AdapterStatus.EVAL_PASSED
+        reg._write_all(rows)
+    elif decision in ("ret", "kritik_ret"):
+        reg.reject(adapter_id, f"karşılaştırma kararı: {decision}")
+
+
+def result(cmp_id: str) -> dict[str, Any]:
+    m = _manifest(cmp_id)
+    res = _read(_root() / cmp_id / "result.json")
+    if m.get("role_requested") == "final" and res is not None:
+        _log_final_access({"kind": "view", "set_sha": m["set_sha"], "comparison_id": cmp_id})
+    return {"manifest": m, "result": res}
+
+
+def list_comparisons() -> list[dict[str, Any]]:
+    root = _root()
+    if not root.is_dir():
+        return []
+    out = []
+    for p in sorted(root.glob("cmp_*/manifest.json")):
+        m = _read(p)
+        if isinstance(m, dict):
+            out.append(
+                {
+                    k: m.get(k)
+                    for k in (
+                        "comparison_id",
+                        "created_at",
+                        "role",
+                        "status",
+                        "models",
+                        "n_questions",
+                        "n_families",
+                    )
+                }
+            )
+    return sorted(out, key=lambda r: str(r.get("created_at")), reverse=True)

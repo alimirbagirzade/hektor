@@ -19,12 +19,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import sys
 import warnings
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Base'i çevrimiçi yeniden çözmesin (Kademe-2 D9): eğitimdeki yerel snapshot kullanılır.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
@@ -62,6 +65,9 @@ def gate_failures(metrics: list[dict[str, Any]], *, max_kl: float = MAX_KL) -> l
     """Prompt başına ölçümlerden kapı ihlallerini döndür (boş liste = geçti). Saf → test."""
     fails: list[str] = []
     for i, m in enumerate(metrics):
+        if not all(math.isfinite(float(m[key])) for key in ("effect", "diff", "kl")):
+            fails.append(f"prompt {i}: sonlu olmayan ölçüm")
+            continue
         if m["effect"] < MIN_ADAPTER_EFFECT:
             fails.append(f"prompt {i}: adapter etkisi {m['effect']:.3g} < {MIN_ADAPTER_EFFECT}")
         if m["diff"] > MAX_MERGE_TO_EFFECT * m["effect"]:
@@ -71,6 +77,32 @@ def gate_failures(metrics: list[dict[str, Any]], *, max_kl: float = MAX_KL) -> l
         if m["top10"] < MIN_TOP10_OVERLAP or not m["same_top"]:
             fails.append(f"prompt {i}: en olası tokenlar değişti")
     return fails
+
+
+def distribution_metrics(before: Any, after: Any, base_logits: Any) -> dict[str, Any]:
+    """Her token konumunu denetle; son konumun iyi olması öncekileri gizleyemez."""
+    import torch
+
+    if not all(torch.isfinite(value).all() for value in (before, after, base_logits)):
+        raise ValueError("Sonlu olmayan logit — dağılım karşılaştırması geçersiz")
+    kl_positions = torch.nn.functional.kl_div(
+        after.log_softmax(-1),
+        before.log_softmax(-1),
+        log_target=True,
+        reduction="none",
+    ).sum(-1)
+    before_top = before.topk(10, dim=-1).indices
+    after_top = after.topk(10, dim=-1).indices
+    overlaps = (before_top.unsqueeze(-1) == after_top.unsqueeze(-2)).any(-1).sum(-1)
+    return {
+        "diff": float((before - after).abs().max()),
+        "effect": float((before - base_logits).abs().max()),
+        "kl": float(kl_positions.max()),
+        "kl_mean": float(kl_positions.mean()),
+        "positions": int(before.shape[0]),
+        "top10": int(overlaps.min()),
+        "same_top": bool((before.argmax(-1) == after.argmax(-1)).all()),
+    }
 
 
 def _sha256(path: Path) -> str:
@@ -85,6 +117,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("adapter", help="models/adapters/<ad> ya da tam yol")
     ap.add_argument("--out", required=True, help="Birleşik modelin yazılacağı klasör")
+    ap.add_argument("--report", type=Path, help="Başarısız kapı dahil ölçüm kanıtını kaydet")
+    ap.add_argument("--reference-logits", type=Path, help="Yeniden yükleme için ölçülmüş referans")
     ap.add_argument(
         "--allow-incomplete",
         action="store_true",
@@ -98,6 +132,8 @@ def main() -> int:
         "kullanılan değer ve istisna merge_info.json'a yazılır. Diğer kapılar DEĞİŞMEZ.",
     )
     args = ap.parse_args()
+    if args.reference_logits and args.reference_logits.exists():
+        raise FileExistsError(args.reference_logits)
     if args.max_kl != MAX_KL:
         print(f"UYARI: KL kapısı {MAX_KL} → {args.max_kl} (insan kararı; kayda geçer)", flush=True)
 
@@ -162,6 +198,18 @@ def main() -> int:
         loaded += 1
     print(f"adapter tensörleri doğrulandı: {loaded}/{len(file_sd)}", flush=True)
     model.eval()
+    reference_recipe_path = adapter_dir / "reference_recipe.json"
+    if "mergeaware" in adapter_dir.name and not reference_recipe_path.exists():
+        raise ValueError("Merge-aware adapter için reference_recipe.json zorunlu")
+    reference_recipe = "standard_peft"
+    if reference_recipe_path.exists():
+        recipe = json.loads(reference_recipe_path.read_text(encoding="utf-8"))
+        if recipe["mode"] != "merge_aware_bf16_v1":
+            raise ValueError("Bilinmeyen adapter reference reçetesi")
+        from app.training.merge_aware_lora import install_merge_aware
+
+        install_merge_aware(model)
+        reference_recipe = recipe["mode"]
 
     probe_ids = []
     for msgs in PROBES:
@@ -172,32 +220,48 @@ def main() -> int:
     befores, bases = [], []
     with torch.no_grad():
         for ids in probe_ids:
-            befores.append(model(input_ids=ids).logits[0, -1].float())
+            befores.append(model(input_ids=ids).logits[0].float())
             with model.disable_adapter():
-                bases.append(model(input_ids=ids).logits[0, -1].float())
-    merged = model.merge_and_unload()
+                bases.append(model(input_ids=ids).logits[0].float())
+    if args.reference_logits:
+        from safetensors.torch import save_file
+
+        args.reference_logits.parent.mkdir(parents=True, exist_ok=True)
+        tensors = {}
+        for i, (ids, before, baseline) in enumerate(zip(probe_ids, befores, bases, strict=True)):
+            tensors[f"ids_{i}"] = ids.contiguous()
+            tensors[f"before_{i}"] = before.contiguous()
+            tensors[f"base_{i}"] = baseline.contiguous()
+        save_file(tensors, str(args.reference_logits))
+    merged_weight_diagnostics = None
+    if reference_recipe == "merge_aware_bf16_v1":
+        from peft.tuners.lora.layer import Linear
+
+        changed, total = 0, 0
+        delta_squared_norm = 0.0
+        for module in model.modules():
+            if isinstance(module, Linear):
+                delta = module.get_delta_weight("default")
+                combined = (module.base_layer.weight.float() + delta).to(
+                    module.base_layer.weight.dtype
+                )
+                if not torch.isfinite(combined).all():
+                    raise ValueError("Sonlu olmayan birleşik ağırlık — merge durduruldu")
+                changed += int((combined != module.base_layer.weight).sum())
+                total += combined.numel()
+                delta_squared_norm += float(delta.square().sum())
+        merged_weight_diagnostics = {
+            "changed_elements": changed,
+            "total_adapted_elements": total,
+            "changed_fraction": changed / total,
+            "delta_l2_norm": math.sqrt(delta_squared_norm),
+        }
+    merged = model.merge_and_unload(safe_merge=False)
     metrics: list[dict[str, Any]] = []
     with torch.no_grad():
         for ids, before, base_logits in zip(probe_ids, befores, bases, strict=True):
-            after = merged(input_ids=ids).logits[0, -1].float()
-            metrics.append(
-                {
-                    "diff": float((before - after).abs().max()),
-                    "effect": float((before - base_logits).abs().max()),
-                    "kl": float(
-                        torch.nn.functional.kl_div(
-                            after.log_softmax(-1),
-                            before.log_softmax(-1),
-                            log_target=True,
-                            reduction="sum",
-                        )
-                    ),
-                    "top10": len(
-                        set(before.topk(10).indices.tolist()) & set(after.topk(10).indices.tolist())
-                    ),
-                    "same_top": int(before.argmax()) == int(after.argmax()),
-                }
-            )
+            after = merged(input_ids=ids).logits[0].float()
+            metrics.append(distribution_metrics(before, after, base_logits))
     for i, m in enumerate(metrics):
         print(
             f"prompt {i}: birleştirme |fark|max={m['diff']:.4g} · adapter etkisi "
@@ -206,6 +270,33 @@ def main() -> int:
             flush=True,
         )
     fails = gate_failures(metrics, max_kl=args.max_kl)
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        with args.report.open("x", encoding="utf-8") as stream:
+            json.dump(
+                {
+                    "base": base,
+                    "reference_recipe": reference_recipe,
+                    "merged_weight_diagnostics": merged_weight_diagnostics,
+                    "adapter_sha256": _sha256(weights),
+                    "probes": metrics,
+                    "max_kl": max(m["kl"] for m in metrics),
+                    "kl_gate": args.max_kl,
+                    "kl_direction": "KL(adapter+base || merged)",
+                    "measurement_scope": "all_prompt_positions",
+                    "logits_dtype": "float32_from_bfloat16_forward",
+                    "gate_failures": fails,
+                    "passed": not fails,
+                    "versions": {
+                        "torch": torch.__version__,
+                        "peft": peft.__version__,
+                        "transformers": transformers.__version__,
+                    },
+                },
+                stream,
+                ensure_ascii=False,
+                indent=2,
+            )
     if fails:
         print("HATA: birleşik model doğrulaması başarısız — dönüşüme geçilmez:")
         for f in fails:
@@ -223,6 +314,7 @@ def main() -> int:
         json.dumps(
             {
                 "base": base,
+                "reference_recipe": reference_recipe,
                 "base_snapshot": base_snapshot,
                 "adapter": str(adapter_dir),
                 # Köken (Kademe-2 D4d): hangi ağırlık, hangi koşu, hangi kütüphaneler.
@@ -240,6 +332,10 @@ def main() -> int:
                 "kl_peft_vs_merged": max(m["kl"] for m in metrics),
                 "kl_gate": args.max_kl,
                 "kl_gate_override": args.max_kl != MAX_KL,
+                "kl_direction": "KL(adapter+base || merged)",
+                "measurement_scope": "all_prompt_positions",
+                "logits_dtype": "float32_from_bfloat16_forward",
+                "base_revision": Path(base).name if Path(base).is_dir() else None,
                 "top10_overlap": min(m["top10"] for m in metrics),
                 "top_same": all(m["same_top"] for m in metrics),
                 "probes": metrics,
@@ -253,5 +349,18 @@ def main() -> int:
     return 0
 
 
+def _locked_main() -> int:
+    """Ortak ağır iş kilidi altında birleştir (adapter_to_ollama.ps1 kilidi zaten tutuyorsa
+    ``HEKTOR_HEAVY_LOCK_TOKEN`` ile devralınır)."""
+    from app.training.resource_lock import HeavyJobBusy, hold
+
+    try:
+        with hold("conversion", "merge_adapter"):
+            return main()
+    except HeavyJobBusy as exc:
+        print(f"HATA: {exc}", file=sys.stderr, flush=True)
+        return 9
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_locked_main())

@@ -87,6 +87,8 @@ class AssemblyResult:
     low_value_dropped: int = 0  # atılan çekimser / "pasaj" atıflı sentetik örnek
     distill_n: int = 0  # eklenen öz-damıtma satırı (yeniden doğrulama sonrası, dedup öncesi)
     template_thinned: int = 0  # kalıplaşmış olduğu için alınmayan öz-damıtma satırı
+    # Seçili sohbet veri sürümü (yalnız train satırları) + satır/token payı; seçim yoksa None.
+    chat: dict[str, Any] | None = field(default=None)
 
     @property
     def total(self) -> int:
@@ -131,6 +133,8 @@ def assemble_sft_lines(
     seed: int = 0,
     synth_cap: int = CANONICAL_SYNTH_CAP,
     distill: bool = True,
+    chat: bool = True,
+    token_counter: Callable[[str], int] | None = None,
 ) -> AssemblyResult:
     """Birleşik SFT JSONL satırlarını kur (eğitim BAŞLATMAZ).
 
@@ -142,6 +146,11 @@ def assemble_sft_lines(
         synth_cap: >0 → sentetik QA en çok bu kadar satır (`_cap_synth`); 0 = sınırsız.
             Varsayılan kanonik sınır (`CANONICAL_SYNTH_CAP`).
         distill: `distill_qa.jsonl` (base öz-damıtma, `hektor synth-distill`) varsa ekle.
+        chat: `data/lora_sft/chat_selection.json` ile SEÇİLMİŞ sohbet veri sürümünün YALNIZ
+            train satırlarını ekle (seçim yoksa hiçbir şey eklenmez → çıktı öncekiyle aynı).
+            Pay satır VE eğitim hedef token payında `learning_chat_max_share` ile sınırlıdır;
+            eksiltme aile düzeyinde, tekrarla çoğaltma yok. Değerlendirme satırları okunmaz.
+        token_counter: Token payı sayacı (None → base tokenizer yerelde varsa o, yoksa yaklaşık).
     """
     lora_dir = settings.root / "data" / "lora_sft"
     synth_path = lora_dir / "synthetic_qa.jsonl"
@@ -201,6 +210,35 @@ def assemble_sft_lines(
 
     merged, template_thinned = thin_template_rows(merged)
 
+    chat_stats: dict[str, Any] | None = None
+    if chat:
+        from app.feedback.chat_dataset import (
+            apply_chat_share,
+            load_selected_train_lines,
+            make_token_counter,
+        )
+
+        loaded = load_selected_train_lines()  # seçim yoksa None; özet uyuşmazsa ValueError
+        if loaded is not None:
+            chat_lines, selection = loaded
+            existing = set(merged)
+            chat_lines = [
+                ln for ln in (redact_pii_line(x) for x in chat_lines) if ln not in existing
+            ]
+            method = "enjekte sayaç"
+            if token_counter is None:
+                token_counter, method = make_token_counter()
+            kept, chat_stats = apply_chat_share(
+                merged,
+                chat_lines,
+                max_share=float(getattr(settings, "learning_chat_max_share", 0.10)),
+                seed=seed,
+                token_counter=token_counter,
+                token_method=method,
+            )
+            chat_stats["version_id"] = selection.get("version_id", "")
+            merged = merged + kept
+
     return AssemblyResult(
         lines=merged,
         synth_n=synth_n,
@@ -210,6 +248,7 @@ def assemble_sft_lines(
         low_value_dropped=low_value_dropped,
         distill_n=distill_n,
         template_thinned=template_thinned,
+        chat=chat_stats,
     )
 
 

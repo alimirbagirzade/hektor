@@ -218,13 +218,23 @@ Tarayıcıda şunu yaz:  **http://127.0.0.1:8765**
 - Sistem otomatik okur ve indeksler. **Aynı makaleyi 2 kez yüklersen otomatik atlar.**
 
 ### 3) Soru sor
-- **01 · ARAŞTIRMA** sekmesine git.
-- Sorunu yaz (örn. _"Momentum yüksek volatilitede nasıl çalışır?"_) → **SORGULA**.
+- **00 · SOHBET** sekmesine git (açılışta varsayılan). Sorunu yaz → **GÖNDER**.
 - Cevap **yalnızca senin makalelerine** dayanır; kaynak yoksa "bulunamadı" der (uydurmaz).
+- Üst şerit cevabı veren modelin **tam adını ve digest'ini**, her cevap kullanılan kaynakları,
+  kontrolleri ve **modele aktarılan önceki turları** gösterir. Konuşmanın tamamı saklanır.
+- Cevabın altında: **Faydalı** (yalnız geri bildirim) · **Hatalı** (hata kuyruğu) ·
+  **Düzelt** / **Öğrensin** (yalnız bunlar eğitim adayı olur) · **Eğitimden hariç tut**.
+- Adaylar **16 · ÖĞRENME HAVUZU**'nda: toplandı / doğrulandı / eğitimde kullanıldı ayrı sayılır,
+  değişmez veri sürümü oluşturulur. **Eğitim kendiliğinden başlamaz** (Kural 8). Ayrıntı:
+  [docs/PROTOKOL_SOHBETTEN_OGRENME.md](docs/PROTOKOL_SOHBETTEN_OGRENME.md).
+- Eski tek-soru ekranı **01 · ARAŞTIRMA**'da durur; MLX adapter yolu ve LoRA (PEFT) sohbeti
+  silinmedi, "Gelişmiş / teşhis" altına alındı.
 
 ### Sekmeler ne işe yarar? (9 sekme)
 | Sekme | Ne yapar (basitçe) |
 |-------|--------------------|
+| **00 SOHBET** | Tek ana sohbet: geçmişli, model kimlikli, kaynaklı cevap + Öğrensin/Düzelt |
+| **16 ÖĞRENME HAVUZU** | Eğitim adayları, inceleme, hata kuyruğu, değişmez sohbet veri sürümleri |
 | **01 ARAŞTIRMA** | Soru sor → makalelerden kaynaklı cevap (hipotez + test noktası) |
 | **02 MAKALELER** | PDF yükle / kütüphaneni gör |
 | **03 TRADER BEYİN** | Çıkarılan formüller ve kavramlar |
@@ -1125,6 +1135,10 @@ uv run hektor approval-approve <id>    # taze onay ver (tek kullanımlık — st
 uv run hektor approval-reject <id>     # onayı reddet
 uv run hektor approval-status <id>     # bir onayın durumunu READ-ONLY göster (tüketmez)
 uv run hektor train-doctor             # koşan eğitimin sağlığı + yetkisi (salt-okuma; DİKKAT/OK/BOŞTA)
+uv run hektor kademe2-kayit --findings f.json --recipe-sha <sha> --evidence "..."  # kapanmış Kademe 2 kaydı (kolay eğitim akışı ister)
+uv run hektor candidate-verify <adapter> --ollama-tag <etiket>  # tamamlanma + dönüşüm doğrulaması (salt-okuma)
+uv run hektor compare-run --set s.jsonl --active A --candidate C --base B --adapter <ad>  # kilitli ölçütle karşılaştırma + kör paket (etkinleştirmez)
+uv run python -m app.training.resource_lock status   # ortak ağır iş kilidi (eğitim/dönüşüm/karşılaştırma)
 uv run hektor train-recovery-check     # nöbetçi çöken koşuyu diriltmeye YETKİLİ mi (salt-okuma, fail-closed)
 uv run hektor stop-all                 # KÜRESEL acil-durdurma (tüm tehlikeli aksiyonları blokla)
 uv run hektor clear-stop-all           # acil-durdurmayı kaldır
