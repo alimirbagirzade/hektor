@@ -51,6 +51,10 @@ DEFAULT_SET = "evals/candidate_compare/smoke_v1.jsonl"
 ACTIVE = ("starting", "running", "stopping")
 _STEP_RE = re.compile(r"\b([1-5])/5\b")
 _PROG_RE = re.compile(r"İLERLEME\s+(\d+)/(\d+)")
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+_SPIN_RE = re.compile(
+    r"^(gathering model components|copying file|parsing GGUF|using existing layer)\b.*"
+)
 
 
 class JobError(ValueError):
@@ -193,7 +197,7 @@ def _stage(job: dict[str, Any]) -> dict[str, Any]:
     log = Path(job.get("log_path") or "")
     tail = ""
     with contextlib.suppress(OSError):
-        data = log.read_bytes()[-20000:]
+        data = log.read_bytes()[-400_000:]
         tail = data.decode("utf-8", errors="replace")
     with contextlib.suppress(OSError):  # çalıştırıcının kendi hatası (ör. içe aktarma)
         rlog = log.with_name(log.name.replace(".log", ".runner.log"))
@@ -209,7 +213,9 @@ def _stage(job: dict[str, Any]) -> dict[str, Any]:
         if prog:
             i, n = prog[-1]
             stage = {"label": f"cevap {i}/{n}", "done": int(i), "total": int(n)}
-    lines = [ln for ln in tail.splitlines() if ln.strip()]
+    # Terminal denetim dizileri ve dönen imleç (Ollama ilerleme çubuğu) ekranda gürültüdür.
+    clean = _ANSI_RE.sub("\n", tail).replace("\r", "\n")
+    lines = [ln for ln in clean.splitlines() if ln.strip() and not _SPIN_RE.match(ln.strip())]
     return {**stage, "log_tail": lines[-15:]}
 
 
