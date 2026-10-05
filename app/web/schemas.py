@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -53,6 +55,10 @@ class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     top_k: int | None = Field(default=None, ge=1, le=20)
     adapter_version: str | None = None  # belirtilirse MLX adapter ile yanıtla
+    # Sohbet yolu (Faz 1): verilirse tur geçmişe kaydedilir, son N tur modele aktarılır.
+    conversation_id: str | None = Field(default=None, max_length=40)
+    # Aynı istek kimliği tekrar gönderilirse yeni tur/cevap ÜRETİLMEZ (çift tıklama/yeniden deneme).
+    client_request_id: str | None = Field(default=None, max_length=80)
 
 
 class SourceOut(BaseModel):
@@ -69,6 +75,16 @@ class AskResponse(BaseModel):
     llm_used: bool
     embedding_mode: str
     adapter_used: str | None = None  # kullanılan adapter versiyonu
+    # Yalnız sohbet yolunda dolu (conversation_id verildiğinde):
+    conversation_id: str | None = None
+    turn_id: str | None = None
+    turn_index: int | None = None
+    turn_status: str | None = None  # answered | no_llm | blocked | error
+    status_detail: str = ""
+    replayed: bool = False  # aynı istek kimliği → kayıtlı tur döndü, yeni cevap üretilmedi
+    model: dict[str, Any] | None = None  # {tag, digest, digest_note, origin, setting_source}
+    history_turn_ids: list[str] = Field(default_factory=list)  # modele aktarılan turlar
+    checks: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ---------- LoRA sohbet (eğitilen adapter ile lokal, PEFT — Ollama'sız) ----------

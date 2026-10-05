@@ -33,6 +33,22 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-05 — Sohbetten Öğrenme Faz 1 (dal `claude/hektor-learning-from-chat-f23206`, main'e birleşmedi)
+
+Tek ana sohbet (**00 · SOHBET**, Ollama+RAG, geçmişli, model kimlikli) + **16 · ÖĞRENME
+HAVUZU**. Yalnız **Öğrensin/Düzelt** aday üretir; Faydalı/Hatalı üretmez. Kapsamlı LLM'siz
+kontroller (hesap / kaynak / atıf kimliği / Kural 1; backtest ve kod testi "yapılamadı"),
+gerekçeli insan onayı ayrı sınıf. Aile düzeyinde kalıcı train/eval, köprü = sızıntı çatışması,
+trading zaman sıralı. Değişmez sürümler `data/learning/chat_datasets/chat_vN/` (eval ayrı
+dosya, eğitime girmez); kanonik birleştirme yalnız `assemble_sft.py --chat-dataset` seçimiyle,
+satır+hedef token payı ≤ %10. Seçili sürümde sonradan geçersizleşen kayıt → pretrain-gate +
+web/CLI başlatma kapısı NO-GO. Sunucu tarafı kaynak koruması (RAM/VRAM ayrı, ölçüme dayalı) +
+sohbet kirası ↔ başlatma kilidi. Eğitim/etkinleştirme/bulut YOK (Faz 2/3). Protokol:
+`docs/PROTOKOL_SOHBETTEN_OGRENME.md`. Yeni tablolar yalnız eklenir; geri alma
+`scripts/chat_learning_rollback.py`. **8765'teki web süreci yeniden başlatılmadı**; yeni uçlar
+için birleştirme sonrası güvenli bir zamanda yeniden başlatma gerekir. Canlı 30B tur, "Kaynak
+ölç" ve eğitim sırasındaki davranış gerçek Ollama ile ölçülmedi.
+
 ### 2026-10-01 — tek tuş araştırma paketi (doğrulandı; eğitim sonrası canlı pilot bekliyor)
 
 Kullanıcı kapsamı: araştırma + kontrollü RAG işleme + aday veri hazırlığı; yeni ağır

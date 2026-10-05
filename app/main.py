@@ -3251,6 +3251,9 @@ def lora_cloud_prep(
     combined = lora_dir / "lora_sft.jsonl"
     combined.parent.mkdir(parents=True, exist_ok=True)
     combined.write_text("\n".join(res.lines) + ("\n" if res.lines else ""), encoding="utf-8")
+    from app.feedback.chat_dataset import note_assembly
+
+    note_assembly(combined, res.chat)  # seçili sohbet sürümü girdiyse bağlantı kaydı
     n = res.total
 
     # 2) Reçete: profil verilirse hiperparametreleri ondan al (discipline_safe = v5 reçetesi:
@@ -3970,6 +3973,11 @@ def pretrain_gate_cmd(
         report.freshness = fresh.status
         report.blockers.extend(fresh.blockers)
         report.warnings.extend(fresh.warnings)
+    # Seçili sohbet veri sürümü (data/lora_sft/chat_selection.json): sonradan reddedilen /
+    # hariç tutulan / düzenlenen kayıt varsa eğitim başlamaz; yeni sürüm istenir.
+    from app.feedback.chat_dataset import chat_selection_blockers
+
+    report.blockers.extend(chat_selection_blockers())
     report.verdict = "NO-GO" if report.blockers else "GO"
 
     if as_json:

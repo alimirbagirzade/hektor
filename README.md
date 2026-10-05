@@ -218,13 +218,23 @@ Tarayıcıda şunu yaz:  **http://127.0.0.1:8765**
 - Sistem otomatik okur ve indeksler. **Aynı makaleyi 2 kez yüklersen otomatik atlar.**
 
 ### 3) Soru sor
-- **01 · ARAŞTIRMA** sekmesine git.
-- Sorunu yaz (örn. _"Momentum yüksek volatilitede nasıl çalışır?"_) → **SORGULA**.
+- **00 · SOHBET** sekmesine git (açılışta varsayılan). Sorunu yaz → **GÖNDER**.
 - Cevap **yalnızca senin makalelerine** dayanır; kaynak yoksa "bulunamadı" der (uydurmaz).
+- Üst şerit cevabı veren modelin **tam adını ve digest'ini**, her cevap kullanılan kaynakları,
+  kontrolleri ve **modele aktarılan önceki turları** gösterir. Konuşmanın tamamı saklanır.
+- Cevabın altında: **Faydalı** (yalnız geri bildirim) · **Hatalı** (hata kuyruğu) ·
+  **Düzelt** / **Öğrensin** (yalnız bunlar eğitim adayı olur) · **Eğitimden hariç tut**.
+- Adaylar **16 · ÖĞRENME HAVUZU**'nda: toplandı / doğrulandı / eğitimde kullanıldı ayrı sayılır,
+  değişmez veri sürümü oluşturulur. **Eğitim kendiliğinden başlamaz** (Kural 8). Ayrıntı:
+  [docs/PROTOKOL_SOHBETTEN_OGRENME.md](docs/PROTOKOL_SOHBETTEN_OGRENME.md).
+- Eski tek-soru ekranı **01 · ARAŞTIRMA**'da durur; MLX adapter yolu ve LoRA (PEFT) sohbeti
+  silinmedi, "Gelişmiş / teşhis" altına alındı.
 
 ### Sekmeler ne işe yarar? (9 sekme)
 | Sekme | Ne yapar (basitçe) |
 |-------|--------------------|
+| **00 SOHBET** | Tek ana sohbet: geçmişli, model kimlikli, kaynaklı cevap + Öğrensin/Düzelt |
+| **16 ÖĞRENME HAVUZU** | Eğitim adayları, inceleme, hata kuyruğu, değişmez sohbet veri sürümleri |
 | **01 ARAŞTIRMA** | Soru sor → makalelerden kaynaklı cevap (hipotez + test noktası) |
 | **02 MAKALELER** | PDF yükle / kütüphaneni gör |
 | **03 TRADER BEYİN** | Çıkarılan formüller ve kavramlar |

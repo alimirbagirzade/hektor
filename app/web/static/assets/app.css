@@ -3029,3 +3029,254 @@ code {
     stroke-dasharray: none;
   }
 }
+
+/* ---------- 00 · SOHBET + 16 · ÖĞRENME HAVUZU (Faz 1) ---------- */
+.badge-danger {
+  background: var(--neg-soft);
+  color: var(--neg);
+  border: 1px solid var(--neg-border);
+}
+.chat-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .chat-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.chat-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-conv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.chat-conv {
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink);
+}
+.chat-conv.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.chat-modelbar {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-resource-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.chat-thread {
+  max-height: 62vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px;
+  margin-bottom: 10px;
+}
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat-q,
+.chat-a {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  background: var(--surface);
+}
+.chat-q {
+  background: var(--primary-soft);
+  align-self: flex-end;
+  max-width: 85%;
+}
+.chat-turn-head {
+  font-size: 12px;
+  color: var(--ink-dim);
+  margin-bottom: 4px;
+}
+.chat-answer {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.chat-blocked {
+  color: var(--warn);
+}
+.chat-meta {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.chat-pre {
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--bg);
+  padding: 6px;
+  border-radius: 6px;
+}
+.chat-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.btn-on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.btn-ghost {
+  background: transparent;
+}
+.chat-state {
+  margin-top: 4px;
+}
+.chat-cand {
+  margin-top: 4px;
+  font-size: 13px;
+}
+.chat-form textarea,
+.chat-dialog textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+.chat-dialog {
+  width: min(760px, 92vw);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.diag-details {
+  margin-top: 8px;
+}
+.diag-details > summary {
+  cursor: pointer;
+  color: var(--ink-dim);
+}
+.lp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+}
+.lp-box {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  background: var(--surface);
+}
+.lp-num {
+  font-size: 26px;
+  font-weight: 700;
+}
+.lp-lbl {
+  font-weight: 600;
+}
+.lp-sub {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.lp-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.lp-tabs .active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.lp-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--surface);
+}
+.lp-card-head {
+  margin-bottom: 4px;
+}
+.lp-target {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  padding: 4px 0;
+}
+.lp-checks {
+  margin: 6px 0;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.lp-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.lp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 8px;
+}
+.lp-table th,
+.lp-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 4px 6px;
+  text-align: left;
+}
+.lp-preview {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.inline-details {
+  display: inline;
+}
+.lp-head-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lp-h3 {
+  margin: 0;
+}
+.diag-summary-h3 {
+  display: inline;
+}

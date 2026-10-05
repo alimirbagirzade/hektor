@@ -118,7 +118,7 @@
   // 11 sekme 5 mantıklı gruba toplanır. data-tab değerleri ve panel-<name>
   // ID'leri DEĞİŞMEZ; bu yalnız üst-navigasyon + görünürlük katmanıdır.
   var TAB_GROUPS = [
-    { key: "kesfet", tabs: ["research", "rlm"] },
+    { key: "kesfet", tabs: ["chat", "learnpool", "research", "rlm"] },
     { key: "kutuphane", tabs: ["papers"] },
     { key: "trader", tabs: ["trader", "backtest"] },
     { key: "egitim", tabs: ["review", "training", "eval", "orchestration", "feedback"] },
@@ -138,6 +138,11 @@
     izleme: "İzleme & sağlık",
   };
   var NEXT_STEPS = {
+    chat:
+      "Soru sor; cevabın altındaki Öğrensin/Düzelt yalnız seçtiğin içeriği eğitim adayı yapar. " +
+      "Eğitim kendiliğinden başlamaz.",
+    learnpool:
+      "İnceleme bekleyenleri düzelt ya da gerekçeyle onayla; yeterli veri olunca veri sürümü oluştur.",
     research: "Sonuç gelmiyorsa önce Kütüphane'den makale ekle, sonra burada soru sor.",
     rlm: "Daha titiz, iddia-düzeyi kaynak-doğrulamalı cevap için bir koşuya tıkla.",
     papers: "PDF sürükle-bırak ya da arXiv'den çek; sonra Keşfet & sor'da soru sor.",
@@ -187,6 +192,8 @@
   }
 
   function runTabLoader(name) {
+    if (name === "chat") loadChat();
+    if (name === "learnpool") loadLearnPool();
     if (name === "papers") loadPapers();
     if (name === "trader") {
       loadTraderBrain();
@@ -221,7 +228,7 @@
   }
 
   function setActiveTab(name, opts) {
-    if (!validTab(name)) name = "research";
+    if (!validTab(name)) name = "chat";
     opts = opts || {};
     showGroupTabs(TAB_TO_GROUP[name].key);
     tabs.forEach(function (t) {
@@ -309,7 +316,7 @@
       if (!willOpen) {
         var active = document.querySelector(".tab.active");
         var g = active ? TAB_TO_GROUP[active.getAttribute("data-tab")] : null;
-        if (g && isAdvancedGroup(g.key)) setActiveTab("research");
+        if (g && isAdvancedGroup(g.key)) setActiveTab("chat");
       }
     });
   }
@@ -322,7 +329,7 @@
         if (validTab(saved)) name = saved;
       } catch (e) {}
     }
-    if (!name) name = "research";
+    if (!name) name = "chat";
     // Gelişmiş toggle: saklı tercih VEYA restore edilen sekme gelişmiş gruptaysa aç
     // (aksi hâlde gizli grupta aktif sekmede kalıp toggle'ı kapalı göstermek çelişir).
     var savedAdvanced = false;
@@ -331,7 +338,7 @@
     } catch (e) {}
     var restoredGroup = TAB_TO_GROUP[name] ? TAB_TO_GROUP[name].key : null;
     applyAdvanced(savedAdvanced || isAdvancedGroup(restoredGroup));
-    // 'research' varsayılan zaten aktif; ilk yüklemede onun loader'ı yok.
+    // 'research' paneli loader'sızdır; 'chat' (varsayılan) kendi loader'ını çalıştırır.
     setActiveTab(name, { runLoader: name !== "research" });
   }
 
@@ -5470,6 +5477,708 @@
     amRefreshOnce();
     amRefreshGate();
     amStartPoll();
+  }
+
+  // ---------- 00 · SOHBET (tek ekran) + 16 · ÖĞRENME HAVUZU (Faz 1) ----------
+  // Sunucu tek doğruluk kaynağıdır: her işlemden sonra konuşma /api/chat'ten yeniden okunur.
+  // Hiçbir düğme eğitim başlatmaz; model adı daima API'den okunur (sabit model adı yok).
+  var CHAT_KEY = "hektor_chat_conversation";
+  var chatState = { conv: null, turns: [], busy: false, wired: false };
+  var LP_STATUS = {
+    review: "İnceleme bekliyor",
+    eligible: "Eğitime uygun",
+    rejected: "Reddedildi",
+    excluded: "Hariç tutuldu",
+    conflict: "Çatışma",
+    leak: "Eval sızıntısı",
+    duplicate: "Yinelenen",
+  };
+  var LP_STATUS_CLS = {
+    review: "badge-warning",
+    eligible: "badge-success",
+    rejected: "badge-danger",
+    excluded: "badge-info",
+    conflict: "badge-danger",
+    leak: "badge-danger",
+    duplicate: "badge-info",
+  };
+  var CHECK_KIND = {
+    hesap: "Hesap",
+    kaynak: "Kaynak",
+    atif_kimligi: "Atıf kimliği",
+    guvenlik: "Güvenlik (Kural 1)",
+    backtest: "Backtest",
+    kod_testi: "Kod testi",
+  };
+  var CHECK_STATUS = {
+    gecti: "doğrulandı",
+    kismi: "kısmi",
+    kaldi: "çürütüldü",
+    desteklenmedi: "desteklenmedi",
+    yapilamadi: "yapılamadı",
+    uygulanmadi: "uygulanmadı",
+  };
+  var CHECK_CLS = {
+    gecti: "badge-success",
+    kismi: "badge-warning",
+    kaldi: "badge-danger",
+    desteklenmedi: "badge-warning",
+    yapilamadi: "badge-info",
+    uygulanmadi: "badge-info",
+  };
+
+  function newRequestId() {
+    try {
+      if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    } catch (e) {}
+    return "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+  function postJson(path, body) {
+    return api(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+  }
+  function shortDigest(d) {
+    if (!d) return "";
+    var s = String(d).replace(/^sha256:/, "");
+    return s.slice(0, 12) + "…";
+  }
+  function nl2br(s) {
+    return esc(s).replace(/\n/g, "<br>");
+  }
+
+  // Türe göre sonuç dili: atıf kimliğinin geçerli olması iddianın desteklendiği anlamına
+  // GELMEZ; bu yüzden "doğrulandı" yalnız hesap için, kaynak için "desteklendi" kullanılır.
+  var CHECK_STATUS_BY_KIND = {
+    atif_kimligi: { gecti: "geçerli", kaldi: "geçersiz (getirilmeyen kimlik)" },
+    kaynak: { gecti: "ile desteklendi" },
+    guvenlik: { gecti: "temiz", kaldi: "ihlal" },
+  };
+  function checkBadge(c) {
+    var byKind = CHECK_STATUS_BY_KIND[c.kind] || {};
+    var label = (CHECK_KIND[c.kind] || c.kind) + " " + (byKind[c.status] || CHECK_STATUS[c.status] || c.status);
+    if (c.scope) label += " (" + c.scope + ")";
+    return (
+      '<span class="badge ' + (CHECK_CLS[c.status] || "badge-info") + '" title="' +
+      esc(c.detail || "") + '">' + esc(label) + "</span>"
+    );
+  }
+
+  // --- model kimliği + kaynak durumu ---
+  function loadChatModel() {
+    api("/chat/model", { method: "GET" })
+      .then(function (m) {
+        var tag = document.getElementById("chatModelTag");
+        var dig = document.getElementById("chatModelDigest");
+        var org = document.getElementById("chatModelOrigin");
+        if (tag) tag.textContent = m.tag || "—";
+        if (dig) {
+          dig.textContent = m.digest
+            ? "digest " + shortDigest(m.digest)
+            : m.ollama_reachable === false
+            ? "Ollama'ya ulaşılamadı — digest bilinmiyor"
+            : m.installed === false
+            ? "Ollama'da bu etiket yok"
+            : "";
+          dig.title = m.digest || "";
+        }
+        if (org) {
+          var o = m.origin;
+          org.textContent =
+            "ayar: " + (m.setting_source || "—") + " · köken: " +
+            (o ? o.adapter + " (" + o.quant + ", " + o.record + " — digest eşleşmesi doğrulanmadı)"
+               : "köken kaydı yok");
+        }
+      })
+      .catch(function () {});
+    api("/chat/resources", { method: "GET" })
+      .then(function (d) {
+        var el = document.getElementById("chatResource");
+        var send = document.getElementById("chatSendBtn");
+        if (el) {
+          el.innerHTML =
+            '<span class="dot ' + (d.allowed ? "dot-ok" : "dot-err") + '"></span> ' +
+            esc(d.reason || "");
+        }
+        if (send && !chatState.busy) send.disabled = !d.allowed;
+        var mb = document.getElementById("chatMeasureBtn");
+        if (mb) {
+          var tr = d.training || {};
+          mb.disabled = !!(tr.active || tr.starting);
+          var fp = (d.details || {}).footprint;
+          mb.title = fp
+            ? "Son ölçüm " + (fp.measured_at || "") + ": RAM " + fp.ram_gb + " GB, VRAM " +
+              fp.vram_gb + " GB. Yeniden ölçmek modeli yükler (eğitim yokken)."
+            : "Bu model için ölçüm yok. Eğitim yokken modeli kısa bir üretimle yükleyip " +
+              "bellek ayak izini kaydeder.";
+        }
+      })
+      .catch(function () {});
+  }
+
+  // --- konuşmalar ---
+  function loadConversations() {
+    var box = document.getElementById("chatConvList");
+    if (!box) return Promise.resolve();
+    return api("/chat/conversations", { method: "GET" })
+      .then(function (d) {
+        var list = d.conversations || [];
+        if (!list.length) {
+          box.innerHTML = '<p class="muted small">Henüz konuşma yok.</p>';
+          return;
+        }
+        box.innerHTML = list
+          .map(function (c) {
+            var active = chatState.conv && chatState.conv.conversation_id === c.conversation_id;
+            return (
+              '<button type="button" class="chat-conv' + (active ? " active" : "") +
+              '" data-conv="' + esc(c.conversation_id) + '">' +
+              esc(c.title || "(başlıksız)") + ' <span class="muted small">' +
+              esc(String(c.n_turns || 0)) + " tur</span></button>"
+            );
+          })
+          .join("");
+      })
+      .catch(function (e) {
+        box.innerHTML = '<p class="muted small">Hata: ' + esc(e.message) + "</p>";
+      });
+  }
+
+  function openConversation(id) {
+    return api("/chat/conversations/" + encodeURIComponent(id), { method: "GET" })
+      .then(function (d) {
+        chatState.conv = d.conversation;
+        chatState.turns = d.turns || [];
+        try {
+          window.localStorage.setItem(CHAT_KEY, id);
+        } catch (e) {}
+        renderThread();
+        loadConversations();
+      });
+  }
+
+  function newConversation() {
+    return postJson("/chat/conversations", {}).then(function (c) {
+      chatState.conv = c;
+      chatState.turns = [];
+      try {
+        window.localStorage.setItem(CHAT_KEY, c.conversation_id);
+      } catch (e) {}
+      renderThread();
+      loadConversations();
+      return c;
+    });
+  }
+
+  function historyPart(prompt) {
+    var i = (prompt || "").indexOf("SOURCES / KAYNAKLAR:");
+    return i > 0 ? prompt.slice(0, i).trim() : "";
+  }
+
+  function candidateLine(c) {
+    var kind = c.kind === "learn" ? "Öğrensin" : "Düzeltme";
+    var v = c.verification || {};
+    var cls = v["class"] === "human" ? " · insan onaylı" : v["class"] === "auto" ? " · otomatik kanıtlı" : "";
+    return (
+      '<div class="chat-cand"><strong>' + esc(kind) + ":</strong> " +
+      '<span class="badge ' + (LP_STATUS_CLS[c.status] || "badge-info") + '">' +
+      esc(LP_STATUS[c.status] || c.status) + esc(cls) + "</span> " +
+      (v.checks || []).filter(function (k) { return k.status !== "uygulanmadi"; }).map(checkBadge).join(" ") +
+      (c.status_reason ? '<div class="muted small">' + esc(c.status_reason) + "</div>" : "") +
+      "</div>"
+    );
+  }
+
+  function renderTurn(t) {
+    // Model yalnız gerçekten cevap ürettiyse kimliğiyle gösterilir; çağrılmadıysa açıkça söylenir.
+    var m = t.llm_used && t.model_tag
+      ? esc(t.model_tag) + (t.model_digest ? " · " + esc(shortDigest(t.model_digest)) : "")
+      : t.status === "pending" ? "" : "model çağrılmadı";
+    var head = '<div class="chat-turn-head">Tur ' + esc(String(t.turn_index)) + " · Hektor" +
+      (m ? ' <span class="muted small">(' + m + ")</span>" : "") + "</div>";
+    var body;
+    if (t.status === "answered" || t.status === "no_llm") {
+      body = '<div class="chat-answer" data-answer-turn="' + esc(t.turn_id) + '">' + nl2br(t.answer) + "</div>";
+    } else if (t.status === "pending") {
+      body = '<div class="chat-answer muted"><span class="spinner"></span> cevap üretiliyor…</div>';
+    } else {
+      body = '<div class="chat-answer chat-blocked">' +
+        (t.status === "blocked" ? "Cevaplama kapalı: " : "Hata: ") + esc(t.status_detail) + "</div>";
+    }
+    var srcs = (t.sources || []);
+    var srcHtml = srcs.length
+      ? '<details class="chat-meta"><summary>Kaynaklar (' + srcs.length + ")</summary>" +
+        srcs.map(function (s) {
+          return '<div class="source-chip"><span class="cite">[' + esc(s.paper_id) + ":" +
+            esc(s.chunk_id) + (s.page ? ", s." + esc(String(s.page)) : "") + "]" +
+            (s.title ? " — " + esc(s.title) : "") + "</span></div>";
+        }).join("") + "</details>"
+      : "";
+    var checks = t.checks || [];
+    var hist = checks.filter(function (c) { return c.kind === "gecmis"; })[0];
+    var histHtml = "";
+    if (t.status === "answered") {
+      var idx = (hist && hist.turn_indexes) || [];
+      histHtml = idx.length
+        ? '<details class="chat-meta"><summary>Modele aktarılan geçmiş: ' +
+          idx.map(function (i) { return "Tur " + i; }).join(", ") +
+          (hist.truncated ? " (kısaltıldı)" : "") + "</summary><pre class=\"chat-pre\">" +
+          esc(historyPart(t.user_prompt)) + "</pre></details>"
+        : '<div class="muted small">Modele geçmiş aktarılmadı.</div>';
+    }
+    var other = checks.filter(function (c) { return c.kind !== "gecmis"; });
+    var checkHtml = other.length
+      ? '<div class="chat-meta">Kontroller: ' + other.map(checkBadge).join(" ") + "</div>"
+      : "";
+    var answered = t.status === "answered";
+    var fb = t.feedback || "";
+    var actions = "";
+    if (t.status === "answered" || t.status === "no_llm") {
+      actions =
+        '<div class="chat-actions" data-turn="' + esc(t.turn_id) + '">' +
+        '<button type="button" class="btn btn-sm' + (fb === "useful" ? " btn-on" : "") + '" data-act="useful">Faydalı</button>' +
+        '<button type="button" class="btn btn-sm' + (fb === "wrong" ? " btn-on" : "") + '" data-act="wrong" title="Hata kuyruğuna ekler. Önce cevapta hatalı kısmı seçebilirsiniz.">Hatalı</button>' +
+        (answered ? '<button type="button" class="btn btn-sm" data-act="correct" title="Doğru metni yazın; eğitim adayı olur ve kontrol edilir.">Düzelt</button>' +
+          '<button type="button" class="btn btn-sm" data-act="learn" title="Bu cevap eğitim adayı olur (kontrollerden geçer).">Öğrensin</button>' : "") +
+        '<button type="button" class="btn btn-sm btn-ghost" data-act="exclude">' +
+        (t.excluded ? "Hariç tutmayı kaldır" : "⋯ Eğitimden hariç tut") + "</button>" +
+        "</div>";
+    }
+    var state = '<div class="chat-state muted small">● Kaydedildi' +
+      (fb === "useful" ? " · Faydalı işaretlendi (aday değil)" : "") +
+      (fb === "wrong" ? " · Hata kuyruğunda" : "") +
+      (t.excluded ? " · Eğitimden hariç" : "") + "</div>";
+    var cands = (t.candidates || []).map(candidateLine).join("");
+    return (
+      '<div class="chat-turn"><div class="chat-q"><div class="chat-turn-head">Tur ' +
+      esc(String(t.turn_index)) + " · Sen</div>" + nl2br(t.question) + "</div>" +
+      '<div class="chat-a">' + head + body + srcHtml + histHtml + checkHtml + actions + state +
+      cands + "</div></div>"
+    );
+  }
+
+  function renderThread() {
+    var box = document.getElementById("chatThread");
+    if (!box) return;
+    if (!chatState.conv) {
+      box.innerHTML = '<p class="muted">Yeni bir konuşma başlatın ya da soldan seçin.</p>';
+      return;
+    }
+    if (!chatState.turns.length) {
+      box.innerHTML = '<p class="muted">Bu konuşmada henüz tur yok. İlk sorunuzu yazın.</p>';
+      return;
+    }
+    box.innerHTML = chatState.turns.map(renderTurn).join("");
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function reloadCurrent() {
+    if (chatState.conv) return openConversation(chatState.conv.conversation_id);
+    return Promise.resolve();
+  }
+
+  function sendChat(e) {
+    e.preventDefault();
+    if (chatState.busy) return;
+    var input = document.getElementById("chatInput");
+    var q = (input.value || "").trim();
+    if (q.length < 3) {
+      toast("Soru çok kısa.", true);
+      return;
+    }
+    var btn = document.getElementById("chatSendBtn");
+    var topk = parseInt(document.getElementById("chatTopk").value, 10) || null;
+    var reqId = newRequestId();
+    chatState.busy = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>ÜRETİLİYOR';
+    var ensure = chatState.conv ? Promise.resolve(chatState.conv) : newConversation();
+    ensure
+      .then(function (conv) {
+        chatState.turns.push({ turn_index: chatState.turns.length + 1, question: q, status: "pending", checks: [], sources: [] });
+        renderThread();
+        return postJson("/ask", {
+          question: q,
+          top_k: topk,
+          conversation_id: conv.conversation_id,
+          client_request_id: reqId,
+        });
+      })
+      .then(function (r) {
+        input.value = "";
+        if (r.turn_status === "blocked") toast("Cevaplama kapalı: " + (r.status_detail || ""), true);
+        return reloadCurrent();
+      })
+      .catch(function (err) {
+        toast(err.message, true);
+        return reloadCurrent();
+      })
+      .finally(function () {
+        chatState.busy = false;
+        btn.textContent = "GÖNDER →";
+        btn.disabled = false;
+        loadChatModel();
+      });
+  }
+
+  function selectionSpan(turnId) {
+    var t = chatState.turns.filter(function (x) { return x.turn_id === turnId; })[0];
+    var sel = window.getSelection ? String(window.getSelection()) : "";
+    if (!t || !sel.trim()) return [];
+    var i = (t.answer || "").indexOf(sel);
+    return i >= 0 ? [{ start: i, end: i + sel.length, note: "" }] : [];
+  }
+
+  function onChatAction(ev) {
+    var b = ev.target.closest("button[data-act]");
+    if (!b) return;
+    var wrap = b.closest("[data-turn]");
+    if (!wrap) return;
+    var turnId = wrap.getAttribute("data-turn");
+    var act = b.getAttribute("data-act");
+    var t = chatState.turns.filter(function (x) { return x.turn_id === turnId; })[0] || {};
+    var base = "/chat/turns/" + encodeURIComponent(turnId);
+    var p;
+    if (act === "useful") {
+      p = postJson(base + "/feedback", { label: t.feedback === "useful" ? "" : "useful" });
+    } else if (act === "wrong") {
+      var spans = selectionSpan(turnId);
+      var note = window.prompt("Neyi hatalı buldunuz? (isteğe bağlı)" +
+        (spans.length ? "\nSeçili kısım işaretlenecek." : ""), "");
+      if (note === null) return;
+      p = postJson(base + "/feedback", { label: "wrong", note: note, spans: spans });
+    } else if (act === "learn") {
+      b.disabled = true;
+      p = postJson(base + "/learn", {}).then(function (r) {
+        toast(r.created ? "Eğitim adayı oluşturuldu — kontroller çalıştı." : "Bu cevap zaten aday.");
+      });
+    } else if (act === "correct") {
+      openCorrectDialog(t);
+      return;
+    } else if (act === "exclude") {
+      var excl = !t.excluded;
+      var why = excl ? window.prompt("Hariç tutma nedeni (isteğe bağlı):", "") : "";
+      if (why === null) return;
+      p = postJson(base + "/exclude", { excluded: excl, reason: why || "" });
+    }
+    if (p) {
+      p.then(reloadCurrent).catch(function (err) {
+        toast(err.message, true);
+        reloadCurrent();
+      });
+    }
+  }
+
+  var correctTurnId = null;
+  function openCorrectDialog(t) {
+    var dlg = document.getElementById("chatCorrectDlg");
+    var ta = document.getElementById("chatCorrectText");
+    if (!dlg || !ta) return;
+    correctTurnId = t.turn_id;
+    var existing = (t.candidates || []).filter(function (c) { return c.kind === "correct"; })[0];
+    ta.value = existing && existing.target_text ? existing.target_text : (t.raw_answer || t.answer || "");
+    document.getElementById("chatCorrectSpans").value = JSON.stringify(selectionSpan(t.turn_id));
+    if (dlg.showModal) dlg.showModal();
+    else dlg.setAttribute("open", "");
+  }
+  function saveCorrection(e) {
+    e.preventDefault();
+    var dlg = document.getElementById("chatCorrectDlg");
+    var text = (document.getElementById("chatCorrectText").value || "").trim();
+    var dom = document.getElementById("chatCorrectDomain").value || null;
+    var spans = [];
+    try {
+      spans = JSON.parse(document.getElementById("chatCorrectSpans").value || "[]");
+    } catch (err) {}
+    if (!text || !correctTurnId) return;
+    postJson("/chat/turns/" + encodeURIComponent(correctTurnId) + "/correct", {
+      text: text,
+      domain: dom,
+      spans: spans,
+    })
+      .then(function (r) {
+        toast(r.created ? "Düzeltme aday olarak kaydedildi." : "Düzeltme güncellendi.");
+        if (dlg.close) dlg.close();
+        else dlg.removeAttribute("open");
+        return reloadCurrent();
+      })
+      .catch(function (err) {
+        toast(err.message, true);
+      });
+  }
+
+  function loadChat() {
+    if (!chatState.wired) {
+      chatState.wired = true;
+      var f = document.getElementById("chatForm");
+      if (f) f.addEventListener("submit", sendChat);
+      var nb = document.getElementById("chatNewBtn");
+      if (nb) nb.addEventListener("click", function () { newConversation(); });
+      var list = document.getElementById("chatConvList");
+      if (list) list.addEventListener("click", function (ev) {
+        var c = ev.target.closest("[data-conv]");
+        if (c) openConversation(c.getAttribute("data-conv"));
+      });
+      var th = document.getElementById("chatThread");
+      if (th) th.addEventListener("click", onChatAction);
+      var cf = document.getElementById("chatCorrectForm");
+      if (cf) cf.addEventListener("submit", saveCorrection);
+      var cc = document.getElementById("chatCorrectCancel");
+      if (cc) cc.addEventListener("click", function () {
+        var dlg = document.getElementById("chatCorrectDlg");
+        if (dlg && dlg.close) dlg.close();
+        else if (dlg) dlg.removeAttribute("open");
+      });
+      var mb = document.getElementById("chatMeasureBtn");
+      if (mb) mb.addEventListener("click", function () {
+        mb.disabled = true;
+        toast("Ölçüm: model yükleniyor (dakikalar sürebilir)…");
+        postJson("/chat/measure", {})
+          .then(function (r) {
+            var fp = r.footprint || {};
+            toast("Ölçüldü: RAM " + fp.ram_gb + " GB, VRAM " + fp.vram_gb + " GB.");
+          })
+          .catch(function (err) { toast(err.message, true); })
+          .finally(loadChatModel);
+      });
+    }
+    loadChatModel();
+    var saved = null;
+    try {
+      saved = window.localStorage.getItem(CHAT_KEY);
+    } catch (e) {}
+    loadConversations();
+    if (!chatState.conv && saved) {
+      openConversation(saved).catch(function () {
+        chatState.conv = null;
+        renderThread();
+      });
+    } else {
+      renderThread();
+    }
+  }
+
+  // --- öğrenme havuzu ---
+  var lpState = { tab: "review", wired: false };
+
+  function lpCounters(s) {
+    var bs = s.by_status || {};
+    var el = document.getElementById("lpCounters");
+    if (!el) return;
+    var rej = s.rejected_by || {};
+    var rejTxt = Object.keys(rej).map(function (k) { return k + " " + rej[k]; }).join(" · ");
+    var tu = s.training_use || {};
+    var fam = s.families || {};
+    el.innerHTML =
+      '<div class="lp-grid">' +
+      '<div class="lp-box"><div class="lp-num">' + esc(String(s.collected || 0)) + '</div><div class="lp-lbl">Toplandı</div><div class="muted small">Öğrensin + Düzelt</div></div>' +
+      '<div class="lp-box"><div class="lp-num">' + esc(String((s.eligible || {}).total || 0)) + '</div><div class="lp-lbl">Doğrulandı / eğitime uygun</div><div class="muted small">otomatik ' + esc(String((s.eligible || {}).auto || 0)) + " · insan onaylı " + esc(String((s.eligible || {}).human || 0)) + "</div></div>" +
+      '<div class="lp-box"><div class="lp-num">' + esc(String((tu.running || 0) + (tu.completed || 0) + (tu.failed || 0))) + '</div><div class="lp-lbl">Eğitimde kullanıldı</div><div class="muted small">planlandı ' + esc(String(tu.planned || 0)) + " · sürüyor " + esc(String(tu.running || 0)) + " · tamamlandı " + esc(String(tu.completed || 0)) + " · başarısız " + esc(String(tu.failed || 0)) + "</div></div>" +
+      "</div>" +
+      '<div class="lp-sub">İnceleme bekliyor <strong>' + esc(String(bs.review || 0)) + "</strong> · Reddedildi <strong>" + esc(String(bs.rejected || 0)) + "</strong>" + (rejTxt ? " (" + esc(rejTxt) + ")" : "") +
+      " · Hariç <strong>" + esc(String(bs.excluded || 0)) + "</strong> · Çatışma <strong>" + esc(String(bs.conflict || 0)) +
+      "</strong> · Eval sızıntısı <strong>" + esc(String(bs.leak || 0)) + "</strong> · Yinelenen <strong>" + esc(String(bs.duplicate || 0)) +
+      "</strong> · Hata kuyruğu (düzeltmesiz) <strong>" + esc(String(s.errors_open || 0)) + "</strong></div>" +
+      '<div class="lp-sub">Eğitim bölmesindeki (train/zaman) uygun aile: <strong>' + esc(String(fam.eligible_train_or_time || 0)) + " / " + esc(String(fam.threshold || 0)) +
+      '</strong> <span class="muted small">' + esc(fam.threshold_note || "") + "</span></div>" +
+      '<div class="muted small">' + esc(s.training_use_note || "") + "</div>";
+  }
+
+  function lpCandidateCard(c) {
+    var v = c.verification || {};
+    var cov = v.coverage || {};
+    var ha = c.human_approval || {};
+    var checks = (v.checks || []).map(checkBadge).join(" ");
+    var unc = (cov.uncovered || []);
+    var cls = v["class"] === "human" ? "insan onaylı" : v["class"] === "auto" ? "otomatik kanıtlı" : "";
+    return (
+      '<div class="lp-card" data-cand="' + esc(c.candidate_id) + '">' +
+      '<div class="lp-card-head"><span class="badge ' + (LP_STATUS_CLS[c.status] || "badge-info") + '">' + esc(LP_STATUS[c.status] || c.status) + "</span> " +
+      (cls ? '<span class="badge badge-llm">' + esc(cls) + "</span> " : "") +
+      '<span class="muted small">' + esc(c.kind === "learn" ? "Öğrensin" : "Düzeltme") + " · alan: " + esc(c.domain) +
+      " · aile: " + esc(c.family_id || "—") + (c.split ? " (" + esc(c.split) + ")" : "") +
+      " · model: " + esc(c.model_tag || "—") + " · rev " + esc(String(c.revision)) + "</span></div>" +
+      '<div class="lp-q"><strong>Soru:</strong> ' + esc(c.question) + "</div>" +
+      '<details><summary>Hedef metin (' + esc(String((c.target_text || "").length)) + " kr)</summary><div class=\"lp-target\">" + nl2br(c.target_text) + "</div></details>" +
+      '<div class="lp-checks">' + checks + "</div>" +
+      '<div class="muted small">Kapsam: ' + esc(String(cov.covered || 0)) + "/" + esc(String(cov.units || 0)) + " ifade otomatik kapsandı." +
+      (unc.length ? ' <details class="inline-details"><summary>kontrol edilemeyen ' + unc.length + "</summary><ul>" + unc.map(function (u) { return "<li>" + esc(u) + "</li>"; }).join("") + "</ul></details>" : "") + "</div>" +
+      (c.status_reason ? '<div class="small">' + esc(c.status_reason) + "</div>" : "") +
+      (ha.reason ? '<div class="small">İnsan onayı: “' + esc(ha.reason) + "” (" + esc(ha.at || "") + ")</div>" : "") +
+      '<div class="lp-actions">' +
+      '<button type="button" class="btn btn-sm" data-lp="edit">Düzenle / eksik kısmı çıkar</button>' +
+      (c.status === "review" ? '<button type="button" class="btn btn-sm" data-lp="approve" title="Çürütülmüş ifadeleri ve backtest’siz performans iddiasını onay geçerli kılamaz.">Gerekçeyle onayla</button>' : "") +
+      "</div></div>"
+    );
+  }
+
+  function lpRenderList(items, kind) {
+    var box = document.getElementById("lpList");
+    if (!box) return;
+    if (!items.length) {
+      box.innerHTML = '<p class="muted">Bu listede kayıt yok.</p>';
+      return;
+    }
+    if (kind === "errors") {
+      box.innerHTML = items.map(function (e) {
+        return '<div class="lp-card"><div class="lp-card-head">' +
+          (e.has_correction ? '<span class="badge badge-rag">düzeltme var</span>' : '<span class="badge badge-warning">düzeltme yok</span>') +
+          ' <span class="muted small">Tur ' + esc(String(e.turn_index)) + " · model: " + esc(e.model_tag || "—") + "</span></div>" +
+          '<div class="lp-q"><strong>Soru:</strong> ' + esc(e.question) + "</div>" +
+          (e.note ? '<div class="small">Not: ' + esc(e.note) + "</div>" : "") +
+          '<details><summary>Model cevabı</summary><div class="lp-target">' + nl2br(e.answer) + "</div></details>" +
+          '<div class="muted small">Doğru cevap olmadan eğitim örneği ya da puanlanabilir test sayılmaz. Sohbette “Düzelt” ile eşleştirin.</div></div>';
+      }).join("");
+      return;
+    }
+    if (kind === "echo") {
+      box.innerHTML = '<p class="muted small">Eski Echo kayıtları — salt okunur (Faz 1’de taşınmaz).</p>' +
+        items.map(function (e) {
+          return '<div class="lp-card"><span class="badge badge-info">' + esc(e.status) + '</span> <span class="muted small">' + esc(e.created_at || "") + "</span>" +
+            '<div class="lp-q"><strong>Soru:</strong> ' + esc(e.question) + "</div>" +
+            '<div class="small"><strong>Düzeltme:</strong> ' + esc(e.correction) + "</div></div>";
+        }).join("");
+      return;
+    }
+    box.innerHTML = items.map(lpCandidateCard).join("");
+  }
+
+  function lpLoadList() {
+    var t = lpState.tab;
+    var p;
+    if (t === "errors") p = api("/learn/errors", { method: "GET" });
+    else if (t === "echo") p = api("/learn/legacy-echo", { method: "GET" });
+    else if (t === "other") p = api("/learn/candidates", { method: "GET" }).then(function (d) {
+      return { items: (d.items || []).filter(function (c) { return ["excluded", "conflict", "leak", "duplicate"].indexOf(c.status) >= 0; }) };
+    });
+    else p = api("/learn/candidates?status=" + encodeURIComponent(t), { method: "GET" });
+    p.then(function (d) { lpRenderList(d.items || [], t === "errors" || t === "echo" ? t : "cand"); })
+      .catch(function (e) {
+        var box = document.getElementById("lpList");
+        if (box) box.innerHTML = '<p class="muted">Hata: ' + esc(e.message) + "</p>";
+      });
+    document.querySelectorAll("#lpTabs [data-lptab]").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-lptab") === t);
+    });
+  }
+
+  function lpRenderVersions(d) {
+    var box = document.getElementById("lpVersions");
+    if (!box) return;
+    var vs = d.versions || [];
+    var sel = d.selection;
+    var head = sel ? '<div class="small">Eğitim verisine seçili sürüm: <strong>' + esc(sel.version_id) + "</strong></div>" : '<div class="muted small">Eğitim verisine seçili sohbet sürümü yok.</div>';
+    if (!vs.length) {
+      box.innerHTML = head + '<p class="muted small">Henüz veri sürümü yok.</p>';
+      return;
+    }
+    box.innerHTML = head + '<table class="lp-table"><thead><tr><th>Sürüm</th><th>train / eval</th><th>aile (train/eval)</th><th>geçersizleşen</th><th>bağlandı / koşular</th><th>oluşturma</th></tr></thead><tbody>' +
+      vs.map(function (v) {
+        var runs = (v.runs || []).map(function (r) { return esc(r.adapter) + ": " + esc(r.state); }).join(", ");
+        return "<tr><td><strong>" + esc(v.version_id) + "</strong>" + (v.selected ? ' <span class="badge badge-rag">seçili</span>' : "") + "</td>" +
+          "<td>" + esc(String(v.n_train)) + " / " + esc(String(v.n_eval)) + "</td>" +
+          "<td>" + esc(String(v.n_train_families)) + " / " + esc(String(v.n_eval_families)) + "</td>" +
+          "<td>" + (v.invalid_members ? '<span class="badge badge-danger" title="' + esc((v.invalid_reasons || []).join("; ")) + '">' + esc(String(v.invalid_members)) + "</span>" : "0") + "</td>" +
+          "<td>" + ((v.bindings || []).length ? "evet" : "hayır") + (runs ? " · " + runs : "") + "</td>" +
+          "<td class=\"muted small\">" + esc(v.created_at || "") + "</td></tr>";
+      }).join("") + "</tbody></table>";
+  }
+
+  function lpPreview() {
+    var inc = document.getElementById("lpIncludeHuman");
+    var box = document.getElementById("lpPreview");
+    var btn = document.getElementById("lpCreateBtn");
+    box.innerHTML = '<span class="spinner"></span> özet hesaplanıyor…';
+    postJson("/learn/datasets/preview", { include_human: !!(inc && inc.checked) })
+      .then(function (p) {
+        var sh = p.projected_share || {};
+        var tts = p.trading_time_split || {};
+        box.innerHTML =
+          '<div class="lp-preview">' +
+          "<div><strong>" + esc(String(p.n_train)) + "</strong> train örnek (" + esc(String(p.n_train_families)) + " aile) · <strong>" + esc(String(p.n_eval)) + "</strong> eval örnek (" + esc(String(p.n_eval_families)) + " aile) — eval örnekleri eğitim dosyasına girmez.</div>" +
+          "<div>Kanonik setle birleşince: satır payı <strong>%" + (100 * (sh.row_share || 0)).toFixed(2) + "</strong> · eğitim hedef token payı <strong>%" + (100 * (sh.token_share || 0)).toFixed(2) + "</strong> (üst sınır %" + (100 * (sh.max_share || 0)).toFixed(0) + "; " + esc(sh.token_method || p.token_method || "") + ")</div>" +
+          ((sh.dropped_families || []).length ? '<div class="small">Sınır nedeniyle birleştirmede alınmayacak aile: ' + esc(String(sh.dropped_families.length)) + " (tekrarla çoğaltma yok)</div>" : "") +
+          (tts.families ? '<div class="small">Trading aileleri zaman sırasıyla: ' + esc(String(tts.families)) + " aile, " + esc(String(tts.eval_families)) + " eval (en yeni).</div>" : "") +
+          '<div class="muted small">Dışlanan: hariç ' + esc(String(p.excluded_candidates)) + " · sızıntı " + esc(String(p.leak_candidates)) + (p.skipped_human ? " · insan onaylı (dahil edilmedi) " + esc(String(p.skipped_human)) : "") + "</div>" +
+          (p.existing_version ? '<div class="small">Aynı içerik zaten var: <strong>' + esc(p.existing_version) + "</strong> (yeni sürüm açılmaz).</div>" : "") +
+          '<div class="muted small">' + esc(p.note || "") + "</div></div>";
+        btn.disabled = !(p.n_train || p.n_eval);
+      })
+      .catch(function (e) {
+        box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>";
+      });
+  }
+
+  function lpCreate() {
+    var inc = document.getElementById("lpIncludeHuman");
+    var btn = document.getElementById("lpCreateBtn");
+    btn.disabled = true;
+    postJson("/learn/datasets", { include_human: !!(inc && inc.checked) })
+      .then(function (r) {
+        toast(r.created ? "Veri sürümü oluşturuldu: " + r.version.version_id : "Aynı içerik zaten var: " + r.version.version_id);
+        loadLearnPool();
+      })
+      .catch(function (e) { toast(e.message, true); })
+      .finally(function () { btn.disabled = false; });
+  }
+
+  function onLpAction(ev) {
+    var b = ev.target.closest("button[data-lp]");
+    if (!b) return;
+    var card = b.closest("[data-cand]");
+    var id = card && card.getAttribute("data-cand");
+    if (!id) return;
+    var act = b.getAttribute("data-lp");
+    var path = "/learn/candidates/" + encodeURIComponent(id);
+    if (act === "approve") {
+      var reason = window.prompt("Onay gerekçesi (en az 10 karakter). Otomatik kontrol kapsamı ayrıca gösterilmeye devam eder:", "");
+      if (!reason) return;
+      postJson(path + "/approve", { reason: reason })
+        .then(function () { toast("Onaylandı."); loadLearnPool(); })
+        .catch(function (e) { toast(e.message, true); });
+    } else if (act === "edit") {
+      var cur = card.querySelector(".lp-target");
+      var text = window.prompt("Yeni hedef metin (insan onayı varsa düşer, kontroller yeniden çalışır):", cur ? cur.innerText : "");
+      if (!text) return;
+      postJson(path + "/edit", { text: text })
+        .then(function () { toast("Güncellendi ve yeniden kontrol edildi."); loadLearnPool(); })
+        .catch(function (e) { toast(e.message, true); });
+    }
+  }
+
+  function loadLearnPool() {
+    if (!lpState.wired) {
+      lpState.wired = true;
+      var tabsEl = document.getElementById("lpTabs");
+      if (tabsEl) tabsEl.addEventListener("click", function (ev) {
+        var b = ev.target.closest("[data-lptab]");
+        if (!b) return;
+        lpState.tab = b.getAttribute("data-lptab");
+        lpLoadList();
+      });
+      var list = document.getElementById("lpList");
+      if (list) list.addEventListener("click", onLpAction);
+      var pb = document.getElementById("lpPreviewBtn");
+      if (pb) pb.addEventListener("click", lpPreview);
+      var cb = document.getElementById("lpCreateBtn");
+      if (cb) cb.addEventListener("click", lpCreate);
+      var rb = document.getElementById("lpRefreshBtn");
+      if (rb) rb.addEventListener("click", function () {
+        postJson("/learn/runs/sync", {}).catch(function () {}).finally(loadLearnPool);
+      });
+    }
+    api("/learn/summary", { method: "GET" })
+      .then(function (s) {
+        lpCounters(s);
+        lpRenderVersions(s);
+      })
+      .catch(function (e) {
+        var el = document.getElementById("lpCounters");
+        if (el) el.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>";
+      });
+    lpLoadList();
   }
 
   // ---------- init ----------
