@@ -184,6 +184,15 @@ class PeftTrainConfig:
     # En düşük eval_loss'lu checkpoint'i sonda yükle (HF load_best_model_at_end). Yalnız
     # eval açıkken anlamlı; açıkken checkpoint aralığı eval aralığına eşitlenir (HF şartı).
     load_best_model_at_end: bool = False
+    # Kolay akış (onaylı reçete): alt sürecin OKUDUĞU train/valid baytlarının özeti onaylanan
+    # anlık görüntüyle aynı olmalı. Boş = denetim yok (eski yollar). Kontrol ile kullanım
+    # arasında dosya değişirse eğitim DURUR (DataIntegrityError → deterministik hata).
+    expect_train_sha256: str = ""
+    expect_valid_sha256: str = ""
+
+
+class DataIntegrityError(RuntimeError):
+    """Okunan eğitim verisi onaylanan özetle aynı değil — eğitim başlamaz."""
 
 
 def normalize_target_modules(value: object) -> tuple[str, ...]:
@@ -835,13 +844,26 @@ def dry_run(cfg: PeftTrainConfig) -> dict:
     }
 
 
-def _load_jsonl(path: Path) -> list[dict]:
+def _load_jsonl(path: Path, expect_sha256: str = "") -> list[dict]:
+    """JSONL oku. ``expect_sha256`` verilirse özet, AYRIŞTIRILAN baytların kendisinden alınır
+    (ayrı bir ön kontrol değil) → kontrol ile kullanım arasında değişim kalmaz."""
+    raw = Path(path).read_bytes()
+    if expect_sha256:
+        import hashlib
+
+        # Satır sonu normalize (Windows'ta bölme dosyası CRLF yazılır, anlık görüntü LF):
+        # ayrıştırılan içerik ikisinde de aynıdır.
+        got = hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest()
+        if got != expect_sha256:
+            raise DataIntegrityError(
+                f"VERİ BÜTÜNLÜĞÜ: {Path(path).name} onaylanan anlık görüntüden farklı "
+                f"({got[:12]}… ≠ {expect_sha256[:12]}…) — eğitim başlatılmadı."
+            )
     rows = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                rows.append(json.loads(line))
+    for line in raw.decode("utf-8").splitlines():
+        line = line.strip()
+        if line:
+            rows.append(json.loads(line))
     return rows
 
 
@@ -1172,7 +1194,13 @@ def train(cfg: PeftTrainConfig) -> dict:
         )
     model.print_trainable_parameters()
 
-    train_rows = _load_jsonl(cfg.train_jsonl)
+    try:
+        train_rows = _load_jsonl(cfg.train_jsonl, cfg.expect_train_sha256)
+        if cfg.expect_valid_sha256:
+            _load_jsonl(cfg.valid_jsonl, cfg.expect_valid_sha256)
+    except DataIntegrityError as exc:
+        logger.error("%s", exc)
+        return {"ok": False, "error": str(exc)}
     _n_all = len(train_rows)
     train_rows = sample_rows(train_rows, cfg.max_examples, cfg.seed)
     if len(train_rows) != _n_all:
@@ -1325,7 +1353,11 @@ def train(cfg: PeftTrainConfig) -> dict:
     eval_ds: list[dict] = []
     eval_steps = eval_steps_for(cfg)
     if eval_steps > 0:
-        valid_rows = _load_jsonl(cfg.valid_jsonl) if Path(cfg.valid_jsonl).is_file() else []
+        valid_rows = (
+            _load_jsonl(cfg.valid_jsonl, cfg.expect_valid_sha256)
+            if Path(cfg.valid_jsonl).is_file()
+            else []
+        )
         valid_rows = sample_rows(valid_rows, cfg.eval_max_examples, cfg.seed)
         eval_ds = _tokenize_masked(valid_rows) if use_mask else _tokenize(valid_rows)
         if eval_ds:

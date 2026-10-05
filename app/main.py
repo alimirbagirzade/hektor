@@ -681,6 +681,8 @@ def _train_impl(
     # (launch skip_register=True → HEKTOR_TRAIN_SKIP_REGISTER=1); web ve nöbetçi koşuları
     # burada CANDIDATE olarak kaydedilir (Kademe-2 C3: eskiden hiç kaydedilmiyordu).
     supervised = False
+    # Onaylı reçetenin train/valid özetleri (yalnız kolay akış alt sürecinde dolar).
+    _expect: dict = {}
 
     if run:
         # Phase 2: STOP_ALL + TAZE manuel onay kapısı (CLAUDE.md Kural 8).
@@ -842,10 +844,36 @@ def _train_impl(
         # gelinirse gelinsin (start-train.ps1, doğrudan CLI, nöbetçi kurtarması, web alt süreci).
         from app.training import easy_train as _easy_train
 
-        _k2 = _easy_train.kademe2_check()
+        # Kolay akıştan doğan alt süreç onaylı reçeteyi taşır: Kademe 2 kaydı o reçeteyi (ve
+        # reçetenin gerçek veri özetini) kapsamalı, koşu da reçeteyle birebir aynı olmalı.
+        _recipe_sha = _os.environ.get(_easy_train.RECIPE_ENV, "").strip()
+        _k2 = _easy_train.kademe2_check(recipe_sha=_recipe_sha)
         if _k2:
             console.print(Panel.fit(_k2, title="⛔ Kademe 2 kaydı", border_style="red"))
             raise typer.Exit(10)
+        if _recipe_sha:
+            _binding = _easy_train.recipe_binding_problems(
+                _recipe_sha,
+                adapter_name=adapter_name,
+                base_model=base_model,
+                profile=profile,
+                max_examples=max_examples,
+                weights=weight_decision.weights,
+            )
+            if _binding:
+                console.print(
+                    Panel.fit(
+                        " | ".join(_binding),
+                        title="⛔ Onaylanan reçeteyle aynı değil",
+                        border_style="red",
+                    )
+                )
+                raise typer.Exit(11)
+            _snap = _easy_train._snapshot(f"snap_{_recipe_sha[:16]}")
+            _expect = {
+                "expect_train_sha256": _snap["train_sha256"],
+                "expect_valid_sha256": _snap["valid_sha256"],
+            }
 
         # Ortak ağır iş kilidi: onaydan ÖNCE (ucuz), sohbet kirasıyla yarışsız.
         _acquire_train_lock(adapter_name, lock_holder)
@@ -986,6 +1014,7 @@ def _train_impl(
             adapter_output_path=settings.adapters_dir / adapter_name,
             iterations=iterations,
             **prof,
+            **_expect,
         )
         if run:
             import datetime as _dt_run
