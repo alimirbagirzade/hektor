@@ -474,28 +474,58 @@ def start_job(
     return reconcile(job)
 
 
-def _spawn_runner(job_id: str) -> tuple[int, float | None]:
-    from app.training.resource_lock import process_create_time
-
-    # Çalışma dizini KOD köküdür (veri kökü değil): ``-m app...`` yanlış bir ``app`` paketini
-    # içe aktarmasın. Çalıştırıcının kendi hataları (içe aktarma vb.) ayrı günlüğe yazılır.
-    err = jobs_dir() / f"{job_id}.runner.log"
-    err_fh = err.open("ab")
+def _popen_detached(cmd: list[str], err_path: Path) -> subprocess.Popen[bytes]:
+    err_fh = err_path.open("ab")
     kwargs: dict[str, Any] = {"cwd": str(PROJECT_ROOT), "env": os.environ.copy(), "close_fds": True}
-    kwargs["stdin"] = subprocess.DEVNULL
-    kwargs["stdout"] = err_fh
-    kwargs["stderr"] = err_fh
-    if os.name == "nt":
-        kwargs["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000
-    else:
-        kwargs["start_new_session"] = True
+    kwargs.update(stdin=subprocess.DEVNULL, stdout=err_fh, stderr=err_fh)
     try:
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "app.training.candidate_jobs", "run", job_id], **kwargs
-        )
+        if os.name == "nt":
+            # DETACHED | NEW_PROCESS_GROUP | NO_WINDOW; mümkünse iş nesnesinden de ayrıl.
+            base = 0x00000008 | 0x00000200 | 0x08000000
+            try:
+                return subprocess.Popen(cmd, creationflags=base | 0x01000000, **kwargs)
+            except OSError:  # iş nesnesi ayrılmaya izin vermiyor
+                return subprocess.Popen(cmd, creationflags=base, **kwargs)
+        return subprocess.Popen(cmd, start_new_session=True, **kwargs)
     finally:
         err_fh.close()
-    return proc.pid, process_create_time(proc.pid)
+
+
+def _spawn_runner(job_id: str) -> tuple[int, float | None]:
+    """Çalıştırıcıyı web sunucusunun süreç AĞACININ DIŞINDA başlat (çift başlatma).
+
+    Kısa ömürlü ara başlatıcı çalıştırıcıyı doğurup hemen çıkar → çalıştırıcının ebeveyni
+    ölmüş olur; sunucu ağacıyla kapatılan (``taskkill /T``) bir web süreci işi öldürmez.
+    Çalışma dizini KOD köküdür (veri kökü değil): ``-m app...`` yanlış paketi içe aktarmasın.
+    Çalıştırıcının kendi hataları ayrı günlüğe yazılır.
+    """
+    from app.training.resource_lock import process_create_time
+
+    err = jobs_dir() / f"{job_id}.runner.log"
+    launcher = _popen_detached(
+        [sys.executable, "-m", "app.training.candidate_jobs", "spawn", job_id], err
+    )
+    try:
+        launcher.wait(timeout=120)
+    except subprocess.TimeoutExpired:
+        launcher.kill()
+    job = _read(_path(job_id)) or {}
+    pid = job.get("runner_pid")
+    if isinstance(pid, int):
+        return pid, job.get("runner_create_time")
+    return launcher.pid, process_create_time(launcher.pid)  # ara başlatıcı çöktüyse uzlaştırma
+
+
+def _spawn_child(job_id: str) -> int:
+    """Ara başlatıcı: çalıştırıcıyı doğur, kimliğini yaz, hemen çık."""
+    from app.training.resource_lock import process_create_time
+
+    proc = _popen_detached(
+        [sys.executable, "-m", "app.training.candidate_jobs", "run", job_id],
+        jobs_dir() / f"{job_id}.runner.log",
+    )
+    _update(job_id, runner_pid=proc.pid, runner_create_time=process_create_time(proc.pid))
+    return 0
 
 
 def stop_job(job_id: str, reason: str = "") -> dict[str, Any]:
@@ -619,6 +649,8 @@ def _cli(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     if len(args) == 2 and args[0] == "run":
         return run(args[1])
+    if len(args) == 2 and args[0] == "spawn":
+        return _spawn_child(args[1])
     print("kullanım: python -m app.training.candidate_jobs run <job_id>", file=sys.stderr)
     return 2
 

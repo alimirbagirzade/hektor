@@ -6960,7 +6960,7 @@
 
 
   // --- aday hattı (doğrula → hazırla → karşılaştır → incele → kullanıma al) ---
-  var pipeState = { wired: false, req: {}, timer: null, data: null };
+  var pipeState = { wired: false, req: {}, timer: null, data: null, html: "" };
   var JOB_TR = { starting: "başlıyor", running: "koşuyor", stopping: "durduruluyor", done: "tamamlandı",
     failed: "BAŞARISIZ", stopped: "durduruldu", lost: "kesildi (tamamlanmadı)" };
   var JOB_CLS = { starting: "badge-info", running: "badge-info", stopping: "badge-warning", done: "badge-success",
@@ -6972,14 +6972,16 @@
     var active = ["starting", "running", "stopping"].indexOf(j.status) >= 0;
     return '<div class="lp-card"><span class="badge ' + (JOB_CLS[j.status] || "badge-info") + '">' + esc(JOB_TR[j.status] || j.status) + "</span> " +
       esc(j.kind_label || "") + " · " + esc(j.job_id) + " · " + esc((j.params || {}).ollama_tag || "") +
-      (p.label ? " · " + esc(p.label) + (p.total ? ' <progress max="100" value="' + pct + '"></progress>' : "") : "") +
+      " · " + '<span data-live="lbl-' + esc(j.job_id) + '">' + esc(p.label || "") + "</span>" +
+      (p.total ? ' <progress data-live="bar-' + esc(j.job_id) + '" max="100" value="' + pct + '"></progress>' : "") +
       (j.error ? '<div class="chat-blocked small">' + esc(j.error) + "</div>" : "") +
       (j.status === "done" && j.kind === "conversion" ? '<div class="small">Dönüşüm doğrulandı · digest ' +
         esc(((j.verification || {}).digest || "").slice(0, 12)) + "…</div>" : "") +
       (j.status === "done" && j.kind === "comparison" ? '<div class="small">Üretim tamam: ' + esc((j.verification || {}).comparison_id || "") +
         " — kör incelemeye geçin.</div>" : "") +
       (active ? ' <button type="button" class="btn btn-sm" data-pipe="stop" data-job="' + esc(j.job_id) + '">Güvenle durdur</button>' : "") +
-      ((p.log_tail || []).length ? '<details><summary>Günlük (son satırlar)</summary><pre class="chat-pre">' + esc(p.log_tail.join("\n")) + "</pre></details>" : "") +
+      '<details><summary>Günlük (son satırlar)</summary><pre class="chat-pre" data-live="log-' + esc(j.job_id) + '">' +
+        esc((p.log_tail || []).join("\n")) + "</pre></details>" +
       "</div>";
   }
   function pipeChecks(c) {
@@ -6990,8 +6992,8 @@
   function pipeRender(d) {
     pipeState.data = d;
     var box = document.getElementById("pipeBox");
-    var caps = d.capabilities || {};
     var run = d.running;
+    var caps = d.capabilities || {};
     var capNote = function (k) {
       var c = caps[k] || {};
       return c.supported ? "" : '<div class="chat-blocked small">Bu makinede kapalı: ' + esc((c.reasons || []).join(" | ")) + "</div>";
@@ -7000,12 +7002,21 @@
     html += (d.items || []).map(function (it) {
       var conv = (it.jobs || []).filter(function (j) { return j.kind === "conversion"; })[0];
       var cmp = (it.jobs || []).filter(function (j) { return j.kind === "comparison"; })[0];
+      // Bitmiş işin istek kimliği saklanmaz: sonraki tıklama YENİ istektir (tekrar dene).
+      [["prepare", conv], ["compare", cmp]].forEach(function (pair) {
+        var k = it.adapter + ":" + pair[0];
+        var jj = pair[1];
+        if (jj && pipeState.req[k] === jj.request_id && ["done", "failed", "stopped", "lost"].indexOf(jj.status) >= 0) {
+          delete pipeState.req[k];
+        }
+      });
       var comp = it.completion || {};
       var tag = (conv && (conv.params || {}).ollama_tag) || it.suggested_tag;
       var busy = !!run;
       var df = d.defaults || {};
       var a = esc(it.adapter);
       var convDone = conv && conv.status === "done";
+      caps = it.capabilities || d.capabilities || {};
       return '<div class="lp-card pipe-item" data-adapter="' + a + '"><div><strong>' + a + "</strong> " +
         (comp.ok ? '<span class="badge badge-success">tamamlanma doğrulandı</span>' : '<span class="badge badge-danger">tamamlanma DOĞRULANMADI</span>') +
         (comp.source ? ' <span class="muted small">' + esc(comp.source) + "</span>" : "") + "</div>" +
@@ -7013,12 +7024,12 @@
         ((comp.evidence || []).length ? '<div class="small muted">' + comp.evidence.map(esc).join("<br>") + "</div>" : "") + "</details>" +
         '<div class="st-step"><strong>2 · Ollama\'ya hazırla</strong> etiket <input data-f="tag" value="' + esc(tag) + '" size="26"/> şablon <input data-f="tpl" value="' +
         esc(df.template_from || "") + '" size="22"/> <button type="button" class="btn btn-sm" data-pipe="prepare"' +
-        (busy || !(caps.conversion || {}).supported || !comp.ok ? " disabled" : "") + ">" + (conv && conv.status !== "done" ? "Tekrar dene" : "Başlat") + "</button>" +
+        (busy || !(caps.conversion || {}).supported || !comp.ok ? " disabled" : "") + ">" + (conv && ["failed", "stopped", "lost"].indexOf(conv.status) >= 0 ? "Tekrar dene" : "Başlat") + "</button>" +
         (!comp.ok ? ' <span class="muted small">(tamamlanma doğrulanmadan hazırlanmaz)</span>' : "") + "</div>" +
         capNote("conversion") + pipeJobHtml(conv) +
         '<div class="st-step"><strong>3 · Karşılaştır</strong> aktif <input data-f="active" value="' + esc(df.active || "") + '" size="20"/> temel <input data-f="base" value="' +
         esc(df.base || "") + '" size="20"/> set <input data-f="set" value="' + esc(df.question_set || "") + '" size="34"/> <button type="button" class="btn btn-sm" data-pipe="compare"' +
-        (busy || !(caps.comparison || {}).supported || !convDone ? " disabled" : "") + ">" + (cmp && cmp.status !== "done" ? "Tekrar dene" : "Başlat") + "</button>" +
+        (busy || !(caps.comparison || {}).supported || !convDone ? " disabled" : "") + ">" + (cmp && ["failed", "stopped", "lost"].indexOf(cmp.status) >= 0 ? "Tekrar dene" : "Başlat") + "</button>" +
         (!convDone ? ' <span class="muted small">(önce doğrulanmış dönüşüm)</span>' : "") + "</div>" +
         capNote("comparison") + pipeJobHtml(cmp) +
         '<div class="st-step"><strong>4 · Sonuçları incele</strong> ' + ((it.comparisons || []).map(function (c) {
@@ -7032,7 +7043,25 @@
         '<div class="muted small">Ana model yalnız “kabul” kararı + digest eşleşmesi + gerekçeyle; geri dönüş Modeller kartındadır.</div></div></div>';
     }).join("") || '<p class="muted small">models/adapters altında aday yok.</p>';
     html += '<div class="muted small">' + esc(d.note || "") + "</div>";
-    box.innerHTML = html;
+    // Yoklama kartı her 3 sn'de yeniden çizmesin: yalnız içerik değişince ve kullanıcı bir
+    // giriş kutusuna yazmıyorken (tıklama/yazma kaybolmasın).
+    var typing = box.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
+    // Yapı (düğmeler, girişler) aynıysa yalnız canlı alanları (ilerleme, günlük) yerinde güncelle.
+    var skel = html.replace(/(<(span|pre)[^>]* data-live="[^"]+">)[\s\S]*?(<\/(span|pre)>)/g, "$1$3")
+      .replace(/(data-live="bar-[^"]+" max="100") value="\d+"/g, "$1");
+    if (skel === pipeState.html) {
+      var tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      tmp.querySelectorAll("[data-live]").forEach(function (n) {
+        var cur = box.querySelector('[data-live="' + n.getAttribute("data-live") + '"]');
+        if (!cur) return;
+        if (n.tagName === "PROGRESS") cur.value = n.value;
+        else if (cur.textContent !== n.textContent) cur.textContent = n.textContent;
+      });
+    } else if (!typing) {
+      box.innerHTML = html;
+      pipeState.html = skel;
+    }
     clearTimeout(pipeState.timer);
     if (run) pipeState.timer = setTimeout(loadPipeline, 3000);
   }

@@ -77,6 +77,8 @@ def overview() -> dict[str, Any]:
                 "adapter": p.name,
                 "completion": comp,
                 "suggested_tag": cj.suggest_tag(p.name),
+                # Yetenek ADAY BAŞINA (önbellekte doğrulanmış GGUF varsa araçsız da hazırlanır).
+                "capabilities": {k: cj.capability(k, p.name) for k in cj.KINDS},
                 "jobs": jobs,
                 "tags": tags,
                 "comparisons": [

@@ -169,7 +169,8 @@ def test_shared_heavy_lock_blocks_web_start(env, monkeypatch) -> None:
 
 def test_dead_runner_reconciles_as_lost(env, monkeypatch) -> None:
     j = _start(monkeypatch, _py("import time; time.sleep(30)"))
-    _wait(j["job_id"], until=("running",))
+    started = _wait(j["job_id"], until=("running", "done", "failed", "lost"), timeout=150)
+    assert started["status"] == "running", started
     from app.training.candidate_jobs import _kill_tree
 
     _kill_tree(j["runner_pid"])  # sunucu/çalıştırıcı çöktü (sonuç yazılamadı)
