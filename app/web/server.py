@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import DEFAULT_TRAIN_PROFILE, configure_logging, get_settings
 from app.web import security
+from app.web import version_info as _version_info  # noqa: F401 — açılışta çalışan commit sabitlenir
 from app.web.schemas import (
     AdapterOut,
     ApproveCardResponse,

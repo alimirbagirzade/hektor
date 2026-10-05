@@ -84,6 +84,8 @@ class ChatConversation(ChatBase):
     title: Mapped[str] = mapped_column(Text, default="")
     # main = ana sohbet modeli · trial = belirgin etiketli DENEME sohbeti (Faz 2A)
     slot: Mapped[str] = mapped_column(String(8), default="main")
+    # TEST sohbeti (tek yönlü işaret): adayları hiçbir veri sürümüne / eğitime GİRMEZ.
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
     updated_at: Mapped[str] = mapped_column(String(40), default=utcnow)
 
@@ -228,6 +230,7 @@ CHAT_TABLES = tuple(ChatBase.metadata.sorted_tables)
 # veritabanında eksikse ``ALTER TABLE ... ADD COLUMN`` ile eklenir; veri silinmez/değişmez.
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("chat_conversations", "slot", "VARCHAR(8) NOT NULL DEFAULT 'main'"),
+    ("chat_conversations", "is_test", "BOOLEAN NOT NULL DEFAULT 0"),
     ("learning_candidates", "time_meta", "TEXT NOT NULL DEFAULT '{}'"),
     ("learning_candidates", "strategy_family", "VARCHAR(60) NOT NULL DEFAULT ''"),
 )
@@ -270,7 +273,9 @@ class ChatStore:
 
     # ── konuşmalar ───────────────────────────────────────────────────────────
 
-    def create_conversation(self, title: str = "", slot: str = "main") -> dict[str, Any]:
+    def create_conversation(
+        self, title: str = "", slot: str = "main", *, is_test: bool = False
+    ) -> dict[str, Any]:
         if slot not in ("main", "trial"):
             raise ValueError(f"Geçersiz sohbet yuvası: {slot}")
         cid = new_id("conv_")
@@ -278,7 +283,12 @@ class ChatStore:
         with self.session() as s:
             s.add(
                 ChatConversation(
-                    conversation_id=cid, title=title, slot=slot, created_at=now, updated_at=now
+                    conversation_id=cid,
+                    title=title,
+                    slot=slot,
+                    is_test=is_test,
+                    created_at=now,
+                    updated_at=now,
                 )
             )
         conv = self.get_conversation(cid)
@@ -307,6 +317,26 @@ class ChatStore:
                 )
                 out.append(d)
             return out
+
+    def mark_test(self, conversation_id: str) -> dict[str, Any]:
+        """Sohbeti TEST olarak işaretle. TEK YÖNLÜ: işaret kaldırılamaz (test verisi sonradan
+        gerçek veriye "aklanamaz")."""
+        with self.session() as s:
+            row = s.get(ChatConversation, conversation_id)
+            if row is None:
+                raise KeyError(f"Konuşma bulunamadı: {conversation_id}")
+            row.is_test = True
+            row.updated_at = utcnow()
+        conv = self.get_conversation(conversation_id)
+        assert conv is not None
+        return conv
+
+    def is_test_turn(self, turn: dict[str, Any] | None) -> bool:
+        """Tur bir TEST sohbetine mi ait? (bulunamayan konuşma = test değil)."""
+        if not turn:
+            return False
+        conv = self.get_conversation(str(turn.get("conversation_id") or ""))
+        return bool(conv and conv.get("is_test"))
 
     def touch_conversation(self, conversation_id: str, title_if_empty: str = "") -> None:
         with self.session() as s:

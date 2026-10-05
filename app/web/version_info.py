@@ -73,6 +73,16 @@ def _last_update_log() -> str | None:
     return lines[-1] if lines else None
 
 
+def _read_running_head() -> str | None:
+    rc, head = _git(["rev-parse", "HEAD"])
+    return head if rc == 0 and head else None
+
+
+# Sunucu AÇILIRKEN diskteki commit = ÇALIŞAN kod. `git pull` sonrası yeniden başlatılmamış süreç
+# eski kodu çalıştırır; rozet bunu diskteki HEAD'den ayrı gösterir (server.py açılışta içe aktarır).
+RUNNING_HEAD: str | None = _read_running_head()
+
+
 def get_version_info() -> dict:
     """origin/main'e göre sapma özeti (salt-okuma, offline)."""
     info: dict = {
@@ -85,6 +95,8 @@ def get_version_info() -> dict:
         "on_main": False,
         "converged": False,
         "last_update": None,
+        "running": RUNNING_HEAD[:7] if RUNNING_HEAD else None,
+        "restart_needed": False,
     }
 
     rc, _ = _git(["rev-parse", "--is-inside-work-tree"])
@@ -100,6 +112,7 @@ def get_version_info() -> dict:
     rc_om, origin_main = _git(["rev-parse", "--short", "origin/main"])
     _, om_full = _git(["rev-parse", "origin/main"])
 
+    info["restart_needed"] = bool(RUNNING_HEAD and head_full and head_full != RUNNING_HEAD)
     info["branch"] = branch or None
     info["head"] = head or None
     info["on_main"] = branch == "main"

@@ -489,6 +489,11 @@ class LearningService:
                 else:
                     auto += 1
         eligible = [c for c in cands if c["status"] == "eligible"]
+        test_ids = {
+            c["candidate_id"]
+            for c in cands
+            if self.store.is_test_turn(self.store.get_turn(c["turn_id"]))
+        }
         fam_split: dict[str, str] = {}
         for c in eligible:
             fam = self.store.get_family(c["family_id"]) if c["family_id"] else None
@@ -510,6 +515,12 @@ class LearningService:
                 "değildir. Daha az örnekle de veri sürümü oluşturulabilir.",
             },
             "max_share": self.settings.learning_chat_max_share,
+            # TEST sohbetlerinin adayları yukarıdaki sayaçlarda GÖRÜNÜR ama veri sürümüne girmez.
+            "test": {
+                "total": len(test_ids),
+                "eligible": sum(1 for c in eligible if c["candidate_id"] in test_ids),
+                "note": "TEST sohbetlerinden gelen adaylar; hiçbir veri sürümüne / eğitime girmez.",
+            },
             **versions,
         }
 
@@ -547,6 +558,7 @@ class LearningService:
                     "model_answer": turn.get("answer", ""),
                     "model_tag": turn.get("model_tag", ""),
                     "conversation_id": turn.get("conversation_id", ""),
+                    "is_test": self.store.is_test_turn(turn),
                     "turn_index": turn.get("turn_index"),
                     "split": fam["split"] if fam else "",
                     # İnceleyici iddiayı KAYNAK METNİYLE karşılaştırabilsin (benzerlik skoru

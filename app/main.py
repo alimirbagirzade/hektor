@@ -1261,7 +1261,13 @@ def compare_run(
     """
     import json as _json
 
-    from app.evals.candidate_compare import CompareError, create, generate, lock_criteria
+    from app.evals.candidate_compare import (
+        CompareError,
+        create,
+        criteria_for_set,
+        generate,
+        lock_criteria,
+    )
     from app.training.candidate_checks import (
         recipe_for_adapter,
         verify_conversion,
@@ -1269,7 +1275,11 @@ def compare_run(
     )
     from app.training.resource_lock import HeavyJobBusy
 
-    crit = _json.loads(criteria_file.read_text(encoding="utf-8")) if criteria_file else None
+    crit = (
+        _json.loads(criteria_file.read_text(encoding="utf-8"))
+        if criteria_file
+        else criteria_for_set(question_set)
+    )
     lock = lock_criteria(crit)
     meta: dict = {"adapter": adapter, "adapter_id": adapter_id}
     if adapter:
@@ -1298,6 +1308,72 @@ def compare_run(
         f"[green]Üretim tamam:[/green] {m['comparison_id']} (rol {m['role']}). Kör inceleme: "
         "web → Öğrenme Havuzu → Kör inceleme."
     )
+
+
+@app.command("compare-lock-criteria")
+def compare_lock_criteria(
+    preset: str = typer.Option("boyutlu", "--preset", help="varsayilan | boyutlu"),
+) -> None:
+    """Ölçütü cevaplar GÖRÜLMEDEN kilitle (içerik özetli, değişmez; kilit zamanı kaydedilir).
+
+    Karşılaştırma yalnız kendisinden ÖNCE kilitlenmiş ölçütle açılır. Aynı içerik ikinci kez
+    kilitlenmez (ilk kilit zamanı korunur)."""
+    from app.evals.candidate_compare import DEFAULT_CRITERIA, DIMENSION_CRITERIA, lock_criteria
+
+    presets = {"varsayilan": DEFAULT_CRITERIA, "boyutlu": DIMENSION_CRITERIA}
+    if preset not in presets:
+        console.print(f"[red]Bilinmeyen ön ayar: {preset}[/red]")
+        raise typer.Exit(2)
+    rec = lock_criteria(presets[preset])
+    console.print(
+        f"Ölçüt {rec['criteria'].get('name')} · sha {rec['criteria_sha'][:16]} · kilit "
+        f"{rec['locked_at']}"
+    )
+
+
+@app.command("compare-ai-review")
+def compare_ai_review_cmd(
+    cmp_id: str = typer.Argument(...),
+    scores_file: Path = typer.Option(
+        ..., "--scores", help="{soru: {etiket: {score, critical, note}}}"
+    ),
+    reviewer_model: str = typer.Option(..., "--model", help="İnceleyen AI modelinin kimliği"),
+    method: str = typer.Option("", "--method", help="Nasıl puanlandı (kör paket, ölçüt …)"),
+) -> None:
+    """AI incelemesini AYRI kaydet (``ai_review.json``). İnsan puanı DEĞİLDİR: karara, kayıt
+    defterine ve terfiye girmez; durum değişmez (insan kör incelemesi hâlâ gerekir)."""
+    import json as _json
+
+    from app.evals.candidate_compare import CompareError, submit_ai_review
+
+    try:
+        rec = submit_ai_review(
+            cmp_id,
+            _json.loads(scores_file.read_text(encoding="utf-8")),
+            reviewer_model=reviewer_model,
+            method=method,
+        )
+    except CompareError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"AI incelemesi kaydedildi ({len(rec['scores'])} soru). {rec['note']}")
+
+
+@app.command("compare-mark-integration")
+def compare_mark_integration(
+    cmp_id: str = typer.Argument(...),
+    note: str = typer.Option(..., "--note", help="Neden yalnız entegrasyon testi"),
+) -> None:
+    """Karşılaştırmayı YALNIZ entegrasyon testi işaretle (geri alınamaz): karar en fazla
+    ``yetersiz_kanit``, kayıt defteri güncellenmez, ana model terfisinde kullanılamaz."""
+    from app.evals.candidate_compare import CompareError, mark_integration_only
+
+    try:
+        m = mark_integration_only(cmp_id, note)
+    except CompareError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"{cmp_id}: amaç = {m['purpose']}")
 
 
 @app.command("approval-status")

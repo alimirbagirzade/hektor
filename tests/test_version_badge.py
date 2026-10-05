@@ -74,6 +74,29 @@ def test_version_info_converged(monkeypatch) -> None:
     assert info["behind"] == 0 and info["ahead"] == 0
 
 
+def test_version_info_restart_needed_when_disk_moved(monkeypatch) -> None:
+    """Çalışan kod (açılış commit'i) diskteki HEAD'den farklıysa rozet bunu söyler."""
+    monkeypatch.setattr(vi, "_maybe_refresh_remote", lambda: None)
+    monkeypatch.setattr(vi, "RUNNING_HEAD", "oldhash000")
+    monkeypatch.setattr(
+        vi,
+        "_git",
+        _table_git(
+            {
+                ("rev-parse", "--abbrev-ref", "HEAD"): (0, "main"),
+                ("rev-parse", "--short", "HEAD"): (0, "newhash"),
+                ("rev-parse", "HEAD"): (0, "newhash000"),
+                ("rev-parse", "origin/main"): (0, "newhash000"),
+                ("rev-list", "--left-right", "--count", "origin/main...HEAD"): (0, "0\t0"),
+            }
+        ),
+    )
+    info = vi.get_version_info()
+    assert info["running"] == "oldhash" and info["restart_needed"] is True
+    monkeypatch.setattr(vi, "RUNNING_HEAD", "newhash000")
+    assert vi.get_version_info()["restart_needed"] is False
+
+
 def test_version_info_no_git(monkeypatch) -> None:
     monkeypatch.setattr(vi, "_maybe_refresh_remote", lambda: None)
     monkeypatch.setattr(vi, "_git", lambda args, timeout=8: (127, ""))
