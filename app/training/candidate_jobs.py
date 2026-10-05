@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
+from app.config.settings import PROJECT_ROOT
 from app.feedback.chat_store import utcnow
 
 KINDS = ("conversion", "comparison")
@@ -81,11 +82,37 @@ def _write(p: Path, data: dict[str, Any]) -> None:
     os.replace(tmp, p)
 
 
+@contextlib.contextmanager
+def _job_lock(job_id: str) -> Iterator[None]:
+    """İş dosyasının oku-değiştir-yaz güncellemesi için kısa kilit (başlatıcı ↔ çalıştırıcı)."""
+    p = _path(job_id).with_suffix(".lock")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + 15
+    while True:
+        try:
+            os.close(os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            break
+        except FileExistsError:
+            with contextlib.suppress(OSError):
+                if time.time() - p.stat().st_mtime > 30:
+                    p.unlink()
+                    continue
+            if time.monotonic() > deadline:
+                break  # kilit sahibi takıldı: yine de yaz (iş dosyası atomik değiştirilir)
+            time.sleep(0.02)
+    try:
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            p.unlink()
+
+
 def _update(job_id: str, **fields: Any) -> dict[str, Any]:
     p = _path(job_id)
-    job = _read(p) or {}
-    job.update(fields)
-    _write(p, job)
+    with _job_lock(job_id):
+        job = _read(p) or {}
+        job.update(fields)
+        _write(p, job)
     return job
 
 
@@ -168,6 +195,9 @@ def _stage(job: dict[str, Any]) -> dict[str, Any]:
     with contextlib.suppress(OSError):
         data = log.read_bytes()[-20000:]
         tail = data.decode("utf-8", errors="replace")
+    with contextlib.suppress(OSError):  # çalıştırıcının kendi hatası (ör. içe aktarma)
+        rlog = log.with_name(log.name.replace(".log", ".runner.log"))
+        tail += rlog.read_bytes()[-4000:].decode("utf-8", errors="replace")
     stage: dict[str, Any] = {"label": "", "done": 0, "total": 0}
     if job.get("kind") == "conversion":
         steps = _STEP_RE.findall(tail)
@@ -186,6 +216,9 @@ def _stage(job: dict[str, Any]) -> dict[str, Any]:
 def reconcile(job: dict[str, Any]) -> dict[str, Any]:
     """İş dosyasını gerçek süreç durumuyla uzlaştır (sayfa yenileme / sunucu yeniden açılış)."""
     runner_dead = not _alive(job.get("runner_pid"), job.get("runner_create_time"))
+    if job.get("runner_pid") is None and job.get("status") == "starting":
+        # Başlatıcı henüz çalıştırıcı pid'ini yazmadı (çok kısa pencere) → kesilmiş sayma.
+        runner_dead = False
     if job.get("status") in ACTIVE and runner_dead:
         # Çalıştırıcı sonucu yazamadan öldü (çökme, yeniden başlatma, öldürme).
         if job.get("status") == "stopping":
@@ -197,7 +230,8 @@ def reconcile(job: dict[str, Any]) -> dict[str, Any]:
                 error="Çalıştırıcı süreç sonucu yazmadan sonlandı — iş TAMAMLANMIŞ "
                 "sayılmaz; kısmi çıktılar geçerli aday değildir. Yeniden deneyin.",
             )
-        _write(_path(job["job_id"]), job)
+        keep = {k: job[k] for k in ("status", "finished_at", "error") if k in job}
+        job = _update(job["job_id"], **keep)
     return {**job, "progress": _stage(job), "kind_label": KIND_TR.get(job.get("kind", ""), "")}
 
 
@@ -411,7 +445,7 @@ def start_job(
             meta = {"ollama_tag": tag, "active": active, "base": base, "question_set": str(qpath)}
         job_id = "job_" + secrets.token_hex(6)
         log = jobs_dir() / f"{job_id}.log"
-        job = {
+        job: dict[str, Any] = {
             "job_id": job_id,
             "kind": kind,
             "adapter": adapter,
@@ -425,25 +459,36 @@ def start_job(
         }
         _write(_path(job_id), job)
         pid, ctime = (spawn or _spawn_runner)(job_id)
-        job = _update(job_id, runner_pid=pid, runner_create_time=ctime)
+        with _job_lock(job_id):
+            cur = _read(_path(job_id)) or job
+            if cur.get("runner_pid") is None:  # çalıştırıcı kendini zaten yazmadıysa
+                cur.update(runner_pid=pid, runner_create_time=ctime)
+                _write(_path(job_id), cur)
+        job = cur
     return reconcile(job)
 
 
 def _spawn_runner(job_id: str) -> tuple[int, float | None]:
     from app.training.resource_lock import process_create_time
 
-    s = get_settings()
-    kwargs: dict[str, Any] = {"cwd": str(s.root), "env": os.environ.copy(), "close_fds": True}
+    # Çalışma dizini KOD köküdür (veri kökü değil): ``-m app...`` yanlış bir ``app`` paketini
+    # içe aktarmasın. Çalıştırıcının kendi hataları (içe aktarma vb.) ayrı günlüğe yazılır.
+    err = jobs_dir() / f"{job_id}.runner.log"
+    err_fh = err.open("ab")
+    kwargs: dict[str, Any] = {"cwd": str(PROJECT_ROOT), "env": os.environ.copy(), "close_fds": True}
     kwargs["stdin"] = subprocess.DEVNULL
-    kwargs["stdout"] = subprocess.DEVNULL
-    kwargs["stderr"] = subprocess.DEVNULL
+    kwargs["stdout"] = err_fh
+    kwargs["stderr"] = err_fh
     if os.name == "nt":
         kwargs["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000
     else:
         kwargs["start_new_session"] = True
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "app.training.candidate_jobs", "run", job_id], **kwargs
-    )
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "app.training.candidate_jobs", "run", job_id], **kwargs
+        )
+    finally:
+        err_fh.close()
     return proc.pid, process_create_time(proc.pid)
 
 
@@ -520,7 +565,7 @@ def run(job_id: str) -> int:
         fh.flush()
         try:
             proc = subprocess.Popen(
-                job["cmd"], cwd=str(get_settings().root), env=env, stdout=fh, stderr=fh
+                job["cmd"], cwd=str(PROJECT_ROOT), env=env, stdout=fh, stderr=fh
             )
         except OSError as exc:
             _update(job_id, status="failed", finished_at=utcnow(), error=f"başlatılamadı: {exc}")
@@ -531,6 +576,9 @@ def run(job_id: str) -> int:
             started_at=utcnow(),
             child_pid=proc.pid,
             child_create_time=process_create_time(proc.pid),
+            # Çalıştırıcı kendi kimliğini de yazar (başlatıcının yazımıyla yarışmasın).
+            runner_pid=os.getpid(),
+            runner_create_time=process_create_time(os.getpid()),
         )
         rc = proc.wait()
     cur = _read(_path(job_id)) or job
