@@ -63,6 +63,22 @@ Her koşu ayrı kaydeder: `data_start/data_end`, `period_start/period_end`,
 `strategy_created_at`, `backtest_run_at`, `knowledge_available_at` (= koşu zamanı; fiyat
 verisinin bitişi DEĞİL).
 
+## Eğitim verisine bağlantı ve performans iddiaları (Bölüm 4)
+
+- Öğrenme Havuzu → aday kartı → **Test koşusu bağla** (`link_run`): adaya koşunun zaman
+  alanları yazılır (`time_meta`): veri başlangıç/bitişi, test dönemi, strateji oluşturma, koşu
+  zamanı, tur zamanı ve **bilgi zamanı = max(tur, koşu)**. `as_of` bilgi zamanıdır; trading
+  bölmesi buna göre zaman sıralıdır. Fiyat verisinin bitişi bilgi zamanı DEĞİLDİR.
+- Bağlanan aday strateji **ailesine** (`fam_<strateji ailesi>`) girer: yakın varyantlar ve
+  basitleştirilmiş sürümler aynı ailede kalır, train/eval'e bölünmez.
+- `backtest` kontrolü (`app/trading/claim_check.py`): koşu bağlı değilse "yapılamadı" (insan
+  onayı geçemez). Bağlıysa hepsi gerekir: parmak izi yeniden hesaplanıp tutmalı (strateji,
+  temiz veri, dönem, maliyet, metrik/motor sürümü), motor güncel olmalı, metin dönemin
+  başlangıç/bitiş tarihlerini içermeli, metrik sayıları yazıldıkları hassasiyette eşit olmalı,
+  geliştirme sonucu "örneklem dışı", maliyetli hesap "maliyetsiz" diye sunulmamalı.
+  Sonuç **"kayıtlı hesapla eşleşti"** ya da **"eşleşmedi" (çürütür)**; diğer ifadeler yine insan
+  incelemesi bekler.
+
 ## Doğrulama durumu (2026-10-05)
 
 - **Otomatik:** `tests/test_event_engine.py`, `tests/test_strategy_flow.py`.

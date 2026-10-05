@@ -6407,8 +6407,12 @@
       (unc.length ? ' <details class="inline-details"><summary>kontrol edilemeyen ' + unc.length + "</summary><ul>" + unc.map(function (u) { return "<li>" + esc(u) + "</li>"; }).join("") + "</ul></details>" : "") + "</div>" +
       (c.status_reason ? '<div class="small">' + esc(c.status_reason) + "</div>" : "") +
       (ha.reason ? '<div class="small">İnsan onayı: “' + esc(ha.reason) + "” (" + esc(ha.at || "") + ")</div>" : "") +
+      ((c.time_meta || {}).run_id ? '<div class="small muted">Bağlı koşu ' + esc(c.time_meta.run_id) + " (" + esc(c.time_meta.stage || "") +
+        ") · veri " + esc(c.time_meta.data_start || "") + " → " + esc(c.time_meta.data_end || "") + " · strateji " + esc(c.time_meta.strategy_created_at || "") +
+        " · koşu " + esc(c.time_meta.backtest_run_at || "") + " · bilgi zamanı " + esc(c.time_meta.knowledge_available_at || "") + "</div>" : "") +
       '<div class="lp-actions">' +
       '<button type="button" class="btn btn-sm" data-lp="edit">Düzenle / eksik kısmı çıkar</button>' +
+      '<button type="button" class="btn btn-sm" data-lp="linkrun" title="Bu turdan yapılmış strateji test koşusunu bağla: performans iddiası kayıtlı hesapla karşılaştırılır.">Test koşusu bağla</button>' +
       (c.status === "review" ? '<button type="button" class="btn btn-sm" data-lp="approve" title="Çürütülmüş ifadeleri ve backtest’siz performans iddiasını onay geçerli kılamaz.">Gerekçeyle onayla</button>' : "") +
       "</div></div>"
     );
@@ -6568,6 +6572,34 @@
           });
         },
       });
+    } else if (act === "linkrun") {
+      api("/strategy/turn/" + encodeURIComponent(cand.turn_id), { method: "GET" }).then(function (d) {
+        var runs = [];
+        (d.items || []).forEach(function (s) {
+          (s.runs || []).forEach(function (r) { runs.push({ r: r, s: s }); });
+        });
+        if (!runs.length) {
+          toast("Bu turdan yapılmış strateji test koşusu yok — önce sohbette 'Strateji testi'.", true);
+          return;
+        }
+        inlineEditor(card, {
+          title: "Bağlanacak koşu kimliği (aşağıdan kopyalayın)",
+          help: "<ul>" + runs.map(function (x) {
+            var m = x.r.metrics || {};
+            return "<li><code>" + esc(x.r.run_id) + "</code> · " + esc(x.r.stage) + " · " + esc(x.r.period_start.slice(0, 10)) + " → " +
+              esc(x.r.period_end.slice(0, 10)) + " · getiri %" + esc(String(m.total_return_pct)) + " · " + esc(x.s.name) + "</li>";
+          }).join("") + "</ul>Bağlayınca insan onayı düşer; bilgi zamanı koşu zamanına ilerler (fiyat verisinin bitişi DEĞİL).",
+          value: runs[runs.length - 1].r.run_id,
+          minLen: 5,
+          submit: "Bağla ve yeniden kontrol et",
+          onSubmit: function (runId) {
+            return postJson(path + "/link-run", { run_id: runId }).then(function () {
+              toast("Koşu bağlandı; kontroller yeniden çalıştı.");
+              loadLearnPool();
+            });
+          },
+        });
+      }).catch(function (e) { toast(e.message, true); });
     } else if (act === "edit") {
       inlineEditor(card, {
         title: "Hedef metni düzenle / eksik kısmı çıkar",

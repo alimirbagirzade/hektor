@@ -72,6 +72,10 @@ class EditRequest(BaseModel):
     domain: str | None = Field(default=None, max_length=20)
 
 
+class LinkRunRequest(BaseModel):
+    run_id: str = Field(..., min_length=1, max_length=40)
+
+
 class DatasetRequest(BaseModel):
     include_human: bool = True
 
@@ -217,6 +221,12 @@ def learn_errors() -> dict[str, Any]:
 @learn_router.post("/candidates/{candidate_id}/approve", dependencies=[_human])
 def learn_approve(candidate_id: str, req: ApproveRequest) -> dict[str, Any]:
     return _call(_svc().approve, candidate_id, req.reason)
+
+
+@learn_router.post("/candidates/{candidate_id}/link-run", dependencies=[_human])
+def learn_link_run(candidate_id: str, req: LinkRunRequest) -> dict[str, Any]:
+    """Adayı kayıtlı strateji test koşusuna bağla (zaman alanları + strateji ailesi)."""
+    return _call(_svc().link_run, candidate_id, req.run_id)
 
 
 @learn_router.post("/candidates/{candidate_id}/edit", dependencies=[_human])

@@ -16,8 +16,12 @@ Kontroller:
                      Geçerli kimlik iddianın desteklendiği anlamına GELMEZ; getirilmeyen kimlik
                      uydurma atıftır ve ÇÜRÜTÜR.
 - ``guvenlik``     : Kural 1 (garanti/tavsiye/kesinlik dili, sır/PII) — ÇÜRÜTÜR.
-- ``backtest``     : trading performans iddiası → Faz 2'ye kadar yapılamaz; insan onayı da
-                     bunu geçersiz kılamaz (Kural 2: test edilmeden başarı denmez).
+- ``backtest``     : trading performans iddiası. Adaya kayıtlı bir test koşusu bağlı DEĞİLSE
+                     yapılamaz (insan onayı da geçersiz kılamaz — Kural 2). Bağlıysa
+                     ``app.trading.claim_check`` iddiayı koşuyla karşılaştırır: parmak izi
+                     (strateji, veri, dönem, maliyet, metrik/motor sürümü), metindeki dönem ve
+                     metrik sayıları. "eslesti" = kayıtlı hesapla eşleşti (gelecekte başarı
+                     DEĞİL); "eslesmedi" ÇÜRÜTÜR.
 - ``kod_testi``    : kod içeren hedef → test koşucusu yok, yapılamaz.
 
 Karar: çürüten kontrol → ``rejected`` (insan onayı bunu geçemez; önce düzeltilmeli). Tüm
@@ -57,6 +61,7 @@ UNAVAILABLE = "yapilamadi"
 NOT_APPLICABLE = "uygulanmadi"
 
 REFUTING_KINDS = ("hesap", "atif_kimligi", "guvenlik")
+BACKTEST_MISMATCH = "eslesmedi"
 
 
 @dataclass
@@ -230,7 +235,12 @@ def _chunk_objs(sources: list[dict[str, Any]]) -> list[RetrievedChunk]:
 
 
 def verify_target(
-    target: str, *, question: str, sources: list[dict[str, Any]], domain: str
+    target: str,
+    *,
+    question: str,
+    sources: list[dict[str, Any]],
+    domain: str,
+    run_link: tuple[dict[str, Any], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Hedef metnin tüm kontrolleri + kapsam özeti (yalnız turun kendi kaynakları)."""
     from app.brain.answer_quality import verify_citations
@@ -358,15 +368,24 @@ def verify_target(
 
     # 5) alan-özel engeller
     if domain == "trading" and _PERF_RE.search(target or ""):
-        checks.append(
-            Check(
-                "backtest",
-                UNAVAILABLE,
-                "performans iddiası",
-                "Trading performans iddiası backtest olmadan doğrulanamaz (Faz 2). İddiayı "
-                "çıkarın veya test edilecek hipotez diline çevirin.",
+        if run_link is None:
+            checks.append(
+                Check(
+                    "backtest",
+                    UNAVAILABLE,
+                    "performans iddiası",
+                    "Trading performans iddiası kayıtlı bir test koşusu bağlanmadan "
+                    "doğrulanamaz. Strateji testi yapıp koşuyu adaya bağlayın, iddiayı çıkarın "
+                    "ya da test edilecek hipotez diline çevirin.",
+                )
             )
-        )
+        else:
+            from app.trading.claim_check import check_claim
+
+            res = check_claim(target, run_link[0], run_link[1])
+            checks.append(
+                Check("backtest", res["status"], res["scope"], res["detail"], res["items"])
+            )
     if domain == "code":
         checks.append(
             Check("kod_testi", UNAVAILABLE, "kod", "Kod test koşucusu yok; otomatik doğrulanamaz.")
@@ -404,6 +423,8 @@ def human_approval_blocker(verification: dict[str, Any]) -> str | None:
                 f"'{kind}' kontrolü bu metni çürüttü — insan onayı yanlışlığı gösterilmiş ifadeyi "
                 "geçerli kılamaz. Önce metni düzeltin."
             )
+    if k.get("backtest", {}).get("status") == BACKTEST_MISMATCH:
+        return k["backtest"]["detail"]
     if k.get("backtest", {}).get("status") == UNAVAILABLE:
         return k["backtest"]["detail"]
     return None
@@ -415,6 +436,8 @@ def decide(
     """(status, gerekçe, gerekçe kodları, doğrulama sınıfı: auto|human|"")."""
     k = _by_kind(verification)
     refuted = [kind for kind in REFUTING_KINDS if k.get(kind, {}).get("status") == FAILED]
+    if k.get("backtest", {}).get("status") == BACKTEST_MISMATCH:
+        refuted.append("backtest")
     if refuted:
         detail = "; ".join(f"{kind}: {k[kind]['detail']}" for kind in refuted)
         return "rejected", detail, refuted, ""
