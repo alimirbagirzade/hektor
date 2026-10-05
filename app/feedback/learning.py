@@ -108,6 +108,11 @@ class LearningService:
     def learn(self, turn_id: str, domain: str | None = None) -> tuple[dict[str, Any], bool]:
         """'Öğrensin': model cevabı hedef. Aynı tur için ikinci tıklama aynı adayı döndürür."""
         turn = self._trainable_turn(turn_id)
+        if (turn.get("model_info") or {}).get("slot") == "trial":
+            raise LearningError(
+                "Deneme sohbetindeki modelin cevabı 'Öğrensin' ile eğitim hedefi olamaz (model "
+                "kabul edilmedi). Doğru metni 'Düzelt' ile yazabilirsiniz."
+            )
         target = turn["raw_answer"] or turn["answer"]
         return self._create(turn, "learn", target, domain, spans=[])
 

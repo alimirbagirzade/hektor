@@ -87,22 +87,33 @@ def model_origin(tag: str, root: Path | None = None) -> dict[str, Any] | None:
     }
 
 
-def describe_chat_model(transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
-    """Arayüz üst şeridi için etkin sohbet modelinin kimliği (yazma yok)."""
+def describe_chat_model(
+    transport: httpx.BaseTransport | None = None, slot: str = "main"
+) -> dict[str, Any]:
+    """Arayüz üst şeridi için yuvanın (ana/deneme) model kimliği (yazma yok)."""
+    from app.feedback.model_activation import describe_slot
+
     s = get_settings()
-    tag = s.effective_chat_model
+    info = describe_slot(slot)
+    tag = str(info.get("tag") or "")
     tags = ollama_tags(transport)
-    entry = match_entry(tags, tag)
+    entry = match_entry(tags, tag) if tag else None
+    if not info.get("virtual", True):
+        setting_source = "etkinleştirme kaydı"
+    else:
+        setting_source = (
+            "HEKTOR_CHAT_MODEL" if s.chat_model.strip() else "HEKTOR_LLM_MODEL (chat_model boş)"
+        )
     return {
         "tag": tag,
-        "setting_source": "HEKTOR_CHAT_MODEL"
-        if s.chat_model.strip()
-        else "HEKTOR_LLM_MODEL (chat_model boş)",
+        "slot": slot,
+        "slot_info": info,
+        "setting_source": setting_source,
         "ollama_reachable": tags is not None,
         "installed": None if tags is None else entry is not None,
         "digest": str((entry or {}).get("digest") or ""),
-        "origin": model_origin(tag),
-        "footprint": read_footprint(tag),
+        "origin": model_origin(tag) if tag else None,
+        "footprint": read_footprint(tag) if tag else None,
     }
 
 

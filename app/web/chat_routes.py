@@ -4,7 +4,9 @@ Yetki:
 - Konuşma/tur okuma, Faydalı/Hatalı, hariç tutma, önizleme → ``require_auth``.
 - Eğitim ADAYI oluşturma (Öğrensin/Düzelt), aday düzenleme, gerekçeli insan onayı, veri sürümü
   oluşturma, kontrollü ölçüm → ``require_human`` (motor kendi eğitim verisini üretemez/onaylayamaz).
-- Hiçbir uç eğitim başlatmaz, model etkinleştirmez, bulut çağrısı yapmaz (Kural 8).
+- Hiçbir uç eğitim başlatmaz ve bulut çağrısı yapmaz (Kural 8). Model etkinleştirme
+  (``/api/models/*``) YALNIZ insan eylemiyle ve karşılaştırma kararına bağlı kurallarla yapılır
+  (``model_activation``); hiçbir şey kendiliğinden etkinleştirilmez.
 
 GET uçları YAZMAZ; koşu gözlemi ayrı ``POST /api/learn/runs/sync`` ile yapılır.
 """
@@ -20,11 +22,24 @@ from app.web.security import require_auth, require_human
 
 chat_router = APIRouter(prefix="/api/chat", tags=["chat"], dependencies=[Depends(require_auth)])
 learn_router = APIRouter(prefix="/api/learn", tags=["learn"], dependencies=[Depends(require_auth)])
+models_router = APIRouter(
+    prefix="/api/models", tags=["models"], dependencies=[Depends(require_auth)]
+)
 _human = Depends(require_human)
 
 
 class ConversationCreate(BaseModel):
     title: str = Field(default="", max_length=200)
+    slot: str = Field(default="main", pattern="^(main|trial)$")
+
+
+class ActivateRequest(BaseModel):
+    tag: str = Field(..., min_length=1, max_length=200)
+    reason: str = Field(default="", max_length=2000)
+
+
+class ReasonRequest(BaseModel):
+    reason: str = Field(..., min_length=10, max_length=2000)
 
 
 class FeedbackRequest(BaseModel):
@@ -87,20 +102,26 @@ def _call(fn: Any, *args: Any, **kwargs: Any) -> Any:
 # ── sohbet ───────────────────────────────────────────────────────────────────
 
 
+def _slot(slot: str) -> str:
+    if slot not in ("main", "trial"):
+        raise HTTPException(status_code=422, detail=f"Geçersiz yuva: {slot}")
+    return slot
+
+
 @chat_router.get("/model")
-def chat_model() -> dict[str, Any]:
-    """Etkin sohbet modelinin kimliği (etiket, digest, köken kaydı, son ölçüm)."""
+def chat_model(slot: str = "main") -> dict[str, Any]:
+    """Yuvanın (ana/deneme) model kimliği (etiket, digest, köken kaydı, son ölçüm)."""
     from app.feedback.model_identity import describe_chat_model
 
-    return describe_chat_model()
+    return describe_chat_model(slot=_slot(slot))
 
 
 @chat_router.get("/resources")
-def chat_resources() -> dict[str, Any]:
+def chat_resources(slot: str = "main") -> dict[str, Any]:
     """Sunucu tarafı kaynak kararı (cevaplama açık/kapalı + gerekçe + ölçümler)."""
     from app.feedback.resource_guard import check_chat_resources
 
-    return check_chat_resources().to_dict()
+    return check_chat_resources(slot=_slot(slot)).to_dict()
 
 
 @chat_router.post("/measure", dependencies=[_human])
@@ -121,7 +142,7 @@ def list_conversations(limit: int = 50) -> dict[str, Any]:
 
 @chat_router.post("/conversations")
 def create_conversation(req: ConversationCreate) -> dict[str, Any]:
-    return _store().create_conversation(req.title)
+    return _store().create_conversation(req.title, slot=req.slot)
 
 
 @chat_router.get("/conversations/{conversation_id}")
@@ -236,6 +257,64 @@ def learn_runs_sync() -> dict[str, Any]:
     from app.feedback.chat_dataset import observe_runs
 
     return {"runs": observe_runs()}
+
+
+# ── model etkinleştirme (Faz 2A; yalnız insan) ───────────────────────────────
+
+
+def _act(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    from app.feedback.model_activation import ActivationError
+
+    try:
+        return fn(*args, **kwargs)
+    except ActivationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@models_router.get("/activation")
+def models_activation() -> dict[str, Any]:
+    """Ana/deneme yuvaları, tutarlılık, adaylar ve uygun oldukları yuvalar (yazma yok)."""
+    from app.feedback.model_activation import overview
+
+    return overview()
+
+
+@models_router.post("/activate-main", dependencies=[_human])
+def models_activate_main(req: ActivateRequest) -> dict[str, Any]:
+    """Adayı ana sohbet modeli yap — yalnız 'Kabul' kararı + digest eşleşmesi."""
+    from app.feedback.model_activation import activate_main
+
+    return _act(activate_main, req.tag, req.reason)
+
+
+@models_router.post("/activate-trial", dependencies=[_human])
+def models_activate_trial(req: ActivateRequest) -> dict[str, Any]:
+    """Adayı DENEME sohbetine al — 'Kabul' ya da 'Yetersiz kanıt'."""
+    from app.feedback.model_activation import activate_trial
+
+    return _act(activate_trial, req.tag)
+
+
+@models_router.post("/clear-trial", dependencies=[_human])
+def models_clear_trial() -> dict[str, Any]:
+    from app.feedback.model_activation import clear_trial
+
+    return _act(clear_trial)
+
+
+@models_router.post("/rollback", dependencies=[_human])
+def models_rollback(req: ReasonRequest) -> dict[str, Any]:
+    """Önceki ana modele dön (Ollama'da var + digest eşleşmesi doğrulanır)."""
+    from app.feedback.model_activation import rollback_main
+
+    return _act(rollback_main, req.reason)
+
+
+@models_router.post("/repair-registry", dependencies=[_human])
+def models_repair_registry() -> dict[str, Any]:
+    from app.feedback.model_activation import repair_registry
+
+    return _act(repair_registry)
 
 
 @learn_router.get("/legacy-echo")

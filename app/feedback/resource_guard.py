@@ -265,14 +265,21 @@ def evaluate(
     )
 
 
-def check_chat_resources(transport: Any = None) -> GuardDecision:
-    """Canlı ölçümleri topla ve karar ver (yazma yok)."""
+def check_chat_resources(
+    transport: Any = None, *, tag: str | None = None, slot: str = "main"
+) -> GuardDecision:
+    """Canlı ölçümleri topla ve karar ver (yazma yok). ``tag`` yoksa yuvadan çözülür."""
     from app.agents.system_profiler.profiler import _memory_info
     from app.feedback.model_identity import ollama_ps, read_footprint
     from app.training.train_load_doctor import _nvidia_smi_memory_gb
 
     s = get_settings()
-    tag = s.effective_chat_model
+    if tag is None:
+        from app.feedback.model_activation import resolve_chat_tag
+
+        tag = resolve_chat_tag(slot)
+        if not tag:
+            return GuardDecision(False, "Bu yuvada etkin model yok.", training_activity(), {})
     activity = training_activity()
     if not activity["active"] and not activity["starting"] and not activity.get("heavy"):
         return evaluate(

@@ -3319,3 +3319,44 @@ code {
 .inline-editor-foot .inline-editor-count {
   margin-right: auto;
 }
+
+/* Faz 2A: ana / deneme sohbeti */
+.slot-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.slot-toggle .btn.active {
+  border-color: var(--border-strong);
+  box-shadow: inset 0 -3px 0 var(--border-strong);
+  font-weight: 700;
+}
+.chat-trial-banner {
+  border: 2px solid var(--warn-border);
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.chat-main-trial .chat-thread {
+  outline: 2px dashed var(--warn-border);
+  outline-offset: 2px;
+}
+.models-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.models-slot {
+  flex: 1 1 260px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.models-slot-trial {
+  border-color: var(--warn-border);
+}

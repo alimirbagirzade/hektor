@@ -82,6 +82,8 @@ class ChatConversation(ChatBase):
 
     conversation_id: Mapped[str] = mapped_column(String(40), primary_key=True)
     title: Mapped[str] = mapped_column(Text, default="")
+    # main = ana sohbet modeli · trial = belirgin etiketli DENEME sohbeti (Faz 2A)
+    slot: Mapped[str] = mapped_column(String(8), default="main")
     created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
     updated_at: Mapped[str] = mapped_column(String(40), default=utcnow)
 
@@ -144,6 +146,11 @@ class LearningCandidate(ChatBase):
     human_approval: Mapped[str] = mapped_column(Text, default="{}")
     family_id: Mapped[str] = mapped_column(String(40), default="", index=True)
     as_of: Mapped[str] = mapped_column(String(40), default="")
+    # Zaman alanları AYRI tutulur (Faz 2): data_start/data_end (fiyat verisi), strategy_created_at,
+    # backtest_run_at, knowledge_available_at. ``as_of`` geriye uyum için = knowledge_available_at.
+    time_meta: Mapped[str] = mapped_column(Text, default="{}")
+    # Strateji varyantları aynı aileye bağlanır (train/eval sızıntısı olmasın).
+    strategy_family: Mapped[str] = mapped_column(String(60), default="")
     created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
     updated_at: Mapped[str] = mapped_column(String(40), default=utcnow)
 
@@ -217,6 +224,27 @@ class ChatDatasetRun(ChatBase):
 
 CHAT_TABLES = tuple(ChatBase.metadata.sorted_tables)
 
+# Faz 1 tablolarına sonradan eklenen kolonlar: (tablo, kolon, SQL tipi + varsayılan). Var olan
+# veritabanında eksikse ``ALTER TABLE ... ADD COLUMN`` ile eklenir; veri silinmez/değişmez.
+_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("chat_conversations", "slot", "VARCHAR(8) NOT NULL DEFAULT 'main'"),
+    ("learning_candidates", "time_meta", "TEXT NOT NULL DEFAULT '{}'"),
+    ("learning_candidates", "strategy_family", "VARCHAR(60) NOT NULL DEFAULT ''"),
+)
+
+
+def _ensure_columns(engine: Any) -> None:
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table, col, ddl in _ADDED_COLUMNS:
+            if not insp.has_table(table):
+                continue
+            have = {c["name"] for c in insp.get_columns(table)}
+            if col not in have:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+
 
 class ChatStore:
     """Sohbet + öğrenme tablolarına ince erişim katmanı."""
@@ -231,6 +259,7 @@ class ChatStore:
         event.listen(self._engine, "connect", _sqlite_pragmas)
         # Yalnız eksik tabloları kurar; var olan hiçbir tabloya/kolona dokunmaz.
         ChatBase.metadata.create_all(self._engine)
+        _ensure_columns(self._engine)
         self._Session = sessionmaker(self._engine, expire_on_commit=False)
 
     @contextmanager
@@ -241,12 +270,16 @@ class ChatStore:
 
     # ── konuşmalar ───────────────────────────────────────────────────────────
 
-    def create_conversation(self, title: str = "") -> dict[str, Any]:
+    def create_conversation(self, title: str = "", slot: str = "main") -> dict[str, Any]:
+        if slot not in ("main", "trial"):
+            raise ValueError(f"Geçersiz sohbet yuvası: {slot}")
         cid = new_id("conv_")
         now = utcnow()
         with self.session() as s:
             s.add(
-                ChatConversation(conversation_id=cid, title=title, created_at=now, updated_at=now)
+                ChatConversation(
+                    conversation_id=cid, title=title, slot=slot, created_at=now, updated_at=now
+                )
             )
         conv = self.get_conversation(cid)
         assert conv is not None
@@ -606,7 +639,7 @@ def _turn(r: ChatTurn) -> dict[str, Any]:
     return d
 
 
-_CAND_JSON = ("flagged_spans", "reason_codes", "verification", "human_approval")
+_CAND_JSON = ("flagged_spans", "reason_codes", "verification", "human_approval", "time_meta")
 
 
 def _encode_cand(fields: dict[str, Any]) -> dict[str, Any]:
@@ -619,6 +652,7 @@ def _cand(r: LearningCandidate) -> dict[str, Any]:
     d["reason_codes"] = loads(r.reason_codes, [])
     d["verification"] = loads(r.verification, {})
     d["human_approval"] = loads(r.human_approval, {})
+    d["time_meta"] = loads(r.time_meta, {})
     return d
 
 

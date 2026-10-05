@@ -87,10 +87,15 @@
       <section class="panel active" id="panel-chat">
         <div class="chat-layout">
           <aside class="chat-side">
+            <div class="slot-toggle" id="chatSlotToggle" role="group" aria-label="Sohbet yuvası">
+              <button type="button" class="btn btn-sm active" data-slot="main" title="Ana sohbet modeli">Ana sohbet</button>
+              <button type="button" class="btn btn-sm" data-slot="trial" title="Kabul edilmemiş aday modelle ayrı deneme sohbeti">Deneme sohbeti</button>
+            </div>
             <button type="button" class="btn btn-primary btn-sm" id="chatNewBtn">+ Yeni konuşma</button>
             <div id="chatConvList" class="chat-conv-list"><span class="muted small">Yükleniyor…</span></div>
           </aside>
           <div class="chat-main">
+            <div id="chatTrialBanner" class="chat-trial-banner" hidden></div>
             <div class="chat-modelbar">
               <div><strong>Cevaplayan model:</strong> <span id="chatModelTag">—</span>
                 <span class="muted small" id="chatModelDigest"></span></div>
@@ -150,6 +155,16 @@
             <button type="button" class="btn btn-sm" id="lpRefreshBtn" title="Koşu kayıtlarını oku ve yenile">↻ Yenile</button>
           </div>
           <div id="lpCounters"><span class="muted">Yükleniyor…</span></div>
+        </div>
+        <div class="card" id="modelsCard">
+          <div class="lp-head-row">
+            <h3 class="lp-h3">Modeller — ana sohbet / deneme sohbeti</h3>
+            <button type="button" class="btn btn-sm" id="modelsRefreshBtn">↻ Yenile</button>
+          </div>
+          <p class="muted small">Ana modele yalnız karşılaştırma kararı <strong>Kabul</strong> olan aday geçer;
+            <strong>Yetersiz kanıt</strong> yalnız etiketli deneme sohbetinde kullanılabilir; reddedilen aday hiçbir yerde
+            kullanılamaz. Etkinleştirme yalnız sonraki istekleri etkiler.</p>
+          <div id="modelsBox"><span class="muted">Yükleniyor…</span></div>
         </div>
         <div class="card">
           <div class="lp-tabs" id="lpTabs">

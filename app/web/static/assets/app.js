@@ -5483,7 +5483,15 @@
   // Sunucu tek doğruluk kaynağıdır: her işlemden sonra konuşma /api/chat'ten yeniden okunur.
   // Hiçbir düğme eğitim başlatmaz; model adı daima API'den okunur (sabit model adı yok).
   var CHAT_KEY = "hektor_chat_conversation";
-  var chatState = { conv: null, turns: [], busy: false, wired: false };
+  var SLOT_KEY = "hektor_chat_slot";
+  var chatState = { conv: null, turns: [], busy: false, wired: false, slot: "main" };
+  try {
+    if (window.localStorage.getItem(SLOT_KEY) === "trial") chatState.slot = "trial";
+  } catch (e) {}
+  var EVAL_LABEL = {
+    baseline_unevaluated: "Başlangıç kaydı — karşılaştırmadan geçmedi (değerlendirilmiş sayılmaz)",
+    compared: "Karşılaştırmadan geçti",
+  };
   var LP_STATUS = {
     review: "İnceleme bekliyor",
     eligible: "Eğitime uygun",
@@ -5626,14 +5634,42 @@
     );
   }
 
+  // --- yuva (ana / deneme) ---
+  function setSlot(slot) {
+    chatState.slot = slot === "trial" ? "trial" : "main";
+    try {
+      window.localStorage.setItem(SLOT_KEY, chatState.slot);
+    } catch (e) {}
+    document.querySelectorAll("#chatSlotToggle [data-slot]").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-slot") === chatState.slot);
+    });
+    var banner = document.getElementById("chatTrialBanner");
+    if (banner) {
+      banner.hidden = chatState.slot !== "trial";
+      banner.textContent =
+        "DENEME SOHBETİ — bu konuşmayı kabul edilmemiş (ya da henüz etkinleştirilmemiş) aday model " +
+        "cevaplar. Cevaplar ana modelin kalitesini göstermez; bu modelin cevabı 'Öğrensin' ile eğitim hedefi olamaz.";
+    }
+    var main = document.querySelector(".chat-main");
+    if (main) main.classList.toggle("chat-main-trial", chatState.slot === "trial");
+  }
+
   // --- model kimliği + kaynak durumu ---
   function loadChatModel() {
-    api("/chat/model", { method: "GET" })
+    var q = "?slot=" + encodeURIComponent(chatState.slot);
+    api("/chat/model" + q, { method: "GET" })
       .then(function (m) {
         var tag = document.getElementById("chatModelTag");
         var dig = document.getElementById("chatModelDigest");
         var org = document.getElementById("chatModelOrigin");
-        if (tag) tag.textContent = m.tag || "—";
+        if (tag) {
+          tag.textContent = m.tag || (chatState.slot === "trial" ? "deneme yuvası boş" : "—");
+          var si = m.slot_info || {};
+          var lbl = EVAL_LABEL[si.evaluation] || "";
+          if (chatState.slot === "trial" && si.decision_label) lbl = "Karar: " + si.decision_label;
+          tag.title = lbl;
+          if (lbl) tag.textContent += "  ·  " + lbl;
+        }
         if (dig) {
           dig.textContent = m.digest
             ? "digest " + shortDigest(m.digest)
@@ -5653,7 +5689,7 @@
         }
       })
       .catch(function () {});
-    api("/chat/resources", { method: "GET" })
+    api("/chat/resources" + q, { method: "GET" })
       .then(function (d) {
         var el = document.getElementById("chatResource");
         var send = document.getElementById("chatSendBtn");
@@ -5695,6 +5731,7 @@
             return (
               '<button type="button" class="chat-conv' + (active ? " active" : "") +
               '" data-conv="' + esc(c.conversation_id) + '">' +
+              (c.slot === "trial" ? '<span class="badge badge-warning">DENEME</span> ' : "") +
               esc(c.title || "(başlıksız)") + ' <span class="muted small">' +
               esc(String(c.n_turns || 0)) + " tur</span></button>"
             );
@@ -5711,6 +5748,10 @@
       .then(function (d) {
         chatState.conv = d.conversation;
         chatState.turns = d.turns || [];
+        if ((d.conversation || {}).slot && d.conversation.slot !== chatState.slot) {
+          setSlot(d.conversation.slot);
+          loadChatModel();
+        }
         try {
           window.localStorage.setItem(CHAT_KEY, id);
         } catch (e) {}
@@ -5720,7 +5761,7 @@
   }
 
   function newConversation() {
-    return postJson("/chat/conversations", {}).then(function (c) {
+    return postJson("/chat/conversations", { slot: chatState.slot }).then(function (c) {
       chatState.conv = c;
       chatState.turns = [];
       try {
@@ -5756,7 +5797,9 @@
     var m = t.llm_used && t.model_tag
       ? esc(t.model_tag) + (t.model_digest ? " · " + esc(shortDigest(t.model_digest)) : "")
       : t.status === "pending" ? "" : "model çağrılmadı";
+    var trialTurn = (t.model_info || {}).slot === "trial";
     var head = '<div class="chat-turn-head">Tur ' + esc(String(t.turn_index)) + " · Hektor" +
+      (trialTurn ? ' <span class="badge badge-warning" title="Kabul edilmemiş aday model">DENEME MODELİ</span>' : "") +
       (m ? ' <span class="muted small">(' + m + ")</span>" : "") + "</div>";
     var body;
     if (t.status === "answered" || t.status === "no_llm") {
@@ -5801,7 +5844,7 @@
         '<button type="button" class="btn btn-sm' + (fb === "useful" ? " btn-on" : "") + '" data-act="useful">Faydalı</button>' +
         '<button type="button" class="btn btn-sm' + (fb === "wrong" ? " btn-on" : "") + '" data-act="wrong" title="Hata kuyruğuna ekler. Önce cevapta hatalı kısmı seçebilirsiniz.">Hatalı</button>' +
         (answered ? '<button type="button" class="btn btn-sm" data-act="correct" title="Doğru metni yazın; eğitim adayı olur ve kontrol edilir.">Düzelt</button>' +
-          '<button type="button" class="btn btn-sm" data-act="learn" title="Bu cevap eğitim adayı olur (kontrollerden geçer).">Öğrensin</button>' : "") +
+          (trialTurn ? "" : '<button type="button" class="btn btn-sm" data-act="learn" title="Bu cevap eğitim adayı olur (kontrollerden geçer).">Öğrensin</button>') : "") +
         '<button type="button" class="btn btn-sm btn-ghost" data-act="exclude">' +
         (t.excluded ? "Hariç tutmayı kaldır" : "⋯ Eğitimden hariç tut") + "</button>" +
         "</div>";
@@ -5990,6 +6033,22 @@
       if (f) f.addEventListener("submit", sendChat);
       var nb = document.getElementById("chatNewBtn");
       if (nb) nb.addEventListener("click", function () { newConversation(); });
+      var st = document.getElementById("chatSlotToggle");
+      if (st) st.addEventListener("click", function (ev) {
+        var b = ev.target.closest("[data-slot]");
+        if (!b) return;
+        var slot = b.getAttribute("data-slot");
+        if (slot === chatState.slot) return;
+        setSlot(slot);
+        chatState.conv = null;
+        chatState.turns = [];
+        try {
+          window.localStorage.removeItem(CHAT_KEY);
+        } catch (e) {}
+        renderThread();
+        loadConversations();
+        loadChatModel();
+      });
       var list = document.getElementById("chatConvList");
       if (list) list.addEventListener("click", function (ev) {
         var c = ev.target.closest("[data-conv]");
@@ -6018,6 +6077,7 @@
           .finally(loadChatModel);
       });
     }
+    setSlot(chatState.slot);
     loadChatModel();
     var saved = null;
     try {
@@ -6261,7 +6321,112 @@
     }
   }
 
+  // --- modeller: ana / deneme yuvaları (Faz 2A) ---
+  var modelsState = { data: null };
+  function modelsRender(d) {
+    modelsState.data = d;
+    var box = document.getElementById("modelsBox");
+    if (!box) return;
+    var main = d.main || {};
+    var mrec = d.main_record || {};
+    var trec = d.trial_record;
+    var cons = d.consistency || {};
+    var prev = mrec.previous;
+    var html =
+      '<div class="models-slots">' +
+      '<div class="models-slot"><div class="small"><strong>Ana sohbet modeli</strong></div>' +
+      "<div>" + esc(main.tag || "—") + (mrec.digest ? ' <span class="muted small">' + esc(shortDigest(mrec.digest)) + "</span>" : "") + "</div>" +
+      '<div class="small">' + esc(EVAL_LABEL[main.evaluation] || main.evaluation || "") + (main.virtual ? " · ayardan (henüz etkinleştirme kaydı yok)" : "") + "</div>" +
+      (prev ? '<div class="small muted">Önceki: ' + esc(prev.tag || "—") + (prev.digest ? " (" + esc(shortDigest(prev.digest)) + ")" : "") +
+        ' <button type="button" class="btn btn-sm" data-mact="rollback">Önceki ana modele dön</button></div>' : "") +
+      "</div>" +
+      '<div class="models-slot models-slot-trial"><div class="small"><strong>Deneme sohbeti modeli</strong></div>' +
+      (trec ? "<div>" + esc(trec.tag) + ' <span class="badge badge-warning">' + esc((d.trial || {}).decision_label || trec.decision || "") + "</span></div>" +
+        '<button type="button" class="btn btn-sm" data-mact="clear-trial">Deneme yuvasını boşalt</button>'
+        : '<div class="muted small">Boş — deneme sohbeti cevaplanmaz.</div>') +
+      "</div></div>";
+    if (!cons.consistent) {
+      html += '<div class="small chat-blocked">Tutarsızlık: etkinleştirme kaydı adapter “' + esc(cons.activation_adapter || "yok") +
+        "”, kayıt defteri production “" + esc(cons.registry_production || "yok") + '”. <button type="button" class="btn btn-sm" data-mact="repair">Kayıt defterini eşitle</button></div>';
+    }
+    if ((d.main_record || {}) && d.recovery_error) html += '<div class="small chat-blocked">' + esc(d.recovery_error) + "</div>";
+    var cands = d.candidates || [];
+    html += cands.length
+      ? '<table class="lp-table"><thead><tr><th>Aday</th><th>Karar</th><th>Karşılaştırma</th><th></th></tr></thead><tbody>' +
+        cands.map(function (c) {
+          var cls = c.decision === "kabul" ? "badge-success" : c.decision === "yetersiz_kanit" ? "badge-warning" : "badge-danger";
+          return "<tr><td>" + esc(c.candidate_tag) + ' <span class="muted small">' + esc(shortDigest(c.candidate_digest)) + "</span></td>" +
+            '<td><span class="badge ' + cls + '">' + esc(c.decision_label) + "</span></td>" +
+            '<td class="muted small">' + esc(c.comparison_id || "") + " · " + esc(c.decided_at || "") + "</td><td>" +
+            (c.main_allowed ? '<button type="button" class="btn btn-sm" data-mact="main" data-tag="' + esc(c.candidate_tag) + '">Ana model yap</button> ' : "") +
+            (c.trial_allowed ? '<button type="button" class="btn btn-sm" data-mact="trial" data-tag="' + esc(c.candidate_tag) + '">Deneme sohbetine al</button>' : "") +
+            (!c.main_allowed && !c.trial_allowed ? '<span class="muted small">kullanılamaz</span>' : "") +
+            "</td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<p class="muted small">Karşılaştırma kararı olan aday yok. Kararlar yalnız aday/aktif karşılaştırmasından gelir.</p>';
+    html += '<div class="muted small">' + esc(d.note || "") + "</div>";
+    box.innerHTML = html;
+  }
+  function loadModels() {
+    var box = document.getElementById("modelsBox");
+    if (!box) return;
+    api("/models/activation", { method: "GET" })
+      .then(modelsRender)
+      .catch(function (e) {
+        box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>";
+      });
+  }
+  function onModelsAction(ev) {
+    var b = ev.target.closest("button[data-mact]");
+    if (!b) return;
+    var act = b.getAttribute("data-mact");
+    var tag = b.getAttribute("data-tag") || "";
+    var host = b.closest(".models-slot") || b.closest("td") || document.getElementById("modelsBox");
+    function done(msg) {
+      return function () {
+        toast(msg);
+        loadModels();
+        loadChatModel();
+      };
+    }
+    if (act === "main") {
+      inlineEditor(host, {
+        title: "“" + tag + "” ana sohbet modeli olsun — gerekçe (en az 10 karakter)",
+        help: "Yalnız sonraki istekleri etkiler; devam eden cevap başladığı modelle biter. Kayıt defterindeki production kaydı da güncellenir.",
+        minLen: 10,
+        submit: "Ana model yap",
+        onSubmit: function (reason) {
+          return postJson("/models/activate-main", { tag: tag, reason: reason }).then(done("Ana model etkinleştirildi."));
+        },
+      });
+    } else if (act === "trial") {
+      postJson("/models/activate-trial", { tag: tag }).then(done("Deneme yuvasına alındı.")).catch(function (e) { toast(e.message, true); });
+    } else if (act === "clear-trial") {
+      postJson("/models/clear-trial", {}).then(done("Deneme yuvası boşaltıldı.")).catch(function (e) { toast(e.message, true); });
+    } else if (act === "repair") {
+      postJson("/models/repair-registry", {}).then(done("Kayıt defteri eşitlendi.")).catch(function (e) { toast(e.message, true); });
+    } else if (act === "rollback") {
+      inlineEditor(host, {
+        title: "Önceki ana modele dön — gerekçe (en az 10 karakter)",
+        help: "Önceki modelin Ollama'da bulunduğu ve digest'inin kayıttakiyle eşleştiği doğrulanır; eşleşmezse dönülmez.",
+        minLen: 10,
+        submit: "Geri dön",
+        onSubmit: function (reason) {
+          return postJson("/models/rollback", { reason: reason }).then(done("Önceki ana modele dönüldü."));
+        },
+      });
+    }
+  }
+
   function loadLearnPool() {
+    if (!modelsState.wired) {
+      modelsState.wired = true;
+      var mb = document.getElementById("modelsBox");
+      if (mb) mb.addEventListener("click", onModelsAction);
+      var mr = document.getElementById("modelsRefreshBtn");
+      if (mr) mr.addEventListener("click", loadModels);
+    }
+    loadModels();
     if (!lpState.wired) {
       lpState.wired = true;
       var tabsEl = document.getElementById("lpTabs");
