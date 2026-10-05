@@ -210,7 +210,7 @@ def recipe_for_adapter(adapter: str) -> dict[str, Any] | None:
 
     d = snapshots_dir()
     if not d.is_dir():
-        return None
+        return recipe_from_records(adapter)
     for p in sorted(d.glob("snap_*/launch.json")):
         launch = _read(p) or {}
         recipe = _read(p.parent / "recipe.json") or {}

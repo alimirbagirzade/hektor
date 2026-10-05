@@ -315,3 +315,48 @@ def test_web_blind_review_flow(iso, tmp_path) -> None:  # noqa: F811
             "/api/compare/{cmp_id}/finalize",
         ):
             assert require_human in {d.call for d in rt.dependant.dependencies}
+
+
+def test_records_based_recipe_for_start_train_runs(iso) -> None:  # noqa: F811
+    """Kolay akış kaydı yoksa (start-train/CLI) reçete bağımsız kayıtlardan kurulur."""
+    import hashlib
+
+    from app.agents.runtime import approvals
+    from app.config import get_settings
+    from app.training.candidate_checks import recipe_for_adapter, verify_run_completion
+
+    root = get_settings().root
+    _adapter_files(root)
+    src = root / "data" / "lora_sft" / "lora_sft.jsonl"
+    src.parent.mkdir(parents=True)
+    src.write_text('{"messages": []}\n', encoding="utf-8")
+    sha = hashlib.sha256(src.read_bytes()).hexdigest()
+    req = approvals.require_fresh_approval("lora-trainer", "train_run", "critical", "t")
+    approvals.approve(req.approval_id)
+    approvals.require_fresh_approval("lora-trainer", "train_run", "critical", "t")
+    (root / "storage").mkdir(exist_ok=True)
+    (root / "storage" / "train_status.json").write_text(
+        json.dumps(
+            {
+                "adapter": "hektor_lora_t",
+                "finished_at": "x",
+                "pid": 0,
+                "data_sha256": sha,
+                "approval_id": req.approval_id,
+            }
+        ),
+        "utf-8",
+    )
+    reg = root / "registry" / "adapters" / "registry.jsonl"
+    reg.parent.mkdir(parents=True)
+    row = {"adapter_id": "a1", "adapter_name": "hektor_lora_t", "status": "candidate"}
+    row["base_model"] = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    reg.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    recipe = recipe_for_adapter("hektor_lora_t")  # anlık görüntü klasörü YOK
+    assert recipe is not None and recipe["data_sha256"] == sha and "kayıtlar" in recipe["source"]
+    assert verify_run_completion("hektor_lora_t", recipe)["ok"]
+    # Veri bugün farklıysa (yeniden özet tutmuyor) eğitim verisi doğrulanmış sayılmaz.
+    src.write_text('{"messages": [1]}\n', encoding="utf-8")
+    again = verify_run_completion("hektor_lora_t", recipe_for_adapter("hektor_lora_t"))
+    assert not again["ok"]
+    assert {c["key"]: c["ok"] for c in again["checks"]}["veri_ozeti"] is False
