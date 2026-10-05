@@ -203,7 +203,10 @@
       loadLoraAdapters();
     }
     if (name === "backtest") loadBacktestHistory();
-    if (name === "training") loadTrainingStatus();
+    if (name === "training") {
+      loadTrainingStatus();
+      loadTrainFlow();
+    }
     if (name === "review") loadPendingCards();
     if (name === "eval") loadEvalSets();
     if (name === "about") loadSystemStatus();
@@ -6357,6 +6360,87 @@
         .catch(function (err) { document.getElementById("stResult").innerHTML = '<div class="chat-blocked">' + esc(err.message) + "</div>"; })
         .finally(function () { b.disabled = false; });
     });
+  }
+
+  // --- kolay eğitim akışı (özet onayı) ---
+  var tfState = { snap: null, wired: false, requestId: null };
+  function tfVal(id, v) {
+    var el = document.getElementById(id);
+    if (el && v !== undefined && v !== null && el.value === "") el.value = v;
+  }
+  function tfSettings() {
+    return {
+      adapter_name: (document.getElementById("tfAdapter").value || "").trim(),
+      base_model: (document.getElementById("tfBase").value || "").trim() || null,
+      profile: (document.getElementById("tfProfile").value || "").trim() || null,
+      mix_profile: (document.getElementById("tfMix").value || "").trim() || null,
+      max_examples: parseInt(document.getElementById("tfMax").value, 10) || 0,
+    };
+  }
+  function tfRenderSnap(r) {
+    tfState.snap = r;
+    tfState.requestId = null;
+    document.getElementById("tfSummary").innerHTML = r
+      ? '<div class="lp-card"><strong>Onaylanacak özet:</strong> ' + esc(r.summary || "") +
+        '<div class="muted">Anlık görüntü ' + esc(r.snapshot_id) + " · " + esc(r.created_at || "") + "</div></div>"
+      : document.getElementById("tfSummary").innerHTML;
+    document.getElementById("tfLaunchBtn").disabled = !r;
+  }
+  function loadTrainFlow() {
+    if (!tfState.wired) {
+      tfState.wired = true;
+      document.getElementById("tfRefreshBtn").addEventListener("click", loadTrainFlow);
+      document.getElementById("tfSnapBtn").addEventListener("click", function () {
+        var out = document.getElementById("tfResult");
+        out.innerHTML = '<span class="spinner"></span> anlık görüntü hazırlanıyor…';
+        postJson("/train-flow/snapshot", tfSettings())
+          .then(function (r) { tfRenderSnap(r); out.innerHTML = '<span class="muted">Hazır. Özeti okuyup onaylayın.</span>'; })
+          .catch(function (e) { out.innerHTML = '<div class="chat-blocked">' + esc(e.message) + "</div>"; });
+      });
+      document.getElementById("tfLaunchBtn").addEventListener("click", function () {
+        if (!tfState.snap) return;
+        var out = document.getElementById("tfResult");
+        var b = document.getElementById("tfLaunchBtn");
+        b.disabled = true;
+        // Aynı onay tıklaması tekrarlanırsa (çift tık / yeniden deneme) aynı istek kimliği → çift eğitim yok.
+        tfState.requestId = tfState.requestId || newRequestId();
+        postJson("/train-flow/launch", { snapshot_id: tfState.snap.snapshot_id, request_id: tfState.requestId })
+          .then(function (r) {
+            if (r.status === "needs_approval") {
+              tfState.requestId = null;
+              out.innerHTML = '<div class="chat-blocked">' + esc(r.message) + "<br>Onay: <code>" + esc(r.approve_command) + "</code></div>";
+            } else if (r.status === "blocked") {
+              tfState.requestId = null;
+              out.innerHTML = '<div class="chat-blocked">' + esc(r.message) + "<ul>" + (r.problems || []).map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("") + "</ul></div>";
+            } else {
+              out.innerHTML = '<div class="lp-card">' + esc(r.status) + ": " + esc(r.message) + (r.replayed ? " (aynı istek — yeniden başlatılmadı)" : "") + "</div>";
+            }
+          })
+          .catch(function (e) { tfState.requestId = null; out.innerHTML = '<div class="chat-blocked">' + esc(e.message) + "</div>"; })
+          .finally(function () { b.disabled = !tfState.snap; });
+      });
+    }
+    api("/train-flow/state", { method: "GET" })
+      .then(function (d) {
+        var s = d.settings || {};
+        tfVal("tfAdapter", s.adapter_name);
+        tfVal("tfBase", s.base_model);
+        tfVal("tfProfile", s.profile);
+        tfVal("tfMix", s.mix_profile);
+        tfVal("tfMax", s.max_examples);
+        if (!tfState.snap) {
+          document.getElementById("tfSummary").innerHTML = '<div class="small">Ayarlar: <strong>' + esc(s._source || "") + "</strong> — adapter " +
+            esc(s.adapter_name || "(girilmeli)") + " · profil " + esc(s.profile || "") + " · karışım " + esc(s.mix_profile || "özel") +
+            " · temel " + esc(s.base_model || "") + "</div>";
+        }
+        var rd = d.readiness || {};
+        document.getElementById("tfReady").innerHTML = "<ul>" + (rd.items || []).map(function (i) {
+          return "<li>" + (i.ok ? "✓" : "✗") + " " + esc(i.key) + ": " + esc(i.detail) + "</li>";
+        }).join("") + '</ul><div class="muted">' + esc(rd.note || "") + "</div>";
+      })
+      .catch(function (e) {
+        document.getElementById("tfReady").innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>";
+      });
   }
 
   // --- öğrenme havuzu ---

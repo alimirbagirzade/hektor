@@ -1035,6 +1035,42 @@ def _train_impl(
                 )
 
 
+@app.command("kademe2-kayit")
+def kademe2_kayit(
+    findings: Path = typer.Option(..., "--findings", help="Bulgu listesi JSON (her biri status)"),
+    evidence: str = typer.Option(..., "--evidence", help="Kapanış kanıtı (testler, commit'ler)"),
+    recipe_sha: str = typer.Option("", "--recipe-sha", help="Kapsam: eğitim reçetesi özeti"),
+    data_sha: str = typer.Option("", "--data-sha", help="Kapsam: lora_sft.jsonl özeti"),
+    reviewer: str = typer.Option("insan", "--reviewer"),
+) -> None:
+    """Kapanmış Kademe 2 derin av kaydı yaz (reports/kademe2/). Eğitim BAŞLATMAZ.
+
+    Kayıt denetlenen kod durumunu (app/ scripts/ configs/ pyproject.toml ağaç özeti, temiz
+    çalışma ağacı), kapsamı, bulguları (hepsi kapanmış: duzeltildi|reddedildi|risk_kabul) ve
+    kapanış kanıtını taşır. Kolay eğitim akışı bu kaydı olmadan başlatmaz.
+    """
+    import json as _json
+
+    from app.training.easy_train import EasyTrainError, record_kademe2
+
+    try:
+        rows = _json.loads(findings.read_text(encoding="utf-8"))
+        rec = record_kademe2(
+            scope={
+                k: v for k, v in {"recipe_sha": recipe_sha, "data_sha256": data_sha}.items() if v
+            },
+            findings=rows if isinstance(rows, list) else [],
+            closure_evidence=evidence,
+            reviewer=reviewer,
+        )
+    except (OSError, ValueError, EasyTrainError) as exc:
+        console.print(f"[red]Kayıt yazılmadı: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]Kademe 2 kaydı:[/green] {rec['record_id']} (kod {rec['code_sha'][:12]}…)"
+    )
+
+
 @app.command("approval-status")
 def approval_status(
     approval_id: str,

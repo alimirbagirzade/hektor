@@ -1135,6 +1135,8 @@ uv run hektor approval-approve <id>    # taze onay ver (tek kullanımlık — st
 uv run hektor approval-reject <id>     # onayı reddet
 uv run hektor approval-status <id>     # bir onayın durumunu READ-ONLY göster (tüketmez)
 uv run hektor train-doctor             # koşan eğitimin sağlığı + yetkisi (salt-okuma; DİKKAT/OK/BOŞTA)
+uv run hektor kademe2-kayit --findings f.json --recipe-sha <sha> --evidence "..."  # kapanmış Kademe 2 kaydı (kolay eğitim akışı ister)
+uv run python -m app.training.resource_lock status   # ortak ağır iş kilidi (eğitim/dönüşüm/karşılaştırma)
 uv run hektor train-recovery-check     # nöbetçi çöken koşuyu diriltmeye YETKİLİ mi (salt-okuma, fail-closed)
 uv run hektor stop-all                 # KÜRESEL acil-durdurma (tüm tehlikeli aksiyonları blokla)
 uv run hektor clear-stop-all           # acil-durdurmayı kaldır

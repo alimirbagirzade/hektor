@@ -590,6 +590,32 @@
           <p class="muted">Butona bas → eğitim başlar, ilerlemeyi canlı izle. Terminal gerekmez.</p>
         </div>
 
+        <!-- 0. Kolay eğitim (özet onayı) -->
+        <div class="training-section" id="tfSection">
+          <h3>0 · Kolay eğitim — özeti onayla</h3>
+          <p class="muted small">Son kullanılan ayarlar hazır gelir; ağırlıkları her seferinde yeniden girmezsiniz.
+            Hazırlık kontrolü salt okunurdur. Veri anlık görüntüsü ayrı ve açık bir adımdır. Onay bu reçeteye
+            (veri özeti, temel model, profil, karışım, hedef adapter) bağlıdır; biri değişirse eski onay kullanılamaz.
+            Eğitim kendiliğinden başlamaz.</p>
+          <div id="tfSummary" class="small"><span class="muted">Yükleniyor…</span></div>
+          <details id="tfDetails"><summary>Ayrıntılar (değiştir)</summary>
+            <div class="st-grid">
+              <label class="small">Hedef adapter adı <input id="tfAdapter" /></label>
+              <label class="small">Temel model <input id="tfBase" /></label>
+              <label class="small">LoRA profili <input id="tfProfile" /></label>
+              <label class="small">Karışım profili <input id="tfMix" /></label>
+              <label class="small">Örnek tavanı (0 = profil) <input id="tfMax" type="number" min="0" /></label>
+            </div>
+          </details>
+          <div id="tfReady" class="small"></div>
+          <div class="orc-actions">
+            <button type="button" class="btn" id="tfSnapBtn">Veri anlık görüntüsü + reçete hazırla</button>
+            <button type="button" class="btn btn-primary" id="tfLaunchBtn" disabled>Özeti onayla ve başlat</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="tfRefreshBtn">↻</button>
+          </div>
+          <div id="tfResult" class="small"></div>
+        </div>
+
         <!-- 1. Dataset -->
         <div class="training-section">
           <h3>1 · Veri Seti</h3>
