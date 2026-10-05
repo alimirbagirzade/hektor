@@ -33,6 +33,29 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-05 (akşam) — Faz 1–2 açıkları kapatıldı (dal `claude/hektor-faz-1-2-completion-297c12`, main'e birleşmedi, push yok)
+
+Kanıt: `docs/evidence/faz2_tamamlama_2026-10-05.md`, `docs/evidence/gercek_veri_backtest_denetimi_2026-10-05.md`.
+Faz 3 (bulut) yalnız tasarım: `docs/TASARIM_FAZ3_BULUT.md` (talimat DEĞİŞTİRİLMEDİ).
+
+- **Strateji çevirisi:** orijinal öneri / model taslağı / onaylı nihai strateji ayrı kayıt;
+  çelişki ya da dayanaksız model değeri taslakta boş ("karar gerekli"); fark listesi her öğesi
+  işaretlenmeden (çelişkide gerekçesiz) test yok; öğrenme adayı test edilen nihai stratejiye
+  bağlı, orijinalden farklıysa iddia stratejiyi kimliğiyle anmalı. Gerçek modelle yeniden
+  üretildi: model "fiyat + 2 ATR" long stop'unu yine girişin altına çevirdi → artık ÇELİŞKİ.
+- **Gerçek veri:** BTCUSDT 1h spot (Binance kamu arşivi, teknik doğrulama piyasası) 17 543 bar;
+  `data/market/raw/` + köken kaydı (ana kurulumda). 683 işlem bağımsız hesapla aynı.
+- **Aday hattı (web + CLI):** Öğrenme Havuzu → Aday hattı; `candidate-prepare/-compare/-jobs/
+  -job-stop`. v14 kayıtlarla çapraz doğrulandı; `hektor-v14-30b-aday` oluşturuldu (digest =
+  `hektor-v14-30b`); `cmp_ab63a45247fe` entegrasyon koşusu üretildi → **kör inceleme sizi
+  bekliyor** (9 açık uçlu cevap). Ana model değişmedi (`hektor-v12-30b`).
+- **Kademe 2:** reçete kapsamlı kayıt gerçek veri/temel model/profil/karışımı kapsar; alt
+  süreç reçeteye bağlı (çıkış 11), eğitici okuduğu baytları doğrular; gerçek git deposunda
+  kapı açık testler. Bu görevde Kademe 2 kaydı ÜRETİLMEDİ, eğitim BAŞLATILMADI.
+- **Bekleyen (insan / ağır iş):** kör inceleme + karar; kabul olursa ana model etkinleştirme;
+  pilot eğitim reçetesi kanıt belgesinde (§5). 8765 web süreci yeni uçlar için birleştirme
+  sonrası yeniden başlatılmalı.
+
 ### 2026-10-05 — Faz 2 (dal `claude/faz-2-scope-plan-1b9f4b`, Faz 1 üstüne; main'e birleşmedi, push yok)
 
 Commit'ler: Faz 1 tamamlama `c993b78` · 2A `306aa61` · 2B `061df56` · zaman/iddia `90453a6` ·
