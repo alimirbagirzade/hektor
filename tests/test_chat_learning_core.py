@@ -95,8 +95,8 @@ def test_previous_answer_is_not_evidence(store, conv) -> None:
     t2 = send(store, conv, "Peki volatilite kümelenmesi?", llm=llm)
     assert claim in t2["user_prompt"]  # geçmişte var
     cand, _ = _svc(store).correct(t2["turn_id"], claim)
-    kaynak = next(c for c in cand["verification"]["checks"] if c["kind"] == "kaynak")
-    assert kaynak["status"] != "gecti"
+    kaynak = next(c for c in cand["verification"]["checks"] if c["kind"] == "kaynak_benzerligi")
+    assert kaynak["status"] != "benzer"
     assert cand["status"] != "eligible"
 
 
@@ -246,12 +246,37 @@ def _checks(c):
     return {k["kind"]: k for k in c["verification"]["checks"]}
 
 
-def test_fully_supported_is_auto_eligible(store, conv) -> None:
+def approve(store, cand):
+    return _svc(store).approve(cand["candidate_id"], "Kaynak parçasıyla elle karşılaştırıldı.")
+
+
+def test_source_similarity_alone_is_not_auto_eligible(store, conv) -> None:
+    """Sözcük örtüşmesi 'kaynakla doğrulandı' DEĞİLDİR: benzer ifade insan incelemesi bekler."""
     t = send(store, conv, "Volatilite kümelenmesi nedir?")
     c, _ = _svc(store).correct(t["turn_id"], SUPPORTED_SENTENCE)
-    assert c["status"] == "eligible"
-    assert c["verification"]["class"] == "auto"
-    assert _checks(c)["kaynak"]["status"] == "gecti"
+    assert _checks(c)["kaynak_benzerligi"]["status"] == "benzer"
+    assert "Doğrulama DEĞİLDİR" in _checks(c)["kaynak_benzerligi"]["detail"]
+    assert c["status"] == "review" and c["verification"]["class"] == ""
+    assert c["verification"]["coverage"]["needs_review"] == 1
+    ok = approve(store, c)
+    assert ok["status"] == "eligible" and ok["verification"]["class"] == "human"
+
+
+def test_negated_claim_still_looks_similar_so_never_auto(store, conv) -> None:
+    """Zıt ifade (… izlemesi anlamına GELMEZ) de sözcükçe benzer çıkar → otomatik uygun olamaz."""
+    t = send(store, conv, "Volatilite kümelenmesi nedir?")
+    negated = SUPPORTED_SENTENCE.replace("anlamına gelir", "anlamına gelmez")
+    c, _ = _svc(store).correct(t["turn_id"], negated)
+    assert _checks(c)["kaynak_benzerligi"]["status"] in ("benzer", "kismen_benzer")
+    assert c["status"] == "review"
+
+
+def test_math_check_covers_only_checked_expression(store, conv) -> None:
+    t = send(store, conv, "On bölü dört kaç eder?")
+    c, _ = _svc(store).correct(t["turn_id"], "10 / 4 = 2.5")
+    assert c["status"] == "eligible" and c["verification"]["class"] == "auto"
+    mixed, _ = _svc(store).correct(t["turn_id"], "10 / 4 = 2.5 olduğundan getiri artar")
+    assert mixed["status"] == "review"  # hesap dışındaki söz kontrol edilmedi
 
 
 def test_correct_math_does_not_verify_whole_answer(store, conv) -> None:
@@ -263,7 +288,7 @@ def test_correct_math_does_not_verify_whole_answer(store, conv) -> None:
     c, _ = _svc(store).correct(t["turn_id"], text)
     ch = _checks(c)
     assert ch["hesap"]["status"] == "gecti" and ch["hesap"]["scope"] == "1/1 ifade"
-    assert ch["kaynak"]["status"] != "gecti"
+    assert ch["kaynak_benzerligi"]["status"] != "benzer"
     assert c["status"] == "review"
     assert c["verification"]["coverage"]["uncovered"]
 
@@ -296,7 +321,7 @@ def test_citation_id_validity_is_not_support(store, conv) -> None:
     )
     ch = _checks(valid_id)
     assert ch["atif_kimligi"]["status"] == "gecti"
-    assert ch["kaynak"]["status"] != "gecti"
+    assert ch["kaynak_benzerligi"]["status"] != "benzer"
     assert valid_id["status"] == "review"
     fake_id = svc.edit(valid_id["candidate_id"], f"{SUPPORTED_SENTENCE} [p9:c9]")
     assert _checks(fake_id)["atif_kimligi"]["status"] == "kaldi"
@@ -341,6 +366,7 @@ def test_exclude_and_undo(store, conv) -> None:
     t = send(store, conv, "Volatilite kümelenmesi nedir?")
     svc = _svc(store)
     c, _ = svc.correct(t["turn_id"], SUPPORTED_SENTENCE)
+    c = approve(store, c)
     assert c["status"] == "eligible"
     svc.set_excluded(t["turn_id"], True, "kişisel not")
     assert store.get_candidate(c["candidate_id"])["status"] == "excluded"
@@ -421,4 +447,4 @@ def test_citation_only_line_is_not_a_claim(store, conv) -> None:
     target = SUPPORTED_SENTENCE + chr(10) + "[p1:c1]"
     c, _ = _svc(store).correct(t["turn_id"], target)
     assert c["verification"]["coverage"]["units"] == 1
-    assert c["status"] == "eligible"
+    assert c["status"] == "review"  # tek iddia; benzerlik kapsama sayılmaz

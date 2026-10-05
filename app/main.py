@@ -567,6 +567,109 @@ def train(
     ``--run`` ile gerçek eğitim, karışım ağırlık kararı OLMADAN başlamaz (kullanıcı isteği:
     her eğitimin başında ağırlıklar sorulur): bayrak, `hektor mix weights` kaydı ya da
     etkileşimli soru. Ayrıca eğitim verisi ↔ eval (validation/golden) sızıntısı varsa durur.
+
+    Gerçek koşu ORTAK ağır iş kilidini (``app.training.resource_lock``) onay tüketilmeden önce
+    alır — web, ``start-train.ps1`` ve doğrudan CLI aynı kilidi paylaşır; sohbet cevabı
+    üretiliyorsa başlamaz. Kilit her çıkışta (hata dahil) bırakılır.
+    """
+    lock_holder: dict[str, str] = {}
+    try:
+        _train_impl(
+            base_model=base_model,
+            adapter_name=adapter_name,
+            iterations=iterations,
+            batch_size=batch_size,
+            num_layers=num_layers,
+            run=run,
+            backend=backend,
+            profile=profile,
+            max_examples=max_examples,
+            skip_load_check=skip_load_check,
+            mix_profile=mix_profile,
+            mix_weights=mix_weights,
+            lock_holder=lock_holder,
+        )
+    finally:
+        if lock_holder.get("token"):
+            from app.training import resource_lock
+
+            resource_lock.release(lock_holder["token"])
+
+
+def _acquire_train_lock(adapter_name: str, lock_holder: dict[str, str]) -> None:
+    """Ortak ağır iş kilidini al ya da (web başlatmasından) devral; sohbet kirasına bak."""
+    import os as _os
+
+    from app.feedback.resource_guard import chat_lease_blocker
+    from app.training import resource_lock
+
+    token = _os.environ.get(resource_lock.TOKEN_ENV, "").strip()
+    if token:
+        if not resource_lock.claim(token):
+            console.print(
+                "[red]Başlatma kilidi bu koşuya ait değil ya da kaybolmuş — eğitim "
+                "başlatılmadı.[/red] Durum: [cyan]uv run python -m app.training.resource_lock "
+                "status[/cyan]"
+            )
+            raise typer.Exit(8)
+    else:
+        info, why = resource_lock.acquire("training", f"cli:{adapter_name}")
+        if info is None:
+            console.print(Panel.fit(why, title="⛔ Ağır iş sürüyor", border_style="red"))
+            raise typer.Exit(8)
+        token = str(info["token"])
+    lock_holder["token"] = token
+    # Kilit ALINDIKTAN SONRA sohbet kiralarına bak (sohbet önce kirasını yazıp sonra kilide
+    # baktığından ikisi birden ilerleyemez).
+    lease = chat_lease_blocker()
+    if lease:
+        console.print(Panel.fit(lease, title="⛔ Sohbet cevabı üretiliyor", border_style="red"))
+        raise typer.Exit(8)
+
+
+def _train_impl(
+    *,
+    lock_holder: dict[str, str],
+    base_model: str = typer.Option(None),
+    adapter_name: str = typer.Option("hektor_lora_v1"),
+    iterations: int = typer.Option(
+        0,
+        help="Örnek-adımı sayısı; 0 = plandan (örnek × profil epoch). Planı aşan değer reddedilir.",
+    ),
+    batch_size: int = typer.Option(2, help="Batch büyüklüğü (8GB için 2 önerilir)"),
+    num_layers: int = typer.Option(8, help="LoRA adapter katman sayısı (sadece MLX)"),
+    run: bool = typer.Option(False, help="Eğitimi gerçekten başlat"),
+    backend: str = typer.Option("auto", help="Backend: auto|mlx|peft"),
+    profile: str = typer.Option(
+        None,
+        help="LoRA profili (configs/lora/lora_profiles.yaml; yalnız PEFT): "
+        "standard_reasoning|high_capacity_reasoning|discipline_safe|"
+        "discipline_safe_local|moe30b_attn_local|small_smoke_test",
+    ),
+    max_examples: int = typer.Option(
+        0,
+        "--max-examples",
+        help="Yalnız N örnekle eğit (0=profil/varsayılan). CPU süresini sınırlar (yalnız PEFT).",
+    ),
+    skip_load_check: bool = typer.Option(
+        False, "--skip-load-check", help="train-load-doctor rakip yük taramasını atla (önerilmez)"
+    ),
+    mix_profile: str = typer.Option(
+        None,
+        "--mix-profile",
+        help="Eğitim öncesi karışım ağırlık kararı: configs/lora/mix_profiles.yaml profil adı",
+    ),
+    mix_weights: str = typer.Option(
+        None,
+        "--mix-weights",
+        help='Eğitim öncesi özel karışım ağırlıkları: "math=0.3,statistics=0.2,..."',
+    ),
+) -> None:
+    """LoRA eğitim komutunu hazırla — platform otomatik tespit edilir.
+
+    ``--run`` ile gerçek eğitim, karışım ağırlık kararı OLMADAN başlamaz (kullanıcı isteği:
+    her eğitimin başında ağırlıklar sorulur): bayrak, `hektor mix weights` kaydı ya da
+    etkileşimli soru. Ayrıca eğitim verisi ↔ eval (validation/golden) sızıntısı varsa durur.
     """
     from app.training.backend import detect_lora_backend
 
@@ -723,6 +826,20 @@ def train(
         if _blocker:
             console.print(f"[red]{_blocker}[/red]")
             raise typer.Exit(1)
+
+        # Seçili sohbet veri sürümünde sonradan geçersizleşen kayıt varsa (ret/hariç/düzenleme)
+        # hangi yoldan gelinirse gelinsin eğitim başlamaz (Faz 1: yalnız pretrain-gate/web).
+        from app.feedback.chat_dataset import chat_selection_blockers
+
+        _chat_blockers = chat_selection_blockers()
+        if _chat_blockers:
+            console.print(
+                Panel.fit(" | ".join(_chat_blockers), title="⛔ Sohbet verisi", border_style="red")
+            )
+            raise typer.Exit(1)
+
+        # Ortak ağır iş kilidi: onaydan ÖNCE (ucuz), sohbet kirasıyla yarışsız.
+        _acquire_train_lock(adapter_name, lock_holder)
 
         # auto_pipeline/launch zaten kendi onayını aldıysa (supervised) iç kapı atlanır
         # — çift onay olmasın; ama STOP_ALL her zaman geçerli. Onay, yukarıdaki TÜM ucuz

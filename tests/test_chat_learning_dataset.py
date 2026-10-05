@@ -36,6 +36,8 @@ def _eligible(store, n: int, *, split_cycle=("train", "train", "eval"), domain=N
     for i in range(n):
         t = send(store, conv, f"Benzersiz soru {i} {'x' * i} hakkında ayrıntı")
         c, _ = svc.correct(t["turn_id"], SUPPORTED_SENTENCE, domain=domain)
+        # Kaynak benzerliği otomatik uygunluk vermez → gerekçeli insan onayı.
+        c = svc.approve(c["candidate_id"], "Kaynak parçasıyla elle karşılaştırıldı.")
         assert c["status"] == "eligible", c["status_reason"]
         if split_cycle:
             store.upsert_family(c["family_id"], split=split_cycle[i % len(split_cycle)])
@@ -286,6 +288,7 @@ def test_trading_families_time_ordered(store) -> None:
     for i in range(5):
         t = send(store, conv, f"RSI EMA trading stratejisi sorusu numara {i} {'y' * i}")
         c, _ = svc.correct(t["turn_id"], SUPPORTED_SENTENCE, domain="trading")
+        c = svc.approve(c["candidate_id"], "Kaynak parçasıyla elle karşılaştırıldı.")
         assert store.get_family(c["family_id"])["split"] == "time"
         store.update_candidate(c["candidate_id"], as_of=f"2026-10-0{i + 1}T00:00:00+00:00")
     p = build_payload(store, token_counter=_counter, token_method="t")

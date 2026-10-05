@@ -6,9 +6,12 @@
 Kontroller:
 - ``hesap``        : ``a op b = c`` biçimli ifadeler ``safe_eval`` ile yeniden hesaplanır
                      (eval/exec yok — Kural 5). Tutmayan ifade ÇÜRÜTÜR.
-- ``kaynak``       : her ifade/cümle turun KENDİ getirdiği parçalara karşı sözcüksel örtüşme
-                     (``GroundingVerifier``) ile denetlenir. Desteklenmemek çürütme DEĞİLDİR;
-                     yalnız "kontrol edilemedi" sayılır. Önceki model cevapları kanıt değildir.
+- ``kaynak_benzerligi`` : "Kaynak benzerliği kontrolü" — her ifade turun KENDİ getirdiği
+                     parçalara karşı SÖZCÜKSEL örtüşmeyle (``GroundingVerifier``) karşılaştırılır.
+                     Bu bir DOĞRULAMA DEĞİLDİR: "artırır / artırmaz" gibi zıt ifadeleri ayıramaz.
+                     Bu yüzden benzerlik hiçbir ifadeyi "kapsanmış" saymaz ve tek başına otomatik
+                     eğitim uygunluğu vermez; kaynaklı iddialar insan incelemesi bekler.
+                     Benzerlik yokluğu da çürütme değildir. Önceki model cevapları kanıt değildir.
 - ``atif_kimligi`` : ``[paper:chunk]`` kimliklerinin turun getirdiği parçalarda olup olmadığı.
                      Geçerli kimlik iddianın desteklendiği anlamına GELMEZ; getirilmeyen kimlik
                      uydurma atıftır ve ÇÜRÜTÜR.
@@ -18,7 +21,8 @@ Kontroller:
 - ``kod_testi``    : kod içeren hedef → test koşucusu yok, yapılamaz.
 
 Karar: çürüten kontrol → ``rejected`` (insan onayı bunu geçemez; önce düzeltilmeli). Tüm
-ifadeler kapsandıysa → ``eligible`` (otomatik). Değilse geçerli gerekçeli insan onayı varsa →
+ifadeler DETERMİNİSTİK kontrollerle (yalnız hesap; kontrol edilen ifade dışında söz yoksa)
+kapsandıysa → ``eligible`` (otomatik). Değilse geçerli gerekçeli insan onayı varsa →
 ``eligible`` (insan onaylı) — kısmi kapsam bilgisi korunur. Aksi halde ``review``.
 """
 
@@ -37,6 +41,16 @@ from app.memory.retrieval_service import RetrievedChunk
 
 PASSED = "gecti"
 PARTIAL = "kismi"
+# Kaynak benzerliği kontrolünün sonuçları (doğrulama dili KULLANILMAZ).
+SIMILAR = "benzer"
+PARTLY_SIMILAR = "kismen_benzer"
+NOT_SIMILAR = "benzerlik_yok"
+SOURCE_KIND = "kaynak_benzerligi"
+# Hesap ifadesi dışında yalnız bu bağlaçlar kalırsa birim "saf hesap" sayılır; başka her
+# sözcük kontrol EDİLMEMİŞ bir iddiadır (hesap kontrolü yalnız kontrol edilen ifadeyi kapsar).
+_MATH_CONNECTORS = frozenset(
+    {"sonuç", "sonuc", "yani", "toplam", "eder", "olur", "dolayısıyla", "buna", "göre", "hesap"}
+)
 FAILED = "kaldi"  # çürütüldü
 UNSUPPORTED = "desteklenmedi"  # çürütme değil, kanıt yok
 UNAVAILABLE = "yapilamadi"
@@ -261,7 +275,8 @@ def verify_target(
         rest = u
         for it in maths_here:
             rest = rest.replace(it["raw"], " ")
-        pure_math = bool(maths_here) and len(_WORD4.findall(rest)) <= 2
+        leftover = [w for w in _WORD4.findall(rest) if w.lower() not in _MATH_CONNECTORS]
+        pure_math = bool(maths_here) and not leftover
         if pure_math:
             ok = all(it["status"] == PASSED for it in maths_here)
             covered.append(ok)
@@ -272,38 +287,46 @@ def verify_target(
         if chunks:
             levels = [g.level for g in gv.verify(u, chunks)]
             if levels and all(lv == GroundingLevel.SUPPORTED for lv in levels):
-                level = "destekli"
+                level = "benzer"
             elif any(
                 lv in (GroundingLevel.SUPPORTED, GroundingLevel.PARTIALLY_SUPPORTED)
                 for lv in levels
             ) or any(lv == GroundingLevel.SPECULATIVE for lv in levels):
-                level = "kismi"
-        n_supported += level == "destekli"
-        n_partial += level == "kismi"
-        covered.append(level == "destekli")
-        unit_rows.append({"text": u, "by": "kaynak", "level": level, "ok": level == "destekli"})
+                level = "kismen"
+        n_supported += level == "benzer"
+        n_partial += level == "kismen"
+        # Benzerlik KAPSAMA SAYILMAZ: kaynaklı iddia insan incelemesi bekler.
+        covered.append(False)
+        unit_rows.append(
+            {"text": u, "by": SOURCE_KIND, "similarity": level, "ok": False, "needs_review": True}
+        )
     if not chunks:
         checks.append(
             Check(
-                "kaynak",
+                SOURCE_KIND,
                 UNAVAILABLE,
-                f"0/{n_claims} iddia",
-                "Bu turda getirilen kaynak yok; kaynak desteği ölçülemedi.",
+                f"0/{n_claims} ifade",
+                "Bu turda getirilen kaynak yok; kaynak benzerliği ölçülemedi.",
             )
         )
     elif n_claims == 0:
         checks.append(
-            Check("kaynak", NOT_APPLICABLE, "0 iddia", "Kaynakla denetlenecek iddia yok.")
+            Check(SOURCE_KIND, NOT_APPLICABLE, "0 ifade", "Kaynakla karşılaştırılacak ifade yok.")
         )
     else:
-        st = PASSED if n_supported == n_claims else (PARTIAL if n_supported else UNSUPPORTED)
+        st = (
+            SIMILAR
+            if n_supported == n_claims
+            else (PARTLY_SIMILAR if (n_supported or n_partial) else NOT_SIMILAR)
+        )
         checks.append(
             Check(
-                "kaynak",
+                SOURCE_KIND,
                 st,
-                f"{n_supported}/{n_claims} iddia",
-                "Sözcüksel örtüşme ölçütü (turun kendi parçaları); anlamsal doğruluk kanıtı "
-                f"değildir. Kısmi: {n_partial}.",
+                f"{n_supported}/{n_claims} ifade benzer",
+                "Sözcük örtüşmesi (turun kendi parçaları). Doğrulama DEĞİLDİR — zıt ifadeleri "
+                "(artırır/artırmaz) ayıramaz; otomatik eğitim uygunluğu vermez, kaynaklı "
+                f"iddialar insan incelemesi bekler. Kısmen benzer: {n_partial}.",
             )
         )
 
@@ -357,7 +380,9 @@ def verify_target(
         "coverage": {
             "units": len(units),
             "covered": sum(covered),
+            "covered_by": "yalnız deterministik kontroller (hesap)",
             "uncovered": uncovered,
+            "needs_review": sum(1 for r in unit_rows if r.get("needs_review")),
             "rows": unit_rows,
         },
     }
@@ -401,7 +426,12 @@ def decide(
     ]
     math_partial = k.get("hesap", {}).get("status") == PARTIAL
     if units > 0 and uncovered == 0 and not blocking and not math_partial:
-        return "eligible", "Tüm ifadeler otomatik kontrollerle kapsandı.", [], "auto"
+        return (
+            "eligible",
+            "Tüm ifadeler deterministik kontrollerle (hesap) kapsandı.",
+            [],
+            "auto",
+        )
     approval = human_approval or {}
     approved = bool(approval.get("reason")) and approval.get("target_sha") == verification.get(
         "target_sha"
@@ -413,9 +443,16 @@ def decide(
         return "review", reason, ["kapsam_yok"], ""
     if blocking:
         return "review", k[blocking[0]]["detail"], blocking, ""
+    n_review = int(cov.get("needs_review", 0))
+    note = (
+        f" {n_review} kaynaklı ifade yalnız sözcük benzerliğiyle karşılaştırılabildi; bu "
+        "doğrulama sayılmaz."
+        if n_review
+        else ""
+    )
     return (
         "review",
-        f"{uncovered}/{units} ifade otomatik kontrollerle kapsanamadı — inceleme bekliyor.",
+        f"{uncovered}/{units} ifade otomatik kontrollerle kapsanamadı — inceleme bekliyor.{note}",
         ["kismi_kapsam"],
         "",
     )

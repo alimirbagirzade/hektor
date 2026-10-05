@@ -5504,7 +5504,8 @@
   };
   var CHECK_KIND = {
     hesap: "Hesap",
-    kaynak: "Kaynak",
+    kaynak_benzerligi: "Kaynak benzerliği kontrolü",
+    kaynak: "Kaynak benzerliği (eski kayıt)",
     atif_kimligi: "Atıf kimliği",
     guvenlik: "Güvenlik (Kural 1)",
     backtest: "Backtest",
@@ -5517,6 +5518,11 @@
     desteklenmedi: "desteklenmedi",
     yapilamadi: "yapılamadı",
     uygulanmadi: "uygulanmadı",
+    benzer: "benzer — doğrulama değil",
+    kismen_benzer: "kısmen benzer — doğrulama değil",
+    benzerlik_yok: "benzerlik yok",
+    eslesti: "kayıtlı hesapla eşleşti",
+    eslesmedi: "kayıtlı hesapla eşleşmedi",
   };
   var CHECK_CLS = {
     gecti: "badge-success",
@@ -5525,7 +5531,61 @@
     desteklenmedi: "badge-warning",
     yapilamadi: "badge-info",
     uygulanmadi: "badge-info",
+    // Benzerlik bir doğrulama değildir → "başarı" rengi KULLANILMAZ.
+    benzer: "badge-info",
+    kismen_benzer: "badge-info",
+    benzerlik_yok: "badge-warning",
+    eslesti: "badge-success",
+    eslesmedi: "badge-danger",
   };
+
+  // Arayüz içi düzenleyici (window.prompt yerine). Kartın içine açılır; aynı anda tek editör.
+  // opts: {title, help(html), value, minLen, rows, submit, onSubmit(text) → Promise}
+  function inlineEditor(host, opts) {
+    var prev = document.querySelector(".inline-editor");
+    if (prev) prev.parentNode.removeChild(prev);
+    var form = document.createElement("form");
+    form.className = "inline-editor";
+    form.innerHTML =
+      '<div class="inline-editor-title">' + esc(opts.title || "") + "</div>" +
+      (opts.help ? '<div class="inline-editor-help">' + opts.help + "</div>" : "") +
+      '<textarea class="inline-editor-text" rows="' + (opts.rows || 3) + '"></textarea>' +
+      '<div class="inline-editor-foot"><span class="muted small inline-editor-count"></span>' +
+      '<button type="button" class="btn btn-sm btn-ghost" data-ie="cancel">Vazgeç</button>' +
+      '<button type="submit" class="btn btn-sm" data-ie="ok">' + esc(opts.submit || "Kaydet") + "</button></div>";
+    host.appendChild(form);
+    var ta = form.querySelector("textarea");
+    var cnt = form.querySelector(".inline-editor-count");
+    var ok = form.querySelector('[data-ie="ok"]');
+    ta.value = opts.value || "";
+    function upd() {
+      var n = (ta.value || "").trim().length;
+      var min = opts.minLen || 0;
+      cnt.textContent = min ? n + " / en az " + min + " karakter" : n + " karakter";
+      ok.disabled = n < min;
+    }
+    ta.addEventListener("input", upd);
+    upd();
+    form.querySelector('[data-ie="cancel"]').addEventListener("click", function () {
+      form.parentNode.removeChild(form);
+    });
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var text = (ta.value || "").trim();
+      if (text.length < (opts.minLen || 0)) return;
+      ok.disabled = true;
+      Promise.resolve(opts.onSubmit(text))
+        .then(function () {
+          if (form.parentNode) form.parentNode.removeChild(form);
+        })
+        .catch(function (err) {
+          toast(err.message, true);
+          ok.disabled = false;
+        });
+    });
+    ta.focus();
+    return form;
+  }
 
   function newRequestId() {
     try {
@@ -5553,7 +5613,7 @@
   // GELMEZ; bu yüzden "doğrulandı" yalnız hesap için, kaynak için "desteklendi" kullanılır.
   var CHECK_STATUS_BY_KIND = {
     atif_kimligi: { gecti: "geçerli", kaldi: "geçersiz (getirilmeyen kimlik)" },
-    kaynak: { gecti: "ile desteklendi" },
+    kaynak: { gecti: "benzer (eski kayıt; doğrulama değil)" },
     guvenlik: { gecti: "temiz", kaldi: "ihlal" },
   };
   function checkBadge(c) {
@@ -5845,10 +5905,15 @@
       p = postJson(base + "/feedback", { label: t.feedback === "useful" ? "" : "useful" });
     } else if (act === "wrong") {
       var spans = selectionSpan(turnId);
-      var note = window.prompt("Neyi hatalı buldunuz? (isteğe bağlı)" +
-        (spans.length ? "\nSeçili kısım işaretlenecek." : ""), "");
-      if (note === null) return;
-      p = postJson(base + "/feedback", { label: "wrong", note: note, spans: spans });
+      inlineEditor(wrap, {
+        title: "Neyi hatalı buldunuz? (isteğe bağlı)",
+        help: spans.length ? "Seçili kısım işaretlenecek." : "İpucu: cevapta hatalı kısmı seçip sonra “Hatalı”ya basabilirsiniz.",
+        submit: "Hata kuyruğuna ekle",
+        onSubmit: function (note) {
+          return postJson(base + "/feedback", { label: "wrong", note: note, spans: spans }).then(reloadCurrent);
+        },
+      });
+      return;
     } else if (act === "learn") {
       b.disabled = true;
       p = postJson(base + "/learn", {}).then(function (r) {
@@ -5858,10 +5923,19 @@
       openCorrectDialog(t);
       return;
     } else if (act === "exclude") {
-      var excl = !t.excluded;
-      var why = excl ? window.prompt("Hariç tutma nedeni (isteğe bağlı):", "") : "";
-      if (why === null) return;
-      p = postJson(base + "/exclude", { excluded: excl, reason: why || "" });
+      if (t.excluded) {
+        p = postJson(base + "/exclude", { excluded: false, reason: "" });
+      } else {
+        inlineEditor(wrap, {
+          title: "Eğitimden hariç tutma nedeni (isteğe bağlı)",
+          help: "Tur ve adayları eğitimden çıkar; eski veri sürümü dosyaları değişmez, seçili sürümle eğitim başlatma durur.",
+          submit: "Hariç tut",
+          onSubmit: function (why) {
+            return postJson(base + "/exclude", { excluded: true, reason: why || "" }).then(reloadCurrent);
+          },
+        });
+        return;
+      }
     }
     if (p) {
       p.then(reloadCurrent).catch(function (err) {
@@ -6003,7 +6077,8 @@
       '<div class="lp-q"><strong>Soru:</strong> ' + esc(c.question) + "</div>" +
       '<details><summary>Hedef metin (' + esc(String((c.target_text || "").length)) + " kr)</summary><div class=\"lp-target\">" + nl2br(c.target_text) + "</div></details>" +
       '<div class="lp-checks">' + checks + "</div>" +
-      '<div class="muted small">Kapsam: ' + esc(String(cov.covered || 0)) + "/" + esc(String(cov.units || 0)) + " ifade otomatik kapsandı." +
+      '<div class="muted small">Kapsam: ' + esc(String(cov.covered || 0)) + "/" + esc(String(cov.units || 0)) + " ifade deterministik kontrollerle (hesap) kapsandı." +
+      (cov.needs_review ? " " + esc(String(cov.needs_review)) + " kaynaklı ifade yalnız sözcük benzerliğiyle karşılaştırıldı — insan incelemesi gerekir." : "") +
       (unc.length ? ' <details class="inline-details"><summary>kontrol edilemeyen ' + unc.length + "</summary><ul>" + unc.map(function (u) { return "<li>" + esc(u) + "</li>"; }).join("") + "</ul></details>" : "") + "</div>" +
       (c.status_reason ? '<div class="small">' + esc(c.status_reason) + "</div>" : "") +
       (ha.reason ? '<div class="small">İnsan onayı: “' + esc(ha.reason) + "” (" + esc(ha.at || "") + ")</div>" : "") +
@@ -6012,6 +6087,26 @@
       (c.status === "review" ? '<button type="button" class="btn btn-sm" data-lp="approve" title="Çürütülmüş ifadeleri ve backtest’siz performans iddiasını onay geçerli kılamaz.">Gerekçeyle onayla</button>' : "") +
       "</div></div>"
     );
+  }
+
+  // Onay öncesi inceleme: her ifade + benzerlik etiketi + turun kaynak metinleri.
+  function lpReviewHelp(c) {
+    var rows = ((c.verification || {}).coverage || {}).rows || [];
+    var simLbl = { benzer: "sözcükçe benzer", kismen: "kısmen benzer", yok: "benzerlik yok" };
+    var list = rows.map(function (r) {
+      var tag = r.by === "hesap"
+        ? (r.ok ? "hesap tuttu" : "hesap tutmadı")
+        : (simLbl[r.similarity] || r.similarity || "—") + " · elle kontrol et";
+      return "<li>" + esc(r.text) + ' <span class="muted small">(' + esc(tag) + ")</span></li>";
+    }).join("");
+    var srcs = (c.sources || []).map(function (s) {
+      return '<details class="inline-details"><summary>[' + esc(s.paper_id) + ":" + esc(s.chunk_id) + "]" +
+        (s.title ? " " + esc(s.title) : "") + "</summary><div class=\"lp-target\">" + nl2br(s.text || "") + "</div></details>";
+    }).join("");
+    return '<div class="small">Sözcük benzerliği doğrulama değildir (“artırır/artırmaz” ayrılamaz). ' +
+      "Her ifadeyi aşağıdaki kaynak metinleriyle karşılaştırın; çürütülmüş ifade ve backtest’siz performans iddiası onaylanamaz.</div>" +
+      (list ? "<ul>" + list + "</ul>" : "") +
+      (srcs ? '<div class="small"><strong>Turun kaynakları:</strong></div>' + srcs : '<div class="muted small">Bu turda kaynak getirilmedi.</div>');
   }
 
   function lpRenderList(items, kind) {
@@ -6042,6 +6137,7 @@
         }).join("");
       return;
     }
+    lpState.items = items;
     box.innerHTML = items.map(lpCandidateCard).join("");
   }
 
@@ -6132,19 +6228,36 @@
     if (!id) return;
     var act = b.getAttribute("data-lp");
     var path = "/learn/candidates/" + encodeURIComponent(id);
+    var cand = (lpState.items || []).filter(function (x) { return x.candidate_id === id; })[0] || {};
     if (act === "approve") {
-      var reason = window.prompt("Onay gerekçesi (en az 10 karakter). Otomatik kontrol kapsamı ayrıca gösterilmeye devam eder:", "");
-      if (!reason) return;
-      postJson(path + "/approve", { reason: reason })
-        .then(function () { toast("Onaylandı."); loadLearnPool(); })
-        .catch(function (e) { toast(e.message, true); });
+      inlineEditor(card, {
+        title: "Gerekçeyle onayla (en az 10 karakter)",
+        help: lpReviewHelp(cand),
+        minLen: 10,
+        rows: 3,
+        submit: "Onayla",
+        onSubmit: function (reason) {
+          return postJson(path + "/approve", { reason: reason }).then(function () {
+            toast("Onaylandı.");
+            loadLearnPool();
+          });
+        },
+      });
     } else if (act === "edit") {
-      var cur = card.querySelector(".lp-target");
-      var text = window.prompt("Yeni hedef metin (insan onayı varsa düşer, kontroller yeniden çalışır):", cur ? cur.innerText : "");
-      if (!text) return;
-      postJson(path + "/edit", { text: text })
-        .then(function () { toast("Güncellendi ve yeniden kontrol edildi."); loadLearnPool(); })
-        .catch(function (e) { toast(e.message, true); });
+      inlineEditor(card, {
+        title: "Hedef metni düzenle / eksik kısmı çıkar",
+        help: "Kaydedince insan onayı (varsa) düşer ve tüm kontroller yeniden çalışır.",
+        value: cand.target_text || "",
+        minLen: 1,
+        rows: 8,
+        submit: "Kaydet ve yeniden kontrol et",
+        onSubmit: function (text) {
+          return postJson(path + "/edit", { text: text }).then(function () {
+            toast("Güncellendi ve yeniden kontrol edildi.");
+            loadLearnPool();
+          });
+        },
+      });
     }
   }
 

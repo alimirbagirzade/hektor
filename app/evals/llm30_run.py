@@ -381,5 +381,19 @@ def main() -> None:
     print(f"Bitti: {out_dir}")
 
 
+def _locked_main() -> None:
+    """Değerlendirme koşusu ortak ağır iş kilidi altında (eğitim/dönüşüm/sohbetle çakışmaz)."""
+    import sys
+
+    from app.training.resource_lock import HeavyJobBusy, hold
+
+    try:
+        with hold("comparison", "llm30_run"):
+            main()
+    except HeavyJobBusy as exc:
+        print(f"HATA: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(9) from exc
+
+
 if __name__ == "__main__":
-    main()
+    _locked_main()

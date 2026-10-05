@@ -451,6 +451,18 @@ class LearningService:
                     "conversation_id": turn.get("conversation_id", ""),
                     "turn_index": turn.get("turn_index"),
                     "split": fam["split"] if fam else "",
+                    # İnceleyici iddiayı KAYNAK METNİYLE karşılaştırabilsin (benzerlik skoru
+                    # doğrulama değildir; karar insanın).
+                    "sources": [
+                        {
+                            "paper_id": s.get("paper_id", ""),
+                            "chunk_id": s.get("chunk_id", ""),
+                            "title": s.get("title", ""),
+                            "page": s.get("page"),
+                            "text": str(s.get("text") or "")[:2500],
+                        }
+                        for s in turn.get("sources", [])
+                    ],
                 }
             )
             if len(out) >= limit:

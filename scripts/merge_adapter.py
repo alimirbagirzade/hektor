@@ -349,5 +349,18 @@ def main() -> int:
     return 0
 
 
+def _locked_main() -> int:
+    """Ortak ağır iş kilidi altında birleştir (adapter_to_ollama.ps1 kilidi zaten tutuyorsa
+    ``HEKTOR_HEAVY_LOCK_TOKEN`` ile devralınır)."""
+    from app.training.resource_lock import HeavyJobBusy, hold
+
+    try:
+        with hold("conversion", "merge_adapter"):
+            return main()
+    except HeavyJobBusy as exc:
+        print(f"HATA: {exc}", file=sys.stderr, flush=True)
+        return 9
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_locked_main())

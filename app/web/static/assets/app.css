@@ -3280,3 +3280,42 @@ code {
 .diag-summary-h3 {
   display: inline;
 }
+
+/* Arayüz içi düzenleyici (window.prompt yerine) */
+.inline-editor {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.inline-editor-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.inline-editor-help {
+  font-size: 13px;
+  margin-bottom: 6px;
+  max-height: 320px;
+  overflow: auto;
+}
+.inline-editor-help ul {
+  margin: 4px 0 4px 18px;
+  padding: 0;
+}
+.inline-editor-text {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}
+.inline-editor-foot {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.inline-editor-foot .inline-editor-count {
+  margin-right: auto;
+}
