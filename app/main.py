@@ -1071,6 +1071,83 @@ def kademe2_kayit(
     )
 
 
+@app.command("candidate-verify")
+def candidate_verify(
+    adapter: str = typer.Argument(..., help="models/adapters/<ad>"),
+    ollama_tag: str = typer.Option("", "--ollama-tag", help="Dönüşüm sonrası Ollama etiketi"),
+) -> None:
+    """Adayın GERÇEKTEN tamamlandığını ve dönüşümünün bütün olduğunu doğrula (salt-okuma).
+
+    run_complete.json tek başına yetmez: süreç sonucu, adım planı, adapter dosyaları, temel
+    model kökeni, veri özeti ve koşu kimliği (kolay akış kaydı) birlikte denetlenir.
+    """
+    import json as _json
+
+    from app.training.candidate_checks import (
+        recipe_for_adapter,
+        verify_conversion,
+        verify_run_completion,
+    )
+
+    out = {"completion": verify_run_completion(adapter, recipe_for_adapter(adapter))}
+    if ollama_tag:
+        out["conversion"] = verify_conversion(adapter, ollama_tag)
+    console.print_json(_json.dumps(out, ensure_ascii=False, default=str))
+    if not all(v["ok"] for v in out.values()):
+        raise typer.Exit(1)
+
+
+@app.command("compare-run")
+def compare_run(
+    question_set: Path = typer.Option(..., "--set", help="Donmuş soru seti (JSONL)"),
+    active: str = typer.Option(..., "--active", help="Mevcut aktif model (Ollama etiketi)"),
+    candidate: str = typer.Option(..., "--candidate", help="Aday model (Ollama etiketi)"),
+    base: str = typer.Option(..., "--base", help="Temel model referansı (Ollama etiketi)"),
+    adapter: str = typer.Option("", "--adapter", help="Adayın adapter adı (doğrulama için)"),
+    adapter_id: str = typer.Option("", "--adapter-id", help="Kayıt defteri kimliği"),
+    role: str = typer.Option("development", "--role", help="development | final (gizli set)"),
+    criteria_file: Path = typer.Option(None, "--criteria", help="Ölçüt JSON (yoksa varsayılan)"),
+) -> None:
+    """Aday ↔ aktif (+ temel) karşılaştırması: ölçütü kilitle, aynı koşullarda üret, kör paket
+    hazırla. Ortak ağır iş kilidi altında koşar. Karar için web'de kör inceleme gerekir;
+    etkinleştirme YAPMAZ. LLM soru-cevap ölçümüdür, trading performansı değildir.
+    """
+    import json as _json
+
+    from app.evals.candidate_compare import CompareError, create, generate, lock_criteria
+    from app.training.candidate_checks import (
+        recipe_for_adapter,
+        verify_conversion,
+        verify_run_completion,
+    )
+    from app.training.resource_lock import HeavyJobBusy
+
+    crit = _json.loads(criteria_file.read_text(encoding="utf-8")) if criteria_file else None
+    lock = lock_criteria(crit)
+    meta: dict = {"adapter": adapter, "adapter_id": adapter_id}
+    if adapter:
+        meta["completion"] = verify_run_completion(adapter, recipe_for_adapter(adapter))
+        meta["conversion"] = verify_conversion(adapter, candidate)
+    try:
+        m = create(
+            set_path=question_set,
+            role=role,
+            active_tag=active,
+            candidate_tag=candidate,
+            base_tag=base,
+            criteria_sha=lock["criteria_sha"],
+            candidate_meta=meta,
+        )
+        generate(m["comparison_id"])
+    except (CompareError, HeavyJobBusy) as exc:
+        console.print(f"[red]Karşılaştırma yapılmadı: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]Üretim tamam:[/green] {m['comparison_id']} (rol {m['role']}). Kör inceleme: "
+        "web → Öğrenme Havuzu → Kör inceleme."
+    )
+
+
 @app.command("approval-status")
 def approval_status(
     approval_id: str,

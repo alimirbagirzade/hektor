@@ -239,6 +239,17 @@
             kullanılamaz. Etkinleştirme yalnız sonraki istekleri etkiler.</p>
           <div id="modelsBox"><span class="muted">Yükleniyor…</span></div>
         </div>
+        <div class="card" id="cmpCard">
+          <div class="lp-head-row">
+            <h3 class="lp-h3">Kör inceleme — aday karşılaştırmaları</h3>
+            <button type="button" class="btn btn-sm" id="cmpRefreshBtn">↻ Yenile</button>
+          </div>
+          <p class="muted small">Cevaplar model kimliği olmadan (A/B/C) gösterilir; matematik soruları doğrulanmış
+            anahtarla otomatik puanlanmıştır. Ölçüt üretimden önce kilitlenmiştir. Karar bir LLM soru-cevap ölçümüdür,
+            trading performansı değildir; etkinleştirme ayrıca “Modeller” kartından yapılır. Üretim terminalden:
+            <code>uv run hektor compare-run …</code></p>
+          <div id="cmpBox"><span class="muted">Yükleniyor…</span></div>
+        </div>
         <div class="card">
           <div class="lp-tabs" id="lpTabs">
             <button type="button" class="btn btn-sm active" data-lptab="review">İnceleme bekliyor</button>

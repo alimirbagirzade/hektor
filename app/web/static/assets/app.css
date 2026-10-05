@@ -3415,3 +3415,10 @@ code {
   border: 1px dashed var(--warn-border);
   border-radius: var(--radius);
 }
+
+/* Faz 2D: kör inceleme */
+.cmp-answer {
+  border-top: 1px dashed var(--border);
+  padding: 6px 0;
+  font-size: 13px;
+}

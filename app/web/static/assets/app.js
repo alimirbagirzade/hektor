@@ -6799,7 +6799,98 @@
     }
   }
 
+  // --- kör inceleme (aday karşılaştırması) ---
+  var cmpState = { wired: false, open: null };
+  function loadCompare() {
+    var box = document.getElementById("cmpBox");
+    if (!box) return;
+    api("/compare", { method: "GET" })
+      .then(function (d) {
+        var items = d.items || [];
+        box.innerHTML = items.length
+          ? '<table class="lp-table"><thead><tr><th>Karşılaştırma</th><th>Rol</th><th>Durum</th><th>Soru / aile</th><th></th></tr></thead><tbody>' +
+            items.map(function (c) {
+              var act = c.status === "generated"
+                ? '<button type="button" class="btn btn-sm" data-cmp="review" data-id="' + esc(c.comparison_id) + '">İncele</button>'
+                : c.status === "reviewed"
+                ? '<button type="button" class="btn btn-sm" data-cmp="finalize" data-id="' + esc(c.comparison_id) + '">Kararı hesapla</button>'
+                : '<button type="button" class="btn btn-sm" data-cmp="result" data-id="' + esc(c.comparison_id) + '">Sonuç</button>';
+              return "<tr><td>" + esc(c.comparison_id) + '<div class="muted small">' + esc(c.created_at || "") + "</div></td><td>" + esc(c.role) +
+                "</td><td>" + esc(c.status) + "</td><td>" + esc(String(c.n_questions)) + " / " + esc(String(c.n_families)) + "</td><td>" + act + "</td></tr>";
+            }).join("") + '</tbody></table><div id="cmpDetail"></div>'
+          : '<p class="muted small">Karşılaştırma yok.</p>';
+      })
+      .catch(function (e) { box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  function renderBlind(id, items) {
+    var box = document.getElementById("cmpDetail");
+    cmpState.open = id;
+    box.innerHTML = '<form id="cmpForm">' + items.map(function (p) {
+      return '<div class="lp-card"><div class="small muted">' + esc(p.question_id) + " · aile " + esc(p.family) + " · " + esc(p.type) + "</div>" +
+        '<div class="lp-q"><strong>Soru:</strong> ' + esc(p.question) + "</div>" +
+        ((p.evidence || []).length ? '<details><summary>Kaynak kanıtı</summary><div class="lp-target">' + p.evidence.map(function (e) { return nl2br(e); }).join("<hr>") + "</div></details>" : "") +
+        p.answers.map(function (a) {
+          return '<div class="cmp-answer"><strong>' + esc(a.label) + ":</strong> " + nl2br(a.answer) +
+            '<div class="small">Puan <select data-q="' + esc(p.question_id) + '" data-l="' + esc(a.label) + '" data-k="score">' +
+            '<option value="">—</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select> ' +
+            '<label><input type="checkbox" data-q="' + esc(p.question_id) + '" data-l="' + esc(a.label) + '" data-k="critical"/> kritik hata</label></div></div>';
+        }).join("") + "</div>";
+    }).join("") + '<button type="submit" class="btn btn-primary">Puanları gönder</button></form>';
+    document.getElementById("cmpForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var scores = {};
+      var missing = 0;
+      box.querySelectorAll("select[data-k=score]").forEach(function (s) {
+        var q = s.getAttribute("data-q"), l = s.getAttribute("data-l");
+        scores[q] = scores[q] || {};
+        if (s.value === "") missing++;
+        var crit = box.querySelector('input[data-q="' + q + '"][data-l="' + l + '"]');
+        scores[q][l] = { score: parseInt(s.value, 10), critical: !!(crit && crit.checked) };
+      });
+      if (missing) { toast(missing + " cevap puanlanmadı.", true); return; }
+      postJson("/compare/" + encodeURIComponent(id) + "/review", { scores: scores })
+        .then(function () { toast("Puanlar kaydedildi."); loadCompare(); })
+        .catch(function (err) { toast(err.message, true); });
+    });
+  }
+  function renderCmpResult(r) {
+    var res = r.result || r;
+    var bs = res.bootstrap || {};
+    document.getElementById("cmpDetail").innerHTML = res.decision
+      ? '<div class="lp-card"><strong>Karar: ' + esc(res.decision) + "</strong> · rol " + esc(res.role || "") +
+        '<div class="small">Fark (aday − aktif, aile ortalaması): ' + esc((bs.point || 0).toFixed(3)) + " · GA [" + esc((bs.lo || 0).toFixed(3)) + ", " +
+        esc((bs.hi || 0).toFixed(3)) + "] · aile " + esc(String(bs.n_families || 0)) + " · temel referans " + esc(String(res.base_reference)) + "</div>" +
+        "<ul>" + (res.reasons || []).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" +
+        '<div class="small"><strong>' + esc(res.disclaimer || "") + "</strong></div></div>"
+      : '<span class="muted">Henüz karar yok.</span>';
+  }
+  function onCompareAction(ev) {
+    var b = ev.target.closest("button[data-cmp]");
+    if (!b) return;
+    var id = b.getAttribute("data-id");
+    var act = b.getAttribute("data-cmp");
+    if (act === "review") {
+      api("/compare/" + encodeURIComponent(id) + "/blind", { method: "GET" })
+        .then(function (d) { renderBlind(id, d.items || []); })
+        .catch(function (e) { toast(e.message, true); });
+    } else if (act === "finalize") {
+      postJson("/compare/" + encodeURIComponent(id) + "/finalize", {})
+        .then(function (r) { toast("Karar: " + r.decision); loadCompare(); setTimeout(function () { renderCmpResult(r); }, 300); loadModels(); })
+        .catch(function (e) { toast(e.message, true); });
+    } else {
+      api("/compare/" + encodeURIComponent(id), { method: "GET" }).then(renderCmpResult).catch(function (e) { toast(e.message, true); });
+    }
+  }
+
   function loadLearnPool() {
+    if (!cmpState.wired) {
+      cmpState.wired = true;
+      var cb = document.getElementById("cmpBox");
+      if (cb) cb.addEventListener("click", onCompareAction);
+      var cr = document.getElementById("cmpRefreshBtn");
+      if (cr) cr.addEventListener("click", loadCompare);
+    }
+    loadCompare();
     if (!modelsState.wired) {
       modelsState.wired = true;
       var mb = document.getElementById("modelsBox");
