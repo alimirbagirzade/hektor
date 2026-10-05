@@ -6165,7 +6165,7 @@
   }
 
   // --- strateji testi (sohbetten gerçek veride test) ---
-  var stState = { turn: null, draft: null, saved: null, source: {}, wired: false };
+  var stState = { turn: null, draft: null, saved: null, source: {}, wired: false, review: null };
   var COST_KEYS = ["commission_bps_per_side", "slippage_bps_per_side", "spread_bps", "funding_bps_per_day"];
 
   function stForm() {
@@ -6186,15 +6186,17 @@
     f.indicators.value = (d.indicators || []).map(function (i) { return i.name + ":" + i.period; }).join(", ");
     f.entry_rules.value = (d.entry_rules || []).join("\n");
     f.exit_rules.value = (d.exit_rules || []).join("\n");
+    var fresh = !d.entry_rules && !d.stop && !d.sizing;
     var st = d.stop || {};
-    f.stop_type.value = st.type || "none";
+    // Taslakta boş bırakılan (çelişkili / metinde dayanaksız) alan "karar gerekli" görünür.
+    f.stop_type.value = fresh ? "none" : (st.type == null ? "" : st.type);
     f.stop_value.value = st.value == null ? "" : st.value;
     f.stop_atr.value = st.atr_period || 14;
     var tp = d.take_profit || {};
-    f.tp_type.value = tp.type || "none";
+    f.tp_type.value = fresh ? "none" : (tp.type == null ? "none" : tp.type);
     f.tp_value.value = tp.value == null ? "" : tp.value;
     var sz = d.sizing || {};
-    f.size_type.value = sz.type || "fixed_fraction";
+    f.size_type.value = sz.type || "";
     f.fraction.value = sz.fraction == null ? "" : sz.fraction;
     f.risk_pct.value = sz.risk_pct == null ? "" : sz.risk_pct;
     f.max_leverage.value = sz.max_leverage || 1;
@@ -6245,10 +6247,73 @@
       unsupported_rules: stState.unsupported || [],
     };
   }
+  function diffRows(items, withBox) {
+    if (!items || !items.length) return '<div class="muted">Fark yok.</div>';
+    return '<table class="lp-table"><thead><tr>' + (withBox ? "<th>Gördüm</th>" : "") +
+      "<th>Alan</th><th>Değişiklik</th><th>Orijinal</th><th>Şimdi</th><th>Not</th></tr></thead><tbody>" +
+      items.map(function (i) {
+        return "<tr>" + (withBox ? '<td><input type="checkbox" data-ack="' + esc(i.key) + '"/></td>' : "") +
+          "<td>" + esc(i.category_label) + (i.stage ? '<div class="muted small">' + esc(i.stage) + "</div>" : "") + "</td>" +
+          "<td>" + (i.conflict ? '<span class="badge badge-danger">ÇELİŞKİ</span> ' : "") + esc(i.kind_label) + "</td>" +
+          "<td>" + esc(i.original) + "</td><td>" + esc(i.now) + '</td><td class="small">' + esc(i.note || "") + "</td></tr>";
+      }).join("") + "</tbody></table>";
+  }
+  function setRunGate(approved, why) {
+    document.querySelectorAll("#strategyDlg button[data-stage]").forEach(function (b) { b.disabled = !approved; });
+    var g = document.getElementById("stRunGate");
+    if (g) g.textContent = approved ? "Onaylı nihai strateji test edilecek." : (why || "Önce nihai stratejiyi onaylayın.");
+  }
+  function renderReview(rv) {
+    stState.review = rv;
+    var box = document.getElementById("stReview");
+    if (!rv) { box.innerHTML = ""; setRunGate(false); return; }
+    var appr = rv.approval || {};
+    var head = rv.approved
+      ? '<div><span class="badge badge-success">ONAYLANDI</span> ' + esc(appr.approval_id || "") + " · " + esc(appr.approved_at || "") +
+        " · " + esc(String(rv.n_changes)) + " fark görüldü</div>"
+      : '<div><span class="badge badge-warning">ONAY BEKLİYOR</span> ' + esc(String(rv.n_changes)) + " fark" +
+        (rv.approval ? " — önceki onay geçersiz (fark listesi değişti)" : "") + "</div>";
+    var orig = rv.original_text
+      ? '<details><summary>Orijinal sohbet önerisi (aynen)</summary><div class="lp-target">' + nl2br(rv.original_text) + "</div></details>"
+      : '<div class="muted">' + esc(rv.note || "") + "</div>";
+    var conf = (rv.conflicts || []).length
+      ? '<div class="chat-blocked"><strong>Orijinal öneride çelişki var</strong> — orijinal haliyle test EDİLEMEZ; seçtiğiniz nihai değer bir yorumdur ve gerekçe ister.</div>'
+      : "";
+    var form = rv.approved ? "" :
+      "<div><label>Not / gerekçe" + ((rv.conflicts || []).length ? " (çelişki için zorunlu, ≥10 karakter)" : " (isteğe bağlı)") +
+      ' <textarea id="stApproveNote" rows="2"></textarea></label>' +
+      '<button type="button" class="btn btn-sm btn-primary" id="stApproveBtn" disabled>Nihai stratejiyi onayla (' + esc(String(rv.n_changes)) + " fark)</button></div>";
+    box.innerHTML = '<div class="lp-card">' + head + orig + conf +
+      "<div><strong>Orijinal öneri → nihai</strong></div>" + diffRows(rv.original_vs_final, !rv.approved) +
+      "<div><strong>Taslak → nihai (sizin düzenlemeleriniz)</strong></div>" + diffRows(rv.draft_vs_final, !rv.approved) +
+      '<div class="muted small">' + esc(rv.note || "") + "</div>" + form + "</div>";
+    var btn = document.getElementById("stApproveBtn");
+    if (btn) {
+      var boxes = box.querySelectorAll("input[data-ack]");
+      var sync = function () { btn.disabled = [].some.call(boxes, function (x) { return !x.checked; }); };
+      [].forEach.call(boxes, function (x) { x.addEventListener("change", sync); });
+      sync();
+      btn.addEventListener("click", function () {
+        btn.disabled = true;
+        postJson("/strategy/" + encodeURIComponent(rv.strategy_id) + "/approve", {
+          review_sha: rv.review_sha,
+          acknowledged: [].map.call(boxes, function (x) { return x.getAttribute("data-ack"); }),
+          note: (document.getElementById("stApproveNote") || {}).value || "",
+        })
+          .then(function () { toast("Nihai strateji onaylandı."); return loadReview(rv.strategy_id); })
+          .catch(function (e) { toast(e.message, true); sync(); });
+      });
+    }
+    setRunGate(!!rv.approved, rv.approved ? "" : "Önce farkları görüp nihai stratejiyi onaylayın.");
+  }
+  function loadReview(sid) {
+    return api("/strategy/" + encodeURIComponent(sid) + "/review", { method: "GET" }).then(renderReview);
+  }
   function renderSaved(rec) {
     stState.saved = rec;
     var box = document.getElementById("stSaved");
-    if (!rec) { box.innerHTML = ""; return; }
+    if (!rec) { box.innerHTML = ""; renderReview(null); return; }
+    loadReview(rec.strategy_id).catch(function (e) { toast(e.message, true); });
     var r = rec.readable || {};
     var simp = "";
     if (!rec.testable) {
@@ -6342,8 +6407,18 @@
       postJson("/strategy/draft", { turn_id: stState.turn.turn_id })
         .then(function (r) {
           stState.source = r.source || {};
+          stState.saved = null;
+          renderReview(null);
           fillStrategyForm(r.draft);
-          document.getElementById("stNotes").innerHTML =
+          var pend = (r.pending || []).length
+            ? '<div class="chat-blocked"><strong>Karar gerekli (' + r.pending.length + ")</strong> — bu alanlar taslakta BOŞ bırakıldı, tahminle doldurulmadı:<ul>" +
+              r.pending.map(function (p) {
+                return "<li><strong>" + esc(p.field) + ":</strong> " + esc(p.why) +
+                  (p.original_text ? '<div class="muted">Metin: “' + esc(p.original_text) + "”</div>" : "") + "</li>";
+              }).join("") + "</ul></div>"
+            : "";
+          document.getElementById("stNotes").innerHTML = pend +
+            "<div><strong>Orijinal öneri → çıkarılan taslak</strong></div>" + diffRows(r.original_vs_draft, false) +
             (r.notes || []).map(function (n) { return '<div class="muted">• ' + esc(n) + "</div>"; }).join("") +
             ((r.problems || []).length ? '<div class="chat-blocked">Formda tamamlanması gerekenler: ' + esc(r.problems.join(" · ")) + "</div>"
               : '<div class="muted">Taslak geçerli görünüyor — yine de okuyup kontrol edin.</div>');
@@ -6409,6 +6484,7 @@
       var b = ev.target.closest("button[data-stage]");
       if (!b) return;
       if (!stState.saved) { toast("Önce formu kaydedin.", true); return; }
+      if (!stState.review || !stState.review.approved) { toast("Önce nihai stratejiyi onaylayın.", true); return; }
       b.disabled = true;
       document.getElementById("stResult").innerHTML = '<span class="spinner"></span> test koşuyor…';
       postJson("/strategy/" + encodeURIComponent(stState.saved.strategy_id) + "/run", {
@@ -6942,7 +7018,163 @@
     }
   }
 
+
+  // --- aday hattı (doğrula → hazırla → karşılaştır → incele → kullanıma al) ---
+  var pipeState = { wired: false, req: {}, timer: null, data: null, html: "" };
+  var JOB_TR = { starting: "başlıyor", running: "koşuyor", stopping: "durduruluyor", done: "tamamlandı",
+    failed: "BAŞARISIZ", stopped: "durduruldu", lost: "kesildi (tamamlanmadı)" };
+  var JOB_CLS = { starting: "badge-info", running: "badge-info", stopping: "badge-warning", done: "badge-success",
+    failed: "badge-danger", stopped: "badge-warning", lost: "badge-danger" };
+  function pipeJobHtml(j) {
+    if (!j) return '<span class="muted small">Henüz iş yok.</span>';
+    var p = j.progress || {};
+    var pct = p.total ? Math.round((100 * p.done) / p.total) : 0;
+    var active = ["starting", "running", "stopping"].indexOf(j.status) >= 0;
+    return '<div class="lp-card"><span class="badge ' + (JOB_CLS[j.status] || "badge-info") + '">' + esc(JOB_TR[j.status] || j.status) + "</span> " +
+      esc(j.kind_label || "") + " · " + esc(j.job_id) + " · " + esc((j.params || {}).ollama_tag || "") +
+      " · " + '<span data-live="lbl-' + esc(j.job_id) + '">' + esc(p.label || "") + "</span>" +
+      (p.total ? ' <progress data-live="bar-' + esc(j.job_id) + '" max="100" value="' + pct + '"></progress>' : "") +
+      (j.error ? '<div class="chat-blocked small">' + esc(j.error) + "</div>" : "") +
+      (j.status === "done" && j.kind === "conversion" ? '<div class="small">Dönüşüm doğrulandı · digest ' +
+        esc(((j.verification || {}).digest || "").slice(0, 12)) + "…</div>" : "") +
+      (j.status === "done" && j.kind === "comparison" ? '<div class="small">Üretim tamam: ' + esc((j.verification || {}).comparison_id || "") +
+        " — kör incelemeye geçin.</div>" : "") +
+      (active ? ' <button type="button" class="btn btn-sm" data-pipe="stop" data-job="' + esc(j.job_id) + '">Güvenle durdur</button>' : "") +
+      '<details><summary>Günlük (son satırlar)</summary><pre class="chat-pre" data-live="log-' + esc(j.job_id) + '">' +
+        esc((p.log_tail || []).join("\n")) + "</pre></details>" +
+      "</div>";
+  }
+  function pipeChecks(c) {
+    return '<ul class="small">' + (c.checks || []).map(function (x) {
+      return "<li>" + (x.ok ? "✅ " : "❌ ") + "<strong>" + esc(x.key) + "</strong> — " + esc(x.detail) + "</li>";
+    }).join("") + "</ul>";
+  }
+  function pipeRender(d) {
+    pipeState.data = d;
+    var box = document.getElementById("pipeBox");
+    var run = d.running;
+    var caps = d.capabilities || {};
+    var capNote = function (k) {
+      var c = caps[k] || {};
+      return c.supported ? "" : '<div class="chat-blocked small">Bu makinede kapalı: ' + esc((c.reasons || []).join(" | ")) + "</div>";
+    };
+    var html = run ? '<div class="small"><strong>Koşan iş:</strong> ' + esc(run.kind_label) + " · " + esc(run.adapter) + "</div>" : "";
+    html += (d.items || []).map(function (it) {
+      var conv = (it.jobs || []).filter(function (j) { return j.kind === "conversion"; })[0];
+      var cmp = (it.jobs || []).filter(function (j) { return j.kind === "comparison"; })[0];
+      // Bitmiş işin istek kimliği saklanmaz: sonraki tıklama YENİ istektir (tekrar dene).
+      [["prepare", conv], ["compare", cmp]].forEach(function (pair) {
+        var k = it.adapter + ":" + pair[0];
+        var jj = pair[1];
+        if (jj && pipeState.req[k] === jj.request_id && ["done", "failed", "stopped", "lost"].indexOf(jj.status) >= 0) {
+          delete pipeState.req[k];
+        }
+      });
+      var comp = it.completion || {};
+      var tag = (conv && (conv.params || {}).ollama_tag) || it.suggested_tag;
+      var busy = !!run;
+      var df = d.defaults || {};
+      var a = esc(it.adapter);
+      var convDone = conv && conv.status === "done";
+      caps = it.capabilities || d.capabilities || {};
+      return '<div class="lp-card pipe-item" data-adapter="' + a + '"><div><strong>' + a + "</strong> " +
+        (comp.ok ? '<span class="badge badge-success">tamamlanma doğrulandı</span>' : '<span class="badge badge-danger">tamamlanma DOĞRULANMADI</span>') +
+        (comp.source ? ' <span class="muted small">' + esc(comp.source) + "</span>" : "") + "</div>" +
+        "<details" + (comp.ok ? "" : " open") + "><summary>1 · Adayı doğrula</summary>" + pipeChecks(comp) +
+        ((comp.evidence || []).length ? '<div class="small muted">' + comp.evidence.map(esc).join("<br>") + "</div>" : "") + "</details>" +
+        '<div class="st-step"><strong>2 · Ollama\'ya hazırla</strong> etiket <input data-f="tag" value="' + esc(tag) + '" size="26"/> şablon <input data-f="tpl" value="' +
+        esc(df.template_from || "") + '" size="22"/> <button type="button" class="btn btn-sm" data-pipe="prepare"' +
+        (busy || !(caps.conversion || {}).supported || !comp.ok ? " disabled" : "") + ">" + (conv && ["failed", "stopped", "lost"].indexOf(conv.status) >= 0 ? "Tekrar dene" : "Başlat") + "</button>" +
+        (!comp.ok ? ' <span class="muted small">(tamamlanma doğrulanmadan hazırlanmaz)</span>' : "") + "</div>" +
+        capNote("conversion") + pipeJobHtml(conv) +
+        '<div class="st-step"><strong>3 · Karşılaştır</strong> aktif <input data-f="active" value="' + esc(df.active || "") + '" size="20"/> temel <input data-f="base" value="' +
+        esc(df.base || "") + '" size="20"/> set <input data-f="set" value="' + esc(df.question_set || "") + '" size="34"/> <button type="button" class="btn btn-sm" data-pipe="compare"' +
+        (busy || !(caps.comparison || {}).supported || !convDone ? " disabled" : "") + ">" + (cmp && ["failed", "stopped", "lost"].indexOf(cmp.status) >= 0 ? "Tekrar dene" : "Başlat") + "</button>" +
+        (!convDone ? ' <span class="muted small">(önce doğrulanmış dönüşüm)</span>' : "") + "</div>" +
+        capNote("comparison") + pipeJobHtml(cmp) +
+        '<div class="st-step"><strong>4 · Sonuçları incele</strong> ' + ((it.comparisons || []).map(function (c) {
+          return esc(c.comparison_id) + " (" + esc(c.status) + ")";
+        }).join(", ") || '<span class="muted small">karşılaştırma yok</span>') +
+        ' <button type="button" class="btn btn-sm" data-pipe="goto-review">Kör incelemeye git</button></div>' +
+        '<div class="st-step"><strong>5 · Kullanıma al / Geri dön</strong> ' + ((it.decisions || []).map(function (x) {
+          return esc(x.candidate_tag) + ": <strong>" + esc(x.decision) + "</strong>";
+        }).join(", ") || '<span class="muted small">karar yok — kullanıma alınamaz</span>') +
+        ' <button type="button" class="btn btn-sm" data-pipe="goto-models">Modeller kartına git</button>' +
+        '<div class="muted small">Ana model yalnız “kabul” kararı + digest eşleşmesi + gerekçeyle; geri dönüş Modeller kartındadır.</div></div></div>';
+    }).join("") || '<p class="muted small">models/adapters altında aday yok.</p>';
+    html += '<div class="muted small">' + esc(d.note || "") + "</div>";
+    // Yoklama kartı her 3 sn'de yeniden çizmesin: yalnız içerik değişince ve kullanıcı bir
+    // giriş kutusuna yazmıyorken (tıklama/yazma kaybolmasın).
+    var typing = box.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
+    // Yapı (düğmeler, girişler) aynıysa yalnız canlı alanları (ilerleme, günlük) yerinde güncelle.
+    var skel = html.replace(/(<(span|pre)[^>]* data-live="[^"]+">)[\s\S]*?(<\/(span|pre)>)/g, "$1$3")
+      .replace(/(data-live="bar-[^"]+" max="100") value="\d+"/g, "$1");
+    if (skel === pipeState.html) {
+      var tmp = document.createElement("div");
+      tmp.innerHTML = html;
+      tmp.querySelectorAll("[data-live]").forEach(function (n) {
+        var cur = box.querySelector('[data-live="' + n.getAttribute("data-live") + '"]');
+        if (!cur) return;
+        if (n.tagName === "PROGRESS") cur.value = n.value;
+        else if (cur.textContent !== n.textContent) cur.textContent = n.textContent;
+      });
+    } else if (!typing) {
+      box.innerHTML = html;
+      pipeState.html = skel;
+    }
+    clearTimeout(pipeState.timer);
+    if (run) pipeState.timer = setTimeout(loadPipeline, 3000);
+  }
+  function loadPipeline() {
+    var box = document.getElementById("pipeBox");
+    if (!box) return;
+    api("/candidates", { method: "GET" })
+      .then(pipeRender)
+      .catch(function (e) { box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  function onPipeAction(ev) {
+    var b = ev.target.closest("button[data-pipe]");
+    if (!b) return;
+    var act = b.getAttribute("data-pipe");
+    var card = b.closest(".pipe-item");
+    var adapter = card ? card.getAttribute("data-adapter") : "";
+    var f = function (k) { var el = card && card.querySelector('[data-f="' + k + '"]'); return el ? el.value.trim() : ""; };
+    if (act === "goto-review") { var c = document.getElementById("cmpCard"); if (c) c.scrollIntoView(); loadCompare(); return; }
+    if (act === "goto-models") { var m = document.getElementById("modelsCard"); if (m) m.scrollIntoView(); loadModels(); return; }
+    if (act === "stop") {
+      b.disabled = true;
+      postJson("/candidates/jobs/" + encodeURIComponent(b.getAttribute("data-job")) + "/stop", { reason: "web: kullanıcı durdurdu" })
+        .then(function () { toast("İş durduruldu; kısmi çıktı geçerli aday sayılmaz."); })
+        .catch(function (e) { toast(e.message, true); })
+        .finally(loadPipeline);
+      return;
+    }
+    var key = adapter + ":" + act;
+    // Aynı tıklama tekrarlanırsa aynı istek kimliği → sunucu aynı işi döndürür (çift süreç yok).
+    pipeState.req[key] = pipeState.req[key] || newRequestId();
+    b.disabled = true;
+    var body = act === "prepare"
+      ? { ollama_tag: f("tag"), template_from: f("tpl"), request_id: pipeState.req[key] }
+      : { ollama_tag: f("tag"), active: f("active"), base: f("base"), question_set: f("set"), request_id: pipeState.req[key] };
+    postJson("/candidates/" + encodeURIComponent(adapter) + "/" + act, body)
+      .then(function (j) {
+        toast(j.replayed ? "Aynı istek — iş zaten var (yeniden başlatılmadı)." : "İş başlatıldı: " + j.job_id);
+        // Biten iş için sonraki tıklama yeni istektir (tekrar dene).
+        if (["done", "failed", "stopped", "lost"].indexOf(j.status) >= 0) delete pipeState.req[key];
+      })
+      .catch(function (e) { delete pipeState.req[key]; toast(e.message, true); })
+      .finally(loadPipeline);
+  }
+
   function loadLearnPool() {
+    if (!pipeState.wired) {
+      pipeState.wired = true;
+      var pbx = document.getElementById("pipeBox");
+      if (pbx) pbx.addEventListener("click", onPipeAction);
+      var prb = document.getElementById("pipeRefreshBtn");
+      if (prb) prb.addEventListener("click", loadPipeline);
+    }
+    loadPipeline();
     if (!cmpState.wired) {
       cmpState.wired = true;
       var cb = document.getElementById("cmpBox");

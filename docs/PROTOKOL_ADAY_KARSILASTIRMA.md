@@ -60,3 +60,25 @@ Ana model: yalnız **kabul** + Ollama'daki digest eşleşmesi + gerekçe. Deneme
 **yetersiz kanıt**. Ret/kritik ret hiçbir yuvada. Mevcut model "başlangıç kaydı —
 değerlendirilmemiş". Geri dönüşte önceki modelin varlığı ve digest'i doğrulanır. Etkinleştirme
 günlüğü + kayıt defteri iki aşamalı tutarlı güncellenir; devam eden cevap başladığı modelle biter.
+
+## 7 · Aday hattı (web + CLI ortak servis, `app/training/candidate_jobs.py`)
+
+Öğrenme Havuzu → **Aday hattı**: Doğrula → Ollama'ya hazırla → Karşılaştır → Sonuçları incele
+(kör inceleme) → Kullanıma al / Geri dön (Modeller kartı). CLI: `candidate-prepare`,
+`candidate-compare`, `candidate-jobs`, `candidate-job-stop`.
+
+- Ağır işler mevcut komutları koşar (aynı `adapter_to_ollama.ps1`, `-Force` ASLA; aynı
+  `hektor compare-run`); iş mantığı kopyalanmaz.
+- Ayrık çalıştırıcı web sunucusunun süreç ağacı DIŞINDA başlar (çift başlatma), sonucu iş
+  dosyasına yazar; sayfa yenileme / sunucu yeniden açılışı gerçek süreçle uzlaşır. Çalıştırıcı
+  sonuç yazmadan ölürse iş **kesildi (tamamlanmadı)**.
+- Aynı istek kimliği aynı işi döndürür; koşan iş, ortak ağır iş kilidi ya da sohbet kirası
+  varken yeni iş başlamaz; mevcut ya da canlı Ollama etiketi ezilmez.
+- Başarı = çıkış 0 + iş sonrası doğrulama (`verify_conversion` / manifest `generated`).
+  Yarım dosya ya da durdurulmuş üretim geçerli aday değildir; durdurulan karşılaştırma `kesildi`.
+- Desteklenmeyen platform / araç yoksa düğme açık gerekçeyle kapalıdır (aday başına).
+- Tamamlanma doğrulaması kolay akış kaydı yoksa bağımsız kayıtlardan (kayıt defteri, onay
+  deposu, ağırlık kararı, bugün yeniden özetlenen veri) yapılır; onay kaydı insan onaylı ve
+  tüketilmiş olmalı.
+- `evals/candidate_compare/smoke_v1.jsonl` yalnız ENTEGRASYON setidir (6 aile < 8 → en fazla
+  yetersiz kanıt); sızıntı kapsamındadır, eğitime girmez.

@@ -1,11 +1,14 @@
 """chat_strategy.py — sohbet turu → strateji taslağı → kayıtlı (değişmez) strateji (Faz 2B).
 
-- ``draft_from_turn`` : yerel model taslak çıkarır (kayıt YOK). Model çağrısı sohbetle aynı
-  kaynak korumasından (kira + ortak kilit) geçer.
+- ``draft_from_turn`` : yerel model taslak çıkarır. Strateji KAYDEDİLMEZ; yalnız orijinal öneri
+  (metin + deterministik okuma) ve modelin taslağı ayrı bir ÇEVİRİ kaydına yazılır. Model
+  çağrısı sohbetle aynı kaynak korumasından (kira + ortak kilit) geçer.
 - ``save_spec``       : kullanıcının onayladığı formu doğrulayıp kaydeder. İçerik aynıysa aynı
   kimlik döner. ``parent_id`` verilirse aynı AİLE (varyant); yoksa yeni aile.
 - ``simplify``        : desteklenmeyen/istenmeyen kuralları AÇIKÇA çıkaran ayrı kimlikli
   "basitleştirilmiş strateji" (aynı aile, ``simplified_from`` + ``removed_rules``).
+- ``review`` / ``approve`` : orijinal → nihai ve taslak → nihai farkları; kullanıcı HEPSİNİ
+  görüp işaretlemeden test koşmaz (``strategy_testing.run_stage`` onayı ve özetini denetler).
 Hiçbiri test koşturmaz; test ``strategy_testing.run_stage`` ile ayrı ve açık adımdır.
 """
 
@@ -20,7 +23,13 @@ from app.trading.strategy_spec import TestableStrategy
 from app.trading.strategy_store import StrategyStore
 
 
-def draft_from_turn(turn_id: str, *, llm: Any = None, store: ChatStore | None = None) -> dict:
+def draft_from_turn(
+    turn_id: str,
+    *,
+    llm: Any = None,
+    store: ChatStore | None = None,
+    strategy_store: StrategyStore | None = None,
+) -> dict:
     from app.feedback.model_activation import resolve_chat_tag
     from app.feedback.resource_guard import (
         acquire_chat_lease,
@@ -51,7 +60,9 @@ def draft_from_turn(turn_id: str, *, llm: Any = None, store: ChatStore | None = 
         out = extract_draft(turn["question"], answer, llm=llm)
     finally:
         release_chat_lease(lease)
-    out["source"] = {
+    from app.trading.strategy_translation import proposal_sha
+
+    source = {
         "turn_id": turn_id,
         "conversation_id": turn["conversation_id"],
         "answer_model_tag": turn.get("model_tag", ""),
@@ -59,6 +70,21 @@ def draft_from_turn(turn_id: str, *, llm: Any = None, store: ChatStore | None = 
         "draft_model_tag": tag,
         "extracted_at": utcnow(),
     }
+    tr = (strategy_store or StrategyStore()).save_translation(
+        turn_id=turn_id,
+        original_text=answer,
+        original_sha=proposal_sha(answer),
+        proposal=out["proposal"],
+        model_draft=out["model_draft"],
+        draft=out["draft"],
+        pending=out["pending"],
+        raw_model_output=out["raw_model_output"],
+        source=source,
+        created_at=utcnow(),
+    )
+    source["translation_id"] = tr["translation_id"]
+    out["source"] = source
+    out["translation_id"] = tr["translation_id"]
     return out
 
 
@@ -80,6 +106,15 @@ def save_spec(
             raise KeyError(f"Üst strateji yok: {parent_id}")
         family = parent["family_id"]
         src = {**parent["source"], **src}
+    tr_id = str(src.get("translation_id") or "")
+    if tr_id:
+        # Çeviri kaydı sunucuda doğrulanır: başka bir turun önerisi bu stratejiye bağlanamaz.
+        tr = store.get_translation(tr_id)
+        if tr is None:
+            raise KeyError(f"Çeviri kaydı yok: {tr_id}")
+        if src.get("turn_id") and tr["turn_id"] != src["turn_id"]:
+            raise ValueError("Çeviri kaydı bu sohbet turuna ait değil.")
+        src["turn_id"] = tr["turn_id"]
     family = family or "sfam_" + secrets.token_hex(6)
     rec, created = store.save_strategy(
         spec.strategy_id(),
@@ -131,3 +166,62 @@ def simplify(
     if not data["entry_rules"]:
         raise ValueError("Giriş kuralı kalmadı; basitleştirilmiş strateji tanımsız.")
     return save_spec(data, parent_id=strategy_id, origin="simplified", store=store)
+
+
+# ── nihai strateji onayı (orijinal öneri ↔ taslak ↔ nihai) ───────────────────
+
+
+def review(strategy_id: str, *, store: StrategyStore | None = None) -> dict[str, Any]:
+    """Onay ekranı: farklar + mevcut onayın hâlâ geçerli olup olmadığı."""
+    from app.trading.strategy_translation import build_review
+
+    store = store or StrategyStore()
+    rec = store.get_strategy(strategy_id)
+    if rec is None:
+        raise KeyError(f"Strateji yok: {strategy_id}")
+    tr = store.get_translation(str((rec.get("source") or {}).get("translation_id") or ""))
+    out = build_review(tr, rec["spec"])
+    appr = store.latest_approval(strategy_id)
+    out["strategy_id"] = strategy_id
+    out["approval"] = appr
+    out["approved"] = bool(appr and appr["review_sha"] == out["review_sha"])
+    out["n_changes"] = len(out["items"])
+    return out
+
+
+def approve(
+    strategy_id: str,
+    *,
+    review_sha: str,
+    acknowledged: list[str],
+    note: str = "",
+    store: StrategyStore | None = None,
+) -> dict[str, Any]:
+    """(İnsan) Nihai stratejiyi onayla: HER fark öğesi işaretlenmiş olmalı."""
+    store = store or StrategyStore()
+    rv = review(strategy_id, store=store)
+    if review_sha != rv["review_sha"]:
+        raise ValueError("Fark listesi değişti — güncel listeyi okuyup yeniden onaylayın.")
+    want = {i["key"] for i in rv["items"]}
+    got = {str(k) for k in acknowledged}
+    missing = want - got
+    if missing:
+        raise ValueError(
+            f"{len(missing)} fark işaretlenmedi — test başlatmadan önce her değişikliği görün."
+        )
+    if got - want:
+        raise ValueError("Listede olmayan fark işaretlendi.")
+    if rv["conflicts"] and len((note or "").strip()) < 10:
+        raise ValueError(
+            "Orijinal öneride çelişki var: nihai değeri neden seçtiğinizi yazın (≥10 karakter)."
+        )
+    tr_id = rv.get("translation_id", "")
+    return store.save_approval(
+        strategy_id=strategy_id,
+        translation_id=tr_id,
+        review_sha=rv["review_sha"],
+        review={k: rv[k] for k in ("original_vs_final", "draft_vs_final", "conflicts", "note")},
+        acknowledged=sorted(got),
+        n_changes=len(rv["items"]),
+        note=(note or "").strip()[:1000],
+    )

@@ -16,7 +16,7 @@ import pandas as pd
 import pytest
 from tests.chat_learning_helpers import FakeLLM, StubRetriever, iso  # noqa: F401
 
-from app.trading.chat_strategy import save_spec, simplify
+from app.trading.chat_strategy import approve, review, save_spec, simplify
 from app.trading.strategy_draft import DraftError, extract_draft, normalize_draft
 from app.trading.strategy_testing import StrategyTestError, check_data, run_stage
 
@@ -44,6 +44,18 @@ def _spec(**kw):
     }
     base.update(kw)
     return base
+
+
+def ok(rec: dict) -> dict:
+    """Testte nihai stratejiyi tüm farkları işaretleyerek onayla (insan adımı)."""
+    rv = review(rec["strategy_id"])
+    approve(
+        rec["strategy_id"],
+        review_sha=rv["review_sha"],
+        acknowledged=[i["key"] for i in rv["items"]],
+        note="testte tüm farklar görüldü ve onaylandı",
+    )
+    return rec
 
 
 @pytest.fixture
@@ -121,6 +133,9 @@ def test_important_unsupported_blocks_until_explicit_simplification(market) -> N
     with pytest.raises(StrategyTestError, match="basitleştirilmiş"):
         run_stage(rec["strategy_id"], data_file=market, tz="UTC", stage="gelistirme")
     simp = simplify(rec["strategy_id"], remove_rules=[], drop_unsupported=["haber sonrası girme"])
+    with pytest.raises(StrategyTestError, match="onaylanmadı"):
+        run_stage(simp["strategy_id"], data_file=market, tz="UTC", stage="gelistirme")
+    ok(simp)
     assert simp["strategy_id"] != rec["strategy_id"] and simp["family_id"] == rec["family_id"]
     assert simp["spec"]["simplified_from"] == rec["strategy_id"]
     assert simp["spec"]["removed_rules"] == ["haber sonrası girme"]
@@ -129,13 +144,15 @@ def test_important_unsupported_blocks_until_explicit_simplification(market) -> N
 
 
 def test_stages_protocol_trials_and_final_once(market) -> None:
-    a = save_spec(_spec())
+    a = ok(save_spec(_spec()))
     dev = run_stage(a["strategy_id"], data_file=market, tz="UTC", stage="gelistirme")
     val = run_stage(a["strategy_id"], data_file=market, tz="UTC", stage="dogrulama")
     assert dev["period_end"] < val["period_start"]  # dönemler örtüşmez
     assert val["oos_status"] == "ilk_bakis"
     # Aynı aileden varyant (parametre değişti) aynı doğrulama dönemine bakınca:
-    b = save_spec(_spec(entry_rules=["ema_10 > ema_30", "rsi_14 > 50"]), parent_id=a["strategy_id"])
+    b = ok(
+        save_spec(_spec(entry_rules=["ema_10 > ema_30", "rsi_14 > 50"]), parent_id=a["strategy_id"])
+    )
     assert b["family_id"] == a["family_id"]
     val_b = run_stage(b["strategy_id"], data_file=market, tz="UTC", stage="dogrulama")
     assert val_b["oos_status"] == "gelistirmede_kullanildi"
@@ -149,7 +166,7 @@ def test_stages_protocol_trials_and_final_once(market) -> None:
 def test_result_records_times_costs_engine_and_disclaimer(market) -> None:
     from app.trading import event_engine as ee
 
-    a = save_spec(_spec())
+    a = ok(save_spec(_spec()))
     run = run_stage(a["strategy_id"], data_file=market, tz="UTC", stage="dogrulama")
     res = run["result"]
     times = res["times"]
@@ -210,6 +227,18 @@ def test_web_strategy_endpoints(market) -> None:
     bad = client.post("/api/strategy", json={"spec": _spec(costs={"spread_bps": 1})})
     assert bad.status_code == 422 and "Maliyet eksik" in str(bad.json()["detail"])
     rec = client.post("/api/strategy", json={"spec": _spec(), "source": {"turn_id": "t1"}}).json()
+    blocked = client.post(
+        f"/api/strategy/{rec['strategy_id']}/run",
+        json={"data_file": market, "tz": "UTC", "stage": "gelistirme"},
+    )
+    assert blocked.status_code == 422 and "onaylanmadı" in blocked.json()["detail"]
+    rv = client.get(f"/api/strategy/{rec['strategy_id']}/review").json()
+    assert rv["approved"] is False and rv["translation_id"] == ""
+    ap = client.post(
+        f"/api/strategy/{rec['strategy_id']}/approve",
+        json={"review_sha": rv["review_sha"], "acknowledged": [i["key"] for i in rv["items"]]},
+    )
+    assert ap.status_code == 200, ap.text
     chk = client.post(
         "/api/strategy/data-check", json={"data_file": market, "timeframe": "1h", "tz": "UTC"}
     )
@@ -231,6 +260,7 @@ def test_web_strategy_endpoints(market) -> None:
         "/api/strategy/data-upload",
         "/api/strategy/{strategy_id}/simplify",
         "/api/strategy/{strategy_id}/run",
+        "/api/strategy/{strategy_id}/approve",
     }
     seen = set()
     for rt in client.app.routes:

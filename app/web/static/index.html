@@ -145,16 +145,16 @@
             </div>
             <div class="st-grid">
               <label>Stop <select name="stop_type">
-                <option value="none">Yok</option><option value="fixed_pct">Sabit % (oran)</option>
+                <option value="">— karar gerekli —</option><option value="none">Yok</option><option value="fixed_pct">Sabit % (oran)</option>
                 <option value="atr_initial">ATR — girişte sabit</option><option value="atr_trailing">ATR — takip eden</option></select></label>
               <label>Stop değeri <input name="stop_value" type="number" step="any" /></label>
               <label>Stop ATR periyodu <input name="stop_atr" type="number" value="14" min="1" /></label>
-              <label>Hedef <select name="tp_type"><option value="none">Yok</option><option value="fixed_pct">Sabit % (oran)</option>
+              <label>Hedef <select name="tp_type"><option value="">— karar gerekli —</option><option value="none">Yok</option><option value="fixed_pct">Sabit % (oran)</option>
                 <option value="atr_multiple">ATR katı</option><option value="r_multiple">R katı</option></select></label>
               <label>Hedef değeri <input name="tp_value" type="number" step="any" /></label>
             </div>
             <div class="st-grid">
-              <label>Pozisyon büyüklüğü <select name="size_type"><option value="fixed_fraction">Özsermaye katı (nominal)</option>
+              <label>Pozisyon büyüklüğü <select name="size_type"><option value="">— karar gerekli —</option><option value="fixed_fraction">Özsermaye katı (nominal)</option>
                 <option value="risk_per_trade">İşlem başına risk (stop'a göre)</option></select></label>
               <label>Kat (1 = tam özsermaye) <input name="fraction" type="number" step="any" /></label>
               <label>Risk oranı (0.01 = %1) <input name="risk_pct" type="number" step="any" /></label>
@@ -174,6 +174,10 @@
             <div class="dlg-actions"><button type="submit" class="btn btn-primary">2 · Kaydet (okunur form onaylandı)</button></div>
           </form>
           <div id="stSaved" class="small"></div>
+          <div class="st-step"><strong>2b · Farkları gör ve onayla</strong>
+            <span class="muted small">Orijinal sohbet önerisi → çıkarılan taslak → kaydettiğiniz nihai strateji. Her farkı
+              işaretlemeden test başlamaz; test edilen her zaman onayladığınız nihai stratejidir.</span></div>
+          <div id="stReview" class="small"></div>
           <div class="st-step"><strong>3 · Veri</strong>
             <select id="stDataFile"></select>
             <input type="file" id="stUpload" accept=".csv" />
@@ -184,9 +188,10 @@
             <button type="button" class="btn btn-sm" id="stCheckBtn">Veriyi kontrol et</button></div>
           <div id="stDataReport" class="small"></div>
           <div class="st-step"><strong>4 · Test</strong>
-            <button type="button" class="btn btn-sm" data-stage="gelistirme">Geliştirme dönemi</button>
-            <button type="button" class="btn btn-sm" data-stage="dogrulama">Doğrulama (OOS)</button>
-            <button type="button" class="btn btn-sm" data-stage="final" title="Aile başına tek kullanım">Final (tek kullanım)</button></div>
+            <button type="button" class="btn btn-sm" data-stage="gelistirme" disabled>Geliştirme dönemi</button>
+            <button type="button" class="btn btn-sm" data-stage="dogrulama" disabled>Doğrulama (OOS)</button>
+            <button type="button" class="btn btn-sm" data-stage="final" title="Aile başına tek kullanım" disabled>Final (tek kullanım)</button>
+            <span class="muted small" id="stRunGate">Önce nihai stratejiyi onaylayın.</span></div>
           <div id="stResult"></div>
         </dialog>
         <dialog id="chatCorrectDlg" class="chat-dialog">
@@ -228,6 +233,18 @@
             <button type="button" class="btn btn-sm" id="lpRefreshBtn" title="Koşu kayıtlarını oku ve yenile">↻ Yenile</button>
           </div>
           <div id="lpCounters"><span class="muted">Yükleniyor…</span></div>
+        </div>
+        <div class="card" id="pipeCard">
+          <div class="lp-head-row">
+            <h3 class="lp-h3">Aday hattı — doğrula → Ollama'ya hazırla → karşılaştır → incele → kullanıma al</h3>
+            <button type="button" class="btn btn-sm" id="pipeRefreshBtn">↻ Yenile</button>
+          </div>
+          <p class="muted small">Ağır işler (dönüşüm, karşılaştırma) yalnız siz başlatınca, arka planda ve terminaldeki
+            komutların AYNISIYLA koşar; ortak ağır iş kilidi web ve terminal için aynıdır. Sayfayı yenileseniz ya da sunucu
+            yeniden açılsa da durum gerçek süreçle uzlaşır. Mevcut Ollama etiketlerinin üzerine yazılmaz; hiçbir adım modeli
+            kendiliğinden etkinleştirmez. Küçük karşılaştırma koşusu <strong>entegrasyon testidir</strong>, kalite üstünlüğü
+            kanıtı değildir.</p>
+          <div id="pipeBox"><span class="muted">Yükleniyor…</span></div>
         </div>
         <div class="card" id="modelsCard">
           <div class="lp-head-row">

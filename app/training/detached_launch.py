@@ -777,8 +777,14 @@ def launch(
     approval_id: str = "",
     early_exit_wait_s: float | None = None,
     skip_register: bool = False,
+    recipe_sha: str = "",
 ) -> dict:
     """Eğitimi DETACHED başlat (web/terminal kapansa da sürer).
+
+    - recipe_sha (kolay akış): yeniden bölünen veri + ayarlar onaylanan reçeteyle AYNI olmalı
+      (alt süreç doğmadan denetlenir); alt sürece reçete ve beklenen train/valid özetleri
+      geçirilir → ``train --run`` aynı bağlamayı onay/kilit öncesi yeniden denetler, eğitici
+      okuduğu baytların özetini doğrular.
 
     - Veriyi `lora_sft.jsonl`'den yeniden böler (clobber-proof, KAYNAK-GRUPLU).
     - iterations<=0 → adım sayısı `plan_iterations` ile: FİİLEN eğitilecek örnek sayısı
@@ -811,6 +817,21 @@ def launch(
     if not pre.get("ok"):
         return _fail(str(pre.get("message", "Ön-kontrol başarısız.")))
     n_train = int(pre.get("n_train", 0))
+    if recipe_sha:
+        from app.training import easy_train
+
+        binding = easy_train.recipe_binding_problems(
+            recipe_sha,
+            adapter_name=adapter_name,
+            base_model=base_model,
+            profile=profile,
+            max_examples=max_examples,
+        )
+        if binding:
+            return _fail(
+                "Onaylanan reçeteyle başlatılacak koşu aynı değil — eğitim BAŞLATILMADI: "
+                + " | ".join(binding[:3])
+            )
 
     # Atomik ortak kilit: iki eş-zamanlı istek (çift-tık/retry) ya da terminalden başlatılmış
     # eğitim/dönüşüm/karşılaştırma varken çift süreç başlamasın.
@@ -873,6 +894,13 @@ def launch(
             env["HEKTOR_TRAIN_SKIP_REGISTER"] = "1"
         else:
             env.pop("HEKTOR_TRAIN_SKIP_REGISTER", None)
+        # Reçete bağlaması alt sürece taşınır (yoksa miras kalan değer temizlenir).
+        from app.training.easy_train import RECIPE_ENV
+
+        if recipe_sha:
+            env[RECIPE_ENV] = recipe_sha
+        else:
+            env.pop(RECIPE_ENV, None)
 
         # Alt süreç (etkileşimsiz) BU bekleyen kararı tüketecek; ağırlıklar durum dosyasına
         # yazılır ki kurtarma aynı ağırlıkları bayrakla geri verebilsin (Kademe-2 A2).

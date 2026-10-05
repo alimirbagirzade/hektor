@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 from tests.chat_learning_helpers import FakeLLM, StubRetriever, iso  # noqa: F401
-from tests.test_strategy_flow import _spec, market  # noqa: F401
+from tests.test_strategy_flow import _spec, market, ok  # noqa: F401
 
 from app.feedback.chat_store import ChatStore
 from app.feedback.learning import LearningError, LearningService
@@ -52,7 +52,7 @@ def _claim(run, **override) -> str:
 
 @pytest.fixture
 def setup(market):  # noqa: F811
-    rec = save_spec(_spec())
+    rec = ok(save_spec(_spec()))
     run = run_stage(rec["strategy_id"], data_file=market, tz="UTC", stage="dogrulama")
     store = ChatStore()
     return store, LearningService(store), rec, run
@@ -128,8 +128,10 @@ def test_strategy_variants_share_family_and_side(setup, market) -> None:  # noqa
     from app.feedback.chat_dataset import build_payload
 
     store, svc, rec, run = setup
-    var = save_spec(
-        _spec(entry_rules=["ema_10 > ema_30", "rsi_14 > 50"]), parent_id=rec["strategy_id"]
+    var = ok(
+        save_spec(
+            _spec(entry_rules=["ema_10 > ema_30", "rsi_14 > 50"]), parent_id=rec["strategy_id"]
+        )
     )
     run2 = run_stage(var["strategy_id"], data_file=market, tz="UTC", stage="gelistirme")
     ids = []

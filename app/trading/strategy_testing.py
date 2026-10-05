@@ -12,8 +12,9 @@ Isınma: her dönemde göstergeler önceki TÜM veriyle hesaplanır, ama işlem/
 içindedir (``event_engine.run`` start/end).
 
 Koşu önkoşulları: stratejide ÖNEMLİ desteklenmeyen kural yok (yoksa test DURUR; kullanıcı açıkça
-"basitleştirilmiş strateji" oluşturabilir), veri denetimi geçti, önek değişmezliği (sızıntı)
-kontrolü geçti.
+"basitleştirilmiş strateji" oluşturabilir), nihai strateji orijinal öneri/taslak farkları
+görülerek ONAYLANDI (``chat_strategy.approve``; fark listesi değişince onay geçersiz), veri
+denetimi geçti, önek değişmezliği (sızıntı) kontrolü geçti.
 
 Sonuç dili: "kayıtlı hesap". Bu sonuç stratejinin gelecekte başarılı olacağını ya da modelin daha
 iyi trader olduğunu GÖSTERMEZ (Kural 1/2).
@@ -151,6 +152,19 @@ def run_stage(
             + ". İsterseniz bu kuralları açıkça çıkaran ayrı bir 'basitleştirilmiş strateji' "
             "oluşturup onu test edin."
         )
+    from app.trading.chat_strategy import review as final_review
+
+    rv = final_review(strategy_id, store=store)
+    if not rv["approved"]:
+        why = (
+            "fark listesi onaydan sonra değişti"
+            if rv.get("approval")
+            else f"{rv['n_changes']} fark (orijinal öneri → taslak → nihai) henüz onaylanmadı"
+        )
+        raise StrategyTestError(
+            f"Nihai strateji onaylanmadı ({why}). Test başlatmadan önce farkları görüp onaylayın."
+        )
+    approval = rv["approval"] or {}
     path = resolve_data_file(data_file)
     df, report = load_checked_csv(path, timeframe=spec.timeframe, tz=tz)
     protocol = protocol_for(store, report.clean_sha256, df.index)
@@ -211,6 +225,19 @@ def run_stage(
         "metrics_version": ee.METRICS_VERSION,
         "costs": spec.costs.model_dump(mode="json"),
         "strategy_readable": spec.readable(),
+        # Test edilen = ONAYLI NİHAİ strateji. Orijinal öneriden farklıysa sonuç orijinale ait
+        # DEĞİLDİR (öğrenme adayı bu alanla bağlanır).
+        "tested_strategy": {
+            "strategy_id": strategy_id,
+            "approval_id": approval.get("approval_id", ""),
+            "review_sha": rv["review_sha"],
+            "translation_id": rv.get("translation_id", ""),
+            "original_sha": rv.get("original_sha", ""),
+            "n_changes_from_original": len(rv.get("original_vs_final") or []),
+            "n_changes_total": rv["n_changes"],
+            "is_original_proposal": bool(rv.get("translation_id"))
+            and not rv.get("original_vs_final"),
+        },
         "disclaimer": DISCLAIMER,
         "times": {
             "data_start": report.start,

@@ -1,0 +1,1137 @@
+{
+  "generated_at": "2026-10-05T15:20:20.250064+00:00",
+  "engine_version": "hektor-event-1.0.0",
+  "metrics_version": "m1",
+  "data": {
+    "provenance": {
+      "label": "GERÇEK piyasa verisi — teknik doğrulama piyasası (kullanıcının nihai trading tercihi DEĞİLDİR). Sentetik değildir.",
+      "source": "Binance kamu veri arşivi (data.binance.vision) — borsanın yayımladığı spot kline dosyaları; hesap/anahtar/ödeme gerekmez",
+      "source_base_url": "https://data.binance.vision/data/spot/monthly/klines",
+      "symbol": "BTCUSDT",
+      "market_type": "spot",
+      "interval": "1h",
+      "timezone": "UTC (mum açılış zamanı, ISO-8601 +00:00)",
+      "period_requested": {
+        "start_month": "2023-01",
+        "end_month": "2024-12"
+      },
+      "period_actual": {
+        "first_open": "2023-01-01T00:00:00+00:00",
+        "last_open": "2024-12-31T23:00:00+00:00"
+      },
+      "n_rows": 17543,
+      "columns": "time, open, high, low, close, volume (taban varlık hacmi)",
+      "checksums_verified": true,
+      "downloaded_at": "2026-10-05T15:16:19.473486+00:00",
+      "csv_file": "BTCUSDT_1h_2023-01_2024-12.csv",
+      "csv_sha256": "0e050ec4e860248b8042d4679359e82059fcef276ae4939827c9275259610da9",
+      "limits": "Kline verisinde alış/satış kotasyonu yok → makas (spread) ölçülmedi, varsayımdır. Spot piyasa → fonlama yok.",
+      "tool": "scripts/fetch_public_ohlcv.py"
+    },
+    "n_source_files": 24,
+    "csv_sha256_verified": "0e050ec4e860248b8042d4679359e82059fcef276ae4939827c9275259610da9",
+    "production_report": {
+      "file_name": "BTCUSDT_1h_2023-01_2024-12.csv",
+      "file_sha256": "0e050ec4e860248b8042d4679359e82059fcef276ae4939827c9275259610da9",
+      "clean_sha256": "f8949775ba2ebbd379577f22f598257db70143c8def5f034d960b15bf0d7f2eb",
+      "timeframe": "1h",
+      "tz_source": "damgadaki ofset → UTC",
+      "rows_raw": 17543,
+      "rows_clean": 17543,
+      "start": "2023-01-01T00:00:00+00:00",
+      "end": "2024-12-31T23:00:00+00:00",
+      "actions": [
+        "1 boşluk (~1 eksik bar) — doldurulmadı"
+      ],
+      "gaps": {
+        "n_gaps": 1,
+        "estimated_missing_bars": 1,
+        "largest_gap_s": 7200.0,
+        "largest_gap_at": "2023-03-24 14:00:00+00:00",
+        "note": "Eksik barlar doldurulmadı; piyasa kapanışı (hafta sonu/tatil) olabilir."
+      },
+      "median_step_s": 3600.0
+    },
+    "protocol_preview": {
+      "dev_end": "2024-03-14T14:00:00+00:00",
+      "val_end": "2024-08-07T19:00:00+00:00",
+      "n_bars": 17543,
+      "note": "Önizleme — ilk testte kalıcı olarak sabitlenir."
+    },
+    "independent_check": {
+      "rows": 17543,
+      "first": "2023-01-01T00:00:00+00:00",
+      "last": "2024-12-31T23:00:00+00:00",
+      "monotonic": true,
+      "gaps": [
+        [
+          "2023-03-24T12:00:00+00:00",
+          "2023-03-24T14:00:00+00:00"
+        ]
+      ],
+      "missing_bars": 1,
+      "invalid_ohlc_rows": [],
+      "tz_offsets": [
+        "+00:00"
+      ]
+    },
+    "consistency": {
+      "rows_equal": true,
+      "start_equal": true,
+      "end_equal": true,
+      "gap_count_equal": true
+    }
+  },
+  "costs": {
+    "commission_bps_per_side": 10.0,
+    "slippage_bps_per_side": 2.0,
+    "spread_bps": 2.0,
+    "funding_bps_per_day": 0.0,
+    "zero_reasons": {
+      "funding_bps_per_day": "spot piyasa: kaldıraçsız, fonlama/taşıma yok"
+    }
+  },
+  "assumption_notes": {
+    "commission_bps_per_side": "Binance spot standart taker ücreti %0.10 = 10 bp/dolum (indirimsiz; hesap seviyesine göre değişir — varsayım)",
+    "slippage_bps_per_side": "2 bp/dolum aleyhe (1h BTCUSDT için varsayım; ölçülmedi)",
+    "spread_bps": "2 bp tam makas (kline verisinde kotasyon yok → ölçülmedi, varsayım)",
+    "funding_bps_per_day": "0 — spot, kaldıraçsız (gerekçe kayıtlı)"
+  },
+  "runs": [
+    {
+      "strategy": "denetim_ema20_50_long",
+      "strategy_id": "st_306f0fa908b015ee",
+      "direction": "long",
+      "stage": "gelistirme",
+      "oos_status": "gelistirme",
+      "period": [
+        "2023-01-01T00:00:00+00:00",
+        "2024-03-14T13:00:00+00:00"
+      ],
+      "fingerprint": "acee68e0892c37e3fb5cb0e895af19173bf317cd3768c0613fa71132a5411895",
+      "leak_check_ok": true,
+      "metrics": {
+        "commission_pct": 40.9968,
+        "costs_pct": 53.2959,
+        "exposure_pct": 54.6698,
+        "funding_pct": 0.0,
+        "max_drawdown_pct": -41.5973,
+        "n_trades": 288,
+        "profit_factor": 0.9579,
+        "sharpe": -0.1586,
+        "slip_spread_pct": 12.2991,
+        "total_return_pct": -6.6552,
+        "win_rate_pct": 30.5556
+      },
+      "counters": {
+        "end_exits": 1,
+        "gap_stop_exits": 0,
+        "ignored_last_bar_entry": 1,
+        "rule_exits": 90,
+        "same_bar_stop_first": 0,
+        "skipped_entry_no_atr": 0,
+        "stop_exits": 135,
+        "tp_exits": 62
+      },
+      "independent_total_return_pct": -6.6552,
+      "total_return_equal": true,
+      "comparison": {
+        "n_prod": 288,
+        "n_independent": 288,
+        "compared": 10,
+        "rows": [
+          {
+            "index": 0,
+            "entry_time": "2023-01-01T02:00:00+00:00",
+            "exit_time": "2023-01-02T21:00:00+00:00",
+            "exit_reason": "hedef",
+            "entry_fill": 16556.435441,
+            "exit_fill": 16772.56644679628,
+            "qty": 6.039947448613374e-05,
+            "cost": 0.0026169716881518403,
+            "net_pnl": 0.011041144971084587,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 0.0,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 32,
+            "entry_time": "2023-02-28T14:00:00+00:00",
+            "exit_time": "2023-02-28T21:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 23410.190950999997,
+            "exit_fill": 23141.649063178505,
+            "qty": 4.3167105839845265e-05,
+            "cost": 0.0026123596773718,
+            "net_pnl": -0.01360168429895376,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -2.0328790734103208e-20,
+              "cost": -8.673617379884035e-19,
+              "net_pnl": 6.938893903907228e-18
+            }
+          },
+          {
+            "index": 64,
+            "entry_time": "2023-04-19T09:00:00+00:00",
+            "exit_time": "2023-04-19T10:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 29177.220541,
+            "exit_fill": 29191.819826000003,
+            "qty": 2.3480174454028984e-05,
+            "cost": 0.0017816698935461247,
+            "net_pnl": -0.0010277214918272405,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 6.776263578034403e-21,
+              "cost": 6.505213034913027e-19,
+              "net_pnl": -2.168404344971009e-19
+            }
+          },
+          {
+            "index": 96,
+            "entry_time": "2023-06-08T20:00:00+00:00",
+            "exit_time": "2023-06-09T22:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 26547.821958,
+            "exit_fill": 26471.566146999998,
+            "qty": 2.888154112543816e-05,
+            "cost": 0.0019906659725300864,
+            "net_pnl": -0.0037336669794503425,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 6.776263578034403e-21,
+              "cost": 8.673617379884035e-19,
+              "net_pnl": -8.673617379884035e-19
+            }
+          },
+          {
+            "index": 128,
+            "entry_time": "2023-07-20T08:00:00+00:00",
+            "exit_time": "2023-07-20T14:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 30211.840834,
+            "exit_fill": 29947.552395635073,
+            "qty": 3.042562235371029e-05,
+            "cost": 0.00237950239898099,
+            "net_pnl": -0.009871527197576285,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": -3.637978807091713e-12,
+              "qty": 3.3881317890172014e-21,
+              "cost": 0.0,
+              "net_pnl": -1.1275702593849246e-16
+            }
+          },
+          {
+            "index": 159,
+            "entry_time": "2023-08-27T18:00:00+00:00",
+            "exit_time": "2023-08-28T04:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 26072.899524,
+            "exit_fill": 26005.176106,
+            "qty": 2.9805868792642022e-05,
+            "cost": 0.0020179018362016465,
+            "net_pnl": -0.003570787600298361,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 0.0,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 191,
+            "entry_time": "2023-10-16T14:00:00+00:00",
+            "exit_time": "2023-10-20T08:00:00+00:00",
+            "exit_reason": "hedef",
+            "entry_fill": 28008.389997000002,
+            "exit_fill": 29723.724980574247,
+            "qty": 1.2595986264647883e-05,
+            "cost": 0.0009453527696771753,
+            "net_pnl": 0.020879142965084592,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 3.637978807091713e-12,
+              "qty": -3.3881317890172014e-21,
+              "cost": -2.168404344971009e-19,
+              "net_pnl": 4.163336342344337e-17
+            }
+          },
+          {
+            "index": 223,
+            "entry_time": "2023-12-13T21:00:00+00:00",
+            "exit_time": "2023-12-14T13:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 42887.742463999995,
+            "exit_fill": 42171.24149389475,
+            "qty": 1.2091410837500496e-05,
+            "cost": 0.0013370273046451428,
+            "net_pnl": -0.00969199071546548,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 0.0,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 255,
+            "entry_time": "2024-01-26T05:00:00+00:00",
+            "exit_time": "2024-01-26T12:00:00+00:00",
+            "exit_reason": "hedef",
+            "entry_fill": 40161.294775,
+            "exit_fill": 41424.81853406891,
+            "qty": 1.798877448433007e-05,
+            "cost": 0.0019079265366390838,
+            "net_pnl": 0.021261609764113724,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -1.0164395367051604e-20,
+              "cost": -8.673617379884035e-19,
+              "net_pnl": -1.3877787807814457e-17
+            }
+          },
+          {
+            "index": 287,
+            "entry_time": "2024-03-06T09:00:00+00:00",
+            "exit_time": "2024-03-14T13:00:00+00:00",
+            "exit_reason": "donem_sonu",
+            "entry_fill": 66961.302366,
+            "exit_fill": 71863.244557,
+            "qty": 3.4544097492222166e-06,
+            "cost": 0.0006234254657655195,
+            "net_pnl": 0.016453760026391928,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -8.470329472543003e-22,
+              "cost": -1.0842021724855044e-19,
+              "net_pnl": -3.469446951953614e-18
+            }
+          }
+        ],
+        "same_structure": true,
+        "max_rel_diff": 5.650410135446279e-16,
+        "all_trades_checked": 288
+      }
+    },
+    {
+      "strategy": "denetim_ema20_50_long",
+      "strategy_id": "st_306f0fa908b015ee",
+      "direction": "long",
+      "stage": "dogrulama",
+      "oos_status": "ilk_bakis",
+      "period": [
+        "2024-03-14T14:00:00+00:00",
+        "2024-08-07T18:00:00+00:00"
+      ],
+      "fingerprint": "bb72c474c8b04e819df854bb1183bef9c8caf1a969aa36cccfb5f91a4d6973c1",
+      "leak_check_ok": true,
+      "metrics": {
+        "commission_pct": 9.4726,
+        "costs_pct": 12.3144,
+        "exposure_pct": 44.1721,
+        "funding_pct": 0.0,
+        "max_drawdown_pct": -21.651,
+        "n_trades": 75,
+        "profit_factor": 0.6174,
+        "sharpe": -2.5491,
+        "slip_spread_pct": 2.8418,
+        "total_return_pct": -17.6443,
+        "win_rate_pct": 24.0
+      },
+      "counters": {
+        "end_exits": 0,
+        "gap_stop_exits": 0,
+        "ignored_last_bar_entry": 1,
+        "rule_exits": 25,
+        "same_bar_stop_first": 0,
+        "skipped_entry_no_atr": 0,
+        "stop_exits": 39,
+        "tp_exits": 11
+      },
+      "independent_total_return_pct": -17.6443,
+      "total_return_equal": true,
+      "comparison": {
+        "n_prod": 75,
+        "n_independent": 75,
+        "compared": 10,
+        "rows": [
+          {
+            "index": 0,
+            "entry_time": "2024-03-14T15:00:00+00:00",
+            "exit_time": "2024-03-14T16:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 71711.49699700001,
+            "exit_fill": 70386.68679888448,
+            "qty": 7.67054779162492e-06,
+            "cost": 0.0014169612977296098,
+            "net_pnl": -0.011251990849386715,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -6.776263578034403e-21,
+              "cost": -1.5178830414797062e-18,
+              "net_pnl": 8.673617379884035e-18
+            }
+          },
+          {
+            "index": 8,
+            "entry_time": "2024-03-30T17:00:00+00:00",
+            "exit_time": "2024-03-30T20:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 70199.223451,
+            "exit_fill": 69875.371098,
+            "qty": 1.3758531169396327e-05,
+            "cost": 0.0025053865287047485,
+            "net_pnl": -0.00638295336817574,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 0.0,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 16,
+            "entry_time": "2024-04-09T15:00:00+00:00",
+            "exit_time": "2024-04-09T18:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 69379.127496,
+            "exit_fill": 68803.342803,
+            "qty": 7.290917263816759e-06,
+            "cost": 0.001309719695119694,
+            "net_pnl": -0.005205475516694915,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -8.470329472543003e-22,
+              "cost": -2.168404344971009e-19,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 25,
+            "entry_time": "2024-05-10T02:00:00+00:00",
+            "exit_time": "2024-05-10T14:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 62902.36505,
+            "exit_fill": 61934.3918137785,
+            "qty": 9.673371023826212e-06,
+            "cost": 0.0015698691364050051,
+            "net_pnl": -0.010571156521658857,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -3.3881317890172014e-21,
+              "cost": -4.336808689942018e-19,
+              "net_pnl": 3.469446951953614e-18
+            }
+          },
+          {
+            "index": 33,
+            "entry_time": "2024-05-20T05:00:00+00:00",
+            "exit_time": "2024-05-20T06:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 67152.579732,
+            "exit_fill": 66467.60089713153,
+            "qty": 1.3515278195379036e-05,
+            "cost": 0.0023476873034037607,
+            "net_pnl": -0.011063593424913438,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -1.6940658945086007e-21,
+              "cost": 0.0,
+              "net_pnl": 1.734723475976807e-18
+            }
+          },
+          {
+            "index": 41,
+            "entry_time": "2024-05-27T20:00:00+00:00",
+            "exit_time": "2024-05-28T03:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 69280.798006,
+            "exit_fill": 68390.5898269973,
+            "qty": 1.0352100372015726e-05,
+            "cost": 0.0018527436418451614,
+            "net_pnl": -0.01064071244622719,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -5.082197683525802e-21,
+              "cost": -1.0842021724855044e-18,
+              "net_pnl": 5.204170427930421e-18
+            }
+          },
+          {
+            "index": 49,
+            "entry_time": "2024-06-05T16:00:00+00:00",
+            "exit_time": "2024-06-06T19:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 71601.48400299999,
+            "exit_fill": 70664.86932222088,
+            "qty": 9.715006601061095e-06,
+            "cost": 0.0017967533485499303,
+            "net_pnl": -0.01048133636808318,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -8.470329472543003e-21,
+              "cost": -1.734723475976807e-18,
+              "net_pnl": 8.673617379884035e-18
+            }
+          },
+          {
+            "index": 58,
+            "entry_time": "2024-06-20T11:00:00+00:00",
+            "exit_time": "2024-06-20T13:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 66229.352847,
+            "exit_fill": 65538.19355863202,
+            "qty": 1.2325321964239857e-05,
+            "cost": 0.002111299941214976,
+            "net_pnl": -0.010142838191597635,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -8.470329472543003e-21,
+              "cost": -1.3010426069826053e-18,
+              "net_pnl": 6.938893903907228e-18
+            }
+          },
+          {
+            "index": 66,
+            "entry_time": "2024-07-09T06:00:00+00:00",
+            "exit_time": "2024-07-11T23:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 57308.667444,
+            "exit_fill": 57321.378426,
+            "qty": 6.352077569196103e-06,
+            "cost": 0.0009465806529911928,
+            "net_pnl": -0.0006473977994820656,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -9.317362419797304e-21,
+              "cost": -1.4094628242311558e-18,
+              "net_pnl": 9.75781955236954e-19
+            }
+          },
+          {
+            "index": 74,
+            "entry_time": "2024-08-07T04:00:00+00:00",
+            "exit_time": "2024-08-07T18:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 56879.068603,
+            "exit_fill": 55183.140867699396,
+            "qty": 4.957342130854322e-06,
+            "cost": 0.0007221891843142266,
+            "net_pnl": -0.008962824725375759,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -5.082197683525802e-21,
+              "cost": -7.589415207398531e-19,
+              "net_pnl": 8.673617379884035e-18
+            }
+          }
+        ],
+        "same_structure": true,
+        "max_rel_diff": 1.4668212593909611e-15,
+        "all_trades_checked": 75
+      }
+    },
+    {
+      "strategy": "denetim_ema20_50_short",
+      "strategy_id": "st_ea25bf457f0c75f7",
+      "direction": "short",
+      "stage": "gelistirme",
+      "oos_status": "gelistirme",
+      "period": [
+        "2023-01-01T00:00:00+00:00",
+        "2024-03-14T13:00:00+00:00"
+      ],
+      "fingerprint": "97d7aa38a15aaf1583f9fccc6e1b8c04088fdcdb336c64ac02323548fde8d723",
+      "leak_check_ok": true,
+      "metrics": {
+        "commission_pct": 27.7148,
+        "costs_pct": 36.0293,
+        "exposure_pct": 42.1093,
+        "funding_pct": 0.0,
+        "max_drawdown_pct": -50.0581,
+        "n_trades": 227,
+        "profit_factor": 0.5597,
+        "sharpe": -3.0877,
+        "slip_spread_pct": 8.3145,
+        "total_return_pct": -48.6395,
+        "win_rate_pct": 21.1454
+      },
+      "counters": {
+        "end_exits": 0,
+        "gap_stop_exits": 0,
+        "ignored_last_bar_entry": 0,
+        "rule_exits": 87,
+        "same_bar_stop_first": 0,
+        "skipped_entry_no_atr": 0,
+        "stop_exits": 108,
+        "tp_exits": 32
+      },
+      "independent_total_return_pct": -48.6395,
+      "total_return_equal": true,
+      "comparison": {
+        "n_prod": 227,
+        "n_independent": 227,
+        "compared": 10,
+        "rows": [
+          {
+            "index": 0,
+            "entry_time": "2023-01-06T13:00:00+00:00",
+            "exit_time": "2023-01-06T13:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 16725.630805,
+            "exit_fill": 16807.11978700349,
+            "qty": 5.9788477436740835e-05,
+            "cost": 0.002606333348452814,
+            "net_pnl": -0.0068769742640203664,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 0.0,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 25,
+            "entry_time": "2023-03-07T16:00:00+00:00",
+            "exit_time": "2023-03-08T23:00:00+00:00",
+            "exit_reason": "hedef",
+            "entry_fill": 22315.283406,
+            "exit_fill": 21643.1766503724,
+            "qty": 4.254384157555295e-05,
+            "cost": 0.0024312129126615348,
+            "net_pnl": 0.026723841572735888,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 6.776263578034403e-21,
+              "cost": 4.336808689942018e-19,
+              "net_pnl": 3.469446951953614e-18
+            }
+          },
+          {
+            "index": 50,
+            "entry_time": "2023-04-19T10:00:00+00:00",
+            "exit_time": "2023-04-21T17:00:00+00:00",
+            "exit_reason": "hedef",
+            "entry_fill": 29191.819826000003,
+            "exit_fill": 27796.78182012801,
+            "qty": 1.882688872226724e-05,
+            "cost": 0.0013947958728673271,
+            "net_pnl": 0.025191307238256334,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 3.3881317890172014e-21,
+              "cost": 2.168404344971009e-19,
+              "net_pnl": 3.469446951953614e-18
+            }
+          },
+          {
+            "index": 75,
+            "entry_time": "2023-06-05T16:00:00+00:00",
+            "exit_time": "2023-06-06T16:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 25999.727741,
+            "exit_fill": 26321.07857805338,
+            "qty": 2.7892939863986093e-05,
+            "cost": 0.001897194668275877,
+            "net_pnl": -0.010422800677464192,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 0.0,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 100,
+            "entry_time": "2023-07-14T22:00:00+00:00",
+            "exit_time": "2023-07-20T08:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 30232.9274,
+            "exit_fill": 30211.840834,
+            "qty": 1.5518780573690994e-05,
+            "cost": 0.0012194378783445521,
+            "net_pnl": -0.0006107913042443733,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 2.168404344971009e-19,
+              "net_pnl": -1.0842021724855044e-19
+            }
+          },
+          {
+            "index": 126,
+            "entry_time": "2023-08-17T23:00:00+00:00",
+            "exit_time": "2023-08-23T17:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 26793.25961,
+            "exit_fill": 26403.928803,
+            "qty": 9.159548238895008e-06,
+            "cost": 0.0006334412115797844,
+            "net_pnl": 0.0030788320941619817,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 1.0842021724855044e-19,
+              "net_pnl": -4.336808689942018e-19
+            }
+          },
+          {
+            "index": 151,
+            "entry_time": "2023-10-15T13:00:00+00:00",
+            "exit_time": "2023-10-15T13:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 26830.088558,
+            "exit_fill": 26914.57998053464,
+            "qty": 2.517642526280823e-05,
+            "cost": 0.0017590280650416348,
+            "net_pnl": -0.0034802906155265373,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 6.776263578034403e-21,
+              "cost": 6.505213034913027e-19,
+              "net_pnl": -8.673617379884035e-19
+            }
+          },
+          {
+            "index": 176,
+            "entry_time": "2023-12-18T02:00:00+00:00",
+            "exit_time": "2023-12-18T14:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 40969.715397,
+            "exit_fill": 41544.68486979485,
+            "qty": 1.0896800717324809e-05,
+            "cost": 0.00116888532921918,
+            "net_pnl": -0.007164470739607644,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 1.6940658945086007e-21,
+              "cost": 2.168404344971009e-19,
+              "net_pnl": -8.673617379884035e-19
+            }
+          },
+          {
+            "index": 201,
+            "entry_time": "2024-01-18T20:00:00+00:00",
+            "exit_time": "2024-01-19T18:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 41010.023301,
+            "exit_fill": 41721.17802683932,
+            "qty": 8.425525943107496e-06,
+            "cost": 0.0009061695275734934,
+            "net_pnl": -0.006688906475214836,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -1.6940658945086007e-21,
+              "cost": -2.168404344971009e-19,
+              "net_pnl": 1.734723475976807e-18
+            }
+          },
+          {
+            "index": 226,
+            "entry_time": "2024-03-06T08:00:00+00:00",
+            "exit_time": "2024-03-06T09:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 66656.45706200002,
+            "exit_fill": 66961.302366,
+            "qty": 1.909819840367329e-06,
+            "cost": 0.00033174155686736546,
+            "net_pnl": -0.0008373854578030094,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 0.0,
+              "net_pnl": 0.0
+            }
+          }
+        ],
+        "same_structure": true,
+        "max_rel_diff": 2.691511406921065e-16,
+        "all_trades_checked": 227
+      }
+    },
+    {
+      "strategy": "denetim_ema20_50_short",
+      "strategy_id": "st_ea25bf457f0c75f7",
+      "direction": "short",
+      "stage": "dogrulama",
+      "oos_status": "ilk_bakis",
+      "period": [
+        "2024-03-14T14:00:00+00:00",
+        "2024-08-07T18:00:00+00:00"
+      ],
+      "fingerprint": "3ce88ad203c4525ceadcac59aa42e9a0d0dcba55a09cf315b72a96273a1d27e8",
+      "leak_check_ok": true,
+      "metrics": {
+        "commission_pct": 11.448,
+        "costs_pct": 14.8824,
+        "exposure_pct": 52.5221,
+        "funding_pct": 0.0,
+        "max_drawdown_pct": -14.5154,
+        "n_trades": 93,
+        "profit_factor": 1.1199,
+        "sharpe": 0.8447,
+        "slip_spread_pct": 3.4344,
+        "total_return_pct": 6.8301,
+        "win_rate_pct": 33.3333
+      },
+      "counters": {
+        "end_exits": 0,
+        "gap_stop_exits": 0,
+        "ignored_last_bar_entry": 0,
+        "rule_exits": 28,
+        "same_bar_stop_first": 0,
+        "skipped_entry_no_atr": 0,
+        "stop_exits": 43,
+        "tp_exits": 22
+      },
+      "independent_total_return_pct": 6.8301,
+      "total_return_equal": true,
+      "comparison": {
+        "n_prod": 93,
+        "n_independent": 93,
+        "compared": 10,
+        "rows": [
+          {
+            "index": 0,
+            "entry_time": "2024-03-14T19:00:00+00:00",
+            "exit_time": "2024-03-15T00:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 70077.460453,
+            "exit_fill": 71782.68773764822,
+            "qty": 5.939304100779502e-06,
+            "cost": 0.0010953148390927129,
+            "net_pnl": -0.010970413964358102,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -1.6940658945086007e-21,
+              "cost": -4.336808689942018e-19,
+              "net_pnl": 3.469446951953614e-18
+            }
+          },
+          {
+            "index": 10,
+            "entry_time": "2024-03-24T00:00:00+00:00",
+            "exit_time": "2024-03-24T08:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 63970.822994,
+            "exit_fill": 65223.568447104786,
+            "qty": 8.188699169592273e-06,
+            "cost": 0.0013753133129947542,
+            "net_pnl": -0.011316289657459396,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -6.776263578034403e-21,
+              "cost": -1.3010426069826053e-18,
+              "net_pnl": 8.673617379884035e-18
+            }
+          },
+          {
+            "index": 20,
+            "entry_time": "2024-04-12T17:00:00+00:00",
+            "exit_time": "2024-04-12T18:00:00+00:00",
+            "exit_reason": "hedef",
+            "entry_fill": 68819.887838,
+            "exit_fill": 65720.22468291943,
+            "qty": 9.393277230699822e-06,
+            "cost": 0.0016429070027876905,
+            "net_pnl": 0.027852222761898863,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -5.082197683525802e-21,
+              "cost": -8.673617379884035e-19,
+              "net_pnl": -1.3877787807814457e-17
+            }
+          },
+          {
+            "index": 31,
+            "entry_time": "2024-04-29T23:00:00+00:00",
+            "exit_time": "2024-04-30T02:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 63870.84299700001,
+            "exit_fill": 63625.091803,
+            "qty": 1.0996834958811522e-05,
+            "cost": 0.0018226675598685504,
+            "net_pnl": 0.001300433568433922,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -5.082197683525802e-21,
+              "cost": -1.3010426069826053e-18,
+              "net_pnl": -4.336808689942018e-19
+            }
+          },
+          {
+            "index": 41,
+            "entry_time": "2024-05-24T19:00:00+00:00",
+            "exit_time": "2024-05-25T06:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 68949.738871,
+            "exit_fill": 68738.825463,
+            "qty": 9.29825025235919e-06,
+            "cost": 0.001664341757553628,
+            "net_pnl": 0.0006808629210962821,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -3.3881317890172014e-21,
+              "cost": -6.505213034913027e-19,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 51,
+            "entry_time": "2024-06-10T23:00:00+00:00",
+            "exit_time": "2024-06-11T04:00:00+00:00",
+            "exit_reason": "hedef",
+            "entry_fill": 69475.141203,
+            "exit_fill": 67878.38540695909,
+            "qty": 1.3087580211222666e-05,
+            "cost": 0.0023369148151690233,
+            "net_pnl": 0.019100044261618064,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 0.0,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 61,
+            "entry_time": "2024-06-24T09:00:00+00:00",
+            "exit_time": "2024-06-24T09:00:00+00:00",
+            "exit_reason": "hedef",
+            "entry_fill": 62712.100724,
+            "exit_fill": 60767.11275985732,
+            "qty": 1.419333458558233e-05,
+            "cost": 0.002278358860590864,
+            "net_pnl": 0.025853283148666747,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": 0.0,
+              "cost": 0.0,
+              "net_pnl": 0.0
+            }
+          },
+          {
+            "index": 72,
+            "entry_time": "2024-07-05T17:00:00+00:00",
+            "exit_time": "2024-07-06T16:00:00+00:00",
+            "exit_reason": "stop",
+            "entry_fill": 56431.215555,
+            "exit_fill": 58079.63509829291,
+            "qty": 6.2660031155340375e-06,
+            "cost": 0.0009327820408057054,
+            "net_pnl": -0.011046527340936522,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -2.541098841762901e-21,
+              "cost": -2.168404344971009e-19,
+              "net_pnl": 5.204170427930421e-18
+            }
+          },
+          {
+            "index": 82,
+            "entry_time": "2024-07-23T09:00:00+00:00",
+            "exit_time": "2024-07-25T02:00:00+00:00",
+            "exit_reason": "hedef",
+            "entry_fill": 66867.9336,
+            "exit_fill": 64116.03307067044,
+            "qty": 1.0619435169412139e-05,
+            "cost": 0.0018082711326622338,
+            "net_pnl": 0.027832653521594617,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -1.6940658945086007e-21,
+              "cost": -2.168404344971009e-19,
+              "net_pnl": -3.469446951953614e-18
+            }
+          },
+          {
+            "index": 92,
+            "entry_time": "2024-08-06T15:00:00+00:00",
+            "exit_time": "2024-08-07T04:00:00+00:00",
+            "exit_reason": "kural",
+            "entry_fill": 56115.170397,
+            "exit_fill": 56879.068603,
+            "qty": 5.161528545684052e-06,
+            "cost": 0.0007581895480128144,
+            "net_pnl": -0.004526105386362173,
+            "diff": {
+              "entry_time_eq": true,
+              "exit_time_eq": true,
+              "reason_eq": true,
+              "entry_fill": 0.0,
+              "exit_fill": 0.0,
+              "qty": -8.470329472543003e-22,
+              "cost": 0.0,
+              "net_pnl": 8.673617379884035e-19
+            }
+          }
+        ],
+        "same_structure": true,
+        "max_rel_diff": 8.275140456004567e-16,
+        "all_trades_checked": 93
+      }
+    }
+  ],
+  "scope_note": "Yalnız geliştirme + doğrulama dönemleri; final dönemi koşulmadı. Bağımsız hesap kapsamı: EMA/ATR, atr_initial stop, R hedef, risk tabanlı boyut (takip eden stop ve ATR-katı hedef kapsam dışı).",
+  "approval_note": "Nihai strateji onayı denetim betiği tarafından otomatik verildi — kullanıcının strateji onayı DEĞİL; yalnız teknik doğrulama.",
+  "verdict": "HESAP TUTARLI"
+}

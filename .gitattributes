@@ -24,3 +24,4 @@
 evals/profile_mix/*.jsonl -text
 evals/llm30/*.jsonl -text
 evals/rag_relevance/*.jsonl -text
+evals/candidate_compare/*.jsonl -text

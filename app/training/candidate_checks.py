@@ -10,6 +10,13 @@ için hepsi gerekir:
 - temel model kökeni: ``adapter_config.base_model_name_or_path`` reçetedeki temel modelle aynı;
 - veri özeti: koşunun ``data_sha256``'sı reçeteyle aynı;
 - koşu kimliği: koşunun onay kimliği, kolay akışın başlatma kaydındakiyle aynı.
+- onay kaydı: koşunun onay kimliği onay deposunda var, İNSAN tarafından onaylanmış, eğitim
+  eylemine ait ve TÜKETİLMİŞ (koşu sahte bir kimlikle başlatılamaz).
+
+Kolay akış dışında (``start-train.ps1`` / doğrudan CLI) eğitilen aday için reçete, birbirinden
+bağımsız kayıtlardan kurulur (``recipe_from_records``): kayıt defteri girdisi (temel model),
+onay deposu (koşu kimliği), ağırlık kararının tüketim kaydı ve veri özeti — yalnız diskteki
+``lora_sft.jsonl`` bugün yeniden özetlendiğinde koşu özetiyle AYNIYSA doğrulanmış sayılır.
 
 Dönüşüm (``adapter_to_ollama.ps1``) için: birleştirme kanıtı (``merge_info.json``: adapter özeti
 eşleşiyor, KL kapısı geçti, ilk-token aynı), GGUF köken anahtarları adapter özetini taşıyor,
@@ -103,7 +110,98 @@ def verify_run_completion(adapter: str, recipe: dict[str, Any] | None = None) ->
         bool(want_apr) and st.get("approval_id") == want_apr,
         f"koşu onayı {st.get('approval_id')} · başlatma kaydı {want_apr or '(yok)'}",
     )
-    return _result(checks, adapter=adapter, adapter_sha256=w_sha, base_model=base)
+    appr = (_approval_record(str(st.get("approval_id") or "")) if mine else None) or {}
+    add(
+        "onay_kaydi",
+        bool(appr)
+        and appr.get("status") == "approved"
+        and str(appr.get("action", "")).startswith("train_run")
+        and bool(appr.get("consumed_at"))
+        and str(appr.get("decided_by") or "") not in ("", "driver"),
+        "onay deposunda "
+        + (
+            f"{appr.get('approval_id')} durum={appr.get('status')} eylem={appr.get('action')} "
+            f"karar={appr.get('decided_by')} tüketildi={appr.get('consumed_at') or 'HAYIR'}"
+            if appr
+            else "kayıt YOK"
+        ),
+    )
+    extra = {k: v for k, v in (recipe or {}).items() if k in ("source", "evidence")}
+    return _result(checks, adapter=adapter, adapter_sha256=w_sha, base_model=base, **extra)
+
+
+def _approval_record(approval_id: str) -> dict[str, Any] | None:
+    if not approval_id:
+        return None
+    try:
+        from app.agents.runtime import approvals
+
+        a = approvals.get_approval(approval_id)
+    except Exception:
+        return None
+    if a is None:
+        return None
+    return {
+        "approval_id": a.approval_id,
+        "status": getattr(a.status, "value", str(a.status)),
+        "action": a.action,
+        "agent_id": a.agent_id,
+        "decided_by": getattr(a, "decided_by", None),
+        "consumed_at": a.consumed_at,
+    }
+
+
+def recipe_from_records(adapter: str) -> dict[str, Any] | None:
+    """Kolay akış kaydı olmayan (start-train/CLI) koşu için bağımsız kayıtlardan reçete."""
+    from app.training.detached_launch import _combined_source, read_detached_training_status
+
+    s = get_settings()
+    st = read_detached_training_status(s.root)
+    if st.get("adapter") != adapter:
+        return None
+    evidence: list[str] = []
+    base = ""
+    reg = s.root / "registry" / "adapters" / "registry.jsonl"
+    if reg.is_file():
+        for line in reg.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if row.get("adapter_name") == adapter:
+                base = str(row.get("base_model") or "")
+                evidence.append(
+                    f"kayıt defteri {row.get('adapter_id')} ({row.get('status')}): temel {base}, "
+                    f"{row.get('train_examples')} örnek"
+                )
+    data_sha = ""
+    src = _combined_source(s)
+    now_sha = sha256_file(src) if src.is_file() else ""
+    if st.get("data_sha256") and now_sha == st.get("data_sha256"):
+        data_sha = now_sha
+        evidence.append(f"lora_sft.jsonl bugün yeniden özetlendi = koşu özeti ({now_sha[:12]}…)")
+    else:
+        run_sha = str(st.get("data_sha256"))[:12]
+        evidence.append(
+            f"lora_sft.jsonl şu an {now_sha[:12] or 'YOK'}… ≠ koşu {run_sha}… — eğitim verisi "
+            "bağımsız doğrulanamadı"
+        )
+    wd = s.root / "registry" / "lora" / "weight_decisions.jsonl"
+    if st.get("mix_decision_id") and wd.is_file():
+        for line in wd.read_text(encoding="utf-8").splitlines():
+            if st["mix_decision_id"] in line:
+                with_row = json.loads(line)
+                evidence.append(
+                    f"ağırlık kararı {with_row.get('decision_id')} tüketen "
+                    f"{with_row.get('consumed_by')} @ {with_row.get('consumed_at')}"
+                )
+    return {
+        "base_model": base or s.peft_base_model,
+        "data_sha256": data_sha,
+        "approval_id": str(st.get("approval_id") or ""),
+        "source": "kayıtlar (start-train.ps1 / CLI; kolay akış anlık görüntüsü yok)",
+        "evidence": evidence,
+    }
 
 
 def recipe_for_adapter(adapter: str) -> dict[str, Any] | None:
@@ -112,13 +210,17 @@ def recipe_for_adapter(adapter: str) -> dict[str, Any] | None:
 
     d = snapshots_dir()
     if not d.is_dir():
-        return None
+        return recipe_from_records(adapter)
     for p in sorted(d.glob("snap_*/launch.json")):
         launch = _read(p) or {}
         recipe = _read(p.parent / "recipe.json") or {}
         if recipe.get("adapter_name") == adapter and launch.get("ok"):
-            return {**recipe, "approval_id": launch.get("approval_id", "")}
-    return None
+            return {
+                **recipe,
+                "approval_id": launch.get("approval_id", ""),
+                "source": "kolay akış anlık görüntüsü + başlatma kaydı",
+            }
+    return recipe_from_records(adapter)
 
 
 def verify_conversion(

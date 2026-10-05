@@ -1138,6 +1138,12 @@ uv run hektor train-doctor             # koşan eğitimin sağlığı + yetkisi 
 uv run hektor kademe2-kayit --findings f.json --recipe-sha <sha> --evidence "..."  # kapanmış Kademe 2 kaydı (kolay eğitim akışı ister)
 uv run hektor candidate-verify <adapter> --ollama-tag <etiket>  # tamamlanma + dönüşüm doğrulaması (salt-okuma)
 uv run hektor compare-run --set s.jsonl --active A --candidate C --base B --adapter <ad>  # kilitli ölçütle karşılaştırma + kör paket (etkinleştirmez)
+uv run hektor candidate-prepare <adapter> --ollama-tag <YENİ-etiket>  # aday hattı: Ollama'ya hazırla (arka plan iş; mevcut etiket ezilmez)
+uv run hektor candidate-compare <adapter> --ollama-tag <etiket> [--active A --base B --set s.jsonl]  # aday hattı: karşılaştırma işi
+uv run hektor candidate-jobs           # aday hattı işleri (gerçek süreç durumuyla uzlaştırılmış)
+uv run hektor candidate-job-stop <job_id>  # koşan işi güvenle durdur (kısmi çıktı geçerli sayılmaz)
+uv run python scripts/fetch_public_ohlcv.py --symbol BTCUSDT --interval 1h --start 2023-01 --end 2024-12  # kamu arşivinden gerçek OHLCV + köken kaydı
+uv run python scripts/real_data_backtest_audit.py --csv <csv>  # gerçek veride motor ↔ bağımsız yeniden hesap denetimi (izole kök)
 uv run python -m app.training.resource_lock status   # ortak ağır iş kilidi (eğitim/dönüşüm/karşılaştırma)
 uv run hektor train-recovery-check     # nöbetçi çöken koşuyu diriltmeye YETKİLİ mi (salt-okuma, fail-closed)
 uv run hektor stop-all                 # KÜRESEL acil-durdurma (tüm tehlikeli aksiyonları blokla)

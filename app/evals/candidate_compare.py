@@ -238,7 +238,17 @@ def _digest(client: httpx.Client, tag: str) -> str:
     return str(entry.get("digest") or data.get("digest") or "").removeprefix("sha256:")
 
 
-def generate(cmp_id: str, *, transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
+def generate(
+    cmp_id: str,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    progress: Any = None,
+) -> dict[str, Any]:
+    """Cevapları üret. ``progress(i, n, rol)`` her cevaptan sonra çağrılır (iş ilerlemesi).
+
+    Yarıda kesilen üretim ``raw.json`` YAZMAZ (cevaplar bellekte birikir) → kısmi koşu geçerli
+    karşılaştırma sayılmaz; manifest ``created`` (ya da durdurulursa ``kesildi``) kalır.
+    """
     from app.training.resource_lock import hold
 
     m = _manifest(cmp_id)
@@ -250,7 +260,8 @@ def generate(cmp_id: str, *, transport: httpx.BaseTransport | None = None) -> di
     dec = crit["decoding"]
     options = {k: dec[k] for k in ("temperature", "seed", "num_ctx", "num_predict") if k in dec}
     host = get_settings().ollama_host.rstrip("/")
-    rows = []
+    rows: list[dict[str, Any]] = []
+    total = len(questions) * len(roles)
     with (
         hold("comparison", f"candidate_compare:{cmp_id}"),
         httpx.Client(base_url=host, timeout=1800, transport=transport) as client,
@@ -285,6 +296,8 @@ def generate(cmp_id: str, *, transport: httpx.BaseTransport | None = None) -> di
                         "done_reason": data.get("done_reason", ""),
                     }
                 )
+                if progress is not None:
+                    progress(len(rows), total, role)
         after = {r: _digest(client, m["models"][r]) for r in roles}
     if before != after:
         m["status"] = "invalid"
@@ -542,6 +555,14 @@ def _sync_registry(adapter_id: str, decision: str) -> None:
         reg._write_all(rows)
     elif decision in ("ret", "kritik_ret"):
         reg.reject(adapter_id, f"karşılaştırma kararı: {decision}")
+
+
+def mark_interrupted(cmp_id: str, why: str) -> None:
+    """Yarıda kesilen üretimi işaretle: geçerli karşılaştırma değildir, yeniden koşulur."""
+    m = _manifest(cmp_id)
+    if m.get("status") == "created":
+        m.update(status="kesildi", invalid_reason=f"Üretim yarıda kesildi: {why}")
+        _write(_root() / Path(cmp_id).name / "manifest.json", m)
 
 
 def result(cmp_id: str) -> dict[str, Any]:

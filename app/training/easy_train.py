@@ -239,6 +239,13 @@ def kademe2_blocker(*, recipe_sha: str = "", data_sha: str | None = None) -> str
     """
     if data_sha is None:
         _lines, data_sha = _lora_sft_lines()
+    if recipe_sha:
+        # "Reçete özeti yeterli" yolu: reçete GERÇEK, bütün bir anlık görüntüye ait olmalı ve
+        # o reçetenin veri özeti şu anki eğitim verisiyle aynı olmalı. Aksi halde reçete
+        # kapsamlı kayıt, başka veri/temel model/profil/karışımla eğitime izin verebilirdi.
+        problem = _recipe_scope_problem(recipe_sha, data_sha)
+        if problem:
+            return f"Kademe 2: {problem}"
     code = code_state_provider()
     if not code.get("ok"):
         why = code.get("note") or ", ".join(code.get("dirty") or []) or "bilinmiyor"
@@ -255,6 +262,75 @@ def kademe2_blocker(*, recipe_sha: str = "", data_sha: str | None = None) -> str
             f'{data_sha or "<sha>"} --evidence "..."`'
         )
     return None
+
+
+def _recipe_scope_problem(recipe_sha: str, data_sha: str | None) -> str:
+    try:
+        recipe = _snapshot(f"snap_{recipe_sha[:16]}")
+    except EasyTrainError as exc:
+        return f"reçete {recipe_sha[:12]}… doğrulanamadı ({exc})"
+    if recipe.get("recipe_sha") != recipe_sha:
+        return f"reçete özeti anlık görüntüyle tutmuyor ({recipe_sha[:12]}…)"
+    if data_sha is not None and recipe.get("data_sha256") != data_sha:
+        return (
+            f"reçetenin veri özeti ({str(recipe.get('data_sha256'))[:12]}…) şu anki eğitim "
+            f"verisiyle ({(data_sha or '?')[:12]}…) aynı değil — yeni anlık görüntü gerekir"
+        )
+    return ""
+
+
+def recipe_binding_problems(
+    recipe_sha: str,
+    *,
+    adapter_name: str,
+    base_model: str | None,
+    profile: str | None,
+    max_examples: int,
+    weights: dict[str, float] | None = None,
+) -> list[str]:
+    """Başlatılacak/başlamış koşu onaylanan reçeteyle AYNI mı? (boş liste = aynı)
+
+    Hem web/kolay akış başlatmasında (alt süreç doğmadan) hem ``train --run`` alt sürecinde
+    (onay/kilit öncesi) çağrılır: veri (lora_sft + train/valid bölmesi), temel model, profil,
+    örnek tavanı, adapter adı ve karışım ağırlıkları.
+    """
+
+    def norm_sha(path: Path) -> str:
+        try:
+            return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+        except OSError:
+            return ""
+
+    try:
+        r = _snapshot(f"snap_{recipe_sha[:16]}")
+    except EasyTrainError as exc:
+        return [f"onaylanan reçete doğrulanamadı: {exc}"]
+    out: list[str] = []
+    s = get_settings()
+    _lines, data_sha = _lora_sft_lines()
+    if data_sha != r["data_sha256"]:
+        out.append("lora_sft.jsonl onaylanan anlık görüntüden sonra değişti")
+    for name, key in (("train.jsonl", "train_sha256"), ("valid.jsonl", "valid_sha256")):
+        if norm_sha(s.jsonl_dir / name) != r[key]:  # satır sonu normalize (Windows CRLF)
+            out.append(f"{name} onaylanan anlık görüntüyle aynı değil")
+    want = {
+        "adapter_name": (adapter_name, r.get("adapter_name")),
+        "base_model": (base_model or s.peft_base_model, r.get("base_model") or s.peft_base_model),
+        "profile": (profile or "", r.get("profile") or ""),
+        "max_examples": (int(max_examples or 0), int(r.get("max_examples") or 0)),
+    }
+    for key, (got, exp) in want.items():
+        if got != exp:
+            out.append(f"{key} reçeteden farklı ({got!r} ≠ {exp!r})")
+    if weights is not None:
+        exp_w = {k: round(float(v), 6) for k, v in (r.get("mix_weights") or {}).items()}
+        got_w = {k: round(float(v), 6) for k, v in weights.items()}
+        if exp_w != got_w:
+            out.append(f"karışım ağırlıkları reçeteden farklı ({got_w} ≠ {exp_w})")
+    return out
+
+
+RECIPE_ENV = "HEKTOR_TRAIN_RECIPE_SHA"
 
 
 # Testlerde (git ağacı olmayan geçici kök) değiştirilebilir; üretimde her zaman gerçek kapı.
@@ -524,6 +600,7 @@ def launch(snapshot_id: str, request_id: str) -> dict[str, Any]:
         profile=recipe["profile"],
         max_examples=recipe["max_examples"],
         approval_id=decision.approval_id,
+        recipe_sha=recipe["recipe_sha"],
     )
     status = "started" if res.get("ok") else "error"
     out = {

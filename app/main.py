@@ -681,6 +681,8 @@ def _train_impl(
     # (launch skip_register=True → HEKTOR_TRAIN_SKIP_REGISTER=1); web ve nöbetçi koşuları
     # burada CANDIDATE olarak kaydedilir (Kademe-2 C3: eskiden hiç kaydedilmiyordu).
     supervised = False
+    # Onaylı reçetenin train/valid özetleri (yalnız kolay akış alt sürecinde dolar).
+    _expect: dict = {}
 
     if run:
         # Phase 2: STOP_ALL + TAZE manuel onay kapısı (CLAUDE.md Kural 8).
@@ -842,10 +844,36 @@ def _train_impl(
         # gelinirse gelinsin (start-train.ps1, doğrudan CLI, nöbetçi kurtarması, web alt süreci).
         from app.training import easy_train as _easy_train
 
-        _k2 = _easy_train.kademe2_check()
+        # Kolay akıştan doğan alt süreç onaylı reçeteyi taşır: Kademe 2 kaydı o reçeteyi (ve
+        # reçetenin gerçek veri özetini) kapsamalı, koşu da reçeteyle birebir aynı olmalı.
+        _recipe_sha = _os.environ.get(_easy_train.RECIPE_ENV, "").strip()
+        _k2 = _easy_train.kademe2_check(recipe_sha=_recipe_sha)
         if _k2:
             console.print(Panel.fit(_k2, title="⛔ Kademe 2 kaydı", border_style="red"))
             raise typer.Exit(10)
+        if _recipe_sha:
+            _binding = _easy_train.recipe_binding_problems(
+                _recipe_sha,
+                adapter_name=adapter_name,
+                base_model=base_model,
+                profile=profile,
+                max_examples=max_examples,
+                weights=weight_decision.weights,
+            )
+            if _binding:
+                console.print(
+                    Panel.fit(
+                        " | ".join(_binding),
+                        title="⛔ Onaylanan reçeteyle aynı değil",
+                        border_style="red",
+                    )
+                )
+                raise typer.Exit(11)
+            _snap = _easy_train._snapshot(f"snap_{_recipe_sha[:16]}")
+            _expect = {
+                "expect_train_sha256": _snap["train_sha256"],
+                "expect_valid_sha256": _snap["valid_sha256"],
+            }
 
         # Ortak ağır iş kilidi: onaydan ÖNCE (ucuz), sohbet kirasıyla yarışsız.
         _acquire_train_lock(adapter_name, lock_holder)
@@ -986,6 +1014,7 @@ def _train_impl(
             adapter_output_path=settings.adapters_dir / adapter_name,
             iterations=iterations,
             **prof,
+            **_expect,
         )
         if run:
             import datetime as _dt_run
@@ -1106,6 +1135,115 @@ def candidate_verify(
         raise typer.Exit(1)
 
 
+def _job_line(j: dict) -> str:
+    prog = (j.get("progress") or {}).get("label") or ""
+    err = f" · {j['error']}" if j.get("error") else ""
+    return (
+        f"{j['job_id']} · {j.get('kind_label')} · {j.get('adapter')} → "
+        f"{(j.get('params') or {}).get('ollama_tag')} · durum={j.get('status')} {prog}{err}"
+    )
+
+
+@app.command("candidate-prepare")
+def candidate_prepare(
+    adapter: str = typer.Argument(..., help="models/adapters/<ad>"),
+    ollama_tag: str = typer.Option(..., "--ollama-tag", help="YENİ aday etiketi (ezilmez)"),
+    template_from: str = typer.Option("", "--template-from", help="Şablon/parametre kaynağı"),
+    request_id: str = typer.Option("", "--request-id", help="Tekrarda aynı işi döndürür"),
+) -> None:
+    """Adayı Ollama'ya hazırla (dönüşüm) — web'deki "Ollama'ya hazırla" ile AYNI servis.
+
+    Arka planda ``scripts/adapter_to_ollama.ps1`` koşar (-Force verilmez; mevcut etiket ve
+    canlı model ezilmez). Durum: ``hektor candidate-jobs``. Model etkinleştirmez.
+    """
+    import secrets as _secrets
+
+    from app.training.candidate_jobs import JobError, start_job
+
+    try:
+        j = start_job(
+            "conversion",
+            adapter=adapter,
+            request_id=request_id or "cli-" + _secrets.token_hex(6),
+            params={"ollama_tag": ollama_tag, "template_from": template_from},
+        )
+    except JobError as exc:
+        console.print(f"[red]Başlatılmadı: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(_job_line(j))
+
+
+@app.command("candidate-compare")
+def candidate_compare_job(
+    adapter: str = typer.Argument(..., help="models/adapters/<ad>"),
+    ollama_tag: str = typer.Option(..., "--ollama-tag", help="Ollama'daki aday etiketi"),
+    active: str = typer.Option("", "--active", help="Boş = ana sohbet modeli"),
+    base: str = typer.Option("", "--base", help="Temel model referansı"),
+    question_set: str = typer.Option("", "--set", help="Donmuş soru seti (JSONL)"),
+    request_id: str = typer.Option("", "--request-id"),
+) -> None:
+    """Aday ↔ aktif ↔ temel karşılaştırmasını arka planda başlat (web ile AYNI servis).
+
+    ``hektor compare-run`` komutunu iş olarak koşar (kilitli ölçüt, ortak ağır iş kilidi).
+    Karar için kör inceleme gerekir; etkinleştirme YAPMAZ.
+    """
+    import secrets as _secrets
+
+    from app.training.candidate_jobs import JobError, start_job
+
+    try:
+        j = start_job(
+            "comparison",
+            adapter=adapter,
+            request_id=request_id or "cli-" + _secrets.token_hex(6),
+            params={
+                "ollama_tag": ollama_tag,
+                "active": active,
+                "base": base,
+                "question_set": question_set,
+            },
+        )
+    except JobError as exc:
+        console.print(f"[red]Başlatılmadı: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(_job_line(j))
+
+
+@app.command("candidate-jobs")
+def candidate_jobs_cmd(
+    adapter: str = typer.Option("", "--adapter"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Aday hattı işleri (gerçek süreç durumuyla uzlaştırılmış; salt-okuma)."""
+    import json as _json
+
+    from app.training.candidate_jobs import list_jobs
+
+    jobs = list_jobs(adapter=adapter)
+    if as_json:
+        console.print_json(_json.dumps(jobs, ensure_ascii=False, default=str))
+        return
+    for j in jobs or []:
+        console.print(_job_line(j))
+    if not jobs:
+        console.print("[dim]İş yok.[/dim]")
+
+
+@app.command("candidate-job-stop")
+def candidate_job_stop(
+    job_id: str = typer.Argument(...),
+    reason: str = typer.Option("", "--reason"),
+) -> None:
+    """Koşan işi güvenle durdur (süreç ağacı); kısmi çıktı geçerli aday sayılmaz."""
+    from app.training.candidate_jobs import JobError, stop_job
+
+    try:
+        console.print(_job_line(stop_job(job_id, reason)))
+    except JobError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+
 @app.command("compare-run")
 def compare_run(
     question_set: Path = typer.Option(..., "--set", help="Donmuş soru seti (JSONL)"),
@@ -1147,7 +1285,12 @@ def compare_run(
             criteria_sha=lock["criteria_sha"],
             candidate_meta=meta,
         )
-        generate(m["comparison_id"])
+        # Makine-okunur satırlar (iş günlüğü bunları okur: aday hattı web akışı).
+        print(f"KARŞILAŞTIRMA {m['comparison_id']}", flush=True)
+        generate(
+            m["comparison_id"],
+            progress=lambda i, n, role: print(f"İLERLEME {i}/{n} {role}", flush=True),
+        )
     except (CompareError, HeavyJobBusy) as exc:
         console.print(f"[red]Karşılaştırma yapılmadı: {exc}[/red]")
         raise typer.Exit(1) from exc
