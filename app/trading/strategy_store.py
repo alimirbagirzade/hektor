@@ -7,6 +7,11 @@ Yalnız YENİ tablolar kurar (mevcut ``strategies``/``backtests`` tablolarına d
 - ``period_protocols``    : temiz veri özeti başına SABİT dönem sınırları (geliştirme /
                             doğrulama / final). İlk kullanımda belirlenir, sonra değişmez.
 - ``period_access``       : doğrulama ve final dönemine her bakış (aile, strateji, koşu, zaman).
+- ``strategy_translations``: orijinal sohbet önerisi (metin + özet + deterministik okuma) ve
+                            modelin çıkardığı taslak — kullanıcının onayladığı NİHAİ stratejiden
+                            AYRI kayıt (sessiz düzeltme görünür olsun).
+- ``strategy_approvals``  : nihai stratejinin, orijinal → nihai ve taslak → nihai farklarının
+                            tamamı görülerek verilen insan onayı. Test bu onay olmadan koşmaz.
 """
 
 from __future__ import annotations
@@ -82,6 +87,36 @@ class PeriodAccess(StratBase):
     strategy_id: Mapped[str] = mapped_column(String(40))
     run_id: Mapped[str] = mapped_column(String(40), default="")
     at: Mapped[str] = mapped_column(String(40), default=utcnow)
+
+
+class StrategyTranslation(StratBase):
+    __tablename__ = "strategy_translations"
+
+    translation_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    turn_id: Mapped[str] = mapped_column(String(40), index=True, default="")
+    original_text: Mapped[str] = mapped_column(Text, default="")
+    original_sha: Mapped[str] = mapped_column(String(64), default="")
+    proposal_json: Mapped[str] = mapped_column(Text, default="{}")
+    model_draft_json: Mapped[str] = mapped_column(Text, default="{}")
+    draft_json: Mapped[str] = mapped_column(Text, default="{}")
+    pending_json: Mapped[str] = mapped_column(Text, default="[]")
+    raw_model_output: Mapped[str] = mapped_column(Text, default="")
+    source_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+
+
+class StrategyApproval(StratBase):
+    __tablename__ = "strategy_approvals"
+
+    approval_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    strategy_id: Mapped[str] = mapped_column(String(40), index=True)
+    translation_id: Mapped[str] = mapped_column(String(40), default="")
+    review_sha: Mapped[str] = mapped_column(String(64))
+    review_json: Mapped[str] = mapped_column(Text, default="{}")
+    acknowledged_json: Mapped[str] = mapped_column(Text, default="[]")
+    n_changes: Mapped[int] = mapped_column(Integer, default=0)
+    note: Mapped[str] = mapped_column(Text, default="")
+    approved_at: Mapped[str] = mapped_column(String(40), default=utcnow)
 
 
 STRAT_TABLES = tuple(StratBase.metadata.sorted_tables)
@@ -178,6 +213,74 @@ class StrategyStore:
                     d["source"] = src
                     out.append(d)
             return out
+
+    # ── çeviri (orijinal öneri + taslak) ve nihai onay ───────────────────────
+
+    def save_translation(self, **fields: Any) -> dict[str, Any]:
+        json_fields = {
+            "proposal_json": "proposal",
+            "model_draft_json": "model_draft",
+            "draft_json": "draft",
+            "pending_json": "pending",
+            "source_json": "source",
+        }
+        row = {k: v for k, v in fields.items() if k not in json_fields.values()}
+        for col, key in json_fields.items():
+            row[col] = dumps(fields.get(key, [] if key == "pending" else {}))
+        row["translation_id"] = row.get("translation_id") or new_id("tr_")
+        with self.session() as s:
+            s.add(StrategyTranslation(**row))
+        got = self.get_translation(row["translation_id"])
+        assert got is not None
+        return got
+
+    def get_translation(self, translation_id: str) -> dict[str, Any] | None:
+        if not translation_id:
+            return None
+        with self.session() as s:
+            r = s.get(StrategyTranslation, translation_id)
+            if r is None:
+                return None
+            d = _row(r)
+            for col, key in (
+                ("proposal_json", "proposal"),
+                ("model_draft_json", "model_draft"),
+                ("draft_json", "draft"),
+                ("pending_json", "pending"),
+                ("source_json", "source"),
+            ):
+                d[key] = loads(d.pop(col), [] if key == "pending" else {})
+            return d
+
+    def save_approval(self, **fields: Any) -> dict[str, Any]:
+        row = dict(fields)
+        row["review_json"] = dumps(row.pop("review", {}))
+        row["acknowledged_json"] = dumps(row.pop("acknowledged", []))
+        row["approval_id"] = row.get("approval_id") or new_id("sap_")
+        row["approved_at"] = row.get("approved_at") or utcnow()
+        with self.session() as s:
+            s.add(StrategyApproval(**row))
+        got = self.latest_approval(row["strategy_id"])
+        assert got is not None
+        return got
+
+    def latest_approval(self, strategy_id: str) -> dict[str, Any] | None:
+        with self.session() as s:
+            r = (
+                s.execute(
+                    select(StrategyApproval)
+                    .where(StrategyApproval.strategy_id == strategy_id)
+                    .order_by(StrategyApproval.approved_at.desc())
+                )
+                .scalars()
+                .first()
+            )
+            if r is None:
+                return None
+            d = _row(r)
+            d["review"] = loads(d.pop("review_json"), {})
+            d["acknowledged"] = loads(d.pop("acknowledged_json"), [])
+            return d
 
     # ── dönem protokolü ──────────────────────────────────────────────────────
 

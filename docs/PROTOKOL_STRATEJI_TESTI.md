@@ -15,6 +15,16 @@ trader olduğu anlamına gelmez._
 2. **Okunur form** — piyasa, zaman dilimi, yön, giriş/çıkış kuralları, stop, hedef, pozisyon
    büyüklüğü, maliyetler, desteklenmeyen kurallar. Kullanıcı düzeltir ve **kaydeder**.
    Kayıt değişmezdir (içerik özetinden kimlik); düzenleme = aynı ailede yeni varyant.
+2b. **Orijinal öneri → taslak → nihai farkları + onay** (`app/trading/strategy_translation.py`).
+   Üç AYRI kayıt: orijinal sohbet önerisi (metin + özet + deterministik regex okuması),
+   modelin taslağı ve uzlaştırılmış taslak (`strategy_translations`), kullanıcının onayı
+   (`strategy_approvals`). Model ile metnin okuması çelişirse ya da model metinde olmayan
+   değer verirse (ör. long için "fiyat + 2 ATR" stop'unu girişin altına çevirmek; metinde
+   olmayan pozisyon büyüklüğü) alan taslakta **boş** kalır ve "karar gerekli" listelenir.
+   Fark listesi giriş/çıkış/yön/stop/hedef/risk/pozisyon büyüklüğü/seans + diğer alanlarda
+   eklendi/değişti/çıkarıldı türünde; çelişki ayrıca işaretlenir ve gerekçe ister. **Her fark
+   işaretlenmeden test başlamaz** (`run_stage` onayı + liste özetini denetler). Sonuçta
+   `tested_strategy` (strateji, onay, çeviri, orijinalden fark sayısı) kaydedilir.
 3. **Basitleştirilmiş strateji** (yalnız açık seçimle) — çıkarılan kurallar listelenir, ayrı
    kimlik + `simplified_from`; asıl strateji test edilmiş **sayılmaz**.
 4. **Veri** — `data/market/raw/*.csv` (yükleme düğmesi) + saat dilimi → denetim raporu.
@@ -78,6 +88,11 @@ verisinin bitişi DEĞİL).
   geliştirme sonucu "örneklem dışı", maliyetli hesap "maliyetsiz" diye sunulmamalı.
   Sonuç **"kayıtlı hesapla eşleşti"** ya da **"eşleşmedi" (çürütür)**; diğer ifadeler yine insan
   incelemesi bekler.
+- Aday, test edilen **onaylı nihai** stratejiye bağlanır (`time_meta.tested_strategy_id`,
+  `strategy_approval_id`, `translation_id`, `is_original_proposal`). Nihai strateji orijinal
+  sohbet önerisinden farklıysa iddia metni test edilen stratejiyi kimliğiyle (`st_…`) anmadıkça
+  "eşleşmedi" olur — orijinal önerinin başarılı olduğu gibi yanlış kayıt oluşmaz. Onaysız
+  (eski) koşular da eşleşmez.
 
 ## Doğrulama durumu (2026-10-05)
 

@@ -10,8 +10,11 @@ Kullanıcı formu okur/düzeltir; test YALNIZ onun başlatmasıyla koşar.
   zaman varsayılanla doldurulmaz.
 - Kural dili desteklemeyen kural sessizce düşmez: ``unsupported_rules``'a ÖNEMLİ olarak yazılır
   → asıl strateji testi engellenir.
-- Deterministik çapraz kontrol: cevapta stop / hedef / kısa yön geçiyor ama taslakta yoksa
-  "çıkarılamadı" diye önemli desteklenmeyen kural eklenir.
+- Deterministik çapraz kontrol: cevapta stop / hedef / kısa yön / seans-saat kuralı geçiyor ama
+  taslakta yoksa "çıkarılamadı" diye önemli desteklenmeyen kural eklenir.
+- Metnin deterministik okumasıyla (``strategy_translation``) ÇELİŞEN ya da metinde dayanağı
+  olmayan model değeri (ör. long için "fiyat + 2 ATR" stop'u girişin altına çevirmek) taslakta
+  boşaltılır ve "karar gerekli" listelenir; orijinal → taslak farkları ayrıca döner.
 """
 
 from __future__ import annotations
@@ -131,6 +134,21 @@ def normalize_draft(data: dict[str, Any], *, answer: str) -> tuple[dict[str, Any
                 "important": True,
             }
         )
+    from app.trading.strategy_translation import _SESSION_RE
+
+    have = " ".join(u["text"] for u in unsupported)
+    for m in _SESSION_RE.finditer(answer or ""):
+        if not _SESSION_RE.search(have):
+            unsupported.append(
+                {
+                    "text": f"Seans/saat kuralı: '{m.group(0)}'",
+                    "why": "motor seans/saat filtresini desteklemiyor — sessizce düşürülmedi",
+                    "important": True,
+                }
+            )
+            have += " " + m.group(0)
+            notes.append(f"Cevaptaki seans/saat kuralı ('{m.group(0)}') desteklenmeyen kural.")
+        break
     direction = data.get("direction")
     if _SHORT_RE.search(answer) and direction != "short":
         notes.append("Cevapta kısa (short) yön geçiyor; taslak yönü kontrol edin.")
@@ -199,12 +217,27 @@ def extract_draft(question: str, answer: str, *, llm: Any) -> dict[str, Any]:
         seed=42,
         max_tokens=1500,
     )
-    draft, notes = normalize_draft(_parse_json(raw), answer=answer)
+    from app.trading.strategy_translation import (
+        compare_to_proposal,
+        extract_proposal,
+        reconcile_draft,
+    )
+
+    model_draft, notes = normalize_draft(_parse_json(raw), answer=answer)
+    proposal = extract_proposal(answer)
+    # Model ↔ metin çelişkisi ya da metinde dayanağı olmayan değer TAHMİNLE bırakılmaz.
+    draft, pending = reconcile_draft(model_draft, proposal)
+    for p in pending:
+        notes.append(f"KARAR GEREKLİ ({p['field']}): {p['why']}")
     spec, problems = validate_draft(draft)
     return {
         "draft": draft,
+        "model_draft": model_draft,
+        "proposal": proposal,
+        "pending": pending,
+        "original_vs_draft": compare_to_proposal(proposal, draft),
         "notes": notes,
         "problems": problems,
-        "valid": spec is not None,
+        "valid": spec is not None and not pending,
         "raw_model_output": raw[:6000],
     }

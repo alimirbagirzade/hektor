@@ -1,7 +1,9 @@
 """Sohbetten strateji testi web uçları (Faz 2B).
 
-Akış: ``POST /draft`` (yerel model taslak, kayıt yok) → kullanıcı okunur formu düzeltir →
-``POST /`` (kaydet; varyant ise ``parent_id``) → ``POST /data-check`` → ``POST /{id}/run``.
+Akış: ``POST /draft`` (yerel model taslak; strateji kaydı yok, orijinal öneri + taslak ayrı
+çeviri kaydı) → kullanıcı okunur formu düzeltir → ``POST /`` (kaydet; varyant ise ``parent_id``)
+→ ``GET /{id}/review`` (orijinal → nihai, taslak → nihai farkları) → ``POST /{id}/approve``
+(her fark işaretli) → ``POST /data-check`` → ``POST /{id}/run``.
 
 Yetki: taslak (model çağrısı), kaydetme, basitleştirme, veri yükleme ve test koşturma
 ``require_human``; okuma uçları ``require_auth``. Hiçbir uç şablon stratejiyle ikame yapmaz.
@@ -35,6 +37,12 @@ class SaveRequest(BaseModel):
 class SimplifyRequest(BaseModel):
     remove_rules: list[str] = Field(default_factory=list)
     drop_unsupported: list[str] = Field(default_factory=list)
+
+
+class ApproveRequest(BaseModel):
+    review_sha: str = Field(..., min_length=64, max_length=64)
+    acknowledged: list[str] = Field(default_factory=list, max_length=500)
+    note: str = Field(default="", max_length=1000)
 
 
 class DataCheckRequest(BaseModel):
@@ -158,6 +166,28 @@ def strategy_get(strategy_id: str) -> dict[str, Any]:
         "runs": store.list_runs(strategy_id=strategy_id),
         "family": store.family_strategies(rec["family_id"]),
     }
+
+
+@strategy_router.get("/{strategy_id}/review")
+def strategy_review(strategy_id: str) -> dict[str, Any]:
+    """Orijinal öneri → nihai ve taslak → nihai farkları + onay durumu (salt-okuma)."""
+    from app.trading.chat_strategy import review
+
+    return _call(review, strategy_id)
+
+
+@strategy_router.post("/{strategy_id}/approve", dependencies=[_human])
+def strategy_approve(strategy_id: str, req: ApproveRequest) -> dict[str, Any]:
+    """(İnsan) Nihai stratejiyi, her farkı işaretleyerek onayla. Test bundan sonra koşar."""
+    from app.trading.chat_strategy import approve
+
+    return _call(
+        approve,
+        strategy_id,
+        review_sha=req.review_sha,
+        acknowledged=req.acknowledged,
+        note=req.note,
+    )
 
 
 @strategy_router.post("/{strategy_id}/simplify", dependencies=[_human])

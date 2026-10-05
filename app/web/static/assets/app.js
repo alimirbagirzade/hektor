@@ -6105,7 +6105,7 @@
   }
 
   // --- strateji testi (sohbetten gerçek veride test) ---
-  var stState = { turn: null, draft: null, saved: null, source: {}, wired: false };
+  var stState = { turn: null, draft: null, saved: null, source: {}, wired: false, review: null };
   var COST_KEYS = ["commission_bps_per_side", "slippage_bps_per_side", "spread_bps", "funding_bps_per_day"];
 
   function stForm() {
@@ -6126,15 +6126,17 @@
     f.indicators.value = (d.indicators || []).map(function (i) { return i.name + ":" + i.period; }).join(", ");
     f.entry_rules.value = (d.entry_rules || []).join("\n");
     f.exit_rules.value = (d.exit_rules || []).join("\n");
+    var fresh = !d.entry_rules && !d.stop && !d.sizing;
     var st = d.stop || {};
-    f.stop_type.value = st.type || "none";
+    // Taslakta boş bırakılan (çelişkili / metinde dayanaksız) alan "karar gerekli" görünür.
+    f.stop_type.value = fresh ? "none" : (st.type == null ? "" : st.type);
     f.stop_value.value = st.value == null ? "" : st.value;
     f.stop_atr.value = st.atr_period || 14;
     var tp = d.take_profit || {};
-    f.tp_type.value = tp.type || "none";
+    f.tp_type.value = fresh ? "none" : (tp.type == null ? "none" : tp.type);
     f.tp_value.value = tp.value == null ? "" : tp.value;
     var sz = d.sizing || {};
-    f.size_type.value = sz.type || "fixed_fraction";
+    f.size_type.value = sz.type || "";
     f.fraction.value = sz.fraction == null ? "" : sz.fraction;
     f.risk_pct.value = sz.risk_pct == null ? "" : sz.risk_pct;
     f.max_leverage.value = sz.max_leverage || 1;
@@ -6185,10 +6187,73 @@
       unsupported_rules: stState.unsupported || [],
     };
   }
+  function diffRows(items, withBox) {
+    if (!items || !items.length) return '<div class="muted">Fark yok.</div>';
+    return '<table class="lp-table"><thead><tr>' + (withBox ? "<th>Gördüm</th>" : "") +
+      "<th>Alan</th><th>Değişiklik</th><th>Orijinal</th><th>Şimdi</th><th>Not</th></tr></thead><tbody>" +
+      items.map(function (i) {
+        return "<tr>" + (withBox ? '<td><input type="checkbox" data-ack="' + esc(i.key) + '"/></td>' : "") +
+          "<td>" + esc(i.category_label) + (i.stage ? '<div class="muted small">' + esc(i.stage) + "</div>" : "") + "</td>" +
+          "<td>" + (i.conflict ? '<span class="badge badge-danger">ÇELİŞKİ</span> ' : "") + esc(i.kind_label) + "</td>" +
+          "<td>" + esc(i.original) + "</td><td>" + esc(i.now) + '</td><td class="small">' + esc(i.note || "") + "</td></tr>";
+      }).join("") + "</tbody></table>";
+  }
+  function setRunGate(approved, why) {
+    document.querySelectorAll("#strategyDlg button[data-stage]").forEach(function (b) { b.disabled = !approved; });
+    var g = document.getElementById("stRunGate");
+    if (g) g.textContent = approved ? "Onaylı nihai strateji test edilecek." : (why || "Önce nihai stratejiyi onaylayın.");
+  }
+  function renderReview(rv) {
+    stState.review = rv;
+    var box = document.getElementById("stReview");
+    if (!rv) { box.innerHTML = ""; setRunGate(false); return; }
+    var appr = rv.approval || {};
+    var head = rv.approved
+      ? '<div><span class="badge badge-success">ONAYLANDI</span> ' + esc(appr.approval_id || "") + " · " + esc(appr.approved_at || "") +
+        " · " + esc(String(rv.n_changes)) + " fark görüldü</div>"
+      : '<div><span class="badge badge-warning">ONAY BEKLİYOR</span> ' + esc(String(rv.n_changes)) + " fark" +
+        (rv.approval ? " — önceki onay geçersiz (fark listesi değişti)" : "") + "</div>";
+    var orig = rv.original_text
+      ? '<details><summary>Orijinal sohbet önerisi (aynen)</summary><div class="lp-target">' + nl2br(rv.original_text) + "</div></details>"
+      : '<div class="muted">' + esc(rv.note || "") + "</div>";
+    var conf = (rv.conflicts || []).length
+      ? '<div class="chat-blocked"><strong>Orijinal öneride çelişki var</strong> — orijinal haliyle test EDİLEMEZ; seçtiğiniz nihai değer bir yorumdur ve gerekçe ister.</div>'
+      : "";
+    var form = rv.approved ? "" :
+      "<div><label>Not / gerekçe" + ((rv.conflicts || []).length ? " (çelişki için zorunlu, ≥10 karakter)" : " (isteğe bağlı)") +
+      ' <textarea id="stApproveNote" rows="2"></textarea></label>' +
+      '<button type="button" class="btn btn-sm btn-primary" id="stApproveBtn" disabled>Nihai stratejiyi onayla (' + esc(String(rv.n_changes)) + " fark)</button></div>";
+    box.innerHTML = '<div class="lp-card">' + head + orig + conf +
+      "<div><strong>Orijinal öneri → nihai</strong></div>" + diffRows(rv.original_vs_final, !rv.approved) +
+      "<div><strong>Taslak → nihai (sizin düzenlemeleriniz)</strong></div>" + diffRows(rv.draft_vs_final, !rv.approved) +
+      '<div class="muted small">' + esc(rv.note || "") + "</div>" + form + "</div>";
+    var btn = document.getElementById("stApproveBtn");
+    if (btn) {
+      var boxes = box.querySelectorAll("input[data-ack]");
+      var sync = function () { btn.disabled = [].some.call(boxes, function (x) { return !x.checked; }); };
+      [].forEach.call(boxes, function (x) { x.addEventListener("change", sync); });
+      sync();
+      btn.addEventListener("click", function () {
+        btn.disabled = true;
+        postJson("/strategy/" + encodeURIComponent(rv.strategy_id) + "/approve", {
+          review_sha: rv.review_sha,
+          acknowledged: [].map.call(boxes, function (x) { return x.getAttribute("data-ack"); }),
+          note: (document.getElementById("stApproveNote") || {}).value || "",
+        })
+          .then(function () { toast("Nihai strateji onaylandı."); return loadReview(rv.strategy_id); })
+          .catch(function (e) { toast(e.message, true); sync(); });
+      });
+    }
+    setRunGate(!!rv.approved, rv.approved ? "" : "Önce farkları görüp nihai stratejiyi onaylayın.");
+  }
+  function loadReview(sid) {
+    return api("/strategy/" + encodeURIComponent(sid) + "/review", { method: "GET" }).then(renderReview);
+  }
   function renderSaved(rec) {
     stState.saved = rec;
     var box = document.getElementById("stSaved");
-    if (!rec) { box.innerHTML = ""; return; }
+    if (!rec) { box.innerHTML = ""; renderReview(null); return; }
+    loadReview(rec.strategy_id).catch(function (e) { toast(e.message, true); });
     var r = rec.readable || {};
     var simp = "";
     if (!rec.testable) {
@@ -6282,8 +6347,18 @@
       postJson("/strategy/draft", { turn_id: stState.turn.turn_id })
         .then(function (r) {
           stState.source = r.source || {};
+          stState.saved = null;
+          renderReview(null);
           fillStrategyForm(r.draft);
-          document.getElementById("stNotes").innerHTML =
+          var pend = (r.pending || []).length
+            ? '<div class="chat-blocked"><strong>Karar gerekli (' + r.pending.length + ")</strong> — bu alanlar taslakta BOŞ bırakıldı, tahminle doldurulmadı:<ul>" +
+              r.pending.map(function (p) {
+                return "<li><strong>" + esc(p.field) + ":</strong> " + esc(p.why) +
+                  (p.original_text ? '<div class="muted">Metin: “' + esc(p.original_text) + "”</div>" : "") + "</li>";
+              }).join("") + "</ul></div>"
+            : "";
+          document.getElementById("stNotes").innerHTML = pend +
+            "<div><strong>Orijinal öneri → çıkarılan taslak</strong></div>" + diffRows(r.original_vs_draft, false) +
             (r.notes || []).map(function (n) { return '<div class="muted">• ' + esc(n) + "</div>"; }).join("") +
             ((r.problems || []).length ? '<div class="chat-blocked">Formda tamamlanması gerekenler: ' + esc(r.problems.join(" · ")) + "</div>"
               : '<div class="muted">Taslak geçerli görünüyor — yine de okuyup kontrol edin.</div>');
@@ -6349,6 +6424,7 @@
       var b = ev.target.closest("button[data-stage]");
       if (!b) return;
       if (!stState.saved) { toast("Önce formu kaydedin.", true); return; }
+      if (!stState.review || !stState.review.approved) { toast("Önce nihai stratejiyi onaylayın.", true); return; }
       b.disabled = true;
       document.getElementById("stResult").innerHTML = '<span class="spinner"></span> test koşuyor…';
       postJson("/strategy/" + encodeURIComponent(stState.saved.strategy_id) + "/run", {

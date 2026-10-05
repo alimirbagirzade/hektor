@@ -249,6 +249,16 @@ class LearningService:
             "knowledge_available_at": knowledge,
             "basis": "max(tur zamanı, koşu zamanı)",
         }
+        # Aday, GERÇEKTEN test edilen ONAYLI NİHAİ stratejiye bağlanır; orijinal sohbet önerisi
+        # nihaiden farklıysa sonuç orijinale ait değildir (claim_check bunu denetler).
+        ts = dict((run.get("result") or {}).get("tested_strategy") or {})
+        meta.update(
+            tested_strategy_id=run["strategy_id"],
+            strategy_approval_id=ts.get("approval_id", ""),
+            translation_id=ts.get("translation_id", ""),
+            n_changes_from_original=ts.get("n_changes_from_original"),
+            is_original_proposal=bool(ts.get("is_original_proposal")),
+        )
         self.store.update_candidate(
             candidate_id,
             time_meta=meta,

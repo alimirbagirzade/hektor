@@ -13,6 +13,9 @@ Yalnız sayı eşleşmesi YETMEZ; hepsi gerekir:
    profit factor) kayıtlı değere yazıldığı hassasiyette eşit olmalı; en az bir metrik olmalı.
 5. Geliştirme dönemi sonucu "örneklem dışı/OOS" diye sunulamaz; maliyetli hesap "maliyetsiz"
    diye sunulamaz.
+6. Koşu ONAYLI NİHAİ stratejiyle yapılmış olmalı. Nihai strateji orijinal sohbet önerisinden
+   farklıysa metin, sonucu test edilen stratejiye (kimliğiyle) açıkça bağlamalı — aksi halde
+   orijinal önerinin "başarılı" olduğu gibi yanlış bir kayıt oluşurdu.
 """
 
 from __future__ import annotations
@@ -109,6 +112,18 @@ def check_claim(text: str, run: dict[str, Any], strategy: dict[str, Any]) -> dic
     )
     if any_cost and _COSTLESS_RE.search(text or ""):
         problems.append("maliyetli hesap 'maliyetsiz' diye sunulmuş")
+    ts = (run.get("result") or {}).get("tested_strategy") or {}
+    sid = str(strategy.get("strategy_id") or run.get("strategy_id") or "")
+    if not ts.get("approval_id"):
+        problems.append(
+            "koşu onaylı nihai stratejiye bağlı değil (onaysız/eski koşu) — yeniden koşun"
+        )
+    elif ts.get("translation_id") and ts.get("n_changes_from_original") and sid not in (text or ""):
+        problems.append(
+            f"test edilen nihai strateji orijinal öneriden {ts['n_changes_from_original']} noktada "
+            f"farklı; metin sonucu test edilen stratejiye ({sid}) açıkça bağlamalı — orijinal "
+            "öneri test EDİLMEDİ"
+        )
     metrics = (run.get("result") or {}).get("metrics") or {}
     claims = extract_metric_claims(text)
     items = []
