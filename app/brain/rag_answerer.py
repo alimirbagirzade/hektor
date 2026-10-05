@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.brain.answer_quality import (
+    CitationCheck,
     assess_confidence,
     citation_warning,
     is_weak_retrieval,
@@ -51,6 +52,29 @@ class RagAnswer:
     answer: str
     sources: list[RetrievedChunk]
     llm_used: bool
+    # Sohbet kaydı için: modele GERÇEKTEN gönderilen istem + uyarısız ham model metni +
+    # atıf kimliği denetimi. LLM çağrılmadıysa boş/None kalır.
+    system_prompt: str = ""
+    user_prompt: str = ""
+    raw_answer: str = ""
+    citation_check: CitationCheck | None = None
+
+
+#: Önceki konuşma bloğunun başlığı — model bu bölümü kaynak sanmasın diye açıkça işaretlenir.
+HISTORY_HEADER = (
+    "ÖNCEKİ KONUŞMA / PREVIOUS CONVERSATION (yalnız bağlamdır; doğrulanmış kaynak DEĞİLDİR — "
+    "buradan atıf verme, iddiaları yalnız KAYNAKLAR'a dayandır):"
+)
+
+
+def format_history(history: list[tuple[int, str, str]]) -> str:
+    """(tur_no, soru, cevap) listesini istem bloğuna çevir (boş liste → boş metin)."""
+    if not history:
+        return ""
+    parts = [HISTORY_HEADER]
+    for idx, q, a in history:
+        parts.append(f"[Tur {idx}] SORU: {q}\n[Tur {idx}] CEVAP: {a}")
+    return "\n\n".join(parts)
 
 
 def _format_context(chunks: list[RetrievedChunk]) -> str:
@@ -64,13 +88,20 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
 
 
 def build_rag_prompt(
-    question: str, chunks: list[RetrievedChunk], *, reorder: bool = True
+    question: str,
+    chunks: list[RetrievedChunk],
+    *,
+    reorder: bool = True,
+    history: list[tuple[int, str, str]] | None = None,
 ) -> tuple[str, str]:
     """Canlı RAG'ın (sistem, kullanıcı) istemi — TEK kaynak.
 
     `RagAnswerer.answer` ve öz-damıtma verisi (`app.training.self_distill`) aynı fonksiyonu
     kullanır; eğitim örneği canlı istemle bayt-aynı olsun (v13 dersi: eğitimdeki
     `BAĞLAM:/SORU:` biçimi canlı `SOURCES / KAYNAKLAR` biçiminden farklıydı).
+
+    ``history`` (sohbet): (tur_no, soru, cevap) listesi KAYNAKLAR'dan ÖNCE, "doğrulanmış kaynak
+    değildir" başlığıyla eklenir. ``None``/boş → istem geçmişsiz sürümle BAYT-AYNI kalır.
     """
     # "Lost in the middle": en alakalı chunk'lar bağlamın başına/sonuna (ekleme/çıkarma yok).
     context_chunks = reorder_lost_in_middle(chunks) if reorder else chunks
@@ -80,7 +111,11 @@ def build_rag_prompt(
     except FileNotFoundError:
         system = _FALLBACK_SYSTEM
     # Format sistem prompt'undan gelir; kullanıcı prompt'u yalnız bağlam + soru.
-    return system, f"SOURCES / KAYNAKLAR:\n{context}\n\nQUESTION / SORU: {question}"
+    user = f"SOURCES / KAYNAKLAR:\n{context}\n\nQUESTION / SORU: {question}"
+    hist = format_history(history or [])
+    if hist:
+        user = f"{hist}\n\n{user}"
+    return system, user
 
 
 class RagAnswerer:
@@ -95,8 +130,17 @@ class RagAnswerer:
         self.llm = llm or LocalLLM()
         self.settings = get_settings()
 
-    def answer(self, question: str, top_k: int | None = None) -> RagAnswer:
-        chunks = self.retriever.retrieve(question, top_k=top_k)
+    def answer(
+        self,
+        question: str,
+        top_k: int | None = None,
+        *,
+        history: list[tuple[int, str, str]] | None = None,
+        retrieval_query: str | None = None,
+    ) -> RagAnswer:
+        """Soruyu yanıtla. ``history``/``retrieval_query`` yalnız sohbet yolunda verilir;
+        verilmezse davranış ve istem öncekiyle aynıdır."""
+        chunks = self.retriever.retrieve(retrieval_query or question, top_k=top_k)
 
         if not chunks:
             return RagAnswer(
@@ -141,18 +185,29 @@ class RagAnswerer:
         # "Lost in the middle" (opt, varsayılan açık) — kaynak listesi sıralı kalır; yalnız
         # LLM'e giden bağlam yeniden dizilir.
         system, prompt = build_rag_prompt(
-            question, chunks, reorder=self.settings.rag_reorder_context
+            question, chunks, reorder=self.settings.rag_reorder_context, history=history
         )
 
         try:
             text = self.llm.generate(prompt, system=system, temperature=0.2, seed=42)
+            raw = text
             # Citation-id doğrulama (opt, varsayılan açık): UYDURMA atıfları yakala —
             # citation-forcing prompt yine de getirilmeyen kaynağa atıf verebilir
             # (correctness≠faithfulness). Deterministik son-kontrol, LLM'siz (Kural 7).
+            check: CitationCheck | None = None
             if self.settings.rag_verify_citations:
                 check = verify_citations(text, chunks)
                 text += citation_warning(check)
-            return RagAnswer(question=question, answer=text, sources=chunks, llm_used=True)
+            return RagAnswer(
+                question=question,
+                answer=text,
+                sources=chunks,
+                llm_used=True,
+                system_prompt=system,
+                user_prompt=prompt,
+                raw_answer=raw,
+                citation_check=check,
+            )
         except LLMUnavailable:
             # Graceful degradation: still return retrieved sources.
             cites = "\n".join(f"- {c.citation} {c.title or ''}".strip() for c in chunks)

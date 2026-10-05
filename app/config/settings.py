@@ -238,6 +238,27 @@ class Settings(BaseSettings):
     rag_query_translate: str = "off"
     rag_translate_model: str = "qwen3:30b-a3b-instruct-2507-q4_K_M"
 
+    # --- Sohbet + sohbetten öğrenme (Faz 1; docs/PROTOKOL_SOHBETTEN_OGRENME.md) ---
+    # Sohbet ekranının modeli. Boş → `llm_model` (mevcut davranış). Arka plan işleri, öz-damıtma
+    # öğretmeni ve çevirmen bu ayarı OKUMAZ; sohbet modeli değişince onlar değişmez.
+    chat_model: str = ""
+    # Modele aktarılan önceki tur sayısı ve karakter bütçesi (geçmişin TAMAMI ayrıca saklanır).
+    chat_history_turns: int = 2
+    chat_history_char_budget: int = 6000
+    # Eğitim sürerken sohbet modelini yüklemek için boş RAM'de bırakılacak güvenlik payı (GB).
+    chat_ram_margin_gb: float = 4.0
+    # Cevap üretimi sırasında tutulan sohbet kirasının (eğitim başlatmayı bekletir) bayatlama
+    # süresi; LocalLLM üretim zaman aşımından (600 sn) uzun olmalı.
+    chat_lease_ttl_s: int = 900
+    # Eğitim hazırlığı için BAŞLANGIÇ ayarları — kalite kuralı değildir, ayarlanabilir.
+    learning_min_families: int = 50
+    learning_chat_max_share: float = 0.10  # eğitim satırı VE eğitim hedef token payı üst sınırı
+    learning_eval_ratio: float = 0.2  # aile düzeyinde değerlendirmeye ayrılan pay
+    learning_family_jaccard: float = 0.6  # soru 3-gram benzerliği ≥ bu → aynı aile
+    learning_seed: int = 42
+    # Token sayımı: "auto" → PEFT base tokenizer'ı (yalnız yerel önbellek), yoksa yaklaşık.
+    learning_tokenizer: str = "auto"
+
     # --- Trading ---
     default_market: str = "XAUUSD"
     default_timeframe: str = "15m"
@@ -411,6 +432,16 @@ class Settings(BaseSettings):
     @property
     def adapters_dir(self) -> Path:
         return self.root / "models" / "adapters"
+
+    @property
+    def effective_chat_model(self) -> str:
+        """Sohbet ekranının kullandığı Ollama etiketi (``chat_model`` boşsa ``llm_model``)."""
+        return self.chat_model.strip() or self.llm_model
+
+    @property
+    def learning_dir(self) -> Path:
+        """Sohbetten öğrenme veri sürümleri (değişmez anlık görüntüler) bu dizindedir."""
+        return self.root / "data" / "learning"
 
     @property
     def agent_runs_dir(self) -> Path:

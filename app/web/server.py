@@ -280,6 +280,12 @@ app.include_router(_engines_router)
 from app.web.research_package_routes import router as _research_package_router  # noqa: E402
 
 app.include_router(_research_package_router)
+# Tek sohbet ekranı + öğrenme havuzu (Faz 1; docs/PROTOKOL_SOHBETTEN_OGRENME.md).
+from app.web.chat_routes import chat_router as _chat_router  # noqa: E402
+from app.web.chat_routes import learn_router as _learn_router  # noqa: E402
+
+app.include_router(_chat_router)
+app.include_router(_learn_router)
 
 
 @app.get("/api/status", response_model=StatusResponse, dependencies=[api_auth])
@@ -467,10 +473,73 @@ def _ingest_all() -> IngestResponse:
     )
 
 
+def _ask_conversation(req: AskRequest, request: Request) -> AskResponse:
+    """Sohbet yolu: geçmişli, model kimlikli, kaynak korumalı tur (bkz. chat_service)."""
+    from app.feedback.chat_service import ChatBusy, send
+    from app.memory.embedding_service import EmbeddingService
+
+    if security.resolve_scope(request) == "driver":
+        # Motor kullanıcının konuşma geçmişine yazamaz; tek atımlık /api/ask'i kullanır.
+        raise HTTPException(status_code=403, detail="Sürücü kapsamı konuşmaya yazamaz.")
+    if req.adapter_version:
+        raise HTTPException(
+            status_code=422,
+            detail="Sohbet yalnız Ollama yolunu kullanır; MLX adapter yolu Gelişmiş/teşhis'tedir.",
+        )
+    import uuid as _uuid
+
+    try:
+        turn, replayed = send(
+            req.conversation_id or "",
+            req.question,
+            req.client_request_id or _uuid.uuid4().hex,
+            top_k=req.top_k,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'\"")) from exc
+    except ChatBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    sources = [
+        SourceOut(
+            paper_id=sx["paper_id"],
+            chunk_id=sx["chunk_id"],
+            title=sx.get("title"),
+            page=sx.get("page"),
+            distance=sx.get("distance"),
+        )
+        for sx in turn["sources"]
+    ]
+    info = turn["model_info"] or {}
+    return AskResponse(
+        answer=turn["answer"] or turn["status_detail"],
+        sources=sources,
+        llm_used=bool(turn["llm_used"]),
+        embedding_mode=EmbeddingService().mode,
+        conversation_id=turn["conversation_id"],
+        turn_id=turn["turn_id"],
+        turn_index=turn["turn_index"],
+        turn_status=turn["status"],
+        status_detail=turn["status_detail"],
+        replayed=replayed,
+        model={
+            "tag": turn["model_tag"],
+            "digest": turn["model_digest"],
+            "digest_note": info.get("digest_note", ""),
+            "origin": info.get("origin"),
+            "setting_source": info.get("setting_source", ""),
+        },
+        history_turn_ids=turn["history_turn_ids"],
+        checks=turn["checks"],
+    )
+
+
 @app.post("/api/ask", response_model=AskResponse, dependencies=[api_auth])
-def api_ask(req: AskRequest) -> AskResponse:
+def api_ask(req: AskRequest, request: Request) -> AskResponse:
     from app.brain.rag_answerer import RagAnswerer
     from app.memory.embedding_service import EmbeddingService
+
+    if req.conversation_id:
+        return _ask_conversation(req, request)
 
     adapter_used: str | None = None
 

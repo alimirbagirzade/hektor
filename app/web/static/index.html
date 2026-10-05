@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>HEKTOR — Trading Research Terminal</title>
-    <link rel="stylesheet" href="/assets/app.css?v=14" />
+    <link rel="stylesheet" href="/assets/app.css?v=15" />
     <link rel="stylesheet" href="/assets/canli-badge.css?v=1" />
   </head>
   <body>
@@ -58,7 +58,9 @@
     </nav>
 
     <nav class="tabs" id="tabs">
-      <button class="tab active" data-tab="research"><span class="tab-num">01</span> · ARAŞTIRMA</button>
+      <button class="tab active" data-tab="chat"><span class="tab-num">00</span> · SOHBET</button>
+      <button class="tab" data-tab="learnpool"><span class="tab-num">16</span> · ÖĞRENME HAVUZU</button>
+      <button class="tab" data-tab="research"><span class="tab-num">01</span> · ARAŞTIRMA</button>
       <button class="tab" data-tab="papers"><span class="tab-num">02</span> · MAKALELER</button>
       <button class="tab" data-tab="trader"><span class="tab-num">03</span> · TRADER BEYİN</button>
       <button class="tab" data-tab="backtest"><span class="tab-num">04</span> · BACKTEST</button>
@@ -81,8 +83,103 @@
         <span id="nextStepText"></span>
       </div>
 
+      <!-- 00 · SOHBET (tek ana ekran; Ollama + RAG, geçmişli) -->
+      <section class="panel active" id="panel-chat">
+        <div class="chat-layout">
+          <aside class="chat-side">
+            <button type="button" class="btn btn-primary btn-sm" id="chatNewBtn">+ Yeni konuşma</button>
+            <div id="chatConvList" class="chat-conv-list"><span class="muted small">Yükleniyor…</span></div>
+          </aside>
+          <div class="chat-main">
+            <div class="chat-modelbar">
+              <div><strong>Cevaplayan model:</strong> <span id="chatModelTag">—</span>
+                <span class="muted small" id="chatModelDigest"></span></div>
+              <div class="muted small" id="chatModelOrigin">köken: —</div>
+              <div class="small chat-resource-row"><span id="chatResource"><span class="dot dot-idle"></span> kaynak durumu: —</span>
+                <button type="button" class="btn btn-sm" id="chatMeasureBtn">Kaynak ölç</button></div>
+            </div>
+            <div id="chatThread" class="chat-thread" aria-live="polite"></div>
+            <form id="chatForm" class="chat-form">
+              <textarea id="chatInput" rows="3" maxlength="2000"
+                placeholder="Sorunu yaz… (cevap indekslenmiş makalelere dayanır; kaynak yoksa model uydurmaz)"></textarea>
+              <div class="ask-row">
+                <label class="topk"><span class="jargon" title="Cevap için kaç kaynak parçası getirileceği.">top_k</span>
+                  <input type="number" id="chatTopk" min="1" max="20" value="6" /></label>
+                <span class="muted small">Konuşmanın tamamı saklanır; modele son turlar aktarılır (her cevapta hangileri olduğu görünür). Önceki cevaplar kaynak sayılmaz.</span>
+                <button type="submit" class="btn btn-primary" id="chatSendBtn">GÖNDER →</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <dialog id="chatCorrectDlg" class="chat-dialog">
+          <form id="chatCorrectForm">
+            <h3>Düzelt</h3>
+            <p class="muted small">Cevabın kopyası. Hatalı kısmı düzeltin ya da çıkarın. Kaydettiğinizde bu metin
+              <strong>eğitim adayı</strong> olur ve önce otomatik kontrollerden geçer; eğitim kendiliğinden başlamaz.</p>
+            <textarea id="chatCorrectText" rows="14"></textarea>
+            <input type="hidden" id="chatCorrectSpans" value="[]" />
+            <label>Alan
+              <select id="chatCorrectDomain">
+                <option value="">otomatik</option>
+                <option value="math">matematik</option>
+                <option value="paper">makale iddiası</option>
+                <option value="trading">trading</option>
+                <option value="code">kod</option>
+                <option value="general">genel</option>
+              </select>
+            </label>
+            <div class="dlg-actions">
+              <button type="button" class="btn" id="chatCorrectCancel">Vazgeç</button>
+              <button type="submit" class="btn btn-primary">Aday olarak kaydet</button>
+            </div>
+          </form>
+        </dialog>
+      </section>
+
+      <!-- 16 · ÖĞRENME HAVUZU -->
+      <section class="panel" id="panel-learnpool">
+        <div class="panel-head">
+          <h2>Öğrenme Havuzu</h2>
+          <p class="muted">Yalnız sohbette <strong>Öğrensin</strong> ya da <strong>Düzelt</strong> dediğiniz içerik aday olur.
+            <em>Toplandı</em>, <em>doğrulandı</em> ve <em>eğitimde kullanıldı</em> ayrı sayılır. Bu panel eğitim başlatmaz,
+            model etkinleştirmez.</p>
+        </div>
+        <div class="card">
+          <div class="lp-head-row">
+            <h3 class="lp-h3">Durum</h3>
+            <button type="button" class="btn btn-sm" id="lpRefreshBtn" title="Koşu kayıtlarını oku ve yenile">↻ Yenile</button>
+          </div>
+          <div id="lpCounters"><span class="muted">Yükleniyor…</span></div>
+        </div>
+        <div class="card">
+          <div class="lp-tabs" id="lpTabs">
+            <button type="button" class="btn btn-sm active" data-lptab="review">İnceleme bekliyor</button>
+            <button type="button" class="btn btn-sm" data-lptab="eligible">Eğitime uygun</button>
+            <button type="button" class="btn btn-sm" data-lptab="rejected">Reddedilen</button>
+            <button type="button" class="btn btn-sm" data-lptab="errors">Hata kuyruğu</button>
+            <button type="button" class="btn btn-sm" data-lptab="other">Hariç / çatışma / sızıntı</button>
+            <button type="button" class="btn btn-sm" data-lptab="echo">Eski Echo (salt okunur)</button>
+          </div>
+          <div id="lpList"></div>
+        </div>
+        <div class="card">
+          <h3>Veri sürümleri</h3>
+          <p class="muted small">Sürüm değişmez bir anlık görüntüdür: train dosyası + ayrı eval dosyası + manifest.
+            Sonradan hariç tutma/ret eski sürümü değiştirmez; o sürüm eğitime seçiliyse eğitim başlatma kapısı durdurur.</p>
+          <label class="small"><input type="checkbox" id="lpIncludeHuman" checked /> İnsan onaylı adayları dahil et</label>
+          <div class="orc-actions">
+            <button type="button" class="btn" id="lpPreviewBtn">Özet göster</button>
+            <button type="button" class="btn btn-primary" id="lpCreateBtn" disabled>Veri sürümü oluştur</button>
+          </div>
+          <div id="lpPreview"></div>
+          <div id="lpVersions"></div>
+          <p class="muted small">Eğitim verisine bağlamak (Faz 2'de arayüze gelecek):
+            <code>uv run python scripts/assemble_sft.py --chat-dataset chat_vN</code></p>
+        </div>
+      </section>
+
       <!-- RESEARCH -->
-      <section class="panel active" id="panel-research">
+      <section class="panel" id="panel-research">
         <div class="intro-banner" id="introBanner" style="display:none">
           <button class="intro-close" id="introClose" type="button" aria-label="Bu açıklamayı kapat">✕</button>
           <h3>Hektor nasıl çalışır? · 3 adım</h3>
@@ -112,16 +209,22 @@
               <span class="jargon" title="Cevap için kaç kaynak parçası (chunk) getirileceği. Yüksek değer = daha çok bağlam ama daha yavaş.">top_k</span>
               <input type="number" id="topk" min="1" max="20" value="6" />
             </label>
+            <button type="submit" class="btn btn-primary" id="askBtn">
+              SORGULA →
+            </button>
+          </div>
+          <details class="diag-details">
+            <summary>⚙ Gelişmiş / teşhis — MLX adapter yolu (yalnız Apple Silicon)</summary>
+            <p class="muted small">Ana sohbet Ollama üzerinden çalışır. Bu yol eski tek-soru
+              ekranında korunur; adapter seçilirse cevap MLX ile üretilir ve sohbet geçmişine
+              kaydedilmez.</p>
             <label class="adapter-select-label">
               model
               <select id="adapterSelect">
                 <option value="">Ollama (varsayılan)</option>
               </select>
             </label>
-            <button type="submit" class="btn btn-primary" id="askBtn">
-              SORGULA →
-            </button>
-          </div>
+          </details>
         </form>
         <div id="askResult" class="result hidden"></div>
       </section>
@@ -233,9 +336,11 @@
           <div id="researchResult" class="result hidden"></div>
         </div>
 
-        <!-- Eğitilen Modelle Sohbet -->
-        <div class="training-section">
-          <h3>3 · Eğitilen Modelle Sohbet (LoRA)</h3>
+        <!-- Eğitilen Modelle Sohbet (Gelişmiş / teşhis) -->
+        <details class="training-section diag-details">
+          <summary><h3 class="diag-summary-h3">3 · Gelişmiş / teşhis — LoRA (PEFT) sohbeti</h3></summary>
+          <p class="muted small">Ana sohbet <strong>00 · SOHBET</strong> sekmesindedir (Ollama). Bu
+            yol geçmiş tutmaz ve öğrenme havuzuna aday üretmez; teşhis içindir.</p>
           <p class="muted small">
             Eğitilen LoRA adapter'ı (veya base model) ile <strong>LOKAL</strong> sohbet —
             Ollama gerektirmez. CPU'da yavaştır (cevap dakikalar sürebilir). Liste boşsa
@@ -271,7 +376,7 @@
             </div>
           </form>
           <div id="loraChatResult" class="result hidden"></div>
-        </div>
+        </details>
 
         <!-- Zincir Veri Seti -->
         <div class="training-section">
@@ -1193,7 +1298,7 @@
       </div>
     </div>
 
-    <script src="/assets/app.js?v=17"></script>
+    <script src="/assets/app.js?v=19"></script>
     <script src="/assets/canli-badge.js?v=1"></script>
   </body>
 </html>

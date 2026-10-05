@@ -192,7 +192,10 @@ def _pretrain_gate_blockers(settings) -> list[str]:
         report = audit_dataset(lines, discipline_lines=discipline_jsonl_lines())
     except Exception as exc:
         return [f"kalite kapısı çalıştırılamadı: {exc}"]
-    return list(report.blockers)
+    # Seçili sohbet veri sürümünde sonradan reddedilen/hariç tutulan/düzenlenen kayıt → dur.
+    from app.feedback.chat_dataset import chat_selection_blockers
+
+    return list(report.blockers) + chat_selection_blockers()
 
 
 def ensure_train_split(settings=None) -> tuple[int, int]:
@@ -300,6 +303,9 @@ def build_training_split(settings=None) -> TrainingSplit:
             if res.lines:  # boşsa yazma → mevcut kaynağı/eğitimi bozma
                 src.parent.mkdir(parents=True, exist_ok=True)
                 src.write_text("\n".join(res.lines) + "\n", encoding="utf-8")
+                from app.feedback.chat_dataset import note_assembly
+
+                note_assembly(src, res.chat)
 
     n_train, n_valid = ensure_train_split(s)
     train_path = s.jsonl_dir / "train.jsonl"
@@ -675,6 +681,13 @@ def preflight_launch(
     if is_running():
         return _fail("Zaten eğitim çalışıyor.")
 
+    # Sohbet cevabı üretiliyorsa (bellek yarışı) onay tüketilmeden önce dur.
+    from app.feedback.resource_guard import chat_lease_blocker
+
+    lease_blocker = chat_lease_blocker(get_settings().root)
+    if lease_blocker:
+        return _fail(lease_blocker)
+
     dir_blocker = _adapter_dir_blocker(get_settings().adapters_dir / adapter_name)
     if dir_blocker:
         return _fail(dir_blocker)
@@ -798,6 +811,13 @@ def launch(
 
     spawned = False
     try:
+        # Yarış kapanışı: kilit ALINDIKTAN SONRA sohbet kiralarına tekrar bak. Sohbet tarafı
+        # önce kirasını yazıp sonra bu kilide baktığından ikisi birden ilerleyemez.
+        from app.feedback.resource_guard import chat_lease_blocker
+
+        lease_blocker = chat_lease_blocker(root)
+        if lease_blocker:
+            return _fail(lease_blocker)
         # Adım sayısı FİİLEN eğitilecek örnek sayısından (profil kırpması UYGULANDIKTAN
         # sonra) hesaplanır; profildeki `epochs` gerçekten karşılanır (bkz. plan_iterations).
         planned, n_effective, epochs = plan_iterations(n_train, max_examples, profile)
