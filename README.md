@@ -1138,6 +1138,10 @@ uv run hektor train-doctor             # koşan eğitimin sağlığı + yetkisi 
 uv run hektor kademe2-kayit --findings f.json --recipe-sha <sha> --evidence "..."  # kapanmış Kademe 2 kaydı (kolay eğitim akışı ister)
 uv run hektor candidate-verify <adapter> --ollama-tag <etiket>  # tamamlanma + dönüşüm doğrulaması (salt-okuma)
 uv run hektor compare-run --set s.jsonl --active A --candidate C --base B --adapter <ad>  # kilitli ölçütle karşılaştırma + kör paket (etkinleştirmez)
+uv run hektor compare-lock-criteria --preset boyutlu  # ölçütü cevaplar görülmeden kilitle (broad_v1 boyutlu ölçütü)
+uv run hektor compare-ai-review <cmp_id> --scores s.json --model <ad>  # AI incelemesini AYRI kaydet (insan puanı değil; karara girmez)
+uv run hektor compare-mark-integration <cmp_id> --note "..."  # koşuyu yalnız entegrasyon testi işaretle (terfide kullanılamaz)
+uv run python scripts/eval_set_leak_check.py evals/candidate_compare/broad_v1.jsonl  # set ↔ eğitim/geliştirme aile düzeyinde sızıntı denetimi
 uv run hektor candidate-prepare <adapter> --ollama-tag <YENİ-etiket>  # aday hattı: Ollama'ya hazırla (arka plan iş; mevcut etiket ezilmez)
 uv run hektor candidate-compare <adapter> --ollama-tag <etiket> [--active A --base B --set s.jsonl]  # aday hattı: karşılaştırma işi
 uv run hektor candidate-jobs           # aday hattı işleri (gerçek süreç durumuyla uzlaştırılmış)
