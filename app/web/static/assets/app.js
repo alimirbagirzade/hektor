@@ -6958,7 +6958,134 @@
     }
   }
 
+
+  // --- aday hattı (doğrula → hazırla → karşılaştır → incele → kullanıma al) ---
+  var pipeState = { wired: false, req: {}, timer: null, data: null };
+  var JOB_TR = { starting: "başlıyor", running: "koşuyor", stopping: "durduruluyor", done: "tamamlandı",
+    failed: "BAŞARISIZ", stopped: "durduruldu", lost: "kesildi (tamamlanmadı)" };
+  var JOB_CLS = { starting: "badge-info", running: "badge-info", stopping: "badge-warning", done: "badge-success",
+    failed: "badge-danger", stopped: "badge-warning", lost: "badge-danger" };
+  function pipeJobHtml(j) {
+    if (!j) return '<span class="muted small">Henüz iş yok.</span>';
+    var p = j.progress || {};
+    var pct = p.total ? Math.round((100 * p.done) / p.total) : 0;
+    var active = ["starting", "running", "stopping"].indexOf(j.status) >= 0;
+    return '<div class="lp-card"><span class="badge ' + (JOB_CLS[j.status] || "badge-info") + '">' + esc(JOB_TR[j.status] || j.status) + "</span> " +
+      esc(j.kind_label || "") + " · " + esc(j.job_id) + " · " + esc((j.params || {}).ollama_tag || "") +
+      (p.label ? " · " + esc(p.label) + (p.total ? ' <progress max="100" value="' + pct + '"></progress>' : "") : "") +
+      (j.error ? '<div class="chat-blocked small">' + esc(j.error) + "</div>" : "") +
+      (j.status === "done" && j.kind === "conversion" ? '<div class="small">Dönüşüm doğrulandı · digest ' +
+        esc(((j.verification || {}).digest || "").slice(0, 12)) + "…</div>" : "") +
+      (j.status === "done" && j.kind === "comparison" ? '<div class="small">Üretim tamam: ' + esc((j.verification || {}).comparison_id || "") +
+        " — kör incelemeye geçin.</div>" : "") +
+      (active ? ' <button type="button" class="btn btn-sm" data-pipe="stop" data-job="' + esc(j.job_id) + '">Güvenle durdur</button>' : "") +
+      ((p.log_tail || []).length ? '<details><summary>Günlük (son satırlar)</summary><pre class="chat-pre">' + esc(p.log_tail.join("\n")) + "</pre></details>" : "") +
+      "</div>";
+  }
+  function pipeChecks(c) {
+    return '<ul class="small">' + (c.checks || []).map(function (x) {
+      return "<li>" + (x.ok ? "✅ " : "❌ ") + "<strong>" + esc(x.key) + "</strong> — " + esc(x.detail) + "</li>";
+    }).join("") + "</ul>";
+  }
+  function pipeRender(d) {
+    pipeState.data = d;
+    var box = document.getElementById("pipeBox");
+    var caps = d.capabilities || {};
+    var run = d.running;
+    var capNote = function (k) {
+      var c = caps[k] || {};
+      return c.supported ? "" : '<div class="chat-blocked small">Bu makinede kapalı: ' + esc((c.reasons || []).join(" | ")) + "</div>";
+    };
+    var html = run ? '<div class="small"><strong>Koşan iş:</strong> ' + esc(run.kind_label) + " · " + esc(run.adapter) + "</div>" : "";
+    html += (d.items || []).map(function (it) {
+      var conv = (it.jobs || []).filter(function (j) { return j.kind === "conversion"; })[0];
+      var cmp = (it.jobs || []).filter(function (j) { return j.kind === "comparison"; })[0];
+      var comp = it.completion || {};
+      var tag = (conv && (conv.params || {}).ollama_tag) || it.suggested_tag;
+      var busy = !!run;
+      var df = d.defaults || {};
+      var a = esc(it.adapter);
+      var convDone = conv && conv.status === "done";
+      return '<div class="lp-card pipe-item" data-adapter="' + a + '"><div><strong>' + a + "</strong> " +
+        (comp.ok ? '<span class="badge badge-success">tamamlanma doğrulandı</span>' : '<span class="badge badge-danger">tamamlanma DOĞRULANMADI</span>') +
+        (comp.source ? ' <span class="muted small">' + esc(comp.source) + "</span>" : "") + "</div>" +
+        "<details" + (comp.ok ? "" : " open") + "><summary>1 · Adayı doğrula</summary>" + pipeChecks(comp) +
+        ((comp.evidence || []).length ? '<div class="small muted">' + comp.evidence.map(esc).join("<br>") + "</div>" : "") + "</details>" +
+        '<div class="st-step"><strong>2 · Ollama\'ya hazırla</strong> etiket <input data-f="tag" value="' + esc(tag) + '" size="26"/> şablon <input data-f="tpl" value="' +
+        esc(df.template_from || "") + '" size="22"/> <button type="button" class="btn btn-sm" data-pipe="prepare"' +
+        (busy || !(caps.conversion || {}).supported || !comp.ok ? " disabled" : "") + ">" + (conv && conv.status !== "done" ? "Tekrar dene" : "Başlat") + "</button>" +
+        (!comp.ok ? ' <span class="muted small">(tamamlanma doğrulanmadan hazırlanmaz)</span>' : "") + "</div>" +
+        capNote("conversion") + pipeJobHtml(conv) +
+        '<div class="st-step"><strong>3 · Karşılaştır</strong> aktif <input data-f="active" value="' + esc(df.active || "") + '" size="20"/> temel <input data-f="base" value="' +
+        esc(df.base || "") + '" size="20"/> set <input data-f="set" value="' + esc(df.question_set || "") + '" size="34"/> <button type="button" class="btn btn-sm" data-pipe="compare"' +
+        (busy || !(caps.comparison || {}).supported || !convDone ? " disabled" : "") + ">" + (cmp && cmp.status !== "done" ? "Tekrar dene" : "Başlat") + "</button>" +
+        (!convDone ? ' <span class="muted small">(önce doğrulanmış dönüşüm)</span>' : "") + "</div>" +
+        capNote("comparison") + pipeJobHtml(cmp) +
+        '<div class="st-step"><strong>4 · Sonuçları incele</strong> ' + ((it.comparisons || []).map(function (c) {
+          return esc(c.comparison_id) + " (" + esc(c.status) + ")";
+        }).join(", ") || '<span class="muted small">karşılaştırma yok</span>') +
+        ' <button type="button" class="btn btn-sm" data-pipe="goto-review">Kör incelemeye git</button></div>' +
+        '<div class="st-step"><strong>5 · Kullanıma al / Geri dön</strong> ' + ((it.decisions || []).map(function (x) {
+          return esc(x.candidate_tag) + ": <strong>" + esc(x.decision) + "</strong>";
+        }).join(", ") || '<span class="muted small">karar yok — kullanıma alınamaz</span>') +
+        ' <button type="button" class="btn btn-sm" data-pipe="goto-models">Modeller kartına git</button>' +
+        '<div class="muted small">Ana model yalnız “kabul” kararı + digest eşleşmesi + gerekçeyle; geri dönüş Modeller kartındadır.</div></div></div>';
+    }).join("") || '<p class="muted small">models/adapters altında aday yok.</p>';
+    html += '<div class="muted small">' + esc(d.note || "") + "</div>";
+    box.innerHTML = html;
+    clearTimeout(pipeState.timer);
+    if (run) pipeState.timer = setTimeout(loadPipeline, 3000);
+  }
+  function loadPipeline() {
+    var box = document.getElementById("pipeBox");
+    if (!box) return;
+    api("/candidates", { method: "GET" })
+      .then(pipeRender)
+      .catch(function (e) { box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  function onPipeAction(ev) {
+    var b = ev.target.closest("button[data-pipe]");
+    if (!b) return;
+    var act = b.getAttribute("data-pipe");
+    var card = b.closest(".pipe-item");
+    var adapter = card ? card.getAttribute("data-adapter") : "";
+    var f = function (k) { var el = card && card.querySelector('[data-f="' + k + '"]'); return el ? el.value.trim() : ""; };
+    if (act === "goto-review") { var c = document.getElementById("cmpCard"); if (c) c.scrollIntoView(); loadCompare(); return; }
+    if (act === "goto-models") { var m = document.getElementById("modelsCard"); if (m) m.scrollIntoView(); loadModels(); return; }
+    if (act === "stop") {
+      b.disabled = true;
+      postJson("/candidates/jobs/" + encodeURIComponent(b.getAttribute("data-job")) + "/stop", { reason: "web: kullanıcı durdurdu" })
+        .then(function () { toast("İş durduruldu; kısmi çıktı geçerli aday sayılmaz."); })
+        .catch(function (e) { toast(e.message, true); })
+        .finally(loadPipeline);
+      return;
+    }
+    var key = adapter + ":" + act;
+    // Aynı tıklama tekrarlanırsa aynı istek kimliği → sunucu aynı işi döndürür (çift süreç yok).
+    pipeState.req[key] = pipeState.req[key] || newRequestId();
+    b.disabled = true;
+    var body = act === "prepare"
+      ? { ollama_tag: f("tag"), template_from: f("tpl"), request_id: pipeState.req[key] }
+      : { ollama_tag: f("tag"), active: f("active"), base: f("base"), question_set: f("set"), request_id: pipeState.req[key] };
+    postJson("/candidates/" + encodeURIComponent(adapter) + "/" + act, body)
+      .then(function (j) {
+        toast(j.replayed ? "Aynı istek — iş zaten var (yeniden başlatılmadı)." : "İş başlatıldı: " + j.job_id);
+        // Biten iş için sonraki tıklama yeni istektir (tekrar dene).
+        if (["done", "failed", "stopped", "lost"].indexOf(j.status) >= 0) delete pipeState.req[key];
+      })
+      .catch(function (e) { delete pipeState.req[key]; toast(e.message, true); })
+      .finally(loadPipeline);
+  }
+
   function loadLearnPool() {
+    if (!pipeState.wired) {
+      pipeState.wired = true;
+      var pbx = document.getElementById("pipeBox");
+      if (pbx) pbx.addEventListener("click", onPipeAction);
+      var prb = document.getElementById("pipeRefreshBtn");
+      if (prb) prb.addEventListener("click", loadPipeline);
+    }
+    loadPipeline();
     if (!cmpState.wired) {
       cmpState.wired = true;
       var cb = document.getElementById("cmpBox");

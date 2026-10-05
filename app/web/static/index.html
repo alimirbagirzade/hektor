@@ -234,6 +234,18 @@
           </div>
           <div id="lpCounters"><span class="muted">Yükleniyor…</span></div>
         </div>
+        <div class="card" id="pipeCard">
+          <div class="lp-head-row">
+            <h3 class="lp-h3">Aday hattı — doğrula → Ollama'ya hazırla → karşılaştır → incele → kullanıma al</h3>
+            <button type="button" class="btn btn-sm" id="pipeRefreshBtn">↻ Yenile</button>
+          </div>
+          <p class="muted small">Ağır işler (dönüşüm, karşılaştırma) yalnız siz başlatınca, arka planda ve terminaldeki
+            komutların AYNISIYLA koşar; ortak ağır iş kilidi web ve terminal için aynıdır. Sayfayı yenileseniz ya da sunucu
+            yeniden açılsa da durum gerçek süreçle uzlaşır. Mevcut Ollama etiketlerinin üzerine yazılmaz; hiçbir adım modeli
+            kendiliğinden etkinleştirmez. Küçük karşılaştırma koşusu <strong>entegrasyon testidir</strong>, kalite üstünlüğü
+            kanıtı değildir.</p>
+          <div id="pipeBox"><span class="muted">Yükleniyor…</span></div>
+        </div>
         <div class="card" id="modelsCard">
           <div class="lp-head-row">
             <h3 class="lp-h3">Modeller — ana sohbet / deneme sohbeti</h3>

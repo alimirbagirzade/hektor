@@ -301,7 +301,8 @@ def adapter_eval_items(eval_dir: Path | None = None) -> list[Any]:
 
     d = eval_dir or (get_settings().root / "evals")
     out: list[Any] = []
-    for f in sorted(d.glob("*.jsonl")):
+    # Aday karşılaştırma setleri (evals/candidate_compare/) de eğitime GİRMEZ.
+    for f in [*sorted(d.glob("*.jsonl")), *sorted((d / "candidate_compare").glob("*.jsonl"))]:
         for i, line in enumerate(f.read_text(encoding="utf-8").splitlines()):
             if not line.strip():
                 continue
