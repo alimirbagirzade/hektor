@@ -838,6 +838,15 @@ def _train_impl(
             )
             raise typer.Exit(1)
 
+        # Kademe 2 derin av kaydı HER eğitimden önce zorunlu (CLAUDE.md) — hangi yoldan
+        # gelinirse gelinsin (start-train.ps1, doğrudan CLI, nöbetçi kurtarması, web alt süreci).
+        from app.training import easy_train as _easy_train
+
+        _k2 = _easy_train.kademe2_check()
+        if _k2:
+            console.print(Panel.fit(_k2, title="⛔ Kademe 2 kaydı", border_style="red"))
+            raise typer.Exit(10)
+
         # Ortak ağır iş kilidi: onaydan ÖNCE (ucuz), sohbet kirasıyla yarışsız.
         _acquire_train_lock(adapter_name, lock_holder)
 
@@ -4206,8 +4215,13 @@ def pretrain_gate_cmd(
     # Seçili sohbet veri sürümü (data/lora_sft/chat_selection.json): sonradan reddedilen /
     # hariç tutulan / düzenlenen kayıt varsa eğitim başlamaz; yeni sürüm istenir.
     from app.feedback.chat_dataset import chat_selection_blockers
+    from app.training import easy_train as _easy_train
 
     report.blockers.extend(chat_selection_blockers())
+    # Kademe 2 kaydı her eğitimden önce zorunlu → start-train.ps1 de burada erken durur.
+    _k2 = _easy_train.kademe2_check()
+    if _k2:
+        report.blockers.append(_k2)
     report.verdict = "NO-GO" if report.blockers else "GO"
 
     if as_json:

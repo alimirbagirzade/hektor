@@ -14,7 +14,10 @@ Akış (her adım ayrı ve açık):
                             eylemine BAĞLIDIR: veri/model/profil/karışım/adapter değişirse eski
                             onay tüketilemez. En son ``detached_launch.launch``.
 
-Kademe 2 kaydı (``reports/kademe2/*.json``) salt bir "OK" dosyası değildir: denetlenen kod durumu
+Kademe 2 kaydı TÜM eğitim yollarında zorunludur (``kademe2_check``): web butonu / Auto-LoRA /
+kolay akış (``detached_launch.preflight_launch``, onay tüketilmeden önce), ``hektor train --run``
+(start-train.ps1, doğrudan CLI, nöbetçi kurtarması, web'in alt süreci) ve ``pretrain-gate``.
+Kayıt salt bir "OK" dosyası değildir: denetlenen kod durumu
 (app/ scripts/ configs/ pyproject.toml ağaç özetleri + temiz çalışma ağacı), kapsam (reçete ya da
 veri özeti), bulgular (her biri kapanmış) ve kapanış kanıtı içerir. Kayıt ``reports/`` altında
 olduğundan commit'lenmesi denetlenen kod özetini DEĞİŞTİRMEZ → sonsuz yeniden denetim yok.
@@ -208,14 +211,8 @@ def readiness() -> dict[str, Any]:
         if code.get("ok")
         else f"doğrulanamadı: {code.get('note') or ', '.join(code.get('dirty') or [])}",
     )
-    rec = latest_kademe2(code.get("code_sha", ""))
-    add(
-        "kademe2",
-        rec is not None,
-        f"kapanmış kayıt: {rec['record_id']}"
-        if rec
-        else "bu kod durumu için kapanmış Kademe 2 kaydı yok (eğitimden önce zorunlu)",
-    )
+    k2 = kademe2_check(data_sha=data_sha)
+    add("kademe2", k2 is None, k2 or "bu kod durumu + eğitim verisi için kapanmış kayıt var")
     return {
         "items": items,
         "ready": all(i["ok"] for i in items),
@@ -231,6 +228,37 @@ def state() -> dict[str, Any]:
 
 
 # ── Kademe 2 kaydı ───────────────────────────────────────────────────────────
+
+
+def kademe2_blocker(*, recipe_sha: str = "", data_sha: str | None = None) -> str | None:
+    """Eğitim için Kademe 2 engeli (yoksa None). TÜM eğitim yolları bunu çağırır.
+
+    Gerekenler: çalışma ağacı temiz (denetlenen kod = çalışacak kod) VE bu kod özeti için,
+    kapsamı bu reçeteyi ya da GÜNCEL eğitim verisini (lora_sft.jsonl özeti) kapsayan, bulguları
+    kapanmış bir kayıt. Veri ya da kod değişirse yeni kayıt gerekir.
+    """
+    if data_sha is None:
+        _lines, data_sha = _lora_sft_lines()
+    code = code_state_provider()
+    if not code.get("ok"):
+        why = code.get("note") or ", ".join(code.get("dirty") or []) or "bilinmiyor"
+        return (
+            f"Kademe 2: kod durumu doğrulanamadı ({why}) — denetlenen kod ile çalışacak kod "
+            "aynı olmalı (app/ scripts/ configs/ pyproject.toml commit'li ve temiz)."
+        )
+    if latest_kademe2(code["code_sha"], recipe_sha, data_sha) is None:
+        return (
+            "Kademe 2 kaydı yok: bu kod durumu "
+            f"({code['code_sha'][:12]}…) ve eğitim verisi ({(data_sha or '?')[:12]}…) için "
+            "kapanmış derin av kaydı gerekli (her eğitimden önce zorunlu). Derin avdan sonra: "
+            "`uv run hektor kademe2-kayit --findings bulgular.json --data-sha "
+            f'{data_sha or "<sha>"} --evidence "..."`'
+        )
+    return None
+
+
+# Testlerde (git ağacı olmayan geçici kök) değiştirilebilir; üretimde her zaman gerçek kapı.
+kademe2_check: Callable[..., str | None] = kademe2_blocker
 
 
 def record_kademe2(
@@ -440,14 +468,9 @@ def precheck(recipe: dict[str, Any]) -> list[str]:
     lock = resource_lock.blocker()
     if lock or is_running():
         problems.append(lock or "eğitim zaten çalışıyor")
-    code = code_state_provider()
-    if not code.get("ok"):
-        problems.append(f"kod durumu temiz değil: {code.get('dirty') or code.get('note')}")
-    elif latest_kademe2(code["code_sha"], recipe["recipe_sha"], recipe["data_sha256"]) is None:
-        problems.append(
-            "bu kod durumu + reçete/veri için kapanmış Kademe 2 kaydı yok (her eğitimden önce "
-            "zorunlu)"
-        )
+    k2 = kademe2_check(recipe_sha=recipe["recipe_sha"], data_sha=recipe["data_sha256"])
+    if k2:
+        problems.append(k2)
     return problems
 
 

@@ -368,6 +368,13 @@ if ($proc) {
         } elseif ($code -eq 6) {
             Write-Host "          Egitim verisinde eval (golden/validation) sizintisi var." -ForegroundColor Yellow
             Write-Host "          Ayrinti:  uv run --no-sync hektor mix leakage" -ForegroundColor Cyan
+        } elseif ($code -eq 8) {
+            Write-Host "          Ortak agir is kilidi tutuluyor ya da sohbet cevabi uretiliyor." -ForegroundColor Yellow
+            Write-Host "          Durum:  uv run --no-sync python -m app.training.resource_lock status" -ForegroundColor Cyan
+        } elseif ($code -eq 10) {
+            Write-Host "          Kademe 2 kaydi yok/gecersiz (her egitimden once zorunlu). Onay TUKETILMEDI." -ForegroundColor Yellow
+            Write-Host "          Derin avdan sonra:  uv run --no-sync hektor kademe2-kayit --findings f.json --data-sha <sha> --evidence ..." -ForegroundColor Cyan
+            Write-Host "          Ayrinti: $LogOut" -ForegroundColor Gray
         } else {
             Write-Host "          Ayrinti: $LogErr" -ForegroundColor Gray
         }

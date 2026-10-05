@@ -58,7 +58,10 @@ Belgeler: `docs/PROTOKOL_SOHBETTEN_OGRENME.md`, `docs/PROTOKOL_STRATEJI_TESTI.md
 yok); eğitim sürerken sohbet; gerçek `adapter_to_ollama.ps1` koşusunda kilit; gerçek veriyle
 anlık görüntü → onay → başlatma; gerçek 30B aday/aktif/temel karşılaştırması ve gerçek
 adapter'da `candidate-verify`; gerçek kararla ana model etkinleştirme / geri dönüş.
-Sınır: Kademe 2 kaydı yalnız kolay akışta zorunlu (start-train.ps1 / CLI yolunda değil).
+Kademe 2 kaydı TÜM eğitim yollarında zorunlu: web butonu / Auto-LoRA / kolay akış
+(`preflight_launch`), `hektor train --run` (start-train.ps1 — `-SkipGate` ile de aşılamaz —,
+doğrudan CLI, nöbetçi kurtarması; çıkış kodu 10) ve `pretrain-gate`. Kayıt bu kod özeti
+(temiz ağaç) + güncel `lora_sft.jsonl` özeti için olmalı: `hektor kademe2-kayit --data-sha …`.
 
 ### 2026-10-05 — Sohbetten Öğrenme Faz 1 (dal `claude/hektor-learning-from-chat-f23206`, main'e birleşmedi)
 

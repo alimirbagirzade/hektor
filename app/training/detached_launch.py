@@ -591,6 +591,8 @@ _EARLY_EXIT_HINTS = {
     4: "train-load-doctor NO-GO (rakip GPU/LLM yükü) — ayrıntı logs/train-full.log",
     5: "karışım ağırlığı kararı yok — `uv run hektor mix weights`",
     6: "eğitim verisinde eval sızıntısı — `uv run hektor mix leakage`",
+    8: "ortak ağır iş kilidi tutuluyor ya da sohbet cevabı üretiliyor",
+    10: "Kademe 2 kaydı yok/geçersiz — derin av sonrası `uv run hektor kademe2-kayit`",
 }
 
 
@@ -714,6 +716,13 @@ def preflight_launch(
     gate_blockers = _pretrain_gate_blockers(s)
     if gate_blockers:
         return _fail("Kalite kapısı NO-GO — eğitim başlatılmadı: " + " | ".join(gate_blockers[:3]))
+
+    # Kademe 2 derin av kaydı HER eğitimden önce zorunlu (CLAUDE.md) — onay tüketilmeden önce.
+    from app.training import easy_train
+
+    k2 = easy_train.kademe2_check()
+    if k2:
+        return _fail(k2)
 
     # Sızıntı kapısı (alt süreç de uygular, 6 ile çıkar) — onay yanmadan önce burada.
     try:

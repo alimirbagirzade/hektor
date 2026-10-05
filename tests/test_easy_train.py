@@ -33,7 +33,7 @@ def _row(i: int) -> str:
 
 
 @pytest.fixture
-def env(iso, monkeypatch):  # noqa: F811
+def env(iso, monkeypatch, real_kademe2_gate):  # noqa: F811
     from app.config import get_settings
     from app.training import detached_launch
 
