@@ -3422,3 +3422,8 @@ code {
   padding: 6px 0;
   font-size: 13px;
 }
+
+/* Araştırma motoru bilgisi: çok satırlı açıklama (CSP: satır içi stil yok) */
+.rp-engine-info {
+  white-space: pre-line;
+}

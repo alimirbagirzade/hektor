@@ -393,6 +393,7 @@ def _default_runner(
     run_id: str = "",
     stop_requested: Callable[[], bool] | None = None,
     stdout_only: bool = False,
+    cwd: Path | None = None,
 ) -> tuple[int, str]:
     """Motoru doğur ve KESİLEBİLİR biçimde bekle.
 
@@ -427,7 +428,7 @@ def _default_runner(
         errors="replace",
         env=env,
         # Av HER ZAMAN bu deponun kökünü tarar — sunucuyu kim nereden başlattıysa değil.
-        cwd=str(_REPO_ROOT),
+        cwd=str(cwd or _REPO_ROOT),
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     engine_procs.register(run_id, proc)

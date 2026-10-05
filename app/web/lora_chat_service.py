@@ -20,6 +20,7 @@ endpoint senkron `def` olmalı ki FastAPI'nin threadpool'unda koşsun, event loo
 
 from __future__ import annotations
 
+import gc
 import logging
 from threading import Lock
 from typing import TYPE_CHECKING, Any
@@ -174,6 +175,9 @@ def chat(
     with _LOCK:
         if _CACHE["key"] != key:
             log.info("lora-chat: model yükleniyor (key=%s) — ilk istek yavaş.", key)
+            # Önce eski referansları bırak: iki büyük model aynı anda RAM'de tutulmasın.
+            _CACHE.update(key=None, tok=None, model=None)
+            gc.collect()
             tok, model = _load_model(base, adapter_dir)
             _CACHE.update(key=key, tok=tok, model=model)
         answer = _generate(
