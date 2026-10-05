@@ -3360,3 +3360,58 @@ code {
 .models-slot-trial {
   border-color: var(--warn-border);
 }
+
+/* Faz 2B: strateji testi diyaloğu */
+.strategy-dlg {
+  width: min(980px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+}
+.st-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.st-step {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 10px 0 6px;
+}
+.st-form label {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  gap: 2px;
+}
+.st-form input,
+.st-form select,
+.st-form textarea {
+  font: inherit;
+  box-sizing: border-box;
+  width: 100%;
+}
+.st-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.st-grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.st-costs {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+}
+.st-simplify {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--warn-border);
+  border-radius: var(--radius);
+}

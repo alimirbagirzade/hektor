@@ -284,10 +284,12 @@ app.include_router(_research_package_router)
 from app.web.chat_routes import chat_router as _chat_router  # noqa: E402
 from app.web.chat_routes import learn_router as _learn_router  # noqa: E402
 from app.web.chat_routes import models_router as _models_router  # noqa: E402
+from app.web.strategy_routes import strategy_router as _strategy_router  # noqa: E402
 
 app.include_router(_chat_router)
 app.include_router(_learn_router)
 app.include_router(_models_router)
+app.include_router(_strategy_router)
 
 
 @app.get("/api/status", response_model=StatusResponse, dependencies=[api_auth])

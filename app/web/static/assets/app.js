@@ -32,6 +32,9 @@
     if (detail && typeof detail === "string" && !/^HTTP \d+$/i.test(detail)) {
       return detail; // backend zaten anlamlı bir mesaj verdiyse onu koru
     }
+    if (detail && detail.problems && detail.problems.length) {
+      return "Eksik/hatalı alan: " + detail.problems.join(" · ");
+    }
     switch (status) {
       case 400:
         return "Geçersiz istek — girdiyi kontrol edin.";
@@ -5844,7 +5847,8 @@
         '<button type="button" class="btn btn-sm' + (fb === "useful" ? " btn-on" : "") + '" data-act="useful">Faydalı</button>' +
         '<button type="button" class="btn btn-sm' + (fb === "wrong" ? " btn-on" : "") + '" data-act="wrong" title="Hata kuyruğuna ekler. Önce cevapta hatalı kısmı seçebilirsiniz.">Hatalı</button>' +
         (answered ? '<button type="button" class="btn btn-sm" data-act="correct" title="Doğru metni yazın; eğitim adayı olur ve kontrol edilir.">Düzelt</button>' +
-          (trialTurn ? "" : '<button type="button" class="btn btn-sm" data-act="learn" title="Bu cevap eğitim adayı olur (kontrollerden geçer).">Öğrensin</button>') : "") +
+          (trialTurn ? "" : '<button type="button" class="btn btn-sm" data-act="learn" title="Bu cevap eğitim adayı olur (kontrollerden geçer).">Öğrensin</button>') +
+          '<button type="button" class="btn btn-sm" data-act="strategy" title="Cevaptaki stratejiyi taslağa çevir, kontrol et ve gerçek veride test et.">Strateji testi</button>' : "") +
         '<button type="button" class="btn btn-sm btn-ghost" data-act="exclude">' +
         (t.excluded ? "Hariç tutmayı kaldır" : "⋯ Eğitimden hariç tut") + "</button>" +
         "</div>";
@@ -5964,6 +5968,9 @@
       });
     } else if (act === "correct") {
       openCorrectDialog(t);
+      return;
+    } else if (act === "strategy") {
+      openStrategyDialog(t);
       return;
     } else if (act === "exclude") {
       if (t.excluded) {
@@ -6092,6 +6099,264 @@
     } else {
       renderThread();
     }
+  }
+
+  // --- strateji testi (sohbetten gerçek veride test) ---
+  var stState = { turn: null, draft: null, saved: null, source: {}, wired: false };
+  var COST_KEYS = ["commission_bps_per_side", "slippage_bps_per_side", "spread_bps", "funding_bps_per_day"];
+
+  function stForm() {
+    return document.getElementById("stForm");
+  }
+  function numOrNull(v) {
+    if (v === "" || v === null || v === undefined) return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+  function fillStrategyForm(d) {
+    var f = stForm();
+    d = d || {};
+    f.name.value = d.name || "";
+    f.market.value = d.market || "";
+    f.timeframe.value = d.timeframe || "";
+    f.direction.value = d.direction || "";
+    f.indicators.value = (d.indicators || []).map(function (i) { return i.name + ":" + i.period; }).join(", ");
+    f.entry_rules.value = (d.entry_rules || []).join("\n");
+    f.exit_rules.value = (d.exit_rules || []).join("\n");
+    var st = d.stop || {};
+    f.stop_type.value = st.type || "none";
+    f.stop_value.value = st.value == null ? "" : st.value;
+    f.stop_atr.value = st.atr_period || 14;
+    var tp = d.take_profit || {};
+    f.tp_type.value = tp.type || "none";
+    f.tp_value.value = tp.value == null ? "" : tp.value;
+    var sz = d.sizing || {};
+    f.size_type.value = sz.type || "fixed_fraction";
+    f.fraction.value = sz.fraction == null ? "" : sz.fraction;
+    f.risk_pct.value = sz.risk_pct == null ? "" : sz.risk_pct;
+    f.max_leverage.value = sz.max_leverage || 1;
+    var c = d.costs || {};
+    COST_KEYS.forEach(function (k) { f[k].value = c[k] == null ? "" : c[k]; });
+    var zr = c.zero_reasons || {};
+    f.zero_reasons.value = Object.keys(zr).map(function (k) { return k + ": " + zr[k]; }).join("\n");
+    stState.unsupported = (d.unsupported_rules || []).slice();
+    renderUnsupported();
+  }
+  function renderUnsupported() {
+    var box = document.getElementById("stUnsupported");
+    var u = stState.unsupported || [];
+    box.innerHTML = u.length
+      ? '<div class="chat-blocked"><strong>Desteklenmeyen kurallar (' + u.length + ")</strong> — önemli olan varsa asıl strateji test EDİLEMEZ:<ul>" +
+        u.map(function (x) {
+          return "<li>" + (x.important ? '<span class="badge badge-danger">ÖNEMLİ</span> ' : '<span class="badge badge-info">bilgi</span> ') +
+            esc(x.text) + (x.why ? ' <span class="muted">(' + esc(x.why) + ")</span>" : "") + "</li>";
+        }).join("") + "</ul></div>"
+      : '<div class="muted">Desteklenmeyen kural yok.</div>';
+  }
+  function readStrategyForm() {
+    var f = stForm();
+    var lines = function (s) { return (s || "").split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean); };
+    var zr = {};
+    lines(f.zero_reasons.value).forEach(function (ln) {
+      var i = ln.indexOf(":");
+      if (i > 0) zr[ln.slice(0, i).trim()] = ln.slice(i + 1).trim();
+    });
+    var costs = { zero_reasons: zr };
+    COST_KEYS.forEach(function (k) { costs[k] = numOrNull(f[k].value); });
+    return {
+      name: f.name.value.trim(),
+      market: f.market.value.trim(),
+      timeframe: f.timeframe.value,
+      direction: f.direction.value || null,
+      indicators: (f.indicators.value || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean).map(function (x) {
+        var p = x.split(":");
+        return { name: p[0].trim().toUpperCase(), period: parseInt(p[1], 10) || 14 };
+      }),
+      entry_rules: lines(f.entry_rules.value),
+      exit_rules: lines(f.exit_rules.value),
+      stop: { type: f.stop_type.value, value: numOrNull(f.stop_value.value), atr_period: parseInt(f.stop_atr.value, 10) || 14 },
+      take_profit: { type: f.tp_type.value, value: numOrNull(f.tp_value.value) },
+      sizing: { type: f.size_type.value, fraction: numOrNull(f.fraction.value), risk_pct: numOrNull(f.risk_pct.value),
+        max_leverage: numOrNull(f.max_leverage.value) || 1 },
+      costs: costs,
+      unsupported_rules: stState.unsupported || [],
+    };
+  }
+  function renderSaved(rec) {
+    stState.saved = rec;
+    var box = document.getElementById("stSaved");
+    if (!rec) { box.innerHTML = ""; return; }
+    var r = rec.readable || {};
+    var simp = "";
+    if (!rec.testable) {
+      var opts = (rec.spec.unsupported_rules || []).map(function (u) {
+        return '<label><input type="checkbox" data-drop="' + esc(u.text) + '"/> ' + esc(u.text) + "</label>";
+      }).concat((rec.spec.entry_rules || []).concat(rec.spec.exit_rules || []).map(function (x) {
+        return '<label><input type="checkbox" data-remove="' + esc(x) + '"/> kural: ' + esc(x) + "</label>";
+      })).join("<br>");
+      simp = '<div class="st-simplify"><strong>Basitleştirilmiş strateji oluştur</strong> — çıkarılacakları AÇIKÇA seçin; ' +
+        "ayrı kimlikle kaydedilir, asıl strateji test edilmiş SAYILMAZ.<br>" + opts +
+        '<br><button type="button" class="btn btn-sm" id="stSimplifyBtn">Basitleştirilmiş stratejiyi oluştur</button></div>';
+    }
+    box.innerHTML = '<div class="lp-card"><div><strong>Kaydedildi:</strong> ' + esc(rec.strategy_id) + " · aile " + esc(rec.family_id) +
+      (rec.spec.simplified_from ? ' · <span class="badge badge-warning">BASİTLEŞTİRİLMİŞ</span> (asıl: ' + esc(rec.spec.simplified_from) +
+        "; çıkarılan: " + esc((rec.spec.removed_rules || []).join(" | ")) + ")" : "") +
+      " · " + (rec.testable ? '<span class="badge badge-success">test edilebilir</span>' : '<span class="badge badge-danger">test engelli</span>') +
+      "</div><pre class=\"chat-pre\">" + esc(JSON.stringify(r, null, 2)) + "</pre>" + simp + "</div>";
+  }
+  function loadDataFiles() {
+    var sel = document.getElementById("stDataFile");
+    return api("/strategy/data-files", { method: "GET" }).then(function (d) {
+      var fs = d.files || [];
+      sel.innerHTML = fs.length
+        ? fs.map(function (x) { return '<option value="' + esc(x.name) + '">' + esc(x.name) + "</option>"; }).join("")
+        : '<option value="">(veri dosyası yok — CSV yükleyin)</option>';
+    });
+  }
+  function renderRun(run) {
+    var res = run.result || {};
+    var m = res.metrics || {};
+    var c = res.counters || {};
+    var t = res.times || {};
+    var oosCls = run.oos_status === "gelistirmede_kullanildi" ? "badge-warning" : run.oos_status === "final_tek_kullanim" ? "badge-llm" : "badge-info";
+    var defs = res.metric_definitions || {};
+    var row = function (k, label, unit) {
+      var v = m[k];
+      return "<tr><td title=\"" + esc(defs[k] || "") + "\">" + esc(label) + "</td><td>" + (v === null || v === undefined ? "tanımsız" : esc(String(v)) + (unit || "")) + "</td></tr>";
+    };
+    document.getElementById("stResult").innerHTML =
+      '<div class="lp-card"><div><strong>' + esc(res.stage_label || run.stage) + "</strong> · " + esc(run.period_start) + " → " + esc(run.period_end) +
+      ' · <span class="badge ' + oosCls + '">' + esc(run.oos_status) + "</span></div>" +
+      '<div class="small">' + esc(res.oos_note || "") + " Aile doğrulama denemesi: " + esc(String(res.family_validation_trials || 0)) + "</div>" +
+      ((res.warnings || []).length ? '<div class="chat-blocked small">' + res.warnings.map(esc).join("<br>") + "</div>" : "") +
+      '<table class="lp-table">' + row("total_return_pct", "Toplam getiri (maliyetli)", " %") + row("max_drawdown_pct", "Azami düşüş", " %") +
+      row("sharpe", "Sharpe") + row("n_trades", "İşlem sayısı") + row("win_rate_pct", "Kazanan işlem", " %") + row("profit_factor", "Profit factor") +
+      row("exposure_pct", "Piyasada kalma", " %") + row("costs_pct", "Toplam maliyet (özsermaye %)", " %") + "</table>" +
+      '<div class="small">Çıkış nedenleri: stop ' + esc(String(c.stop_exits || 0)) + " · gap-stop " + esc(String(c.gap_stop_exits || 0)) +
+      " · hedef " + esc(String(c.tp_exits || 0)) + " · kural " + esc(String(c.rule_exits || 0)) + " · dönem sonu " + esc(String(c.end_exits || 0)) +
+      " · aynı barda stop önce " + esc(String(c.same_bar_stop_first || 0)) + "</div>" +
+      '<div class="small">Sızıntı (önek) kontrolü: ' + ((res.leak_check || {}).ok ? "geçti" : "KALDI") + " · motor " + esc(run.engine_version) +
+      " · metrik " + esc(run.metrics_version) + " · parmak izi " + esc((run.fingerprint || "").slice(0, 12)) + "…</div>" +
+      '<div class="small muted">Veri ' + esc(t.data_start || "") + " → " + esc(t.data_end || "") + " · strateji " + esc(t.strategy_created_at || "") +
+      " · koşu/bilgi zamanı " + esc(t.knowledge_available_at || "") + "</div>" +
+      '<details><summary>Varsayımlar</summary><ul>' + (res.assumptions || []).map(function (a) { return "<li>" + esc(a) + "</li>"; }).join("") + "</ul></details>" +
+      '<div class="small"><strong>' + esc(res.disclaimer || "") + "</strong></div></div>";
+  }
+  function openStrategyDialog(t) {
+    var dlg = document.getElementById("strategyDlg");
+    if (!dlg) return;
+    stState.turn = t;
+    stState.source = {};
+    document.getElementById("stDraftInfo").textContent = "Tur " + t.turn_index + " · " + (t.model_tag || "");
+    document.getElementById("stNotes").innerHTML = "";
+    document.getElementById("stResult").innerHTML = "";
+    document.getElementById("stDataReport").innerHTML = "";
+    fillStrategyForm(null);
+    renderSaved(null);
+    if (!stState.wired) wireStrategyDialog();
+    loadDataFiles().catch(function () {});
+    api("/strategy/turn/" + encodeURIComponent(t.turn_id), { method: "GET" }).then(function (d) {
+      var items = d.items || [];
+      if (items.length) {
+        var last = items[items.length - 1];
+        fillStrategyForm(last.spec);
+        api("/strategy/" + encodeURIComponent(last.strategy_id), { method: "GET" }).then(renderSaved);
+      }
+    }).catch(function () {});
+    if (dlg.showModal) dlg.showModal();
+    else dlg.setAttribute("open", "");
+  }
+  function wireStrategyDialog() {
+    stState.wired = true;
+    var dlg = document.getElementById("strategyDlg");
+    document.getElementById("stCloseBtn").addEventListener("click", function () {
+      if (dlg.close) dlg.close(); else dlg.removeAttribute("open");
+    });
+    document.getElementById("stDraftBtn").addEventListener("click", function (ev) {
+      var b = ev.target;
+      b.disabled = true;
+      document.getElementById("stNotes").innerHTML = '<span class="spinner"></span> yerel model taslak çıkarıyor…';
+      postJson("/strategy/draft", { turn_id: stState.turn.turn_id })
+        .then(function (r) {
+          stState.source = r.source || {};
+          fillStrategyForm(r.draft);
+          document.getElementById("stNotes").innerHTML =
+            (r.notes || []).map(function (n) { return '<div class="muted">• ' + esc(n) + "</div>"; }).join("") +
+            ((r.problems || []).length ? '<div class="chat-blocked">Formda tamamlanması gerekenler: ' + esc(r.problems.join(" · ")) + "</div>"
+              : '<div class="muted">Taslak geçerli görünüyor — yine de okuyup kontrol edin.</div>');
+        })
+        .catch(function (e) { document.getElementById("stNotes").innerHTML = '<div class="chat-blocked">' + esc(e.message) + "</div>"; })
+        .finally(function () { b.disabled = false; });
+    });
+    stForm().addEventListener("submit", function (e) {
+      e.preventDefault();
+      var body = { spec: readStrategyForm(), source: Object.assign({ turn_id: stState.turn.turn_id }, stState.source) };
+      if (stState.saved) body.parent_id = stState.saved.strategy_id;
+      postJson("/strategy", body)
+        .then(function (rec) {
+          toast(rec.created ? "Strateji kaydedildi." : "Aynı içerik zaten kayıtlı.");
+          return api("/strategy/" + encodeURIComponent(rec.strategy_id), { method: "GET" }).then(renderSaved);
+        })
+        .catch(function (err) { toast(err.message, true); });
+    });
+    document.getElementById("stSaved").addEventListener("click", function (ev) {
+      if (!ev.target.closest("#stSimplifyBtn")) return;
+      var box = document.getElementById("stSaved");
+      var drop = [].slice.call(box.querySelectorAll("[data-drop]:checked")).map(function (x) { return x.getAttribute("data-drop"); });
+      var rem = [].slice.call(box.querySelectorAll("[data-remove]:checked")).map(function (x) { return x.getAttribute("data-remove"); });
+      postJson("/strategy/" + encodeURIComponent(stState.saved.strategy_id) + "/simplify", { remove_rules: rem, drop_unsupported: drop })
+        .then(function (rec) {
+          toast("Basitleştirilmiş strateji ayrı kimlikle oluşturuldu.");
+          fillStrategyForm(rec.spec);
+          return api("/strategy/" + encodeURIComponent(rec.strategy_id), { method: "GET" }).then(renderSaved);
+        })
+        .catch(function (err) { toast(err.message, true); });
+    });
+    document.getElementById("stUpload").addEventListener("change", function (ev) {
+      var f = ev.target.files && ev.target.files[0];
+      if (!f) return;
+      var fd = new FormData();
+      fd.append("file", f);
+      api("/strategy/data-upload", { method: "POST", body: fd })
+        .then(function (r) { toast("Yüklendi: " + r.name); return loadDataFiles().then(function () { document.getElementById("stDataFile").value = r.name; }); })
+        .catch(function (err) { toast(err.message, true); });
+    });
+    document.getElementById("stCheckBtn").addEventListener("click", function () {
+      var box = document.getElementById("stDataReport");
+      box.innerHTML = '<span class="spinner"></span> denetleniyor…';
+      postJson("/strategy/data-check", {
+        data_file: document.getElementById("stDataFile").value,
+        timeframe: stForm().timeframe.value,
+        tz: document.getElementById("stTz").value || null,
+      })
+        .then(function (d) {
+          var r = d.report || {};
+          var p = d.protocol || {};
+          box.innerHTML = '<div class="lp-card">' + esc(r.file_name) + " · " + esc(String(r.rows_clean)) + "/" + esc(String(r.rows_raw)) + " satır · " +
+            esc(r.start) + " → " + esc(r.end) + " · saat dilimi: " + esc(r.tz_source) +
+            "<br>Temizlik: " + esc((r.actions || []).join(" · ") || "gerekmedi") +
+            "<br>Boşluklar: " + esc(String((r.gaps || {}).n_gaps || 0)) + " (≈" + esc(String((r.gaps || {}).estimated_missing_bars || 0)) + " bar, doldurulmadı)" +
+            "<br>Dönemler: geliştirme → " + esc(p.dev_end || "") + " · doğrulama → " + esc(p.val_end || "") + " · sonrası final (tek kullanım)" +
+            (p.note ? ' <span class="muted">(' + esc(p.note) + ")</span>" : "") +
+            '<br><span class="muted">dosya sha ' + esc((r.file_sha256 || "").slice(0, 12)) + "… · temiz veri sha " + esc((r.clean_sha256 || "").slice(0, 12)) + "…</span></div>";
+        })
+        .catch(function (err) { box.innerHTML = '<div class="chat-blocked">' + esc(err.message) + "</div>"; });
+    });
+    dlg.addEventListener("click", function (ev) {
+      var b = ev.target.closest("button[data-stage]");
+      if (!b) return;
+      if (!stState.saved) { toast("Önce formu kaydedin.", true); return; }
+      b.disabled = true;
+      document.getElementById("stResult").innerHTML = '<span class="spinner"></span> test koşuyor…';
+      postJson("/strategy/" + encodeURIComponent(stState.saved.strategy_id) + "/run", {
+        data_file: document.getElementById("stDataFile").value,
+        tz: document.getElementById("stTz").value || null,
+        stage: b.getAttribute("data-stage"),
+      })
+        .then(renderRun)
+        .catch(function (err) { document.getElementById("stResult").innerHTML = '<div class="chat-blocked">' + esc(err.message) + "</div>"; })
+        .finally(function () { b.disabled = false; });
+    });
   }
 
   // --- öğrenme havuzu ---

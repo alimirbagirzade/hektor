@@ -116,6 +116,79 @@
             </form>
           </div>
         </div>
+        <dialog id="strategyDlg" class="chat-dialog strategy-dlg">
+          <div class="st-head">
+            <h3>Strateji testi — sohbet cevabından</h3>
+            <button type="button" class="btn btn-sm btn-ghost" id="stCloseBtn">Kapat</button>
+          </div>
+          <p class="muted small">Yerel model cevabı taslağa çevirir; siz okunur formdan kontrol edip kaydeder ve testi
+            başlatırsınız. Şablon stratejiyle ikame yapılmaz. Maliyetler varsayılanla doldurulmaz. Sonuç “kayıtlı hesap”tır,
+            gelecekte başarı anlamına gelmez.</p>
+          <div class="st-step"><strong>1 · Taslak</strong>
+            <button type="button" class="btn btn-sm" id="stDraftBtn">Taslak çıkar (yerel model)</button>
+            <span class="muted small" id="stDraftInfo"></span></div>
+          <div id="stNotes" class="small"></div>
+          <form id="stForm" class="st-form">
+            <div class="st-grid">
+              <label>Ad <input name="name" required /></label>
+              <label>Piyasa <input name="market" required /></label>
+              <label>Zaman dilimi <select name="timeframe" required>
+                <option value="">— seçin —</option><option>1m</option><option>5m</option><option>15m</option>
+                <option>30m</option><option>1h</option><option>4h</option><option>1d</option><option>1w</option></select></label>
+              <label>Yön <select name="direction" required><option value="">— seçin —</option>
+                <option value="long">Uzun (long)</option><option value="short">Kısa (short)</option></select></label>
+            </div>
+            <label>Göstergeler (ör. EMA:20, EMA:50, RSI:14) <input name="indicators" /></label>
+            <div class="st-grid2">
+              <label>Giriş kuralları (her satır bir kural; hepsi VE) <textarea name="entry_rules" rows="3"></textarea></label>
+              <label>Çıkış kuralları (her satır bir kural; hepsi VE) <textarea name="exit_rules" rows="3"></textarea></label>
+            </div>
+            <div class="st-grid">
+              <label>Stop <select name="stop_type">
+                <option value="none">Yok</option><option value="fixed_pct">Sabit % (oran)</option>
+                <option value="atr_initial">ATR — girişte sabit</option><option value="atr_trailing">ATR — takip eden</option></select></label>
+              <label>Stop değeri <input name="stop_value" type="number" step="any" /></label>
+              <label>Stop ATR periyodu <input name="stop_atr" type="number" value="14" min="1" /></label>
+              <label>Hedef <select name="tp_type"><option value="none">Yok</option><option value="fixed_pct">Sabit % (oran)</option>
+                <option value="atr_multiple">ATR katı</option><option value="r_multiple">R katı</option></select></label>
+              <label>Hedef değeri <input name="tp_value" type="number" step="any" /></label>
+            </div>
+            <div class="st-grid">
+              <label>Pozisyon büyüklüğü <select name="size_type"><option value="fixed_fraction">Özsermaye katı (nominal)</option>
+                <option value="risk_per_trade">İşlem başına risk (stop'a göre)</option></select></label>
+              <label>Kat (1 = tam özsermaye) <input name="fraction" type="number" step="any" /></label>
+              <label>Risk oranı (0.01 = %1) <input name="risk_pct" type="number" step="any" /></label>
+              <label>Azami kaldıraç <input name="max_leverage" type="number" step="any" value="1" /></label>
+            </div>
+            <fieldset class="st-costs"><legend>Maliyetler — hepsi zorunlu; sıfırsa gerekçe yazın</legend>
+              <div class="st-grid">
+                <label>Komisyon (bp / dolum) <input name="commission_bps_per_side" type="number" step="any" min="0" /></label>
+                <label>Kayma (bp / dolum, aleyhe) <input name="slippage_bps_per_side" type="number" step="any" min="0" /></label>
+                <label>Makas (bp, tam) <input name="spread_bps" type="number" step="any" min="0" /></label>
+                <label>Fonlama (bp / gün) <input name="funding_bps_per_day" type="number" step="any" min="0" /></label>
+              </div>
+              <label>Sıfır maliyet gerekçeleri (her satır: alan_adı: gerekçe) <textarea name="zero_reasons" rows="2"
+                placeholder="funding_bps_per_day: spot işlem, fonlama yok"></textarea></label>
+            </fieldset>
+            <div id="stUnsupported" class="small"></div>
+            <div class="dlg-actions"><button type="submit" class="btn btn-primary">2 · Kaydet (okunur form onaylandı)</button></div>
+          </form>
+          <div id="stSaved" class="small"></div>
+          <div class="st-step"><strong>3 · Veri</strong>
+            <select id="stDataFile"></select>
+            <input type="file" id="stUpload" accept=".csv" />
+            <select id="stTz" title="Zaman damgalarında ofset yoksa saat dilimi">
+              <option value="">(damgada ofset var / epoch)</option><option value="UTC">UTC</option>
+              <option value="Europe/Istanbul">Europe/Istanbul</option><option value="Europe/London">Europe/London</option>
+              <option value="America/New_York">America/New_York</option></select>
+            <button type="button" class="btn btn-sm" id="stCheckBtn">Veriyi kontrol et</button></div>
+          <div id="stDataReport" class="small"></div>
+          <div class="st-step"><strong>4 · Test</strong>
+            <button type="button" class="btn btn-sm" data-stage="gelistirme">Geliştirme dönemi</button>
+            <button type="button" class="btn btn-sm" data-stage="dogrulama">Doğrulama (OOS)</button>
+            <button type="button" class="btn btn-sm" data-stage="final" title="Aile başına tek kullanım">Final (tek kullanım)</button></div>
+          <div id="stResult"></div>
+        </dialog>
         <dialog id="chatCorrectDlg" class="chat-dialog">
           <form id="chatCorrectForm">
             <h3>Düzelt</h3>
