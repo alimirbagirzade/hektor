@@ -279,3 +279,16 @@ def test_api_import_hatasinda_surum_catismasini_da_soyler(
     detail = r.json()["detail"]
     assert "tokenizers==0.22.2" in detail
     assert "uv sync --extra dev --inexact" in detail
+
+
+def test_model_switch_releases_old_cache_before_load(fake_model, monkeypatch):
+    svc._CACHE.update(key="old", tok=object(), model=object())
+
+    def load(base, adapter):
+        assert svc._CACHE == {"key": None, "tok": None, "model": None}
+        raise RuntimeError("yüklenemedi")
+
+    monkeypatch.setattr(adapter_eval, "_load_model", load)
+    with pytest.raises(RuntimeError):
+        svc.chat("soru", None)
+    assert svc._CACHE["model"] is None

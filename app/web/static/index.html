@@ -436,7 +436,7 @@
         </div>
 
         <!-- Eğitilen Modelle Sohbet (Gelişmiş / teşhis) -->
-        <details class="training-section diag-details">
+        <details class="training-section diag-details" id="trainedModelChat">
           <summary><h3 class="diag-summary-h3">3 · Gelişmiş / teşhis — LoRA (PEFT) sohbeti</h3></summary>
           <p class="muted small">Ana sohbet <strong>00 · SOHBET</strong> sekmesindedir (Ollama). Bu
             yol geçmiş tutmaz ve öğrenme havuzuna aday üretmez; teşhis içindir.</p>
@@ -892,6 +892,15 @@
       <section class="panel" id="panel-learning">
         <div class="panel-head"><h2>Öğrenme Dinamikleri</h2></div>
 
+        <div class="card">
+          <h3>Eğitim sonrası araştırma paketi</h3>
+          <p><a href="#sekme=trader" id="lrnModelChatLink">V14 ve diğer eğitilen modellerle sohbet et →</a></p>
+          <p id="lrnResearchStatus" role="status" aria-live="polite">Araştırma durumu yükleniyor…</p>
+          <pre id="lrnResearchDetails" class="muted small"></pre>
+          <a class="btn btn-primary" href="#sekme=agentmap">Araştırma paketini yönet</a>
+          <p class="muted small">Makale arama → kontrollü RAG → kart → aday veri → yöntem önerisi. Web sunucusu açık kaldığı sürece çalışır; yeni ağır LoRA eğitimi başlatmaz. Etkin paket için aşağıdaki eski RAG döngüsünü ayrıca açmayın.</p>
+        </div>
+
         <!-- RAG Öğrenme Döngüsü (otonom, sunucu-taraflı) -->
         <div class="card" style="margin-bottom:1rem;border:1px solid #334155">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -900,8 +909,8 @@
           </div>
           <p class="muted small" style="margin:.4rem 0 .8rem">
             Sunucu-taraflı arka plan döngüsü: arXiv'den yeni makale çek → indeksle →
-            bilgi kartı üret → anlama skorla → RAG ustalığını güncelle. Tarayıcı/web
-            kapansa da sürer. <strong>Açmadıkça çalışmaz.</strong> LoRA eğitimi
+            bilgi kartı üret → anlama skorla → RAG ustalığını güncelle. Tarayıcı
+            kapansa da web sunucusu açıkken sürer. <strong>Açmadıkça çalışmaz.</strong> LoRA eğitimi
             sürerken kendini duraklatır.
           </p>
 
@@ -1244,7 +1253,7 @@
                Hektor hiçbir motorun mail/şifre/anahtarını istemez, saklamaz, göstermez —
                motorlar kendi CLI oturumlarıyla girişlidir. -->
           <div class="am-engine">
-            <label class="am-engine-lbl" for="amEngineSel">Motor</label>
+            <label class="am-engine-lbl" for="amEngineSel">Eğitim hattı motoru</label>
             <select class="am-engine-sel" id="amEngineSel">
               <option value="">Yükleniyor…</option>
             </select>
@@ -1253,9 +1262,12 @@
           <p class="muted small am-engine-note" id="amEngineNote">—</p>
 
           <h3>Sürekli araştırma ve veri hazırlığı</h3>
+          <label for="rpEngine">Araştırma ana motoru</label>
+          <select id="rpEngine" class="am-engine-sel"><option value="">Motorlar yükleniyor…</option></select>
+          <p id="rpEngineInfo" class="muted small rp-engine-info"></p>
           <p class="muted small">Çalıştır: seçili motor planı inceler; makale arama → kontrollü RAG → kart → aday veri → yöntem raporu döngüsü sürer. Eğitimler bitene kadar bekler. CLI abonelik kotası kullanılır; yeni LoRA eğitimi ayrıca onay gerektirir.</p>
           <label for="rpPeer">İkinci inceleme motoru (isteğe bağlı)</label>
-          <select id="rpPeer" class="am-engine-sel"><option value="">Yok</option></select>
+          <select id="rpPeer" class="am-engine-sel"><option value="">Tek motorla çalış (ikinci inceleyici kapalı)</option></select>
           <div class="orc-actions">
             <button class="btn btn-primary" id="rpStart" type="button">▶ Araştırma döngüsünü çalıştır</button>
             <button class="btn" id="rpStop" type="button" disabled>■ Araştırmayı durdur</button>

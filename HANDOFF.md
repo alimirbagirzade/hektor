@@ -33,7 +33,7 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
-### 2026-10-05 — Faz 2 (dal `claude/faz-2-scope-plan-1b9f4b`, Faz 1 üstüne; main'e birleşmedi, push yok)
+### 2026-10-05 — Faz 2 (#31 ile main'e birleşti)
 
 Commit'ler: Faz 1 tamamlama `c993b78` · 2A `306aa61` · 2B `061df56` · zaman/iddia `90453a6` ·
 2C `ec8157e` · 2D `a9c1496`. Tam paket **3091 passed / 13 skipped**; ruff + mypy temiz.
@@ -63,7 +63,7 @@ Kademe 2 kaydı TÜM eğitim yollarında zorunlu: web butonu / Auto-LoRA / kolay
 doğrudan CLI, nöbetçi kurtarması; çıkış kodu 10) ve `pretrain-gate`. Kayıt bu kod özeti
 (temiz ağaç) + güncel `lora_sft.jsonl` özeti için olmalı: `hektor kademe2-kayit --data-sha …`.
 
-### 2026-10-05 — Sohbetten Öğrenme Faz 1 (dal `claude/hektor-learning-from-chat-f23206`, main'e birleşmedi)
+### 2026-10-05 — Sohbetten Öğrenme Faz 1 (#30 ile main'e birleşti)
 
 Tek ana sohbet (**00 · SOHBET**, Ollama+RAG, geçmişli, model kimlikli) + **16 · ÖĞRENME
 HAVUZU**. Yalnız **Öğrensin/Düzelt** aday üretir; Faydalı/Hatalı üretmez. Kapsamlı LLM'siz
@@ -78,6 +78,41 @@ sohbet kirası ↔ başlatma kilidi. Eğitim/etkinleştirme/bulut YOK (Faz 2/3).
 `scripts/chat_learning_rollback.py`. **8765'teki web süreci yeniden başlatılmadı**; yeni uçlar
 için birleştirme sonrası güvenli bir zamanda yeniden başlatma gerekir. Canlı 30B tur, "Kaynak
 ölç" ve eğitim sırasındaki davranış gerçek Ollama ile ölçülmedi.
+
+### 2026-10-04 — araştırma motorları ve sürüş görünürlüğü
+
+Araştırma ana motoru eğitim sürücüsünden ayrıldı: Codex, Claude Code, sürümü
+kısıtlı Gemini CLI ve yerel Ollama plan incelemesi. Kurulu olmayan motorlar gerekçeli
+kapalıdır; ikinci inceleyici kapalı metni artık bağlantı yok izlenimi vermez.
+Autodrive HTTP kabulü ile süreç kaydı arasındaki yarış kapatıldı; aynı koşuya ikinci
+istek 409 alır, sayfa yenilemesi sürüş göstergesini geri yükler. Bu bir kesintisizlik
+veya otomatik eğitim yeniden başlatma garantisi değildir.
+Öğrenme'den doğrudan model sohbetine bağlantı var; API v14/v13/v12/v11 adapter'larını
+listeliyor. PEFT sohbeti Ollama gerektirmez; model değişiminde eski önbellek yeni
+model yüklenmeden bırakılır. Aktif eğitim sırasında sohbet 409 ile bekletilir;
+bu kontrol tüm süreçler arasında atomik kaynak kilidi değildir.
+Canlı araştırma eğitim başlatma kilidini bekliyor; kilit/STOP/onay değiştirilmedi.
+Doğrulama: tam koşuda 2907 geçti; eski limit=1 varsayımını kontrol eden tek test yeni
+koşu seçimine uyarlandı ve ilgili 73 test geçti. Ruff (ilgisiz tmp hariç), format,
+mypy 271 kaynak, JS sözdizimi ve MCP 22 araç üretimi geçti. Canlı web yeniden açıldı;
+motor seçenekleri ve Öğrenme → V14 seçili sohbet geçişi tarayıcıda doğrulandı.
+Gerçek CLI/Ollama araştırma incelemesi ve PEFT cevap üretimi bu doğrulamaya dahil değil.
+
+
+### 2026-10-03 — araştırma paketinin Öğrenme sekmesine entegrasyonu
+
+Öğrenme sekmesinde paket durumu, motorlar, sıradaki aşama, engeller ve son yönetici
+kontrolü görünür; 15 saniyelik salt-okunur yenileme ve Ajan Haritası yönetim bağlantısı
+eklendi. Doğrudan `#sekme=learning` ile açılışta eğitim grafikleri/sayaçların yüklenmemesi
+düzeltildi. Eski RAG döngüsünün web kapanınca da süreceği yönündeki metin düzeltildi.
+Yerel web 8765 açık, araştırma yöneticisi Codex ile etkin fakat eğitim başlatma kilidi
+nedeniyle bekliyor. Kilit/STOP/.env değiştirilmedi; gerçek araştırma turu başlamadı.
+v14 eğitim günlüğü 3 Ekim 20:35'te 187/187 adım ve adapter kaydını bildiriyor;
+adayın karşılaştırmalı değerlendirmesi ayrı iştir.
+Doğrulama: çevrimdışı tam paket 2900 geçti / 4 dışlandı; araştırma testleri ayrıca
+38 geçti. Mypy (269 kaynak), JS sözdizimi ve tarayıcıda doğrudan bağlantı + yönetim
+geçişi doğrulandı. Ruff kaynak kontrolleri geçti; depo-geneli komutun karşılaştığı
+ilgisiz yerel `tmp/pdfs/build_v13.py` biçim/lint hataları bu değişikliğe dahil edilmedi.
 
 ### 2026-10-01 — tek tuş araştırma paketi (doğrulandı; eğitim sonrası canlı pilot bekliyor)
 

@@ -10,6 +10,8 @@ Kimlik doğrulama: `require_auth` (token boşsa lokal-açık, mevcut davranışl
 
 from __future__ import annotations
 
+import logging
+import threading
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -21,6 +23,18 @@ from app.web.security import require_auth, require_human
 router = APIRouter(
     prefix="/api/orchestration", tags=["orchestration"], dependencies=[Depends(require_auth)]
 )
+
+
+# HTTP kabulü ile Popen kaydı arasındaki pencereyi de kapsayan sürüş kaydı.
+_drive_lock = threading.Lock()
+_drives: set[str] = set()
+
+
+def _driver_running(run_id: str) -> bool:
+    from app.orchestration import engine_procs
+
+    with _drive_lock:
+        return run_id in _drives or engine_procs.is_run_live(run_id)
 
 
 class OrchestrationStartRequest(BaseModel):
@@ -85,9 +99,7 @@ def orchestration_status(run_id: str) -> dict[str, Any]:
     snap = orch.status(run_id)
     if snap.get("run") is None:
         raise HTTPException(status_code=404, detail=f"Koşu bulunamadı: {run_id}")
-    from app.orchestration import engine_procs
-
-    snap["driver_running"] = engine_procs.is_run_live(run_id)
+    snap["driver_running"] = _driver_running(run_id)
     return snap
 
 
@@ -127,12 +139,10 @@ def orchestration_resume(
 @router.get("/runs")
 def orchestration_runs(limit: int = 20) -> dict[str, Any]:
     """Son orkestrasyon koşularını listele."""
-    from app.orchestration import engine_procs
-
     orch = _orchestrator()
     runs = orch.list_runs(limit=limit)
     for run in runs:
-        run["driver_running"] = engine_procs.is_run_live(str(run.get("run_id", "")))
+        run["driver_running"] = _driver_running(str(run.get("run_id", "")))
     return {"runs": runs}
 
 
@@ -158,7 +168,16 @@ def _run_autodrive_bg(run_id: str, engine: str, mode: str) -> None:
     """Arka plan: gerçek otonom sürüş (uzun sürer). Olaylar timeline'a yazılır."""
     from app.orchestration.driver import AutoDriver
 
-    AutoDriver().drive(run_id, execute=True, engine=engine, mode=mode)
+    try:
+        AutoDriver().drive(run_id, execute=True, engine=engine, mode=mode)
+    except Exception:
+        logging.getLogger(__name__).exception("Arka plan sürüşü kesildi: %s", run_id)
+        _orchestrator().store.add_event(
+            run_id, "drive", "error", "Arka plan sürüşü kesildi; sunucu günlüğünü inceleyin."
+        )
+    finally:
+        with _drive_lock:
+            _drives.discard(run_id)
 
 
 # ⛔ `human_only`: bu uç gerçek bir `claude -p` ALT-SÜRECİ doğurur. Sür (drive) modunda
@@ -223,7 +242,18 @@ def orchestration_autodrive(
                 ),
             )
 
-    background.add_task(_run_autodrive_bg, run_id, engine_name, req.mode)
+    from app.orchestration import engine_procs
+
+    with _drive_lock:
+        if run_id in _drives or engine_procs.is_run_live(run_id):
+            raise HTTPException(status_code=409, detail="Bu koşunun sürücüsü zaten devrede.")
+        _drives.add(run_id)
+    try:
+        background.add_task(_run_autodrive_bg, run_id, engine_name, req.mode)
+    except Exception:
+        with _drive_lock:
+            _drives.discard(run_id)
+        raise
     return {
         "ok": True,
         "status": "autodrive_started",

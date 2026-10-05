@@ -216,6 +216,10 @@
     if (name === "feedback") loadFeedback();
     if (name === "sentinel") loadSentinel();
     if (name === "agentmap") loadAgentMap();
+    if (name === "learning") {
+      loadLearningDashboard();
+      loadRagLoopStatus();
+    }
   }
 
   function showGroupTabs(groupKey) {
@@ -576,9 +580,19 @@
           sel.value = adapters[0];
         }
       })
-      .catch(function () {});
+      .catch(function (e) { toast("Eğitilen modeller alınamadı: " + e.message, true); });
   }
 
+  var modelChatLink = document.getElementById("lrnModelChatLink");
+  if (modelChatLink) modelChatLink.addEventListener("click", function () {
+    setTimeout(function () {
+      var tmc = document.getElementById("trainedModelChat");
+      // Bölüm katlanır <details> (Gelişmiş / teşhis); bağlantıdan gelince açılsın.
+      if (tmc && "open" in tmc) tmc.open = true;
+      if (tmc) tmc.scrollIntoView({ behavior: "smooth" });
+      document.getElementById("loraChatQuestion").focus({ preventScroll: true });
+    }, 0);
+  });
   var loraChatForm = document.getElementById("loraChatForm");
   if (loraChatForm) {
     loraChatForm.addEventListener("submit", function (e) {
@@ -3097,6 +3111,7 @@
   let _lrnRuns = [];
 
   async function loadLearningDashboard() {
+    rpRefresh();
     try {
       const [sum, evalData, runsData, growthData, undData] = await Promise.all([
         api('/learning/summary', { method: 'GET' }),       // api() = auth header + hata
@@ -3139,11 +3154,7 @@
   const lrnRefreshBtn = document.getElementById('lrnRefreshBtn');
   if (lrnRefreshBtn) lrnRefreshBtn.addEventListener('click', loadLearningDashboard);
 
-  // Auto-load when tab is clicked
-  document.querySelectorAll('.tab[data-tab="learning"]').forEach(btn => {
-    btn.addEventListener('click', loadLearningDashboard);
-    btn.addEventListener('click', loadRagLoopStatus);
-  });
+  // Tıklama, doğrudan bağlantı ve geri/ileri gezinme ortak runTabLoader yolundadır.
 
   // ---------- RAG öğrenme döngüsü (otonom, sunucu-taraflı) ----------
   var _RAG_STAGE_LABELS = {
@@ -3300,7 +3311,10 @@
   // ÖĞRENME sekmesi açıkken döngü durumunu canlı tut.
   setInterval(function () {
     var panel = document.getElementById('panel-learning');
-    if (panel && panel.classList.contains('active')) loadRagLoopStatus();
+    if (panel && panel.classList.contains('active')) {
+      loadRagLoopStatus();
+      rpRefresh();
+    }
   }, 15000);
 
   // ---------- egitim rozeti (ust bar) ----------
@@ -4943,9 +4957,11 @@
   // aşamasında DURUR (Kural 8). Burada hattın son koşusuna bakıp, kapıda bekliyorsa
   // "ONAYLA VE EĞİTİMİ BAŞLAT" kutusunu açarız — onayı İNSAN verir, motor değil.
   function amRefreshGate() {
-    return api("/orchestration/runs?limit=1")
+    return api("/orchestration/runs?limit=20")
       .then(function (d) {
-        var run = ((d && d.runs) || [])[0] || null;
+        var runs = (d && d.runs) || [];
+        var run = runs.find(function (r) { return r.run_id === amCurrentRun; }) ||
+          runs.find(function (r) { return r.driver_running; }) || runs[0] || null;
         amGateRun = run;
         var box = document.getElementById("amGate");
         var info = document.getElementById("amGateInfo");
@@ -4961,6 +4977,7 @@
         }
         // Orkestrasyon insan kapısında `blocked` olabilirken motor hâlâ çalışabilir.
         // Şeridi DB durumundan değil, sunucunun gerçek alt-süreç kaydından sür.
+        if (run && run.driver_running) amSetLive(true);
         if (amDriving) {
           if (run && run.driver_running) {
             var live = document.getElementById("amLiveText");
@@ -5123,50 +5140,92 @@
       sel.value = prev;
     }
     amRenderEngineNote();
-    var peer = document.getElementById("rpPeer");
-    var previousPeer = peer.value;
-    peer.innerHTML = '<option value="">Yok</option>';
-    amEngines.forEach(function (e) {
-      if (!e.selectable) return;
-      var option = document.createElement("option");
-      option.value = e.name;
-      option.textContent = e.label;
-      peer.appendChild(option);
-    });
-    peer.value = previousPeer;
+
   }
 
   var rpBusy = false;
   var rpEnabled = false;
+  var rpEngines = [];
+  function rpEngineNote() {
+    var name = document.getElementById("rpEngine").value;
+    document.getElementById("rpEngineInfo").textContent = rpEngines.map(function (e) {
+      return e.label + ": " + (e.blocked_reason || e.connection_note || "") +
+        (!e.selectable && e.install_hint ? " " + e.install_hint : "") +
+        (e.name === name ? " (seçili)" : "");
+    }).join("\n");
+  }
+  function rpRenderEngines(d, state) {
+    rpEngines = d.engines || [];
+    ["rpEngine", "rpPeer"].forEach(function (id, index) {
+      var sel = document.getElementById(id);
+      var previous = state.enabled ? (state.engines || [])[index] || "" : sel.value;
+      sel.replaceChildren();
+      if (index) {
+        var empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "Tek motorla çalış (ikinci inceleyici kapalı)";
+        sel.appendChild(empty);
+      }
+      rpEngines.forEach(function (e) {
+        var option = document.createElement("option");
+        option.value = e.name;
+        option.textContent = e.label + (e.selectable ? "" : " — kullanılamaz");
+        option.disabled = !e.selectable;
+        sel.appendChild(option);
+      });
+      var keep = rpEngines.some(function (e) { return e.name === previous && (state.enabled || e.selectable); });
+      var first = rpEngines.find(function (e) { return e.selectable; });
+      sel.value = keep ? previous : (index ? "" : (first ? first.name : ""));
+      sel.disabled = rpBusy || !!state.enabled;
+    });
+    document.getElementById("rpEngine").onchange = rpEngineNote;
+    rpEngineNote();
+  }
   function rpRender(d) {
     var state = d.service || {};
     var plan = d.plan || {};
     rpEnabled = !!state.enabled;
+    rpRenderEngines(d, state);
     var labels = { disabled: "Kapalı", armed: "Kuruldu", waiting: "Bekliyor", running: "Çalışıyor", idle: "Sıradaki zamanı bekliyor", backoff: "Hata sonrası bekliyor", needs_attention: "İnceleme gerekiyor" };
     var stages = { discovery: "Makale arama", ingestion: "RAG işleme", cards: "Bilgi kartları", data: "Aday veri", methods: "Yöntem araştırması", report: "Rapor" };
-    document.getElementById("rpStatus").textContent = (labels[state.status] || state.status) +
+    var summary = (labels[state.status] || state.status || "Bilinmiyor") +
       " · Motorlar: " + (state.engines || []).join(" + ") +
       " · Sıradaki: " + (stages[plan.next_stage] || "Planlanan zamanı bekliyor");
     var lines = (plan.blocked || []).slice();
+    if (lines.indexOf("Eğitim başlatma kilidi var.") !== -1) {
+      lines.push("Eğitim bitmiş olsa da başlatma kilidi işi engeller. Kilit otomatik kaldırılmaz; süreç ve tamamlanma kayıtları incelenmelidir.");
+    }
+    if (state.last_checked) lines.push("Son yönetici kontrolü: " + new Date(state.last_checked * 1000).toLocaleString("tr-TR"));
+    if (state.retry_after > Date.now() / 1000) lines.push("Yeniden deneme: " + new Date(state.retry_after * 1000).toLocaleString("tr-TR"));
+    if (state.last_error) lines.push("Yönetici hatası: " + state.last_error);
+    var outcome = state.last_result && state.last_result.outcome;
+    if (outcome && outcome.error) lines.push("Son tur hatası: " + outcome.error);
     Object.keys(plan.state || {}).forEach(function (stage) {
       var row = plan.state[stage];
       lines.push((stages[stage] || stage) + ": " + row.status +
         (row.result && row.result.error ? " — " + row.result.error : ""));
     });
     (state.last_reviews || []).forEach(function (r) { lines.push(r.engine + ": " + r.reason); });
-    document.getElementById("rpDetails").textContent = lines.join("\n");
+    ["rpStatus", "lrnResearchStatus"].forEach(function (id) {
+      document.getElementById(id).textContent = summary;
+    });
+    ["rpDetails", "lrnResearchDetails"].forEach(function (id) {
+      document.getElementById(id).textContent = lines.join("\n");
+    });
     document.getElementById("rpStart").disabled = rpBusy || rpEnabled;
     document.getElementById("rpStop").disabled = rpBusy || !rpEnabled;
     document.getElementById("rpPeer").disabled = rpBusy || rpEnabled;
   }
   function rpRefresh() {
     return api("/research-package/status").then(rpRender).catch(function (e) {
-      document.getElementById("rpStatus").textContent = "Araştırma durumu alınamadı: " + e.message;
+      ["rpStatus", "lrnResearchStatus"].forEach(function (id) {
+        document.getElementById(id).textContent = "Araştırma durumu alınamadı: " + e.message;
+      });
     });
   }
   function rpControl(action) {
     if (rpBusy) return;
-    var selected = amSelectedEngine();
+    var selected = rpEngines.find(function (e) { return e.name === document.getElementById("rpEngine").value && e.selectable; });
     if (action === "start" && !selected) { toast("Önce kullanılabilir bir motor seç.", true); return; }
     var names = selected ? [selected.name] : [];
     var peer = document.getElementById("rpPeer").value;
@@ -5457,6 +5516,7 @@
       er._wired = true;
       er.addEventListener("click", function () {
         amLoadEngines(true).then(function () {
+          rpRefresh();
           toast("Motorlar yeniden tarandı.");
         });
       });

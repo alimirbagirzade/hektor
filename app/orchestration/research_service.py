@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import tempfile
 import threading
 import time
 import uuid
@@ -14,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.orchestration import engine_procs, engines
+from app.orchestration import engine_procs, research_engines
 from app.orchestration.research_package import (
     PackageConfig,
     Stage,
@@ -88,7 +89,12 @@ class ResearchService:
             state["status"] = "needs_attention"
         elif plan["blocked"]:
             state["status"] = "waiting"
-        return {"service": state, "plan": plan, "running": self._cycle_lock.locked()}
+        return {
+            "service": state,
+            "plan": plan,
+            "running": self._cycle_lock.locked(),
+            "engines": research_engines.describe_all(),
+        }
 
     def start(self, selected: list[str]) -> dict[str, Any]:
         """Kurulu/kısıtlı motorları doğrula; eğitime rağmen yalnız BEKLEMEYE kurulabilir."""
@@ -96,7 +102,7 @@ class ResearchService:
             raise ValueError("Bir veya iki farklı motor seçilmeli.")
         PackageConfig.model_validate(read_json(self.config_path))
         for name in selected:
-            reason = engines.run_blocked_reason(name)
+            reason = research_engines.blocked_reason(name)
             if reason:
                 raise ValueError(reason)
         with self._state_lock:
@@ -172,20 +178,29 @@ class ResearchService:
             reasons = blockers(self.root, cfg)
             if self._stopped() or reasons:
                 raise RuntimeError("İnceleme bekletildi: " + "; ".join(reasons))
-            reason = engines.run_blocked_reason(name)
+            reason = research_engines.blocked_reason(name)
             if reason:
                 raise RuntimeError(reason)
             token = driver_scope.mint(run_id, ttl_s=600)
             try:
-                rc, output = _default_runner(
-                    engines.build_command(name, prompt),
-                    300,
-                    build_child_env(token, run_id),
-                    run_id=run_id,
-                    stop_requested=lambda: self._stopped() or bool(blockers(self.root, cfg)),
-                    # Codex stderr'e istemi de basabilir; karar yalnız son yanıt stdout'undan.
-                    stdout_only=True,
-                )
+                with tempfile.TemporaryDirectory(prefix="hektor-review-") as temp:
+                    command, env, cwd = research_engines.prepare(
+                        name,
+                        prompt,
+                        cfg.teacher_model,
+                        cfg.seed,
+                        build_child_env(token, run_id),
+                        Path(temp),
+                    )
+                    rc, output = _default_runner(
+                        command,
+                        300,
+                        env,
+                        run_id=run_id,
+                        stop_requested=lambda: self._stopped() or bool(blockers(self.root, cfg)),
+                        stdout_only=True,
+                        cwd=cwd,
+                    )
             finally:
                 driver_scope.revoke_run(run_id)
             if rc:

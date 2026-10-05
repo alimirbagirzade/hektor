@@ -5,12 +5,23 @@ yeni ağır eğitim için öneri sunulur. Paket mevcut eğitimler tamamlanmadan 
 
 ## Web'den tek tuş
 
-`15 · AJAN HARİTASI` → Motor seç → **Araştırma döngüsünü çalıştır**.
+`09 · ÖĞRENME` sekmesinin üstündeki **Eğitim sonrası araştırma paketi** kartı,
+aynı yöneticinin durumunu, bekleme nedenlerini, son kontrol ve yeniden deneme
+zamanını gösterir. Sekme açıkken 15 saniyede yenilenir; **Araştırma paketini yönet**
+bağlantısı motor seçimi ve başlat/durdur kontrollerine götürür. İkinci döngü başlatmaz.
+Eğitim bitse bile başlatma kilidi mevcutsa paket bekler; web kilidi temizlemez.
+
+`15 · AJAN HARİTASI` → **Araştırma ana motoru** seç → **Araştırma döngüsünü çalıştır**.
 İsteğe bağlı ikinci motor bağımsız plan incelemesi yapar; aynı motor iki kez seçilemez.
 Kurulu ve kısıtlanabilir Codex/Claude CLI'ları kendi abonelik oturumlarını kullanır.
 CLI kurulu değilse seçim kapalıdır; oturum/kota hatası çalıştırma sırasında raporlanır.
-Gemini'nin güvenli çalıştırma profili olmadığı için seçim kapalı kalır. API anahtarı
-ve bulut SDK eklenmez; RAG/kart/veri üreticisi yerel Ollama'dır.
+Gemini araştırma profili yalnız `@google/gemini-cli 0.62.0` + Node.js için açılır;
+araçlar, MCP, uzantılar ve hook'lar kapatılır, OAuth hesabı kullanılır. Başka sürüm
+profil doğrulanmadan seçilemez. Bu makinede Gemini kurulu olmadığından canlı abonelik
+çağrısı doğrulanmadı. Ollama da ayrı yerel plan inceleyicisi olarak seçilebilir;
+reçetedeki temel model kullanılır. Kurulum bilgisi giriş/kota/erişim garantisi değildir.
+API anahtarı ve bulut SDK eklenmez; RAG/kart/veri üreticisi yerel Ollama'dır.
+İkinci inceleyicinin kapalı olması ana motorun bağlantısız olduğu anlamına gelmez.
 
 Çalıştır, `service.json` içine etkinliği kaydeder. Eğitim varsa **Bekliyor** gösterir;
 CLI incelemesi bile başlamaz. Koşullar sağlanınca her turda önce motor(lar) planı

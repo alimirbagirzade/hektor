@@ -443,7 +443,8 @@ def test_gate_only_opens_when_blocked_at_approval() -> None:
     """Kutu YALNIZ koşu approval/train aşamasında BLOCKED iken açılır (yanlışlıkla açılmasın)."""
     js = _appjs()
     seg = js[js.index("function amRefreshGate") : js.index("function amApproveAndTrain")]
-    assert '"/orchestration/runs?limit=1"' in seg
+    assert '"/orchestration/runs?limit=20"' in seg
+    assert "r.run_id === amCurrentRun" in seg
     assert 'run.status === "blocked"' in seg
     assert 'run.current_stage === "approval"' in seg
     assert 'run.current_stage === "train"' in seg

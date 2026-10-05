@@ -25,7 +25,7 @@ def manager(tmp_path, monkeypatch):
         wait_for_adapters=["v14"], interval_hours=dict.fromkeys(package.STAGES, 1)
     )
     package.write_json(obj.config_path, cfg.model_dump())
-    monkeypatch.setattr(service.engines, "run_blocked_reason", lambda name: None)
+    monkeypatch.setattr(service.research_engines, "blocked_reason", lambda name: "")
     monkeypatch.setattr(service, "blockers", lambda *a, **kw: [])
     monkeypatch.setattr(package, "blockers", lambda *a, **kw: [])
     return obj
@@ -66,7 +66,7 @@ def test_invalid_engines_cannot_enable(manager, monkeypatch):
     for names in ([], ["codex", "codex"], ["codex", "claude", "gemini"]):
         with pytest.raises(ValueError):
             manager.start(names)
-    monkeypatch.setattr(service.engines, "run_blocked_reason", lambda name: "Kurulu değil")
+    monkeypatch.setattr(service.research_engines, "blocked_reason", lambda name: "Kurulu değil")
     with pytest.raises(ValueError, match="Kurulu değil"):
         manager.start(["claude"])
     assert not manager.path.exists()

@@ -761,8 +761,14 @@ def api_lora_chat(req: LoraChatRequest) -> LoraChatResponse:
     AĞIR: CPU'da model yükleme (ilk istek) + üretim dakikalar sürebilir. Senkron `def` →
     FastAPI bunu threadpool'da koşturur, event loop bloklanmaz.
     """
+    from app.training.detached_launch import is_running
     from app.web.lora_chat_service import chat
 
+    if is_running():
+        raise HTTPException(
+            status_code=409,
+            detail="Eğitim sürüyor; LoRA sohbetini eğitim bitince tekrar deneyin.",
+        )
     try:
         out = chat(
             req.question,
