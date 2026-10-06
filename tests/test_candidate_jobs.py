@@ -109,6 +109,35 @@ def test_success_requires_post_verification(env, monkeypatch) -> None:
     assert done["status"] == "done" and done["verification"]["digest"] == "c" * 64
 
 
+def test_concurrent_poll_and_update_never_loses_job(iso) -> None:  # noqa: F811
+    """Yoklama (okuma) ↔ çalıştırıcı yazımı yarışı: Windows'ta açık dosyaya ``os.replace``
+    PermissionError verir. İş ne "yok" görünmeli ne de sonuç yazımı düşmeli."""
+    import threading
+
+    job_id = "job_" + "0" * 12
+    cj._write(cj._path(job_id), {"job_id": job_id, "n": 0})
+    errors: list[BaseException] = []
+    stop = threading.Event()
+
+    def writer() -> None:
+        try:
+            for n in range(1, 301):
+                cj._update(job_id, n=n)
+        except BaseException as exc:  # yarış hatası teste taşınsın
+            errors.append(exc)
+        finally:
+            stop.set()
+
+    t = threading.Thread(target=writer)
+    t.start()
+    misses = 0
+    while not stop.is_set():
+        misses += cj._read(cj._path(job_id)) is None
+    t.join()
+    assert not errors and misses == 0
+    assert (cj._read(cj._path(job_id)) or {}).get("n") == 300
+
+
 def test_nonzero_exit_is_failed(env, monkeypatch) -> None:
     j = _start(monkeypatch, _py("import sys; print('2/5'); sys.exit(3)"))
     done = _wait(j["job_id"])
