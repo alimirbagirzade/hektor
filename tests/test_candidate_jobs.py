@@ -329,6 +329,53 @@ def test_unreadable_fresh_record_never_marks_lost(iso, monkeypatch) -> None:  # 
     assert (cj._read(cj._path(job_id)) or {})["status"] == "failed"  # dosyada ezilmedi
 
 
+def test_stop_while_starting_never_runs_command(iso, tmp_path) -> None:  # noqa: F811
+    """Durdurma iş "starting" iken gelirse çalıştırıcı komutu HİÇ başlatmaz (arayüz
+    "durduruldu" derken iş arka planda koşmaz)."""
+    job_id = "job_" + "7" * 12
+    marker = tmp_path / "kostu.txt"
+    cj._write(
+        cj._path(job_id),
+        {
+            "job_id": job_id,
+            "kind": "conversion",
+            "status": "stopping",  # stop_job "starting"i yakaladı, çalıştırıcı henüz koşmadı
+            "cmd": _py(f"open({str(marker)!r}, 'w').write('x')"),
+            "log_path": str(cj.jobs_dir() / f"{job_id}.log"),
+        },
+    )
+    assert cj.run(job_id) == 0
+    assert not marker.exists()
+    assert (cj._read(cj._path(job_id)) or {})["status"] == "stopped"
+
+
+def test_stop_never_kills_pid_without_recorded_create_time(iso, monkeypatch) -> None:  # noqa: F811
+    """Başlangıç zamanı kayıtlı olmayan PID bu işe ait doğrulanamaz (yeniden kullanılmış
+    olabilir) → durdurma ona dokunmaz, "doğrulanamadı" olarak kaydeder."""
+    import os
+
+    job_id = "job_" + "8" * 12
+    _fake_running_job(job_id)
+    cj._update(job_id, runner_pid=os.getpid(), runner_create_time=None, child_pid=os.getpid())
+    monkeypatch.setattr(cj, "_kill_tree", lambda pid: pytest.fail("doğrulanmamış PID öldürüldü"))
+    got = cj.stop_job(job_id, "test")
+    assert got["status"] == "stopped" and got["killed_pids"] == []
+    assert got["unverified_pids"] == [os.getpid(), os.getpid()]
+
+
+def test_activation_refusal_is_job_error_not_500(env, monkeypatch) -> None:
+    """E-8a: ayardaki pilot ana model ``resolve_chat_tag``'te ActivationError verir; iş
+    başlatma bunu kullanıcıya gösterilen JobError'a çevirir (ham 500 değil)."""
+    from app.feedback.model_activation import ActivationError
+
+    def refuse(slot="main", root=None):
+        raise ActivationError("Ayardaki ana model — pilot")
+
+    monkeypatch.setattr("app.feedback.model_activation.resolve_chat_tag", refuse)
+    with pytest.raises(cj.JobError, match="pilot"):
+        _start(monkeypatch, _py("pass"))
+
+
 def test_dead_runner_without_result_is_still_lost(iso, monkeypatch) -> None:  # noqa: F811
     job_id = "job_" + "2" * 12
     _fake_running_job(job_id)
