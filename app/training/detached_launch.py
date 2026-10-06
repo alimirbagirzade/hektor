@@ -671,6 +671,8 @@ def plan_iterations(n_train: int, max_examples: int, profile: str | None) -> tup
 # Üst sınır yalnız takılan alt süreç için (dolarsa eski davranış: canlıysa başlatıldı sayılır).
 _EARLY_EXIT_WAIT_S = 180.0
 GATES_MARKER_ENV = "HEKTOR_TRAIN_GATES_MARKER"
+# Kademe 2 L-2: üst sürecin tükettiği onayın kimliği → alt süreç `train --run` doğrular.
+APPROVAL_ENV = "HEKTOR_TRAIN_APPROVAL_ID"
 _EARLY_EXIT_HINTS = {
     3: "taze insan onayı gerekiyor (Kural 8)",
     4: "train-load-doctor NO-GO (rakip GPU/LLM yükü) — ayrıntı logs/train-full.log",
@@ -988,6 +990,8 @@ def launch(
         # Ortak kilit alt sürece devredilir: `train --run` bu token'la kilidi DEVRALIR,
         # kendi başına ikinci kilit almaya çalışmaz.
         env[resource_lock.TOKEN_ENV] = lock_token
+        # Kilit belirteci onay kanıtı DEĞİL (L-2): alt süreç bu onay kaydını yeniden doğrular.
+        env[APPROVAL_ENV] = approval_id or ""
         gates_marker = root / "storage" / f"train_gates_{lock_token[:12]}.ok"
         with contextlib.suppress(OSError):
             gates_marker.unlink()

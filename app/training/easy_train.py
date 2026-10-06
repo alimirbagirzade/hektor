@@ -444,6 +444,23 @@ def record_kademe2(
             f"Reçeteye sınırlı risk kabulü ({', '.join(map(str, limited))}): kayıt YALNIZ "
             "--recipe-sha ile yazılabilir (--data-sha verilmez)."
         )
+    if limited:
+        # İnceleme kararı (2026-10-06): sınırlı kabul REÇETEYE değil, SAYISAL SINIRA verilir
+        # ("64 örnek, en fazla 8 optimizer adımı"). Kabul o sınırı yazılı taşır ve reçetenin
+        # FİİLEN eğiteceği örnek/adım sayısı burada sınıra karşı denetlenir.
+        _check_limited_bounds(findings, scope["recipe_sha"])
+    unknown = [
+        f"{f.get('id')}:{c}" for f in findings for c in _conditions(f) if c not in CONDITIONS
+    ]
+    if unknown:
+        raise EasyTrainError(
+            f"Tanımsız koşul ({', '.join(unknown)}): 'kosul' {sorted(CONDITIONS)} olmalı."
+        )
+    failed = _failed_conditions(findings)
+    if failed:
+        raise EasyTrainError(
+            f"Koşul şu an sağlanmıyor ({', '.join(failed)}) — bu bulgu kapsam dışı sayılamaz."
+        )
     open_ = [f for f in findings if f.get("status") not in CLOSED_FINDING]
     if open_:
         raise EasyTrainError(
@@ -466,6 +483,93 @@ def record_kademe2(
     }
     _write(kademe2_dir() / f"{rec['record_id']}.json", rec)
     return rec
+
+
+LIMIT_KEYS = ("max_examples", "max_optimizer_steps")
+
+
+def _cloud_off() -> bool:
+    return not get_settings().cloud_second_opinion
+
+
+# Kapsam dışı kararının dayandığı, kod tarafından HER kontrolde yeniden doğrulanan koşullar.
+# Koşul bozulursa (ör. bulut ikinci görüş açıldı) kayıt artık eğitimi kapsamaz → yeniden
+# değerlendirme zorunlu (inceleme kararı, C-1/C-5/C-6).
+CONDITIONS: dict[str, Callable[[], bool]] = {"bulut_kapali": _cloud_off}
+
+
+def _conditions(finding: dict[str, Any]) -> list[str]:
+    k = finding.get("kosul") or []
+    return [k] if isinstance(k, str) else [str(x) for x in k]
+
+
+def _failed_conditions(findings: list[dict[str, Any]]) -> list[str]:
+    out = []
+    for f in findings:
+        for c in _conditions(f):
+            check = CONDITIONS.get(c)
+            if check is None or not check():
+                out.append(f"{f.get('id')}:{c}")
+    return out
+
+
+def recipe_training_size(recipe: dict[str, Any]) -> dict[str, int]:
+    """Reçetenin FİİLEN eğiteceği örnek, mikro-adım ve optimizer adımı sayısı."""
+    from app.training.detached_launch import plan_iterations
+    from app.training.peft_lora_train import load_lora_profile, optimizer_steps
+
+    micro, n_eff, epochs = plan_iterations(
+        int(recipe["n_train"]), int(recipe.get("max_examples") or 0), recipe.get("profile")
+    )
+    ga = 1
+    if recipe.get("profile"):
+        ga = int(load_lora_profile(str(recipe["profile"])).get("gradient_accumulation_steps") or 1)
+    return {
+        "examples": n_eff,
+        "micro_steps": micro,
+        "epochs": epochs,
+        "grad_accum": ga,
+        "optimizer_steps": optimizer_steps(micro, ga),
+    }
+
+
+def _check_limited_bounds(findings: list[dict[str, Any]], recipe_sha: str) -> None:
+    try:
+        recipe = _snapshot(f"snap_{recipe_sha[:16]}")
+    except EasyTrainError as exc:
+        raise EasyTrainError(f"Sınırlı risk kabulü: reçete doğrulanamadı ({exc}).") from exc
+    if recipe.get("recipe_sha") != recipe_sha:
+        raise EasyTrainError("Sınırlı risk kabulü: reçete özeti anlık görüntüyle tutmuyor.")
+    if int(recipe.get("max_examples") or 0) <= 0:
+        raise EasyTrainError(
+            "Sınırlı risk kabulü örnek tavansız (max_examples=0) reçeteye verilemez — pilot "
+            "reçetesi açık bir örnek tavanı taşımalı."
+        )
+    size = recipe_training_size(recipe)
+    for f in findings:
+        if not _recipe_limited(f):
+            continue
+        bound = f.get("sinir")
+        if not isinstance(bound, dict) or not all(
+            isinstance(bound.get(k), int) and bound[k] > 0 for k in LIMIT_KEYS
+        ):
+            raise EasyTrainError(
+                f"{f['id']}: yalnız-reçete risk kabulü sayısal sınır taşımalı — "
+                '"sinir": {"max_examples": N, "max_optimizer_steps": M}.'
+            )
+        over = []
+        if size["examples"] > bound["max_examples"]:
+            over.append(f"{size['examples']} örnek > {bound['max_examples']}")
+        if size["optimizer_steps"] > bound["max_optimizer_steps"]:
+            over.append(
+                f"{size['optimizer_steps']} optimizer adımı > {bound['max_optimizer_steps']}"
+            )
+        if over:
+            raise EasyTrainError(
+                f"{f['id']}: reçete kabul sınırını aşıyor ({'; '.join(over)}) — kabul bu "
+                "reçeteye uygulanamaz."
+            )
+        f["sinir_dogrulama"] = size
 
 
 def _recipe_limited(finding: dict[str, Any]) -> bool:
@@ -501,6 +605,8 @@ def latest_kademe2(code_sha: str, recipe_sha: str = "", data_sha: str = "") -> d
             continue
         if any(f.get("status") not in CLOSED_FINDING for f in r.get("findings", [])):
             continue
+        if _failed_conditions(r.get("findings", [])):
+            continue  # kapsam dışı kararının koşulu bozuldu → yeniden değerlendirme gerekir
         sc = r.get("scope") or {}
         if any(_recipe_limited(f) for f in r.get("findings", [])):
             # Sınırlı kabul yalnız kendi reçetesini kapsar (elle düzenlenmiş kayıtta da).

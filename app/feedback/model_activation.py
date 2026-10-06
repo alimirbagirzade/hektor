@@ -202,13 +202,37 @@ def resolve_chat_tag(slot: str = "main", root: Path | None = None) -> str:
     entry = st.get(slot)
     if not entry:
         return ""
+    blocked = _baseline_pilot_block(slot, entry, root)
+    if blocked:
+        raise ActivationError(blocked)
     return str(entry.get("tag") or "")
+
+
+def _baseline_pilot_block(slot: str, entry: dict[str, Any], root: Path | None) -> str:
+    """Kademe 2 E-8a: ayardan (``.env`` → HEKTOR_CHAT_MODEL) gelen ana model pilot olamaz.
+
+    Etkinleştirme kayıtlı ana modeller ``activate_main``/``rollback_main``'de zaten denetlenir;
+    ayar yolu hiçbir kapıdan geçmediği için pilot etiketi elle yazılırsa sessizce ana model
+    olurdu. Bu yol da aynı ``pilot_block`` kararını uygular (deneme yuvası serbest).
+    """
+    if slot != "main" or entry.get("source") != "baseline":
+        return ""
+    tag = str(entry.get("tag") or "")
+    block = pilot_block(tag, "", root) if tag else ""
+    if not block:
+        return ""
+    return (
+        f"Ayardaki ana model ({entry.get('setting_source') or 'HEKTOR_CHAT_MODEL'}) — {block} "
+        "Ayarı temel modele geri al; pilotu yalnız deneme sohbetinde kullan."
+    )
 
 
 def describe_slot(slot: str = "main", root: Path | None = None) -> dict[str, Any]:
     st = load_state(root)
     entry = st.get(slot) or {}
+    blocked = _baseline_pilot_block(slot, entry, root) if entry else ""
     return {
+        **({"error": blocked} if blocked else {}),
         "slot": slot,
         "tag": entry.get("tag", ""),
         "source": entry.get("source", ""),
@@ -336,7 +360,9 @@ def _next_state(st: dict[str, Any]) -> dict[str, Any]:
     return nxt
 
 
-def pilot_block(tag: str, adapter_id: str = "", root: Path | None = None) -> str:
+def pilot_block(
+    tag: str, adapter_id: str = "", root: Path | None = None, *, adapter_name: str = ""
+) -> str:
     """Model reçeteye SINIRLI risk kabulüyle eğitilmiş (pilot) bir adapter'dan mı? (boş = hayır)
 
     Kademe 2 (2026-10-06) E-1, kullanıcı kararı: pilot hiçbir yoldan ana modele geçmez. Adapter
@@ -347,7 +373,7 @@ def pilot_block(tag: str, adapter_id: str = "", root: Path | None = None) -> str
     from app.training.candidate_checks import recipe_for_adapter
     from app.training.easy_train import recipe_has_limited_acceptance
 
-    names: set[str] = set()
+    names: set[str] = {adapter_name} if adapter_name else set()
     if adapter_id:
         rec = _registry(root).get(adapter_id)
         if rec is not None and rec.adapter_name:

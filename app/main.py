@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
@@ -17,6 +18,9 @@ from rich.panel import Panel
 from rich.table import Table
 
 from app.config import DEFAULT_TRAIN_PROFILE, configure_logging, get_settings
+
+if TYPE_CHECKING:
+    from app.training.train_guard import RecoveryVerdict
 
 app = typer.Typer(
     help="Hektor Trader AI — local-first trading research system.",
@@ -944,6 +948,40 @@ def _train_impl(
                 )
             )
         else:
+            # Kademe 2 L-2: kurtarma bayrağı (RECOVERY=1) yetki DEĞİL, iddiadır. Bu koşuya
+            # bağlı tüketilmiş onay burada, alt süreçte yeniden doğrulanır — nöbetçinin
+            # `train-recovery-check`'iyle aynı karar. Elle `SUPERVISED=1 RECOVERY=1` → çıkış 3.
+            if recovery:
+                _rv = _recovery_verdict(adapter_name, attempts_slack=1)
+                if not _rv.allowed:
+                    console.print(
+                        Panel.fit(
+                            f"{_rv.reason}\n"
+                            "Kurtarma yalnız onaylı, çökmüş bir koşu için geçerlidir. Yeni "
+                            "eğitim için bayraksız başlat: taze onay istenecek.",
+                            title="⛔ Kurtarma yetkisiz (Kural 8)",
+                            border_style="red",
+                        )
+                    )
+                    raise typer.Exit(3)
+                console.print(
+                    "[dim]Kurtarma: bu koşunun tüketilmiş onayı doğrulandı "
+                    f"({_rv.details.get('approval_id', '')}).[/dim]"
+                )
+            else:
+                _aid, _why = _launch_approval_check()
+                if _why:
+                    console.print(
+                        Panel.fit(
+                            f"{_why}\n"
+                            "Denetimli alt süreç yalnız üst sürecin az önce tükettiği onayla "
+                            "koşar. Yeni eğitim için bayraksız başlat: taze onay istenecek.",
+                            title="⛔ Üst süreç onayı doğrulanamadı (Kural 8)",
+                            border_style="red",
+                        )
+                    )
+                    raise typer.Exit(3)
+                console.print(f"[dim]Üst süreç onayı doğrulandı ({_aid}).[/dim]")
             console.print("[dim]Denetimli (supervised) eğitim — üst katman onayı kullanıldı.[/dim]")
 
         try:
@@ -5495,18 +5533,34 @@ def train_doctor(
         raise typer.Exit(1)
 
 
-@app.command("train-recovery-check")
-def train_recovery_check(
-    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir karar"),
-) -> None:
-    """Nöbetçi çöken eğitimi diriltmeye YETKİLİ mi? (SALT-OKUMA, fail-closed).
+def _launch_approval_check() -> tuple[str, str]:
+    """Üst süreçten gelen onay kimliği + sorun ("" = geçerli). Bkz. ``launch_approval_problem``."""
+    import datetime as _dt
+    import os as _os
 
-    `training-watchdog.ps1` bunu diriltmeden ÖNCE çağırır. Kurtarma Kural 8'den muaftır
-    ("onay zaten tüketilmişti") — ama bu cümle burada DOĞRULANIR: koşunun başlangıcına
-    denk gelen tüketilmiş bir onay yoksa, durum dosyası bayatsa ya da veri koşudan sonra
-    değiştiyse dirilme YOK. 2026-09-16'da onaysız bir koşu tam bu yolla 5,5 saat koştu.
+    from app.memory.sqlite_store import SqliteStore
+    from app.training.detached_launch import APPROVAL_ENV
+    from app.training.train_guard import launch_approval_problem
 
-    Çıkış kodu: 0 yetkili · 3 yetkisiz (nöbetçi diriltmez).
+    aid = _os.environ.get(APPROVAL_ENV, "").strip()
+    row = None
+    if aid:
+        try:
+            row = SqliteStore().get_approval_request(aid)
+        except Exception:
+            row = None  # okunamadı → doğrulanamaz → fail-closed
+    why = launch_approval_problem(row, now=_dt.datetime.now(_dt.UTC))
+    return aid, why or ""
+
+
+def _recovery_verdict(adapter_name: str = "", *, attempts_slack: int = 0) -> RecoveryVerdict:
+    """Diskteki durum dosyası + onay defterinden kurtarma yetkisi (fail-closed, salt-okuma).
+
+    ``train-recovery-check`` (nöbetçi, diriltmeden ÖNCE) ve ``train --run``'ın kurtarma dalı
+    (Kademe 2 L-2: ortam bayrağı tek başına onay yerine geçmesin) AYNI kararı kullanır.
+    ``adapter_name`` verilirse durum dosyasındaki koşuyla aynı olmalı. ``attempts_slack``:
+    start-train.ps1 alt süreci başlattıktan sonra deneme sayacını bir artırarak yazar; alt
+    süreçteki ikinci doğrulama bu artışı nöbetçinin zaten saydığı deneme olarak yok sayar.
     """
     import datetime as _dt
 
@@ -5514,6 +5568,7 @@ def train_recovery_check(
     from app.training.detached_launch import read_detached_training_status
     from app.training.train_guard import (
         SOURCE_DATA_REL,
+        RecoveryVerdict,
         last_checkpoint_step,
         read_run_markers,
         recovery_allowed,
@@ -5521,7 +5576,19 @@ def train_recovery_check(
     )
 
     settings = get_settings()
-    status = read_detached_training_status(settings.root)
+    status = dict(read_detached_training_status(settings.root) or {})
+    if adapter_name and str(status.get("adapter") or "") != adapter_name:
+        return RecoveryVerdict(
+            False,
+            f"durum dosyasındaki koşu '{status.get('adapter') or '—'}', kurtarılmak istenen "
+            f"'{adapter_name}' — başka bir koşunun onayı bu eğitime yetki vermez",
+        )
+    if attempts_slack:
+        try:
+            attempts = int(status.get("recovery_attempts") or 0)
+        except (TypeError, ValueError):
+            attempts = 0
+        status["recovery_attempts"] = max(0, attempts - attempts_slack)
     try:
         approvals = SqliteStore().list_approval_requests(limit=50)
     except Exception:
@@ -5540,7 +5607,7 @@ def train_recovery_check(
     )
     # Kurtarma `lora_sft.jsonl`'i YENİDEN böler ve train.jsonl'i yeniden yazar → mtime
     # tek başına yanıltır; durum dosyası başlangıç hash'ini taşıyorsa içerik kıyaslanır.
-    verdict = recovery_allowed(
+    return recovery_allowed(
         status,
         approvals,
         now=_dt.datetime.now(_dt.UTC),
@@ -5550,6 +5617,22 @@ def train_recovery_check(
         effective_max_steps=markers["max_steps"],
         run_completed=bool(markers["completed"]),
     )
+
+
+@app.command("train-recovery-check")
+def train_recovery_check(
+    as_json: bool = typer.Option(False, "--json", help="Makine-okunabilir karar"),
+) -> None:
+    """Nöbetçi çöken eğitimi diriltmeye YETKİLİ mi? (SALT-OKUMA, fail-closed).
+
+    `training-watchdog.ps1` bunu diriltmeden ÖNCE çağırır. Kurtarma Kural 8'den muaftır
+    ("onay zaten tüketilmişti") — ama bu cümle burada DOĞRULANIR: koşunun başlangıcına
+    denk gelen tüketilmiş bir onay yoksa, durum dosyası bayatsa ya da veri koşudan sonra
+    değiştiyse dirilme YOK. 2026-09-16'da onaysız bir koşu tam bu yolla 5,5 saat koştu.
+
+    Çıkış kodu: 0 yetkili · 3 yetkisiz (nöbetçi diriltmez).
+    """
+    verdict = _recovery_verdict()
     if as_json:
         console.print_json(json.dumps(verdict.to_dict(), ensure_ascii=False))
     else:
