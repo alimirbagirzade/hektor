@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from app.orchestration.executable import resolve_cli
 
 log = logging.getLogger(__name__)
 
@@ -111,6 +112,8 @@ _Q_LOCAL = "Abonelik kotası YOK — yerel Ollama hattı (süreç başlatılmaz)
 # `Task` de yasak: kısıtsız araçlı bir ALT-ajan doğurup deny-list'i dolaylı aşmasın.
 DISALLOWED_TOOLS: tuple[str, ...] = (
     "Bash",
+    # Windows: Bash yasağı PowerShell aracını yalnız CLAUDE_CODE_USE_POWERSHELL_TOOL yoksa kapatır.
+    "PowerShell",
     "Edit",
     "Write",
     "NotebookEdit",
@@ -433,7 +436,8 @@ def available(
         if cached is not None and (now - cached[1]) < PROBE_TTL_S:
             return cached[0]
 
-    found = (which or shutil.which)(engine.binary) is not None
+    # resolve_cli: PATH + bilinen kurulum konumları (masaüstü uygulamasıyla gelen `claude`).
+    found = (which or resolve_cli)(engine.binary) is not None
     if use_cache and not injected:
         _probe_cache[name] = (found, now)
     return found
@@ -474,7 +478,10 @@ def run_blocked_reason(name: str, *, which: Which | None = None) -> str:
             "kabul edilmez, motor doğurulmaz."
         )
     if not available(name, which=which):
-        return f"`{engine.binary}` CLI PATH'te bulunamadı — {engine.label} kurulu değil."
+        return (
+            f"`{engine.binary}` CLI PATH'te ve bilinen kurulum konumlarında bulunamadı — "
+            f"{engine.label} kurulu değil."
+        )
     return ""
 
 

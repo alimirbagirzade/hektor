@@ -24,6 +24,15 @@ class ProviderError(RuntimeError):
     """Sağlayıcı çağrısı tamamlanamadı (iptal, zaman aşımı, araç yok)."""
 
 
+# Masaüstü uygulaması kimliği kendi içinde taşır; aynı makinedeki bağımsız `claude` CLI'si ayrıca
+# giriş ister. Hektor giriş yapmaz/kimlik saklamaz — kullanıcıya tek seferlik adımı söyler.
+NOT_LOGGED_IN_MARK = "not logged in"
+NOT_LOGGED_IN_HINT = (
+    "`claude` CLI bulundu ama oturum açık değil. Bir terminalde bir kez `claude` çalıştırıp "
+    "`/login` ile aboneliğinize girin, sonra tekrar deneyin (bkz. docs/MOTOR_BAGLAMA.md)."
+)
+
+
 @dataclass
 class ProviderReply:
     text: str
@@ -148,7 +157,11 @@ class ClaudeCodeCLIProvider:
         if self._cancelled:
             raise ProviderError("iptal edildi — yarım cevap saklanmadı")
         if self._proc.returncode != 0:
-            raise ProviderError(f"claude çıkış {self._proc.returncode}: {(err or '')[-300:]}")
+            # CLI asıl sebebi ("Not logged in") STDOUT'a yazar; stderr'de yalnız uyarı olabilir.
+            both = f"{out or ''}\n{err or ''}".strip()
+            if NOT_LOGGED_IN_MARK in both.lower():
+                raise ProviderError(NOT_LOGGED_IN_HINT)
+            raise ProviderError(f"claude çıkış {self._proc.returncode}: {both[-300:]}")
         return ProviderReply(text=(out or "").strip(), model="claude-code-cli (abonelik)")
 
     def cancel(self) -> None:

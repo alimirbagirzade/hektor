@@ -51,7 +51,7 @@ scope izolasyonunu tek başına **tiyatro** haline getiriyordu:
 kontrolü yoktur**. Bash aracı olan bir motor HTTP'ye hiç dokunmadan aynı sonuca ulaşır.
 
 **Düzeltme:** motor artık araç-seviyesinde kısıtlı doğurulur —
-`--disallowedTools Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task`. Derin av zaten
+`--disallowedTools Bash,PowerShell,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task`. Derin av zaten
 salt-okumadır (Read/Grep/Glob yeter). Bu, prompt'taki "kod değiştirme / eğitim
 başlatma" talimatını **teknik olarak** zorunlu kılar.
 

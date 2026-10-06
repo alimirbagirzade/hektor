@@ -1014,7 +1014,7 @@ Her kayıt: `agent_id, name, file, entrypoint, trigger, autonomy, dangerous, def
 
 | Motor | Kurulu-mu yoklaması | Av (hunt) | Sür (drive) | Kota notu |
 |---|---|---|---|---|
-| `claude` (varsayılan) | PATH | `claude -p PROMPT --safe-mode --strict-mcp-config --disallowedTools Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task` | `claude -p PROMPT --setting-sources "" --disable-slash-commands --strict-mcp-config --tools Read,Grep,Glob --mcp-config <path>` | İnteraktif Claude Code kotasını yer |
+| `claude` (varsayılan) | PATH + bilinen konumlar (`executable.resolve_cli`) | `claude -p PROMPT --safe-mode --strict-mcp-config --disallowedTools Bash,PowerShell,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task` | `claude -p PROMPT --setting-sources "" --disable-slash-commands --strict-mcp-config --tools Read,Grep,Glob --mcp-config <path>` | İnteraktif Claude Code kotasını yer |
 | `codex` | PATH | hardened | drive_hardened (config yoksa fail-closed) | 5 saatlik yuvarlanan kota |
 | `gemini` | PATH | doğrulanmadı (hardened=False → RUN'a kapalı) | — | Günlük istek kotası |
 | `local` | — (Ollama) | süreç doğurmaz | — | Kota yok |
@@ -1257,7 +1257,7 @@ macOS: `launchctl` `com.hektor.web.plist`; Linux: systemd kullanıcı servisi `h
 
 | Dosya | İçerik |
 |---|---|
-| `ROADMAP_MOTOR_BAGLAMA.md` (767) | P1-P9 motor bağlama paketleri (scope izolasyonu, MCP token, allow-list, engines, RUN kapısı, E2E, sür modu, bağımsız verdict, okuma-kanıtı) + kopyala-yapıştır prompt'lar |
+| `MOTOR_BAGLAMA.md` | `claude` CLI'yi web'e bağlama: çözümleme (PATH + masaüstü uygulaması konumları), "oturum açık değil" teşhisi, sertleştirme sözleşmesi (eski P1-P9 yol haritasının yerine) |
 | `SCOPE_ISOLATION.md` (232) | human/driver ayrımı, 4 bypass kanalı, araç kısıtı |
 | `UNATTENDED_ARCHITECTURE.md` | Unattended Supervisor desired-state reconciler |
 | `AGENT_RUNTIME_OBSERVER.md` | Tracker/registry tasarımı, Phase 1/2 |
