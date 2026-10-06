@@ -52,6 +52,10 @@ MAX_STATUS_AGE_HOURS = 72
 # o alan YOKSA (eski/harici durum dosyaları) yedek olarak kullanılır; kimlik varsa TAHMİN
 # değil doğrudan eşleşme geçerlidir.
 APPROVAL_WINDOW_MINUTES = 20
+# Kademe 2 P-2: kimlik eşleşmesinde de onay koşuya bağlı olmalı; yavaş ön-kontrol (30B, git,
+# kapılar) payıyla daha geniş. Eski "kimlik zamandan bağımsız" kuralı, geçmişte tüketilmiş
+# herhangi bir onayın elle yazılmış durum dosyasıyla yeni eğitime yetki vermesine izin veriyordu.
+APPROVAL_ID_WINDOW_MINUTES = 60
 # Eğitim canlıyken log bu kadar süre ilerlemiyorsa: askıya alınmış / donmuş olabilir.
 # CPU'da tek adım dakikalar sürer; eşik cömert tutuldu ki yavaş adım alarm üretmesin.
 # Kademe 2 F2-4 (v14): uzun dizi adımı + sessiz eval 45 dk'yı aşabilir → 150 dk.
@@ -131,7 +135,13 @@ def find_run_approval(
                 continue
             if not is_training_action(row.get("action")) or row.get("status") != "approved":
                 return None
-            if _parse_iso(row.get("consumed_at")) is None:
+            consumed_id = _parse_iso(row.get("consumed_at"))
+            if consumed_id is None:
+                return None
+            # Kademe 2 P-2: kimlik eşleşmesi de onayı KOŞUYA bağlamalı — geçmişte tüketilmiş
+            # herhangi bir onay, elle yazılmış durum dosyasıyla yeni bir eğitime yetki vermesin.
+            # Meşru yollarda tüketim ile started_at dakikalar içindedir (kurtarma korur).
+            if abs(consumed_id - started_at) > dt.timedelta(minutes=APPROVAL_ID_WINDOW_MINUTES):
                 return None
             return row
         return None

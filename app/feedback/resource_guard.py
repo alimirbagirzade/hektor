@@ -275,9 +275,12 @@ def check_chat_resources(
 
     s = get_settings()
     if tag is None:
-        from app.feedback.model_activation import resolve_chat_tag
+        from app.feedback.model_activation import ActivationError, resolve_chat_tag
 
-        tag = resolve_chat_tag(slot)
+        try:
+            tag = resolve_chat_tag(slot)
+        except ActivationError as exc:  # ör. E-8a: ayardaki ana model pilot
+            return GuardDecision(False, str(exc), training_activity(), {})
         if not tag:
             return GuardDecision(False, "Bu yuvada etkin model yok.", training_activity(), {})
     activity = training_activity()

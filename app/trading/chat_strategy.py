@@ -30,7 +30,7 @@ def draft_from_turn(
     store: ChatStore | None = None,
     strategy_store: StrategyStore | None = None,
 ) -> dict:
-    from app.feedback.model_activation import resolve_chat_tag
+    from app.feedback.model_activation import ActivationError, resolve_chat_tag
     from app.feedback.resource_guard import (
         acquire_chat_lease,
         check_chat_resources,
@@ -44,7 +44,10 @@ def draft_from_turn(
     answer = turn.get("raw_answer") or turn.get("answer") or ""
     if turn.get("status") != "answered" or not answer.strip():
         raise DraftError("Bu turda model cevabı yok; strateji çıkarılamaz.")
-    tag = resolve_chat_tag("main")
+    try:
+        tag = resolve_chat_tag("main")
+    except ActivationError as exc:  # ör. E-8a: ayardaki ana model pilot
+        raise DraftError(str(exc)) from exc
     lease = None
     if llm is None:
         decision = check_chat_resources(tag=tag)

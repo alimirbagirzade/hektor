@@ -203,7 +203,9 @@ def blocker(root: Path | None = None) -> str | None:
 def _write_new(path: Path, info: dict[str, Any]) -> bool:
     try:
         fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
+    except (FileExistsError, PermissionError):
+        # Windows: silinmekte (delete-pending) olan dosyada O_EXCL PermissionError verir
+        # (Kademe 2 J-1 deseni) — "var" gibi davran; çağıran durumu yeniden okur.
         return False
     try:
         os.write(fd, json.dumps(info, ensure_ascii=False).encode("utf-8"))
@@ -229,6 +231,9 @@ def _break_mutex(root: Path | None) -> Iterator[bool]:
             os.close(fd)
             got = True
             break
+        except PermissionError:  # Windows delete-pending (J-1 deseni) → kısa bekle, yeniden dene
+            time.sleep(0.05)
+            continue
         except FileExistsError:
             try:
                 if time.time() - bp.stat().st_mtime > _BREAK_TTL_S:
@@ -320,6 +325,17 @@ def transfer(token: str, pid: int, *, root: Path | None = None, state: str = "ru
     )
     _rewrite(path, info)
     return True
+
+
+def annotate(token: str, *, root: Path | None = None, **fields: Any) -> dict[str, Any] | None:
+    """Kilit kaydına alan ekle (token tutmalı). Güncel kaydı döndürür (yoksa/başkasınınsa None)."""
+    path = lock_path(root)
+    info = _read(path)
+    if info is None or info.get("token") != token:
+        return None
+    info.update(fields)
+    _rewrite(path, info)
+    return info
 
 
 def claim(token: str, *, root: Path | None = None) -> bool:

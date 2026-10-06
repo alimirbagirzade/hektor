@@ -185,13 +185,19 @@ def test_bosta_durum() -> None:
 # Bu testler kimlik verildiğinde ZAMAN PENCERESİNİN devreye GİRMEDİĞİNİ (ne pencere
 # dışında kalan doğru bir onayı reddeder, ne pencere içindeki YANLIŞ bir onayı kabul
 # eder) kilitler.
-def test_approval_id_varsa_zaman_penceresi_disindaki_onay_da_kabul_edilir() -> None:
-    """Kimlik eşleşmesi zaman sınırından BAĞIMSIZDIR — asıl doğrulama budur."""
+def test_approval_id_eslesse_de_kosudan_uzak_onay_reddedilir() -> None:
+    """Kademe 2 P-2: kimlik eşleşmesi de onayı KOŞUYA bağlamalı (eski kural: zamandan bağımsız).
+
+    Geçmişte tüketilmiş bir onayın kimliği elle yazılmış bir durum dosyasına konarak yeni bir
+    eğitime yetki verilebiliyordu. Kimlik + koşu başlangıcına yakınlık birlikte aranır.
+    """
     started = _NOW - dt.timedelta(hours=2)
-    # Onay saatlerce ÖNCE tüketilmiş (zaman penceresinin çok dışında) ama KİMLİĞİ durum
-    # dosyasında doğrudan yazılı → yine de kabul edilmeli.
     uzak = _approval(started - dt.timedelta(hours=5), aid="apr_exact")
     v = recovery_allowed(_status(started, approval_id="apr_exact"), [uzak], now=_NOW)
+    assert not v.allowed
+    # Yavaş ön-kontrol payı: 20 dk'lık zaman penceresinden geniş (60 dk) — kimlik varken.
+    yakin = _approval(started - dt.timedelta(minutes=45), aid="apr_exact")
+    v = recovery_allowed(_status(started, approval_id="apr_exact"), [yakin], now=_NOW)
     assert v.allowed, v.reason
     assert v.details["approval_id"] == "apr_exact"
 
@@ -229,8 +235,10 @@ def test_approval_id_yoksa_zaman_penceresine_geri_dusulur() -> None:
 
 def test_find_run_approval_kimlikle_dogrudan_bulur() -> None:
     started = _NOW - dt.timedelta(minutes=5)
-    row = _approval(started - dt.timedelta(hours=10), aid="apr_x")
+    row = _approval(started - dt.timedelta(minutes=3), aid="apr_x")
     assert find_run_approval([row], started, approval_id="apr_x") is not None
+    eski = _approval(started - dt.timedelta(hours=10), aid="apr_x")
+    assert find_run_approval([eski], started, approval_id="apr_x") is None  # P-2
     assert find_run_approval([row], started, approval_id="apr_yok") is None
 
 

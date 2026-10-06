@@ -440,6 +440,14 @@ def test_e8a_pilot_tag_in_env_never_becomes_main(ollama, monkeypatch) -> None:
     with pytest.raises(ma.ActivationError, match="pilot"):
         ma.resolve_chat_tag("main")
     assert "pilot" in str(ma.describe_slot("main").get("error", ""))
+    # P-4: çağıranlar ham hata yerine açık gerekçe döndürür.
+    from app.feedback.resource_guard import check_chat_resources
+    from app.web.candidate_routes import overview
+
+    guard = check_chat_resources()
+    assert not guard.allowed and "pilot" in guard.reason
+    ov = overview()
+    assert ov["defaults"]["active"] == "" and "pilot" in ov["active_error"]
     # Ayar temel modele geri alınınca ana yuva açılır; pilot deneme yuvasında serbest.
     monkeypatch.setenv("HEKTOR_CHAT_MODEL", BASE)
     get_settings.cache_clear()

@@ -187,7 +187,7 @@ def test_a6_launch_erken_cikista_durum_dosyasini_siler(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     dl, _src = _prep_launch(tmp_path, monkeypatch, rc=5)
-    res = dl.launch(adapter_name="t_a6", early_exit_wait_s=0)
+    res = dl.launch(adapter_name="t_a6", early_exit_wait_s=0, approval_id="apr_t")
     assert res["ok"] is False
     assert "çıkış kodu 5" in res["message"]
     assert not (tmp_path / "storage" / "train_status.json").exists()  # ölü kayıt yok
@@ -201,7 +201,7 @@ def test_a2_a5_launch_durum_dosyasi_agirlik_ve_hash_tasir(
     from app.lora.weight_decision import WeightDecisionStore
 
     rec = WeightDecisionStore().record({"math": 0.3, "coding": 0.7}, "custom", "recorded")
-    res = dl.launch(adapter_name="t_a2", early_exit_wait_s=0)
+    res = dl.launch(adapter_name="t_a2", early_exit_wait_s=0, approval_id="apr_t")
     assert res["ok"] is True, res
     st = json.loads((tmp_path / "storage" / "train_status.json").read_text(encoding="utf-8"))
     assert st["mix_decision_id"] == rec.decision_id
@@ -416,3 +416,65 @@ def test_k2_2026_10_06_f3_2_train_run_kalite_kapisindan_gecer(
         ["train", "--run", "--backend", "peft", "--adapter-name", "t", "--mix-weights", weights],
     )
     assert r.exit_code == 1 and "Kural 1" in r.output
+
+
+def test_p3_launch_without_consumed_approval_fails_clearly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kademe 2 P-3: onaysız başlatma (ör. gözetimsiz politika) alt süreç doğmadan, açık
+    mesajla reddedilir — alt süreçte sessiz çıkış 3 yerine."""
+    from app.training import detached_launch as dl
+
+    _use_tmp_root(tmp_path, monkeypatch)
+    monkeypatch.setattr(dl, "preflight_launch", lambda *a, **k: {"ok": True, "n_train": 5})
+    spawned: list = []
+    monkeypatch.setattr(dl.subprocess, "Popen", lambda *a, **k: spawned.append(a))
+    res = dl.launch(adapter_name="t_p3", early_exit_wait_s=0)
+    assert res["ok"] is False and "insan onayı" in res["message"]
+    assert spawned == []
+
+
+def test_j2_stop_does_not_kill_reused_or_finished_pid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kademe 2 J-2: bitmiş koşunun ya da başlangıç zamanı tutmayan pid'in ağacı öldürülmez."""
+    import json as _json
+
+    from app.training import detached_launch as dl
+
+    killed: list[int] = []
+    monkeypatch.setattr(dl, "_terminate_tree", lambda pid: (killed.append(pid), (True, "x"))[1])
+    monkeypatch.setattr(dl.resource_lock, "process_create_time", lambda pid: 2000.0)
+    st = tmp_path / "storage" / "train_status.json"
+    st.parent.mkdir(parents=True)
+    for info, expect_kill in (
+        ({"pid": 4242, "finished_at": "2026-10-06T10:00:00+00:00"}, False),
+        ({"pid": 4242, "pid_create_time": 1000.0}, False),  # pid yeniden kullanılmış
+        ({"pid": 4242, "pid_create_time": 2000.0}, True),  # aynı süreç
+        ({"pid": 4242}, True),  # eski (start-train.ps1) kayıt: zaman yok → eski davranış
+    ):
+        killed.clear()
+        st.write_text(_json.dumps(info), "utf-8")
+        res = dl.request_stop_detached_training(tmp_path)
+        assert bool(killed) is expect_kill, (info, res)
+
+
+def test_j1_resource_lock_treats_windows_delete_pending_as_busy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kademe 2 J-1 deseni (eğitim kilidi): O_EXCL'in PermissionError'ı istisna fırlatmaz."""
+    from app.training import resource_lock as rl
+
+    real_open = rl.os.open
+    calls = {"n": 0}
+
+    def flaky_open(path, flags, *a):  # ilk deneme: silinmekte olan dosya (Windows)
+        calls["n"] += 1
+        if calls["n"] == 1 and flags & rl.os.O_EXCL:
+            raise PermissionError(13, "delete pending")
+        return real_open(path, flags, *a)
+
+    monkeypatch.setattr(rl.os, "open", flaky_open)
+    info, why = rl.acquire("training", "t", root=tmp_path)
+    assert info is not None, why
+    assert rl.release(str(info["token"]), root=tmp_path)

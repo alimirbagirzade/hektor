@@ -26,6 +26,7 @@ olduğundan commit'lenmesi denetlenen kod özetini DEĞİŞTİRMEZ → sonsuz ye
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import json
 import os
@@ -489,7 +490,14 @@ LIMIT_KEYS = ("max_examples", "max_optimizer_steps")
 
 
 def _cloud_off() -> bool:
-    return not get_settings().cloud_second_opinion
+    # Kademe 2 P-7: önbellekli süreç ayarı değil, .env + ortamın TAZE hâli (web sunucusu ile
+    # eğitim kabuğu farklı önbellek taşıyabilir).
+    from app.config.settings import Settings
+
+    try:
+        return not Settings().cloud_second_opinion
+    except Exception:
+        return False  # okunamadı → koşul doğrulanamaz → kayıt kapsamaz (fail-closed)
 
 
 # Kapsam dışı kararının dayandığı, kod tarafından HER kontrolde yeniden doğrulanan koşullar.
@@ -499,8 +507,15 @@ CONDITIONS: dict[str, Callable[[], bool]] = {"bulut_kapali": _cloud_off}
 
 
 def _conditions(finding: dict[str, Any]) -> list[str]:
-    k = finding.get("kosul") or []
-    return [k] if isinstance(k, str) else [str(x) for x in k]
+    k = finding.get("kosul")
+    if k is None or k == "" or k == []:
+        return []
+    if isinstance(k, str):
+        return [k]
+    if isinstance(k, list | tuple) and all(isinstance(x, str) for x in k):
+        return list(k)
+    # Kademe 2 P-8: tanımsız biçim → tanımsız koşul (traceback değil, fail-closed).
+    return [f"<geçersiz:{type(k).__name__}>"]
 
 
 def _failed_conditions(findings: list[dict[str, Any]]) -> list[str]:
@@ -551,7 +566,8 @@ def _check_limited_bounds(findings: list[dict[str, Any]], recipe_sha: str) -> No
             continue
         bound = f.get("sinir")
         if not isinstance(bound, dict) or not all(
-            isinstance(bound.get(k), int) and bound[k] > 0 for k in LIMIT_KEYS
+            isinstance(bound.get(k), int) and not isinstance(bound[k], bool) and bound[k] > 0
+            for k in LIMIT_KEYS
         ):
             raise EasyTrainError(
                 f"{f['id']}: yalnız-reçete risk kabulü sayısal sınır taşımalı — "
@@ -607,6 +623,16 @@ def latest_kademe2(code_sha: str, recipe_sha: str = "", data_sha: str = "") -> d
             continue
         if _failed_conditions(r.get("findings", [])):
             continue  # kapsam dışı kararının koşulu bozuldu → yeniden değerlendirme gerekir
+        if any(_recipe_limited(f) for f in r.get("findings", [])):
+            # Kademe 2 P-6: sayısal sınır her kontrolde yeniden denetlenir (elle düzenlenmiş
+            # kayıtta sınır silinmiş/büyütülmüş olabilir).
+            try:
+                _check_limited_bounds(
+                    copy.deepcopy(r.get("findings", [])),
+                    str((r.get("scope") or {}).get("recipe_sha") or ""),
+                )
+            except Exception:  # bozuk/elle düzenlenmiş kayıt → kapsamaz (traceback değil)
+                continue
         sc = r.get("scope") or {}
         if any(_recipe_limited(f) for f in r.get("findings", [])):
             # Sınırlı kabul yalnız kendi reçetesini kapsar (elle düzenlenmiş kayıtta da).

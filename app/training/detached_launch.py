@@ -599,6 +599,8 @@ def _status_payload(
         "profile": profile or "",
         "max_examples": max(0, int(max_examples)),
         "pid": pid,
+        # Kademe 2 J-2: pid yeniden kullanımı → "durdur" ilgisiz süreci öldürmesin.
+        "pid_create_time": resource_lock.process_create_time(pid) if pid else None,
         "approval_id": approval_id or "",
         "started_at": _utcnow_iso(),
         "mix_weights": mix_weights or "",
@@ -938,6 +940,14 @@ def launch(
                 + " | ".join(binding[:3])
             )
 
+    # Kademe 2 P-3: alt süreç üst sürecin TÜKETTİĞİ onayı doğrular (L-2). Onaysız başlatma
+    # (ör. gözetimsiz politika) alt süreçte sessizce çıkış 3 verirdi → burada açıkça reddet.
+    if not (approval_id or "").strip():
+        return _fail(
+            "Bu başlatmanın tüketilmiş insan onayı yok — gerçek eğitim her seferinde taze onay "
+            "ister (Kural 8). Gözetimsiz politika (HEKTOR_UNATTENDED_TRAINING_ENABLED) eğitim "
+            "alt sürecini yetkilendiremez."
+        )
     # Atomik ortak kilit: iki eş-zamanlı istek (çift-tık/retry) ya da terminalden başlatılmış
     # eğitim/dönüşüm/karşılaştırma varken çift süreç başlamasın.
     if not _acquire_launch_lock(root):
@@ -945,6 +955,9 @@ def launch(
             (resource_lock.blocker(root) or "Eğitim şu an başlatılıyor") + " — lütfen bekle."
         )
     lock_token = _LAUNCH_TOKENS.get(str(root), "")
+    # Kademe 2 P-1: tüketilen onay BU kilide bağlanır — alt süreç kilit kaydındaki kimliği
+    # ister; elle alınmış kilit (`resource_lock acquire`) onay taşımaz → yetki vermez.
+    resource_lock.annotate(lock_token, root=root, approval_id=approval_id or "")
 
     spawned = False
     try:
@@ -1242,6 +1255,24 @@ def mark_detached_status(adapter_name: str, root: Path | None = None, **fields: 
     return True
 
 
+def _stale_stop_target(info: dict) -> str:
+    """Durum dosyasındaki pid hâlâ BU eğitimin süreci mi? Değilse gerekçe ("" = öldürülebilir).
+
+    Kademe 2 J-2: durum dosyası koşu bittikten sonra diskte kalır; Windows pid'i başka bir
+    sürece (dönüşüm PowerShell'i, ollama.exe, yeni eğitim) verebilir. Bitmiş koşuda ya da
+    başlangıç zamanı tutmayan süreçte hiçbir şey öldürülmez.
+    """
+    if info.get("finished_at") or info.get("failed_at"):
+        return "koşu zaten bitmiş"
+    pid = info.get("pid")
+    want = info.get("pid_create_time")
+    if isinstance(pid, int) and pid > 0 and isinstance(want, int | float):
+        have = resource_lock.process_create_time(pid)
+        if have is not None and abs(have - float(want)) > 2.0:
+            return f"pid {pid} artık başka bir süreç (başlangıç zamanı tutmuyor)"
+    return ""
+
+
 def request_stop_detached_training(root: Path | None = None) -> dict:
     """Detached eğitimi durdurmayı iste (Windows/Linux/macOS uyumlu).
 
@@ -1258,7 +1289,10 @@ def request_stop_detached_training(root: Path | None = None) -> dict:
     info = read_detached_training_status(r)
     pid = info.get("pid")
     terminated = False
-    if isinstance(pid, int) and pid > 0:
+    stale = _stale_stop_target(info)
+    if stale:
+        detail = f"stop_requested ({stale} — süreç öldürülmedi)"
+    elif isinstance(pid, int) and pid > 0:
         terminated, detail = _terminate_tree(pid)
     else:
         detail = "stop_requested (pid kaydı yok — STOP_TRAINING bırakıldı)"

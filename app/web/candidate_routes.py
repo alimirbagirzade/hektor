@@ -54,7 +54,7 @@ def overview() -> dict[str, Any]:
     from app.config import get_settings
     from app.evals.candidate_compare import list_comparisons
     from app.evals.candidate_decisions import list_decisions, norm_tag
-    from app.feedback.model_activation import resolve_chat_tag
+    from app.feedback.model_activation import ActivationError, resolve_chat_tag
     from app.training import candidate_jobs as cj
     from app.training.candidate_checks import recipe_for_adapter, verify_run_completion
 
@@ -90,6 +90,10 @@ def overview() -> dict[str, Any]:
             }
         )
     items.reverse()
+    try:
+        active, active_error = resolve_chat_tag("main"), ""
+    except ActivationError as exc:  # E-8a: sayfa açılsın, neden görünsün
+        active, active_error = "", str(exc)
     return {
         "items": items,
         "running": cj.running_job(),
@@ -97,9 +101,10 @@ def overview() -> dict[str, Any]:
         "defaults": {
             "template_from": cj.DEFAULT_TEMPLATE,
             "base": cj.DEFAULT_TEMPLATE,
-            "active": resolve_chat_tag("main"),
+            "active": active,
             "question_set": cj.DEFAULT_SET,
         },
+        **({"active_error": active_error} if active_error else {}),
         "note": "Karşılaştırma bir LLM soru-cevap ölçümüdür; trading performansı değildir. Küçük "
         "koşular entegrasyon testidir, kalite üstünlüğü kanıtı değildir.",
     }

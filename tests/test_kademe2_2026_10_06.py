@@ -469,3 +469,27 @@ def test_d4_leakage_extractor_sees_all_trained_formats() -> None:
         {"user": "u", "assistant": "GIZLI-CEVAP"},
     ):
         assert any("GIZLI-CEVAP" in t for t in extract_train_texts(row, 0).texts)
+
+
+def test_p5_pilot_name_reused_with_full_recipe_still_blocks(iso, monkeypatch) -> None:  # noqa: F811
+    """Kademe 2 P-5: aynı adapter adı sonradan tam reçeteyle kullanılsa da eski pilot engelli."""
+    from app.feedback import model_activation as ma
+    from app.training import candidate_checks
+    from app.training.easy_train import snapshots_dir
+
+    for sid, at, sha in (
+        ("snap_ffff000000000000", "2026-10-06T01:00:00+00:00", "p" * 64),  # pilot
+        ("snap_0000ffff00000000", "2026-10-06T09:00:00+00:00", "f" * 64),  # tam, daha yeni
+    ):
+        d = snapshots_dir() / sid
+        d.mkdir(parents=True)
+        (d / "recipe.json").write_text(
+            json.dumps({"adapter_name": "p1", "recipe_sha": sha}), "utf-8"
+        )
+        (d / "launch.json").write_text(json.dumps({"ok": True, "at": at}), "utf-8")
+    assert candidate_checks.recipe_for_adapter("p1")["recipe_sha"] == "f" * 64
+    assert set(candidate_checks.recipe_shas_for_adapter("p1")) == {"p" * 64, "f" * 64}
+    monkeypatch.setattr(
+        "app.training.easy_train.recipe_has_limited_acceptance", lambda sha: sha == "p" * 64
+    )
+    assert "pilot" in ma.pilot_block("x-aday", adapter_name="p1")
