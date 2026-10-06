@@ -270,7 +270,17 @@ def verify_conversion(
             (ln for ln in mf.read_text(encoding="utf-8").splitlines() if ln.startswith("FROM ")),
             "",
         )
-        from_ok = Path(from_line[5:].strip()).name.startswith(f"{adapter}-")
+        from_name = Path(from_line[5:].strip()).name
+        # Kademe 2 (2026-10-06) F4-10: yalnız ad öneki yetmez — FROM'un gösterdiği GGUF'un
+        # KENDİ köken anahtarı bu adapter ağırlığına bağlı olmalı (aynı adlı, kökensiz ya da
+        # eski bir GGUF'u gösteren Modelfile "doğru" sayılmasın).
+        from_src = gguf / f"{from_name}.src"
+        from_ok = (
+            from_name.startswith(f"{adapter}-")
+            and w_sha != ""
+            and from_src.is_file()
+            and from_src.read_text(encoding="utf-8").strip().startswith(f"adapter:{w_sha}")
+        )
     add(
         "modelfile",
         origin is not None and origin.get("adapter") == adapter and from_ok,

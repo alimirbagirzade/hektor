@@ -134,13 +134,75 @@ def _source_key(line: str) -> str:
     return "line:" + hashlib.sha256(line.encode("utf-8")).hexdigest()[:16]
 
 
+def _chunk_refs(line: str) -> list[str]:
+    """Satırın içerdiği korpus parçalarının kimlikleri (`metadata.chunk_id` + `context_chunk_ids`).
+
+    Damıtma satırlarının BAĞLAM'ı başka makalelerden parça çeker; yalnız `source_id` ile
+    gruplamak aynı parça metnini train ve valid'e düşürüyordu (Kademe 2 2026-10-06 F3-4:
+    gerçek veride 80 valid satırının 5'i). Makale düzeyinde birleştirme denendi: 1569
+    satırın 1068'i tek bileşene çöküyor → valid temsil gücünü yitirir; parça düzeyi en
+    büyük bileşeni 83 satırda tutuyor. Kalan zayıf ilişki (aynı makalenin FARKLI parçası
+    iki tarafta) bilinçli kabul edilir.
+    """
+    row: object = None
+    with contextlib.suppress(Exception):
+        row = json.loads(line)
+    if not isinstance(row, dict):
+        return []
+    meta = row.get("metadata")
+    if not isinstance(meta, dict):
+        return []
+    refs: list[str] = []
+    if meta.get("chunk_id"):
+        refs.append(str(meta["chunk_id"]))
+    ctx = meta.get("context_chunk_ids")
+    if isinstance(ctx, list):
+        refs.extend(str(c) for c in ctx if c)
+    return refs
+
+
+def _merge_groups_by_chunk(keys: list[str], refs: list[list[str]]) -> dict[str, str]:
+    """Ortak parça paylaşan kaynak gruplarını birleştir (union-find).
+
+    Dönüş: her kaynak anahtarı → bileşen anahtarı. Bileşen anahtarı bileşendeki EN KÜÇÜK
+    kaynak anahtarıdır → satır sırasından bağımsız, belirlenimci (Kural 6).
+    """
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            # Küçük kök kazanır → kök her zaman bileşenin en küçük düğümüdür.
+            lo, hi = sorted((ra, rb))
+            parent[hi] = lo
+
+    for key, row_refs in zip(keys, refs, strict=True):
+        find(key)
+        for ref in row_refs:
+            union(key, "chunk:" + ref)
+    # "chunk:" düğümleri "src:"/"skel:"/"line:" düğümlerinden sıralamada önce gelebilir;
+    # bileşen adını yalnız KAYNAK anahtarlarından seç.
+    comp_name: dict[str, str] = {}
+    for key in sorted(set(keys)):
+        comp_name.setdefault(find(key), key)
+    return {key: comp_name[find(key)] for key in set(keys)}
+
+
 def split_lines_by_source(lines: list[str], seed: int = _SPLIT_SEED) -> tuple[list[str], list[str]]:
     """Satırları KAYNAK-GRUPLU böl: (train, valid). Saf fonksiyon → test edilebilir.
 
     Neden gruplu: satır-düzeyinde karıştırma aynı makalenin (hatta aynı chunk'ın) sentetik
     QA'larını train ve valid'e dağıtıyordu → valid metrikleri sızıntı yüzünden iyimser
     (Gate 8'in `app/lora/dataset_splitter.py` içindeki kaynak-gruplu bölmesi eğitim
-    dosyalarına hiç ulaşmıyordu). Artık aynı `source_id` TEK tarafta kalır.
+    dosyalarına hiç ulaşmıyordu). Artık aynı `source_id` TEK tarafta kalır; ortak bir
+    korpus parçası (`chunk_id`/`context_chunk_ids`) paylaşan kaynaklar da tek gruptur.
 
     Nasıl: gruplar `sorted()` ile kanonik sıraya konur, `random.Random(seed)` ile karıştırılır
     (Kural 6: aynı seed → aynı bölme), valid hedef orana ULAŞANA kadar grup grup doldurulur.
@@ -152,9 +214,11 @@ def split_lines_by_source(lines: list[str], seed: int = _SPLIT_SEED) -> tuple[li
     if not lines:
         return [], []
 
+    src_keys = [_source_key(ln) for ln in lines]
+    comp = _merge_groups_by_chunk(src_keys, [_chunk_refs(ln) for ln in lines])
     groups: dict[str, list[str]] = {}
-    for ln in lines:
-        groups.setdefault(_source_key(ln), []).append(ln)
+    for ln, key in zip(lines, src_keys, strict=True):
+        groups.setdefault(comp[key], []).append(ln)
 
     keys = sorted(groups)
     random.Random(seed).shuffle(keys)

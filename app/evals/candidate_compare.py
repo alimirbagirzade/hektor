@@ -212,7 +212,32 @@ def load_set(path: Path) -> tuple[list[dict[str, Any]], str]:
                 raise CompareError(
                     f"Matematik sorusu {r['id']} sayısal, doğrulanmış answer_key taşımalı."
                 ) from exc
-    return rows, hashlib.sha256(raw).hexdigest()
+    return rows, canonical_set_sha(rows)
+
+
+def canonical_set_sha(rows: list[dict[str, Any]]) -> str:
+    """Setin İÇERİK özeti — satır sonu (CRLF/LF), satır sırası ve anahtar sırasından bağımsız.
+
+    Kademe 2 (2026-10-06) F4-5: ham bayt özeti, git autocrlf ya da yeniden sıralama gibi
+    anlamsız bir değişiklikte YENİ set sayıyordu → kullanılmış gizli final seti "ilk kullanım"
+    gibi yeniden final rolüne girebiliyordu.
+    """
+    canon = sorted(
+        json.dumps(r, ensure_ascii=False, sort_keys=True, separators=(",", ":")) for r in rows
+    )
+    return hashlib.sha256("\n".join(canon).encode("utf-8")).hexdigest()
+
+
+def question_fingerprints(rows: list[dict[str, Any]]) -> list[str]:
+    """Soru metinlerinin normalize özetleri (büyük/küçük harf + boşluk farkı yok sayılır).
+
+    Final setinin yeniden kullanımını, kimliği/biçimi değiştirilmiş kopyalarda da yakalar.
+    """
+    out = set()
+    for r in rows:
+        text = " ".join(str(r.get("question") or "").casefold().split())
+        out.add(hashlib.sha256(text.encode("utf-8")).hexdigest()[:16])
+    return sorted(out)
 
 
 def final_access_path() -> Path:
@@ -232,6 +257,20 @@ def final_accesses(set_sha: str) -> list[dict[str, Any]]:
         return []
     rows = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
     return [r for r in rows if r.get("set_sha") == set_sha]
+
+
+def _used_final_fingerprints() -> set[str]:
+    p = final_access_path()
+    if not p.exists():
+        return set()
+    out: set[str] = set()
+    for x in p.read_text(encoding="utf-8").splitlines():
+        if not x.strip():
+            continue
+        row = json.loads(x)
+        if row.get("kind") == "use":
+            out.update(row.get("question_fps") or [])
+    return out
 
 
 def create(
@@ -256,13 +295,29 @@ def create(
     note = ""
     if role == "final":
         prior = [a for a in final_accesses(set_sha) if a.get("kind") == "use"]
+        fps = question_fingerprints(questions)
+        seen = _used_final_fingerprints()
+        overlap = sorted(set(fps) & seen)
         if prior:
             effective_role = "development"
             note = (
                 f"Gizli final seti daha önce {len(prior)} kez kullanıldı → bu koşu GELİŞTİRME "
                 "sayılır; bağımsız final kanıtı değildir."
             )
-        _log_final_access({"kind": "use", "set_sha": set_sha, "comparison_id": cmp_id})
+        elif overlap:
+            effective_role = "development"
+            note = (
+                f"Setin {len(overlap)}/{len(fps)} sorusu daha önce bir final koşusunda kullanıldı "
+                "→ bu koşu GELİŞTİRME sayılır; bağımsız final kanıtı değildir."
+            )
+        _log_final_access(
+            {
+                "kind": "use",
+                "set_sha": set_sha,
+                "comparison_id": cmp_id,
+                "question_fps": fps,
+            }
+        )
     manifest = {
         "comparison_id": cmp_id,
         "created_at": now,

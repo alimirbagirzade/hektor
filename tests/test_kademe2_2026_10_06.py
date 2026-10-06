@@ -223,3 +223,80 @@ def test_f4_9_non_numeric_math_key_rejected_at_load(tmp_path) -> None:
     p.write_text(json.dumps(row, ensure_ascii=False) + "\n", "utf-8")
     with pytest.raises(CompareError, match="sayısal"):
         load_set(Path(p))
+
+
+# ── F1-9: açık profil seçimi, kayıtlı eski özel ağırlıklarla ezilmez ───────────────────
+
+
+def test_f1_9_explicit_mix_profile_overrides_saved_custom_weights(iso, monkeypatch) -> None:  # noqa: F811
+    from app.training import easy_train
+
+    saved = {**easy_train.default_settings(), "mix_weights": {"math": 1.0}}
+    monkeypatch.setattr(easy_train, "last_settings", lambda: saved)
+    # Arayüz isteği: yalnız mix_profile (mix_weights anahtarı YOK).
+    norm = easy_train._normalize({"adapter_name": "p1", "mix_profile": "trading_analysis_v1"})
+    assert norm["mix_label"] == "trading_analysis_v1"
+    assert norm["mix_weights_resolved"] != {"math": 1.0}
+    # Açıkça özel ağırlık gönderen istemci (CLI/API) hâlâ özel ağırlığı alır.
+    norm = easy_train._normalize(
+        {"adapter_name": "p1", "mix_profile": "trading_analysis_v1", "mix_weights": {"math": 1.0}}
+    )
+    assert norm["mix_label"] == "özel"
+
+
+# ── F4-5: final setinin kimliği içerikten; biçim/kimlik değişikliği yeniden kullanımı gizlemez ─
+
+
+def _final_create(set_path):
+    from app.evals import candidate_compare as cc
+
+    lock = cc.lock_criteria()
+    import time
+
+    time.sleep(0.01)  # ölçüt karşılaştırmadan ÖNCE kilitli olmalı
+    return cc.create(
+        set_path=set_path,
+        role="final",
+        active_tag="aktif",
+        candidate_tag="aday",
+        base_tag="temel",
+        criteria_sha=lock["criteria_sha"],
+        candidate_meta={},
+    )
+
+
+def test_f4_5_final_set_reuse_survives_crlf_reorder_and_id_rename(iso, tmp_path) -> None:  # noqa: F811
+    rows = [
+        {"id": f"q{i}", "family": f"F{i % 4}", "type": "sourced", "question": f"Kavram {i} nedir?"}
+        for i in range(8)
+    ]
+    a = tmp_path / "a.jsonl"
+    a.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", "utf-8")
+    first = _final_create(a)
+    assert first["role"] == "final"
+    # Aynı içerik: CRLF + ters sıra + anahtar sırası farklı → AYNI set özeti.
+    b = tmp_path / "b.jsonl"
+    b.write_bytes(
+        "\r\n".join(
+            json.dumps(dict(reversed(list(r.items()))), ensure_ascii=False) for r in reversed(rows)
+        ).encode("utf-8")
+    )
+    second = _final_create(b)
+    assert second["set_sha"] == first["set_sha"] and second["role"] == "development"
+    # Kimlikleri değiştirilmiş + büyük harfli kopya → farklı özet, ama soru örtüşmesi yakalanır.
+    renamed = [{**r, "id": "x" + r["id"], "question": r["question"].upper()} for r in rows[:3]]
+    renamed += [
+        {"id": "yeni1", "family": "F9", "type": "sourced", "question": "Tamamen yeni soru?"}
+    ]
+    c = tmp_path / "c.jsonl"
+    c.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in renamed) + "\n", "utf-8")
+    third = _final_create(c)
+    assert third["set_sha"] != first["set_sha"]
+    assert third["role"] == "development" and "3/4" in third["role_note"]
+    # Gerçekten yeni bir set final kalır.
+    d = tmp_path / "d.jsonl"
+    d.write_text(
+        json.dumps({"id": "z", "family": "F1", "type": "sourced", "question": "Başka?"}) + "\n",
+        "utf-8",
+    )
+    assert _final_create(d)["role"] == "final"

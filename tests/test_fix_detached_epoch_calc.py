@@ -248,3 +248,55 @@ def test_ensure_train_split_dosyalari_kaynak_gruplu_yazar(tmp_path: Path) -> Non
     ]
     assert (len(train), len(valid)) == (n_train, n_valid)
     assert not (_paper_ids(train) & _paper_ids(valid))
+
+
+# --------------------------------------------------------------------------
+# Kademe 2 2026-10-06 F3-4 — ortak bağlam parçası (chunk) iki tarafa düşmez
+# --------------------------------------------------------------------------
+
+
+def _ctx_row(paper: str, i: int, ctx: list[str]) -> str:
+    return json.dumps(
+        {
+            "messages": [{"role": "user", "content": f"{paper} soru {i}"}],
+            "metadata": {
+                "source_id": paper,
+                "paper_id": paper,
+                "chunk_id": f"{paper}_c{i:04d}",
+                "context_chunk_ids": ctx,
+            },
+        },
+        ensure_ascii=False,
+    )
+
+
+def _chunks(lines: list[str]) -> set[str]:
+    out: set[str] = set()
+    for ln in lines:
+        out.update(dl._chunk_refs(ln))
+    return out
+
+
+def test_ortak_baglam_parcasi_train_ve_valid_arasinda_bolunmez() -> None:
+    """Farklı makalelerin satırları AYNI parçayı bağlam olarak taşıyorsa tek tarafta kalır."""
+    lines: list[str] = []
+    for p in range(40):
+        paper = f"paper_{p:04x}"
+        komsu = f"paper_{(p + 1) % 40:04x}_c0000" if p % 2 == 0 else f"{paper}_c0000"
+        lines += [_ctx_row(paper, i, [f"{paper}_c{i:04d}", komsu]) for i in range(5)]
+    for seed in (42, 7, 1):
+        train, valid = dl.split_lines_by_source(lines, seed=seed)
+        assert valid and train
+        assert not (_chunks(train) & _chunks(valid)), f"seed={seed}: ortak parça sızıntısı"
+        assert sorted(train + valid) == sorted(lines)
+
+
+def test_parca_birlestirme_sira_bagimsiz() -> None:
+    lines = [
+        _ctx_row(f"paper_{p:04x}", i, [f"paper_{(p * 7) % 30:04x}_c0001"])
+        for p in range(30)
+        for i in range(3)
+    ]
+    a = dl.split_lines_by_source(lines, seed=42)
+    b = dl.split_lines_by_source(list(reversed(lines)), seed=42)
+    assert sorted(a[1]) == sorted(b[1])

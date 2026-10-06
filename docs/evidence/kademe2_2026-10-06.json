@@ -7,7 +7,8 @@
   "durum_anlamlari": {
     "duzeltildi": "PR #34'te kod + regresyon testi (tests/test_kademe2_2026_10_06.py vb.)",
     "reddedildi": "iki doğrulayıcı da çürüttü",
-    "KARAR_GEREKLI": "kısmen doğrulandı; risk kabulü / ayrı iş kararı KULLANICININ — bu kayıt kullanıcı adına risk_kabul YAZMAZ"
+    "KARAR_GEREKLI": "kısmen doğrulandı; risk kabulü / ayrı iş kararı KULLANICININ — bu kayıt kullanıcı adına risk_kabul YAZMAZ",
+    "kismen_duzeltildi": "kodla daraltıldı + test; kalan kısım açıkça yazılı (karar ya da ayrı iş gerektirir)"
   },
   "bulgular": [
     {
@@ -31,8 +32,10 @@
     {
       "id": "F1-4",
       "votes": "KISMEN/KISMEN",
-      "status": "KARAR_GEREKLI",
-      "proposal": "risk_kabul — HEKTOR_TRAIN_SUPERVISED belgelenmiş yerel güven sınırı; Kademe 2/sızıntı/ağırlık kapıları yine çalışıyor"
+      "status": "duzeltildi",
+      "proposal": "risk_kabul — HEKTOR_TRAIN_SUPERVISED belgelenmiş yerel güven sınırı; Kademe 2/sızıntı/ağırlık kapıları yine çalışıyor",
+      "fix": "HEKTOR_TRAIN_SUPERVISED artık TEK BAŞINA iç onayı atlatmaz: üst sürecin devrettiği kilit belirteci (launch → claim doğrular) ya da nöbetçi kurtarması (RECOVERY=1) şart; aksi hâlde uyarı + taze onay (tests/test_agent_phase2_cli.py::test_f1_4_*). Kalan: kurtarma yolu belgelenmiş Kural 8 muafiyeti (train-recovery-check ile doğrulanır); yerel CLI onayları genel olarak onur sistemine dayanır (bkz. F4-6).",
+      "fix_tarih": "2026-10-06 (PR #37)"
     },
     {
       "id": "F1-5",
@@ -61,8 +64,10 @@
     {
       "id": "F1-9",
       "votes": "KISMEN/KISMEN",
-      "status": "KARAR_GEREKLI",
-      "proposal": "risk_kabul — arayüz mix_weights göndermiyor; özet 'özel' gösteriyor; dosya yok"
+      "status": "duzeltildi",
+      "proposal": "risk_kabul — arayüz mix_weights göndermiyor; özet 'özel' gösteriyor; dosya yok",
+      "fix": "easy_train._normalize: istekte mix_profile var, mix_weights yoksa kayıtlı eski özel ağırlık temizlenir (açık profil seçimi ezilmez) — tests/test_kademe2_2026_10_06.py::test_f1_9_*",
+      "fix_tarih": "2026-10-06 (pilot-training-blockers dalı)"
     },
     {
       "id": "F2-1",
@@ -97,14 +102,18 @@
     {
       "id": "F3-4",
       "votes": "KISMEN/ONAY",
-      "status": "KARAR_GEREKLI",
-      "proposal": "risk_kabul (pilot) — yalnız valid loss iyimser; terfi LLM-30/karşılaştırmayla. Kalıcı çözüm: bağlamdaki paper_id'lerle gruplama (ayrı iş)"
+      "status": "kismen_duzeltildi",
+      "proposal": "risk_kabul (pilot) — yalnız valid loss iyimser; terfi LLM-30/karşılaştırmayla. Kalıcı çözüm: bağlamdaki paper_id'lerle gruplama (ayrı iş)",
+      "fix": "split_lines_by_source: ortak chunk_id/context_chunk_ids paylaşan kaynak grupları union-find ile birleşir. Gerçek veri (sha 613700551afb…): önce 80 valid satırının 5'i train ile parça paylaşıyordu → sonra 0/78. Makale düzeyi birleştirme 1569 satırın 1068'ini tek bileşene çöktürdüğü için seçilmedi; kalan bilinen örtüşme: disiplin 'baglam_grounded' şablonlarının sabit sentetik HMM bağlam cümlesi (korpus değil) — tests/test_fix_detached_epoch_calc.py",
+      "fix_tarih": "2026-10-06 (PR #37)",
+      "kalan": "Yalnız ortak PARÇA KİMLİĞİ (chunk_id/context_chunk_ids) örtüşmesi sıfırlandı (gerçek veri 5/80 → 0/78). Farklı kimlikle tekrar eden metin, aynı makalenin farklı parçaları ve disiplin şablonlarının sabit sentetik HMM bağlamı bu kontrolün DIŞINDA. Valid loss bağımsız genelleme kanıtı DEĞİLDİR; terfi kararı ayrı karşılaştırma setiyle verilir."
     },
     {
       "id": "F3-5",
       "votes": "KISMEN/KISMEN",
       "status": "KARAR_GEREKLI",
-      "proposal": "reddedildi — işlevsel hata yok, özet farkı güvenli tarafa düşer"
+      "proposal": "reddedildi — işlevsel hata yok, özet farkı güvenli tarafa düşer",
+      "not": "Bulucu/doğrulayıcı ayrıntısı bu kayıtta yok ve av dökümü bulunamadı; bulgu yeniden üretilemedi. Öneri: ret yerine bir sonraki Kademe 2'de veri/karışım bulucusuna açık soru olarak yeniden verilsin."
     },
     {
       "id": "F4-1",
@@ -133,14 +142,17 @@
     {
       "id": "F4-5",
       "votes": "KISMEN/KISMEN",
-      "status": "KARAR_GEREKLI",
-      "proposal": "ana model için final rolü şartı politika kararı; set_sha normalize (ayrı iş)"
+      "status": "kismen_duzeltildi",
+      "proposal": "ana model için final rolü şartı politika kararı; set_sha normalize (ayrı iş)",
+      "fix": "Teknik kısım düzeltildi: set özeti içerikten (CRLF/sıra/anahtar sırası bağımsız) + final kullanımında normalize soru parmak izleri loglanır; daha önce final'de kullanılmış soru içeren set 'development' sayılır (tests/test_kademe2_2026_10_06.py::test_f4_5_*). KALAN POLİTİKA KARARI (kullanıcı): ana model etkinleştirmesi 'final' rollü karşılaştırma kararı mı şartı koşsun? Bugün development rollü 'Kabul' de ana modele geçebiliyor.",
+      "fix_tarih": "2026-10-06 (PR #37)"
     },
     {
       "id": "F4-6",
       "votes": "KISMEN/KISMEN",
       "status": "KARAR_GEREKLI",
-      "proposal": "risk_kabul — yerel onur sistemi; mühürlü dosya zaten diskte"
+      "proposal": "risk_kabul — yerel onur sistemi; mühürlü dosya zaten diskte",
+      "not": "Kör inceleme eşlemesi diskte; kodla gizlenemez (aynı makinede okuyan herkes görür). Önerilen işletim kuralı: AI incelemesi yalnız kör paketi alır (zaten öyle); insan incelemeci mühürlü dosyayı karar sonrasına kadar açmaz. Karar kullanıcıda."
     },
     {
       "id": "F4-7",
@@ -151,8 +163,10 @@
     {
       "id": "F4-8",
       "votes": "KISMEN/KISMEN",
-      "status": "KARAR_GEREKLI",
-      "proposal": "rollback'te karar deposu denetimi (ayrı iş) ya da risk_kabul"
+      "status": "duzeltildi",
+      "proposal": "rollback'te karar deposu denetimi (ayrı iş) ya da risk_kabul",
+      "fix": "rollback_main → _check_rollback_decision: önceki modelin etiket+digest için kritik ret → engel; karşılaştırmayla gelmiş modelin en son kararı 'Kabul' değilse → engel; baseline yalnız kritik retle engellenir — tests/test_model_activation.py::test_f4_8_*",
+      "fix_tarih": "2026-10-06 (pilot-training-blockers dalı)"
     },
     {
       "id": "F4-9",
@@ -163,8 +177,10 @@
     {
       "id": "F4-10",
       "votes": "KISMEN/KISMEN",
-      "status": "KARAR_GEREKLI",
-      "proposal": "reddedildi — betik FROM'u aynı adla yazar, köken denetimi güvenli tarafa düşer"
+      "status": "duzeltildi",
+      "proposal": "reddedildi — betik FROM'u aynı adla yazar, köken denetimi güvenli tarafa düşer",
+      "fix": "Modelfile FROM'un gösterdiği GGUF'un KENDİ .src köken anahtarı adapter ağırlık sha'sıyla eşleşmeli (yalnız ad öneki yetmez). Gerçek v14 adayı (hektor-v14-30b-aday) yeni kuralla doğrulandı: modelfile ✓ (tests/test_candidate_compare.py::test_partial_conversion_is_not_success).",
+      "fix_tarih": "2026-10-06 (PR #37)"
     }
   ]
 }

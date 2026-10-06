@@ -235,6 +235,15 @@ def test_cli_paths_exit_10_without_record(repo, monkeypatch, mode) -> None:
     assert approvals.list_approvals() == [] and not resource_lock.status()["held"]
 
 
+def _parent_lock(monkeypatch) -> None:
+    """`launch()` gibi: kilidi üst süreç alır, belirteci alt sürece devreder."""
+    from app.training import resource_lock
+
+    info, why = resource_lock.acquire("training", "web:test", state="launching")
+    assert info is not None, why
+    monkeypatch.setenv(resource_lock.TOKEN_ENV, str(info["token"]))
+
+
 def _fake_trainer(monkeypatch) -> list:
     seen: list = []
 
@@ -273,6 +282,7 @@ def test_easy_flow_child_bound_to_recipe(repo, monkeypatch) -> None:
     WeightDecisionStore().record(snap["mix_weights"], snap["mix_label"], source="t")
     monkeypatch.setenv("HEKTOR_TRAIN_SUPERVISED", "1")
     monkeypatch.setenv(et.RECIPE_ENV, snap["recipe_sha"])
+    _parent_lock(monkeypatch)  # web alt süreci: üst sürecin kilit belirteci (F1-4)
     res = _cli("--profile", snap["profile"], "--base-model", snap["base_model"])
     assert res.exit_code == 0, res.output
     cfg = seen[-1]
