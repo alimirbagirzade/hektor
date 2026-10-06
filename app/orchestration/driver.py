@@ -504,7 +504,7 @@ class AutoDriver:
         * ``mode="drive"`` (⚡ RUN): motora Hektor MCP araçlarına erişim ver ve VERİ HATTINI
           ilerlet. MCP açık, ``--safe-mode`` YOK; verdict AYRI işaretçi kullanır
           (``HEKTOR_DRIVE_VERDICT``) → sür PASS'i av ``hunt_ack``'ini AÇMAZ. Bkz.
-          ``_drive_pipeline`` ve docs/ROADMAP_MOTOR_BAGLAMA.md P7.
+          ``_drive_pipeline`` ve docs/MOTOR_BAGLAMA.md.
 
         Varsayılan `execute=False`: gerçek spawn YOK, çalıştırılacak komutu döner (DRY-RUN).
         `runner` enjekte edilirse gerçek spawn yerine o kullanılır (test). `engine` kayıt

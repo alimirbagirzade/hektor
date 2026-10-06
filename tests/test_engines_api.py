@@ -157,7 +157,7 @@ def test_execute_rejects_uninstalled_engine(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Kurulu olmayan motorla execute=true → 503 (gri butonu kurcalamak işe yaramaz)."""
-    monkeypatch.setattr(engines.shutil, "which", lambda _b: None)
+    monkeypatch.setattr(engines, "resolve_cli", lambda _b: None)
     engines.reset_probe_cache()
     run_id = _fresh_run(client)
     r = client.post(

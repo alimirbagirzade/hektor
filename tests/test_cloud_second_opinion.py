@@ -251,6 +251,33 @@ def test_cli_provider_runs_in_empty_temp_dir_with_prompt_as_single_arg(
     assert seen["cwd_files"] == []  # CLAUDE.md vb. proje dosyası görünmez
 
 
+def test_cli_provider_reports_not_logged_in_from_stdout(monkeypatch, tmp_path) -> None:
+    """Gerçek CLI "Not logged in"i STDOUT'a, ilgisiz uyarıyı stderr'e yazar; sebep gizlenmemeli."""
+    import sys
+
+    from app.cloud.providers import NOT_LOGGED_IN_HINT, ClaudeCodeCLIProvider
+
+    script = tmp_path / "fake_claude.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stderr.write('Denying Bash also turns off the PowerShell tool.\\n')\n"
+        "print('Not logged in · Please run /login')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.orchestration.executable.resolve_cli", lambda b: sys.executable)
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
+    real_popen = __import__("subprocess").Popen
+
+    def popen(argv, **kw):
+        return real_popen([argv[0], str(script)], **kw)
+
+    monkeypatch.setattr("app.cloud.providers.subprocess.Popen", popen)
+    with pytest.raises(ProviderError) as exc:
+        ClaudeCodeCLIProvider().ask("x", timeout_s=30)
+    assert str(exc.value) == NOT_LOGGED_IN_HINT and "/login" in str(exc.value)
+
+
 def test_double_send_returns_pending_request(turn, monkeypatch) -> None:
     _enable(monkeypatch)
     gate = threading.Event()
