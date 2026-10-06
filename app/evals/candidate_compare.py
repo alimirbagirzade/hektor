@@ -187,6 +187,11 @@ def lock_criteria(criteria: dict[str, Any] | None = None) -> dict[str, Any]:
     return rec
 
 
+def preset_criteria_shas() -> frozenset[str]:
+    """Onaylı ön ayar ölçütlerinin özetleri (final kararı yalnız bunlarla)."""
+    return frozenset({_sha(DEFAULT_CRITERIA), _sha(DIMENSION_CRITERIA)})
+
+
 def _criteria(sha: str) -> dict[str, Any]:
     rec = _read(_root() / "criteria" / f"{sha[:16]}.json")
     if not isinstance(rec, dict) or rec.get("criteria_sha") != sha or _sha(rec["criteria"]) != sha:
@@ -293,31 +298,40 @@ def create(
         raise CompareError("Ölçüt karşılaştırmadan ÖNCE kilitlenmiş olmalı.")
     effective_role = role
     note = ""
+    fps = question_fingerprints(questions)
     if role == "final":
+        # Kademe 2 (2026-10-06) E-3: HER rolde kullanım loglanır → geliştirme koşusunda
+        # görülmüş sorular sonradan "kullanılmamış final" sayılmaz.
         prior = [a for a in final_accesses(set_sha) if a.get("kind") == "use"]
-        fps = question_fingerprints(questions)
-        seen = _used_final_fingerprints()
-        overlap = sorted(set(fps) & seen)
+        overlap = sorted(set(fps) & _used_final_fingerprints())
         if prior:
             effective_role = "development"
             note = (
-                f"Gizli final seti daha önce {len(prior)} kez kullanıldı → bu koşu GELİŞTİRME "
-                "sayılır; bağımsız final kanıtı değildir."
+                f"Set daha önce {len(prior)} kez kullanıldı (rolü ne olursa olsun) → bu koşu "
+                "GELİŞTİRME sayılır; bağımsız final kanıtı değildir."
             )
         elif overlap:
             effective_role = "development"
             note = (
-                f"Setin {len(overlap)}/{len(fps)} sorusu daha önce bir final koşusunda kullanıldı "
+                f"Setin {len(overlap)}/{len(fps)} sorusu daha önce bir karşılaştırmada görüldü "
                 "→ bu koşu GELİŞTİRME sayılır; bağımsız final kanıtı değildir."
             )
-        _log_final_access(
-            {
-                "kind": "use",
-                "set_sha": set_sha,
-                "comparison_id": cmp_id,
-                "question_fps": fps,
-            }
-        )
+        elif criteria_sha not in preset_criteria_shas():
+            # E-5: final kararı yalnız onaylı ön ayar ölçütüyle (serbest JSON gevşetemez).
+            effective_role = "development"
+            note = (
+                "Ölçüt onaylı ön ayarlardan (varsayılan/boyutlu) biri değil → bu koşu GELİŞTİRME "
+                "sayılır; final kararı yalnız ön ayar ölçütüyle verilir."
+            )
+    _log_final_access(
+        {
+            "kind": "use",
+            "role": role,
+            "set_sha": set_sha,
+            "comparison_id": cmp_id,
+            "question_fps": fps,
+        }
+    )
     manifest = {
         "comparison_id": cmp_id,
         "created_at": now,
@@ -501,7 +515,10 @@ def auto_score(q: dict[str, Any], answer: str) -> dict[str, Any] | None:
 
 
 def _build_blind_packet(cmp_id: str, questions: list[dict], rows: list[dict]) -> None:
-    rng = random.Random(f"{cmp_id}:blind")
+    # Kademe 2 (2026-10-06) E-4: tohum cmp_id'den türetilmez (eşleme açık kimlikten yeniden
+    # hesaplanabiliyordu). Tohum yalnız mühürlü dosyada saklanır → yeniden üretilebilir (Kural 6).
+    seed = secrets.token_hex(16)
+    rng = random.Random(seed)
     packet, sealed, auto = [], {}, {}
     by_q: dict[str, list[dict]] = {}
     for r in rows:
@@ -531,6 +548,7 @@ def _build_blind_packet(cmp_id: str, questions: list[dict], rows: list[dict]) ->
         )
     _write(_root() / cmp_id / "blind_packet.json", packet)
     _write(_root() / cmp_id / "sealed_mapping.json", sealed)  # API ile SUNULMAZ
+    _write(_root() / cmp_id / "sealed_seed.json", {"seed": seed})  # API ile SUNULMAZ
     _write(_root() / cmp_id / "auto_scores.json", auto)
 
 
@@ -666,11 +684,34 @@ def mark_integration_only(cmp_id: str, note: str) -> dict[str, Any]:
     """Koşuyu YALNIZ entegrasyon testi işaretle: karar en fazla ``yetersiz_kanit``, kayıt defteri
     güncellenmez, kalite üstünlüğü / ana model terfisi için kullanılamaz (geri alınamaz)."""
     m = _manifest(cmp_id)
+    if m.get("status") == "decided":
+        # Kademe 2 (2026-10-06) E-2: karar zaten kayıtlıysa yalnız manifesti değiştirmek etkisizdi
+        # (etkinleştirme karar deposunu okur). Eklemeli bir düşürme kararı yazılır.
+        _downgrade_decision(cmp_id, note)
     m["purpose"] = "entegrasyon_testi"
     m["purpose_note"] = note[:500]
     m["purpose_marked_at"] = utcnow()
     _write(_root() / Path(cmp_id).name / "manifest.json", m)
     return m
+
+
+def _downgrade_decision(cmp_id: str, note: str) -> None:
+    from app.evals.candidate_decisions import list_decisions, record_decision
+
+    rows = [r for r in list_decisions() if r.get("comparison_id") == cmp_id]
+    if not rows or rows[-1]["decision"] in ("yetersiz_kanit", "ret", "kritik_ret"):
+        return
+    last = rows[-1]
+    record_decision(
+        {
+            **{k: last.get(k) for k in last if k not in ("decision_id", "decided_at")},
+            "decision": "yetersiz_kanit",
+            "summary": (
+                "Sonradan YALNIZ entegrasyon testi işaretlendi → en fazla yetersiz kanıt; "
+                f"ana model terfisinde kullanılamaz. {note}"
+            )[:500],
+        }
+    )
 
 
 def _dimension_report(
@@ -772,9 +813,15 @@ def finalize(cmp_id: str) -> dict[str, Any]:
         decision = "yetersiz_kanit"
         reasons.append(f"GA [{bs['lo']:.3f}, {bs['hi']:.3f}] kararsız (tolerans {margin})")
     meta = m.get("candidate_meta") or {}
-    verified = bool((meta.get("completion") or {}).get("ok")) and bool(
-        (meta.get("conversion") or {}).get("ok")
-    )
+    conv = meta.get("conversion") or {}
+    verified = bool((meta.get("completion") or {}).get("ok")) and bool(conv.get("ok"))
+    # Kademe 2 (2026-10-06) E-7: dönüşüm doğrulaması KARŞILAŞTIRILAN digest'e ait olmalı.
+    from app.evals.candidate_decisions import norm_digest
+
+    compared = norm_digest(str((m.get("digests") or {}).get("candidate") or ""))
+    if verified and norm_digest(str(conv.get("digest") or "")) != compared:
+        verified = False
+        reasons.append("Dönüşüm doğrulamasının digest'i karşılaştırılan modelinkiyle aynı değil")
     if decision == "kabul" and not verified:
         decision = "yetersiz_kanit"
         reasons.append("Adayın tamamlanma/dönüşüm doğrulaması geçmedi → en fazla yetersiz kanıt")

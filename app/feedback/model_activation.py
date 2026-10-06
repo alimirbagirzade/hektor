@@ -336,6 +336,35 @@ def _next_state(st: dict[str, Any]) -> dict[str, Any]:
     return nxt
 
 
+def pilot_block(tag: str, adapter_id: str = "", root: Path | None = None) -> str:
+    """Model reçeteye SINIRLI risk kabulüyle eğitilmiş (pilot) bir adapter'dan mı? (boş = hayır)
+
+    Kademe 2 (2026-10-06) E-1, kullanıcı kararı: pilot hiçbir yoldan ana modele geçmez. Adapter
+    adı karar/kayıt defterinden ve Modelfile kökeninden alınır; kolay akış reçetesi yalnız-reçete
+    kapsamlı bir risk kabulüyle kayıtlıysa engel döner.
+    """
+    from app.feedback.model_identity import model_origin
+    from app.training.candidate_checks import recipe_for_adapter
+    from app.training.easy_train import recipe_has_limited_acceptance
+
+    names: set[str] = set()
+    if adapter_id:
+        rec = _registry(root).get(adapter_id)
+        if rec is not None and rec.adapter_name:
+            names.add(str(rec.adapter_name))
+    origin = model_origin(norm_tag(tag), root)
+    if origin and origin.get("adapter"):
+        names.add(str(origin["adapter"]))
+    for name in sorted(names):
+        recipe = recipe_for_adapter(name) or {}
+        if recipe_has_limited_acceptance(str(recipe.get("recipe_sha") or "")):
+            return (
+                f"'{tag}' adapter'ı '{name}' YALNIZ pilot için sınırlı risk kabulüyle eğitildi — "
+                "ana modele geçemez (deneme sohbetinde kullanılabilir)."
+            )
+    return ""
+
+
 def _check_registry_target(adapter_id: str, root: Path | None = None) -> None:
     """Günlük yazılmadan ÖNCE: kayıt defteri bu adapter'ı production'a alabilir mi?"""
     if not adapter_id:
@@ -416,6 +445,9 @@ def activate_main(tag: str, reason: str, *, root: Path | None = None) -> dict[st
         # final setiyle verilmiş 'Kabul' ile değişir. Geliştirme setindeki 'Kabul' (ya da
         # daha önce görülmüş final soruları → 'development'e düşmüş koşu) yalnız deneme
         # yuvasına yeter. İnsan onayı: web ucu require_human + gerekçe.
+        pilot = pilot_block(tag, str(dec.get("adapter_id") or ""), root)
+        if pilot:
+            raise ActivationError(pilot)
         if not main_role_ok(dec):
             raise ActivationError(
                 f"Karar '{dec.get('role') or '?'}' rollü karşılaştırmadan — ana model yalnız "
@@ -523,6 +555,12 @@ def _check_rollback_decision(prev: dict[str, Any], root: Path | None = None) -> 
     if not prev.get("decision_id"):
         return
     dec = latest_decision(tag, digest, root)
+    # E-8: geri dönüş de ana model kuralına tabi (final rollü kabul).
+    if dec is not None and dec["decision"] in MAIN_OK and not main_role_ok(dec):
+        raise ActivationError(
+            f"Önceki model '{tag}' için kabul FİNAL rollü değil — ana model yalnız gizli final "
+            "setiyle verilmiş 'Kabul' ile kurulabilir; geri dönüş yapılmadı."
+        )
     if dec is None or dec["decision"] not in MAIN_OK:
         now = DECISION_TR.get(dec["decision"], dec["decision"]) if dec else "karar yok"
         raise ActivationError(
@@ -550,6 +588,9 @@ def rollback_main(reason: str, *, root: Path | None = None) -> dict[str, Any]:
             )
         _require_present(tag, digest, "Önceki model")
         _check_rollback_decision(prev, root)
+        pilot = pilot_block(tag, str(prev.get("adapter_id") or ""), root)
+        if pilot:
+            raise ActivationError(pilot)
         _check_registry_target(str(prev.get("adapter_id") or ""), root)
         cur = dict(st["main"])
         cur.pop("previous", None)

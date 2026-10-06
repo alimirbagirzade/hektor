@@ -16,8 +16,11 @@ from dataclasses import dataclass
 from typing import Any
 
 # Eğitim satırının ``metadata`` alanında bulut kökenini gösteren anahtar/değerler.
-CLOUD_ORIGIN_KEYS = ("origin", "source", "teacher")
+CLOUD_ORIGIN_KEYS = ("origin", "source", "teacher", "model_tag")
 CLOUD_ORIGIN_PREFIXES = ("cloud", "bulut", "teacher_api", "claude", "openai", "gpt", "codex")
+# Kademe 2 (c0d6aea avı) C-2: Ollama Cloud etiketleri ("deepseek-v3.1:671b-cloud",
+# "gpt-oss:120b-cloud") yerel Ollama API'sinden çağrılır ama UZAKTA çalışır → bulut kökenli.
+CLOUD_TAG_SUFFIXES = ("-cloud", ":cloud")
 
 
 @dataclass(frozen=True)
@@ -88,7 +91,13 @@ def _is_cloud_meta(meta: Any) -> bool:
         return False
     for key in CLOUD_ORIGIN_KEYS:
         val = str(meta.get(key) or "").strip().lower()
-        if val and val.startswith(CLOUD_ORIGIN_PREFIXES):
+        if not val:
+            continue
+        if val.removesuffix(":latest").endswith(CLOUD_TAG_SUFFIXES):
+            return True
+        # Not: 'gpt' öneki yerel açık ağırlıklı gpt-oss'u da yakalar — bilinçli: açık ağırlıklı
+        # öğretmen bile lisans kaydı + insan onayı olmadan eğitime girmez (modül belgesi).
+        if val.startswith(CLOUD_ORIGIN_PREFIXES):
             return True
     return False
 

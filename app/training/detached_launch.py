@@ -665,7 +665,12 @@ def plan_iterations(n_train: int, max_examples: int, profile: str | None) -> tup
 # Spawn sonrası alt sürecin HEMEN çıkıp çıkmadığını izleme süresi (sn). `train --run`
 # ağırlık/sızıntı/yük kapılarında birkaç saniyede 3/4/5/6 ile çıkar; bunu görmeden "başladı"
 # demek ölü bir durum kaydı bırakır. Testler 0 geçer (tek yoklama, beklemesiz).
-_EARLY_EXIT_WAIT_S = 8.0
+# Kademe 2 (2026-10-06) L-3: sabit 8 sn, alt sürecin kapılara ulaşma süresinden (içe aktarma +
+# sızıntı taraması ~10 sn) kısaydı → onaydan sonra kapıda düşen koşu "başlatıldı" görünüyordu.
+# Artık alt süreç TÜM kapıları geçince işaret dosyası yazar; ebeveyn işareti ya da çıkışı bekler.
+# Üst sınır yalnız takılan alt süreç için (dolarsa eski davranış: canlıysa başlatıldı sayılır).
+_EARLY_EXIT_WAIT_S = 180.0
+GATES_MARKER_ENV = "HEKTOR_TRAIN_GATES_MARKER"
 _EARLY_EXIT_HINTS = {
     3: "taze insan onayı gerekiyor (Kural 8)",
     4: "train-load-doctor NO-GO (rakip GPU/LLM yükü) — ayrıntı logs/train-full.log",
@@ -673,6 +678,8 @@ _EARLY_EXIT_HINTS = {
     6: "eğitim verisinde eval sızıntısı — `uv run hektor mix leakage`",
     8: "ortak ağır iş kilidi tutuluyor ya da sohbet cevabı üretiliyor",
     10: "Kademe 2 kaydı yok/geçersiz — derin av sonrası `uv run hektor kademe2-kayit`",
+    11: "koşu onaylanan reçeteyle aynı değil — yeni anlık görüntü gerekir",
+    1: "kalite kapısı / veri kapısı NO-GO — ayrıntı logs/train-full.log",
 }
 
 
@@ -838,13 +845,18 @@ def preflight_launch(
     return {"ok": True, "message": "Ön-kontroller geçti.", "n_train": n_train}
 
 
-def _early_exit_code(proc: subprocess.Popen, wait_s: float) -> int | None:
-    """Alt süreç ``wait_s`` içinde çıktıysa çıkış kodunu, hâlâ yaşıyorsa ``None`` döndür."""
+def _early_exit_code(
+    proc: subprocess.Popen, wait_s: float, marker: Path | None = None
+) -> int | None:
+    """Alt süreç kapılarda çıktıysa çıkış kodunu, kapıları geçtiyse (işaret dosyası) ya da
+    ``wait_s`` doldu ve hâlâ yaşıyorsa ``None`` döndür."""
     deadline = time.monotonic() + max(0.0, wait_s)
     while True:
         rc = proc.poll()
         if rc is not None:
             return int(rc)
+        if marker is not None and marker.exists():
+            return None
         if time.monotonic() >= deadline:
             return None
         time.sleep(0.25)
@@ -976,6 +988,10 @@ def launch(
         # Ortak kilit alt sürece devredilir: `train --run` bu token'la kilidi DEVRALIR,
         # kendi başına ikinci kilit almaya çalışmaz.
         env[resource_lock.TOKEN_ENV] = lock_token
+        gates_marker = root / "storage" / f"train_gates_{lock_token[:12]}.ok"
+        with contextlib.suppress(OSError):
+            gates_marker.unlink()
+        env[GATES_MARKER_ENV] = str(gates_marker)
         # Taze başlatma ASLA checkpoint'ten devam etmez (Kademe-2 B12): sunucu, önceden
         # `start-train.ps1 -Resume` koşmuş bir kabuktan açıldıysa RESUME=1 miras kalırdı.
         env["HEKTOR_TRAIN_RESUME"] = "0"
@@ -1057,7 +1073,9 @@ def launch(
         # Erken çıkış: alt süreç kapılarda (3/4/5/6) hemen düşerse "başlatıldı" deme ve
         # ölü durum kaydı bırakma (nöbetçi onu diriltmeye çalışırdı).
         wait_s = _EARLY_EXIT_WAIT_S if early_exit_wait_s is None else early_exit_wait_s
-        rc = _early_exit_code(proc, wait_s)
+        rc = _early_exit_code(proc, wait_s, gates_marker)
+        with contextlib.suppress(OSError):
+            gates_marker.unlink()
         if rc is not None:
             with contextlib.suppress(OSError):
                 status_file.unlink()

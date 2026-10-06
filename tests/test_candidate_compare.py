@@ -18,7 +18,7 @@ from tests.chat_learning_helpers import iso  # noqa: F401
 from app.evals import candidate_compare as cc
 
 DIG = {"aktif": "a" * 64, "aday": "c" * 64, "temel": "b" * 64}
-VERIFIED = {"completion": {"ok": True}, "conversion": {"ok": True}}
+VERIFIED = {"completion": {"ok": True}, "conversion": {"ok": True, "digest": DIG["aday"]}}
 
 
 def _set(tmp_path, n_fam=10, math_fams=6, per_fam=2):
@@ -460,3 +460,60 @@ def test_web_ai_review_hidden_until_human_review(iso, tmp_path) -> None:  # noqa
     # AI incelemesi web'den YAZILAMAZ (yalnız CLI); insan uç noktası ayrı.
     paths = {getattr(rt, "path", "") for rt in client.app.routes}
     assert not any("ai-review" in p and p.endswith("/submit") for p in paths)
+
+
+# ── Kademe 2 (2026-10-06, c0d6aea avı) E-2 · E-3 · E-4 · E-5 · E-7 ─────────────────────
+
+
+def test_e3_development_use_burns_final_independence(iso, tmp_path) -> None:  # noqa: F811
+    dev = _create(tmp_path, role="development")
+    assert cc.final_accesses(dev["set_sha"])  # geliştirme kullanımı da loglandı
+    fin = _create(tmp_path, role="final")
+    assert fin["role"] == "development" and "kullanıldı" in fin["role_note"]
+
+
+def test_e5_final_requires_preset_criteria(iso, tmp_path) -> None:  # noqa: F811
+    import time
+
+    lax = {**cc.DEFAULT_CRITERIA, "margin": 4.0, "min_families": 1}
+    lock = cc.lock_criteria(lax)
+    time.sleep(0.01)
+    m = cc.create(
+        set_path=_set(tmp_path),
+        role="final",
+        active_tag="aktif",
+        candidate_tag="aday",
+        base_tag="temel",
+        criteria_sha=lock["criteria_sha"],
+        candidate_meta={**VERIFIED},
+    )
+    assert m["role"] == "development" and "ön ayar" in m["role_note"]
+
+
+def test_e2_mark_integration_after_decision_downgrades(iso, tmp_path) -> None:  # noqa: F811
+    from app.evals.candidate_decisions import latest_decision
+
+    m = _create(tmp_path)
+    cc.generate(m["comparison_id"], transport=_ollama())
+    _review_all(m["comparison_id"])
+    assert cc.finalize(m["comparison_id"])["decision"] == "kabul"
+    cc.mark_integration_only(m["comparison_id"], "pilot entegrasyon testi")
+    assert latest_decision("aday", DIG["aday"])["decision"] == "yetersiz_kanit"
+
+
+def test_e7_conversion_digest_must_match_compared(iso, tmp_path) -> None:  # noqa: F811
+    meta = {"completion": {"ok": True}, "conversion": {"ok": True, "digest": "f" * 64}}
+    m = _create(tmp_path, meta=meta)
+    cc.generate(m["comparison_id"], transport=_ollama())
+    _review_all(m["comparison_id"])
+    res = cc.finalize(m["comparison_id"])
+    assert res["decision"] != "kabul"
+    assert any("digest" in r for r in res["reasons"])
+
+
+def test_e4_blind_seed_not_derived_from_cmp_id(iso, tmp_path) -> None:  # noqa: F811
+    m = _create(tmp_path)
+    cc.generate(m["comparison_id"], transport=_ollama())
+    seed = json.loads((cc._root() / m["comparison_id"] / "sealed_seed.json").read_text("utf-8"))
+    assert seed["seed"] and m["comparison_id"] not in seed["seed"]
+    assert "seed" not in json.dumps(cc.blind_packet(m["comparison_id"]))
