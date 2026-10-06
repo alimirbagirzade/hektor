@@ -969,7 +969,7 @@ def _train_impl(
                     f"({_rv.details.get('approval_id', '')}).[/dim]"
                 )
             else:
-                _aid, _why = _launch_approval_check()
+                _aid, _why = _launch_approval_check(lock_holder.get("token", ""))
                 if _why:
                     console.print(
                         Panel.fit(
@@ -5533,12 +5533,19 @@ def train_doctor(
         raise typer.Exit(1)
 
 
-def _launch_approval_check() -> tuple[str, str]:
-    """Üst süreçten gelen onay kimliği + sorun ("" = geçerli). Bkz. ``launch_approval_problem``."""
+def _launch_approval_check(lock_token: str) -> tuple[str, str]:
+    """Üst süreçten gelen onay kimliği + sorun ("" = geçerli). Bkz. ``launch_approval_problem``.
+
+    Kademe 2 P-1: onay yalnız tüketildiği BAŞLATMAYA yetki verir — kilit kaydında aynı kimlik
+    olmalı (``launch()`` yazar), tek alt süreç kullanabilir, kolay akış onayı
+    (``train_run:<reçete>``) yalnız o reçeteyle koşar.
+    """
     import datetime as _dt
     import os as _os
 
     from app.memory.sqlite_store import SqliteStore
+    from app.training import easy_train as _et
+    from app.training import resource_lock as _rlock
     from app.training.detached_launch import APPROVAL_ENV
     from app.training.train_guard import launch_approval_problem
 
@@ -5550,7 +5557,24 @@ def _launch_approval_check() -> tuple[str, str]:
         except Exception:
             row = None  # okunamadı → doğrulanamaz → fail-closed
     why = launch_approval_problem(row, now=_dt.datetime.now(_dt.UTC))
-    return aid, why or ""
+    if why:
+        return aid, why
+    info = _rlock.status().get("info") or {}
+    if not lock_token or info.get("token") != lock_token or info.get("approval_id") != aid:
+        return aid, (
+            f"onay {aid} bu başlatma kilidine bağlı değil — kilit üst süreçte onayla birlikte "
+            "alınmamış (elle alınmış kilit ya da başka bir başlatmanın onayı)"
+        )
+    if info.get("approval_used_by"):
+        return aid, f"onay {aid} bu kilitte zaten kullanıldı — onay tek alt süreç içindir"
+    action = str((row or {}).get("action") or "")
+    if action.startswith("train_run:"):
+        recipe = _os.environ.get(_et.RECIPE_ENV, "").strip()
+        if not recipe or recipe[:16] != action.split(":", 1)[1]:
+            return aid, f"onay {aid} başka bir reçeteye ({action}) ait — bu koşu o reçete değil"
+    if _rlock.annotate(lock_token, approval_used_by=_os.getpid()) is None:
+        return aid, "başlatma kilidi kayboldu — onay bağlanamadı"
+    return aid, ""
 
 
 def _recovery_verdict(adapter_name: str = "", *, attempts_slack: int = 0) -> RecoveryVerdict:

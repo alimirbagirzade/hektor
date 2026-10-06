@@ -370,7 +370,7 @@ def pilot_block(
     kapsamlı bir risk kabulüyle kayıtlıysa engel döner.
     """
     from app.feedback.model_identity import model_origin
-    from app.training.candidate_checks import recipe_for_adapter
+    from app.training.candidate_checks import recipe_shas_for_adapter
     from app.training.easy_train import recipe_has_limited_acceptance
 
     names: set[str] = {adapter_name} if adapter_name else set()
@@ -382,8 +382,7 @@ def pilot_block(
     if origin and origin.get("adapter"):
         names.add(str(origin["adapter"]))
     for name in sorted(names):
-        recipe = recipe_for_adapter(name) or {}
-        if recipe_has_limited_acceptance(str(recipe.get("recipe_sha") or "")):
+        if any(recipe_has_limited_acceptance(sha) for sha in recipe_shas_for_adapter(name)):
             return (
                 f"'{tag}' adapter'ı '{name}' YALNIZ pilot için sınırlı risk kabulüyle eğitildi — "
                 "ana modele geçemez (deneme sohbetinde kullanılabilir)."

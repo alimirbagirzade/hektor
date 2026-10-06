@@ -322,6 +322,17 @@ def transfer(token: str, pid: int, *, root: Path | None = None, state: str = "ru
     return True
 
 
+def annotate(token: str, *, root: Path | None = None, **fields: Any) -> dict[str, Any] | None:
+    """Kilit kaydına alan ekle (token tutmalı). Güncel kaydı döndürür (yoksa/başkasınınsa None)."""
+    path = lock_path(root)
+    info = _read(path)
+    if info is None or info.get("token") != token:
+        return None
+    info.update(fields)
+    _rewrite(path, info)
+    return info
+
+
 def claim(token: str, *, root: Path | None = None) -> bool:
     """Alt süreç devralır: kilit bu token'a aitse pid'i bu süreç yap."""
     return transfer(token, os.getpid(), root=root, state="running")

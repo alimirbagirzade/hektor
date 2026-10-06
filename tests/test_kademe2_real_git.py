@@ -16,6 +16,7 @@ gerçek ``git ls-tree`` / ``git status`` ile çalışır. Kabul şartları:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import threading
 from pathlib import Path
@@ -249,10 +250,15 @@ def _parent_lock(monkeypatch) -> str:
     approvals.approve(req.approval_id)
     assert approvals.require_fresh_approval("lora-trainer", "train_run", "high", "web").authorized
     monkeypatch.setenv(APPROVAL_ENV, req.approval_id)
+    # launch() gibi: onay kimliği kilit kaydına bağlanır (P-1).
+    resource_lock.annotate(str(info["token"]), approval_id=req.approval_id)
     return str(info["token"])
 
 
-@pytest.mark.parametrize("case", ["no_approval_env", "unconsumed", "stale"])
+@pytest.mark.parametrize(
+    "case",
+    ["no_approval_env", "unconsumed", "stale", "manual_lock", "reused", "other_recipe"],
+)
 def test_l2_forged_lock_token_does_not_bypass_approval(repo, monkeypatch, case) -> None:
     """Kademe 2 L-2: elle yazılmış kilit + belirteç, tüketilmiş TAZE onay olmadan eğitmez."""
     import datetime as dt
@@ -264,8 +270,23 @@ def test_l2_forged_lock_token_does_not_bypass_approval(repo, monkeypatch, case) 
     _record(data_sha256=_data_sha())
     monkeypatch.setenv("HEKTOR_TRAIN_SUPERVISED", "1")
     _parent_lock(monkeypatch)
+    from app.training import resource_lock
+
+    token = os.environ[resource_lock.TOKEN_ENV]
     if case == "no_approval_env":
         monkeypatch.delenv(APPROVAL_ENV)
+    elif case == "manual_lock":  # P-1: `resource_lock acquire` ile elle alınan kilit onay taşımaz
+        resource_lock.annotate(token, approval_id="")
+    elif case == "reused":  # P-1: aynı onay ikinci alt süreçte kullanılamaz
+        resource_lock.annotate(token, approval_used_by=12345)
+    elif case == "other_recipe":  # P-1: kolay akış onayı yalnız kendi reçetesiyle
+        req = approvals.request_approval("lora-trainer", "train_run:" + "a" * 16, "x", "high")
+        approvals.approve(req.approval_id)
+        assert approvals.require_fresh_approval(
+            "lora-trainer", "train_run:" + "a" * 16, "high", "x"
+        ).authorized
+        monkeypatch.setenv(APPROVAL_ENV, req.approval_id)
+        resource_lock.annotate(token, approval_id=req.approval_id)
     elif case == "unconsumed":
         req = approvals.request_approval("lora-trainer", "train_run", "x", "high")
         approvals.approve(req.approval_id)
@@ -596,6 +617,7 @@ def test_concurrent_launches_single_spawn_and_dead_child_lock_is_stale(repo, mon
             max_examples=snap["max_examples"],
             recipe_sha=snap["recipe_sha"],
             early_exit_wait_s=0,
+            approval_id="apr_t",
         )
     )
     oks = [r for r in res if r.get("ok")]
@@ -841,3 +863,48 @@ def test_cloud_out_of_scope_record_lapses_when_cloud_enabled(repo, monkeypatch) 
             closure_evidence="bulut kapalı doğrulandı; make ci yeşil",
             reviewer="insan",
         )
+
+
+def test_p6_p8_hand_edited_limited_record_and_bad_condition(repo) -> None:
+    """P-6: elle büyütülen sınır kapıyı geçmez. P-8: geçersiz 'kosul' biçimi traceback değil."""
+    pilot = et.prepare_snapshot(_settings(max_examples=64))
+    size = et.recipe_training_size(pilot)
+    rec = et.record_kademe2(
+        scope={"recipe_sha": pilot["recipe_sha"]},
+        findings=[
+            {
+                "id": "F3-4",
+                "status": "risk_kabul",
+                "kapsam": "yalniz_recete",
+                "gerekce": "yalnız teknik pilot; valid loss kalite kanıtı değil",
+                "sinir": {"max_examples": 64, "max_optimizer_steps": size["optimizer_steps"]},
+            }
+        ],
+        closure_evidence="pilot kapsamı; make ci yeşil (commit abc123)",
+        reviewer="insan",
+    )
+    assert et.kademe2_blocker(recipe_sha=pilot["recipe_sha"]) is None
+    path = et.kademe2_dir() / f"{rec['record_id']}.json"
+    data = json.loads(path.read_text("utf-8"))
+    data["findings"][0]["sinir"] = {"max_examples": 1, "max_optimizer_steps": 1}
+    path.write_text(json.dumps(data), "utf-8")
+    assert et.kademe2_blocker(recipe_sha=pilot["recipe_sha"]) is not None
+    data["findings"][0].pop("sinir")
+    path.write_text(json.dumps(data), "utf-8")
+    assert et.kademe2_blocker(recipe_sha=pilot["recipe_sha"]) is not None
+    for bad in (1, True, {"x": 1}):
+        with pytest.raises(et.EasyTrainError, match="Tanımsız koşul"):
+            et.record_kademe2(
+                scope={"data_sha256": _data_sha()},
+                findings=[
+                    {
+                        "id": "C-1",
+                        "status": "risk_kabul",
+                        "kapsam": "kayit",
+                        "kosul": bad,
+                        "gerekce": "bulut kapalı; açılmadan önce ayrı iş",
+                    }
+                ],
+                closure_evidence="bulut kapalı doğrulandı; make ci yeşil",
+                reviewer="insan",
+            )

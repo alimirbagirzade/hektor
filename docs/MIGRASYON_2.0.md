@@ -101,7 +101,7 @@ Ayrıca ölü parametreler temizlendi: `classify_curriculum(card_json, ...)` ve
 
 | Ayar | v1 | 2.0 | Neden |
 |---|---|---|---|
-| `unattended_training_enabled` | `True` | **`False`** | Her gerçek eğitim ve terfi tek-kullanımlık insan onayı ister (Kural 8). Kullanıcı bilinçli açabilir. |
+| `unattended_training_enabled` | `True` | **`False`** | Her gerçek eğitim ve terfi tek-kullanımlık insan onayı ister (Kural 8). 2026-10-06 (Kademe 2 L-2/P-3): açılsa bile **eğitim başlatamaz** — alt süreç tüketilmiş insan onayını doğrular; ayar yalnız kapı/hazırlık adımlarını etkiler. |
 | Kurulum sihirbazı varsayılanı | `gpt-4o-mini` (bulut) | **`qwen3:4b` (yerel)** | "API asla" kuralı |
 | `storage/*.json` git takibi | tek tek listeleniyordu | **hepsi ignore** | Yeni ajan state dosyaları listeye eklenmeyi unutunca sızıyordu |
 

@@ -1,0 +1,100 @@
+{
+  "kademe": 2,
+  "tarih": "2026-10-06",
+  "denetlenen_fark": "2e70176..b8ad2e4 (#40 aday-işleri + #42 L-2/E-8a/E-6/sınır) — app",
+  "yontem": "2 bulucu (alt-sistem başına: #42 farkı, #40 farkı) → her bulgu ana oturumda şüpheci yeniden doğrulama (kod okundu, senaryo izlendi); onaylananlar düzeltildi + regresyon testi.",
+  "curutulen_yok": "Bulucuların 'sorun yok' dediği noktalar: 20 dk pencere yavaş 30B ön-kontrolüne yetiyor; kurtarma sayacı (attempts_slack) nöbetçiyle tutarlı; Auto-LoRA/kolay akış aksiyon adları tanınıyor; E-6 final yalnız CLI'dan açılabiliyor.",
+  "bulgular": [
+    {
+      "id": "P-1",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "ozet": "Kilit-belirteci yolundaki onay başlatmaya bağlı değildi: elle alınmış kilit + 20 dk içindeki herhangi bir tüketilmiş onay başka adapter/reçeteyle eğitime yetki veriyordu.",
+      "evidence": "launch() onay kimliğini kilit kaydına yazar (resource_lock.annotate); alt süreç kilitteki kimlik = ENV, tek kullanım (approval_used_by), train_run:<hex> = reçete ister. test_l2_forged_lock_token_does_not_bypass_approval[manual_lock|reused|other_recipe]."
+    },
+    {
+      "id": "P-2",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "ozet": "Kurtarma kimlik yolu consumed_at↔started_at ilişkisine bakmıyordu: eski bir onay elle yazılmış durum dosyasıyla yeni eğitime yetki veriyordu.",
+      "evidence": "find_run_approval kimlik yolunda |consumed_at − started_at| ≤ 60 dk (APPROVAL_ID_WINDOW_MINUTES). test_approval_id_eslesse_de_kosudan_uzak_onay_reddedilir, test_find_run_approval_kimlikle_dogrudan_bulur."
+    },
+    {
+      "id": "P-3",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "ozet": "L-2 sonrası gözetimsiz politika (HEKTOR_UNATTENDED_TRAINING_ENABLED, varsayılan kapalı) alt süreçte sessiz çıkış 3 ile düşüyordu.",
+      "evidence": "Bilinçli sıkılaştırma (Kural 8): launch() onaysız başlatmayı alt süreç doğmadan açık mesajla reddeder; MIGRASYON_2.0 §3 güncellendi. test_p3_launch_without_consumed_approval_fails_clearly. KULLANICIYA BİLDİRİLDİ."
+    },
+    {
+      "id": "P-4",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "E-8a ActivationError'ı bazı çağıranlar yakalamıyordu (aday sayfası 500, strateji taslağı, kaynak kapısı).",
+      "evidence": "resource_guard → GuardDecision(False), chat_strategy → DraftError, candidate_routes.overview → active='' + active_error. candidate_jobs.py (≈479/490) paralel oturuma devredildi (J-* ile aynı dosya). test_e8a_pilot_tag_in_env_never_becomes_main."
+    },
+    {
+      "id": "P-5",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Pilot tespiti adın EN YENİ reçetesine bakıyordu; ad tam reçeteyle yeniden kullanılınca eski pilot GGUF serbest kalıyordu.",
+      "evidence": "candidate_checks.recipe_shas_for_adapter: adın TÜM başarılı başlatmaları; pilot_block herhangi biri sınırlıysa engeller. test_p5_pilot_name_reused_with_full_recipe_still_blocks."
+    },
+    {
+      "id": "P-6",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "sinir yalnız kayıt anında denetleniyordu; elle düzenlenmiş kayıtta silinip/büyütülebilirdi.",
+      "evidence": "latest_kademe2 sınırlı kayıtta _check_limited_bounds'u yeniden çalıştırır; hata → kayıt kapsamaz. test_p6_p8_hand_edited_limited_record_and_bad_condition."
+    },
+    {
+      "id": "P-7",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "bulut_kapali koşulu süreç önbelleğindeki ayara bakıyordu.",
+      "evidence": "_cloud_off taze Settings() (.env + ortam) okur; okunamazsa koşul başarısız. Kalan: web sunucusu farklı ortamla başlatılırsa o sürecin durumu görülmez (not)."
+    },
+    {
+      "id": "P-8",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "'kosul' için str/list dışı değer TypeError traceback veriyordu.",
+      "evidence": "_conditions geçersiz biçimi tanımsız koşul sayar → EasyTrainError / kayıt kapsamaz. test_p6_p8_hand_edited_limited_record_and_bad_condition."
+    },
+    {
+      "id": "J-2",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "ozet": "'Durdur' durum dosyasındaki bayat pid'in ağacını öldürebiliyordu (pid yeniden kullanımı).",
+      "evidence": "Bitmiş koşuda öldürme yok; launch() pid_create_time yazar, tutmazsa öldürme yok. test_j2_stop_does_not_kill_reused_or_finished_pid. Kalan: start-train.ps1 kaydı zaman taşımaz (eski davranış)."
+    },
+    {
+      "id": "J-1",
+      "severity": "MED-HIGH",
+      "status": "ACIK_PARALEL",
+      "ozet": "Windows'ta O_EXCL silinmekte olan kilit dosyasında PermissionError verir; _job_lock yalnız FileExistsError yakalar → çalıştırıcı sonuç yazmadan ölür, iş 'lost' (kararsız test_nonzero_exit_is_failed'ın büyük olasılıkla kökü).",
+      "not": "Paralel oturuma devredildi (Fix flaky candidate_jobs nonzero-exit test)."
+    },
+    {
+      "id": "J-3",
+      "severity": "LOW-MED",
+      "status": "ACIK_PARALEL",
+      "ozet": "'starting' iken durdurulan iş çalıştırıcı başlayınca yine koşar.",
+      "not": "Paralel oturuma devredildi."
+    },
+    {
+      "id": "J-4",
+      "severity": "LOW",
+      "status": "ACIK_PARALEL",
+      "ozet": "reconcile taze okuma başarısızsa bayat görüntüye düşer; _job_lock zaman aşımında sahibinin kilidini siler.",
+      "not": "Paralel oturuma devredildi."
+    },
+    {
+      "id": "J-5",
+      "severity": "LOW",
+      "status": "ACIK_PARALEL",
+      "ozet": "create_time None iken _alive yalnız pid varlığına bakar.",
+      "not": "Paralel oturuma devredildi."
+    }
+  ]
+}

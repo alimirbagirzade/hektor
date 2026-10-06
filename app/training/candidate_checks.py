@@ -224,6 +224,29 @@ def recipe_for_adapter(adapter: str) -> dict[str, Any] | None:
     return recipe_from_records(adapter)
 
 
+def recipe_shas_for_adapter(adapter: str) -> list[str]:
+    """Bu adla BAŞARIYLA başlatılmış TÜM kolay akış reçeteleri (en yenisi değil, hepsi).
+
+    Kademe 2 P-5: pilot kararı adın en yeni reçetesine bakılarak verilirse, aynı ad sonradan
+    tam reçeteyle yeniden kullanıldığında eski pilot GGUF'u "pilot değil" sayılırdı.
+    """
+    from app.training.easy_train import snapshots_dir
+
+    d = snapshots_dir()
+    out: list[str] = []
+    if d.is_dir():
+        for p in d.glob("snap_*/launch.json"):
+            if not (_read(p) or {}).get("ok"):
+                continue
+            recipe = _read(p.parent / "recipe.json") or {}
+            if recipe.get("adapter_name") == adapter and recipe.get("recipe_sha"):
+                out.append(str(recipe["recipe_sha"]))
+    rec = recipe_for_adapter(adapter) or {}
+    if rec.get("recipe_sha") and rec["recipe_sha"] not in out:
+        out.append(str(rec["recipe_sha"]))
+    return out
+
+
 def verify_conversion(
     adapter: str, ollama_tag: str, *, tags: list[dict[str, Any]] | None = None
 ) -> dict[str, Any]:
