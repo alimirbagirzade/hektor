@@ -71,6 +71,8 @@ def test_train_run_blocked_without_approval(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.lora.mix_cli.run_leakage_check", lambda p: {"clean": True, "counts": {}}
     )
+    # Veri kalite kapısı (Kademe 2 F3-2) da onaydan önce — bu test onay kapısını sınar.
+    monkeypatch.setattr("app.training.detached_launch._pretrain_gate_blockers", lambda s: [])
     r = runner.invoke(
         app,
         [

@@ -211,8 +211,9 @@ def recipe_for_adapter(adapter: str) -> dict[str, Any] | None:
     d = snapshots_dir()
     if not d.is_dir():
         return recipe_from_records(adapter)
-    for p in sorted(d.glob("snap_*/launch.json")):
-        launch = _read(p) or {}
+    # Kademe 2 (2026-10-06) F1-5: en yeni başlatma kaydı önce (özet sırası değil).
+    launches = [(p, _read(p) or {}) for p in d.glob("snap_*/launch.json")]
+    for p, launch in sorted(launches, key=lambda x: str(x[1].get("at", "")), reverse=True):
         recipe = _read(p.parent / "recipe.json") or {}
         if recipe.get("adapter_name") == adapter and launch.get("ok"):
             return {

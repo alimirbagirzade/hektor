@@ -133,6 +133,16 @@ class WeightDecisionStore:
             return None
         return newest if created >= limit else None
 
+    def revoke(self, decision_id: str, reason: str) -> None:
+        """Açık kararı geri çek (başlamayan koşu); silinmez, ``superseded`` işaretlenir."""
+        with file_lock(self.path):
+            rows = self.records()
+            for r in rows:
+                if r.decision_id == decision_id and r.is_open:
+                    r.superseded_at = _utcnow().isoformat()
+                    r.superseded_by = f"geri_cekildi: {reason}"[:120]
+            write_jsonl(self.path, (r.to_dict() for r in rows))
+
     def consume(self, decision_id: str, consumed_by: str) -> WeightDecision:
         """Kararı tek kullanımlık tüket; diğer açık kararlar ``superseded`` işaretlenir."""
         with file_lock(self.path):

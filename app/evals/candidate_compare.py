@@ -203,8 +203,15 @@ def load_set(path: Path) -> tuple[list[dict[str, Any]], str]:
     for r in rows:
         if not r.get("id") or not r.get("family") or not r.get("question"):
             raise CompareError("Her soruda id, family, question olmalı.")
-        if r.get("type") == "math" and r.get("answer_key") is None:
-            raise CompareError(f"Matematik sorusu {r['id']} doğrulanmış answer_key taşımalı.")
+        if r.get("type") == "math":
+            # Kademe 2 (2026-10-06) F4-9: anahtar SAYISAL olmalı — yoksa üretimden sonra kör
+            # paket kurulamaz, boş paketle kanıtsız karar kaydı yazılabilirdi.
+            try:
+                float(r.get("answer_key"))
+            except (TypeError, ValueError) as exc:
+                raise CompareError(
+                    f"Matematik sorusu {r['id']} sayısal, doğrulanmış answer_key taşımalı."
+                ) from exc
     return rows, hashlib.sha256(raw).hexdigest()
 
 
@@ -375,23 +382,60 @@ def generate(
 # ── otomatik puan + kör paket ────────────────────────────────────────────────
 
 _NUM_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
+# Binlik ayraçlı sayı ("10,000" · "1.234,56") ya da düz sayı (Unicode eksi önceden ASCII).
+_NUM_TOKEN_RE = re.compile(r"-?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?")
+
+
+def _number_readings(tok: str) -> list[float]:
+    """Bir sayı belirtecinin olası okumaları (TR "1.234,5" ve EN "1,234.5"; tek ayraç belirsizse
+    iki okuma). Kademe 2 F4-3: eskiden "10,000" → 10, "1,234.56" → 56 okunuyordu."""
+    t = tok.strip()
+    if "." in t and "," in t:
+        dec = "." if t.rfind(".") > t.rfind(",") else ","
+        grp = "," if dec == "." else "."
+        return [float(t.replace(grp, "").replace(dec, "."))]
+    sep = "." if "." in t else "," if "," in t else ""
+    if not sep:
+        return [float(t)]
+    parts = t.split(sep)
+    if len(parts) > 2:  # birden çok aynı ayraç → binlik
+        return [float(t.replace(sep, ""))]
+    out = [float(t.replace(sep, "."))]
+    if len(parts[1]) == 3:  # "10,000" / "1.234": binlik de olabilir
+        out.append(float(t.replace(sep, "")))
+    return out
+
+
+def final_number_readings(answer: str) -> list[float]:
+    """SON SAYI İÇEREN SATIRIN son sayısının okumaları (soru "son satıra yalnız sayıyı yaz" der).
+    Satır içi boşluklu binlik ("10 000") birleştirilir; Unicode eksi ASCII'ye çevrilir."""
+    lines = [ln for ln in (answer or "").splitlines() if ln.strip()]
+    for line in reversed(lines):
+        t = line.replace("\u2212", "-").replace("\u2013", "-")
+        t = re.sub(r"(?<=\d)[ \u00a0\u202f](?=\d{3}(?!\d))", "", t)
+        toks = _NUM_TOKEN_RE.findall(t)
+        if toks:
+            return _number_readings(toks[-1])
+    return []
 
 
 def auto_score(q: dict[str, Any], answer: str) -> dict[str, Any] | None:
     """Kural 1 → kritik; matematik → doğrulanmış anahtarla otomatik. Diğerleri None (kör)."""
     from app.feedback.echo import correction_safety_reason
 
-    rule1 = correction_safety_reason(answer, q["question"])
+    # F4-4: yalnız CEVAP taranır — soru metnindeki bir sözcük üç modeli birden kritik yapmasın.
+    rule1 = correction_safety_reason(answer)
     if rule1:
         return {"score": 0, "critical": True, "why": f"Kural 1: {rule1}", "by": "otomatik"}
     if q.get("type") == "math":
-        nums = _NUM_RE.findall(answer or "")
-        if not nums:
+        readings = final_number_readings(answer)
+        if not readings:
             return {"score": 0, "critical": True, "why": "sonuç yok", "by": "anahtar"}
-        got = float(nums[-1].replace(",", "."))
         key = float(q["answer_key"])
         tol = float(q.get("tolerance", 1e-6 * max(1.0, abs(key))))
-        ok = abs(got - key) <= tol
+        match = next((v for v in readings if abs(v - key) <= tol), None)
+        ok = match is not None
+        got = match if ok else readings[0]
         return {
             "score": 4 if ok else 0,
             "critical": not ok,

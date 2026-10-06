@@ -22,6 +22,12 @@ from app.lora.adapter_registry import AdapterRegistry, AdapterStatus
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def _gate_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Veri kalite kapısı (Kademe 2 F3-2) bu dosyanın konusu değil — kayıt davranışı sınanır."""
+    monkeypatch.setattr("app.training.detached_launch._pretrain_gate_blockers", lambda s: [])
+
+
 def test_count_jsonl_examples_bos_olmayan_satirlari_sayar(tmp_path: Path) -> None:
     from app.main import _count_jsonl_examples
 

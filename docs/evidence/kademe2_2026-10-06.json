@@ -1,0 +1,170 @@
+{
+  "kademe": 2,
+  "tarih": "2026-10-06",
+  "denetlenen_kod": "main 3ef2079 (C:\\HP\\hektor); düzeltmeler PR #34 dalında",
+  "yontem": "4 paralel bulucu (başlatma/yetki · eğitici/adım planı · veri/karışım · değerlendirme/aday) × her bulgu için 2 bağımsız şüpheci doğrulayıcı (varsayılan: çürütülmüş). Salt-okuma; deneyler yalnız yan etkisiz (tokenizer ölçümü, saf fonksiyon çağrıları).",
+  "olcum_F2_1": "Qwen3-30B-A3B-Instruct-2507 chat template: lora_sft.jsonl 1569 satır, 465'i > 1024 token, en uzun 5911 (< 6144). seed 42 ile seçilen 64 örnekte 1024'te 22 kayıp (%34 > eşik %1); 6144'te kayıp 0.",
+  "durum_anlamlari": {
+    "duzeltildi": "PR #34'te kod + regresyon testi (tests/test_kademe2_2026_10_06.py vb.)",
+    "reddedildi": "iki doğrulayıcı da çürüttü",
+    "KARAR_GEREKLI": "kısmen doğrulandı; risk kabulü / ayrı iş kararı KULLANICININ — bu kayıt kullanıcı adına risk_kabul YAZMAZ"
+  },
+  "bulgular": [
+    {
+      "id": "F1-1",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "preflight_launch(recipe_sha) → kademe2_check(recipe_sha=...)"
+    },
+    {
+      "id": "F1-2",
+      "votes": "KISMEN/ONAY",
+      "status": "duzeltildi",
+      "fix": "precheck: sohbet kirası + adapter klasörü + _recipe_blockers onaydan ÖNCE; launch preflight check_recipe=True"
+    },
+    {
+      "id": "F1-3",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "train_guard.is_training_action: train_run:<reçete> kabul"
+    },
+    {
+      "id": "F1-4",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "proposal": "risk_kabul — HEKTOR_TRAIN_SUPERVISED belgelenmiş yerel güven sınırı; Kademe 2/sızıntı/ağırlık kapıları yine çalışıyor"
+    },
+    {
+      "id": "F1-5",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "recipe_for_adapter en yeni launch.json (at)"
+    },
+    {
+      "id": "F1-6",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "_set_request güncel dosya üzerine yazar"
+    },
+    {
+      "id": "F1-7",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "snapshot_id ^snap_[0-9a-f]{16}$"
+    },
+    {
+      "id": "F1-8",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "başlamayan koşunun ağırlık kararı revoke"
+    },
+    {
+      "id": "F1-9",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "proposal": "risk_kabul — arayüz mix_weights göndermiyor; özet 'özel' gösteriyor; dosya yok"
+    },
+    {
+      "id": "F2-1",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "pilot reçetesi moe30b_attn_long (6144); ölçüm: en uzun 5911 token, 64 örnekte kayıp 0"
+    },
+    {
+      "id": "F2-2",
+      "votes": "ÇÜRÜTÜLDÜ/ÇÜRÜTÜLDÜ",
+      "status": "reddedildi",
+      "fix": "--iterations birimi belgelenmiş mikro-adım; kolay akış 0 geçer"
+    },
+    {
+      "id": "F3-1",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "_pretrain_gate_blockers check_assembly_freshness çağırır"
+    },
+    {
+      "id": "F3-2",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "train --run _pretrain_gate_blockers"
+    },
+    {
+      "id": "F3-3",
+      "votes": "=F1-8",
+      "status": "duzeltildi",
+      "fix": "F1-8"
+    },
+    {
+      "id": "F3-4",
+      "votes": "KISMEN/ONAY",
+      "status": "KARAR_GEREKLI",
+      "proposal": "risk_kabul (pilot) — yalnız valid loss iyimser; terfi LLM-30/karşılaştırmayla. Kalıcı çözüm: bağlamdaki paper_id'lerle gruplama (ayrı iş)"
+    },
+    {
+      "id": "F3-5",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "proposal": "reddedildi — işlevsel hata yok, özet farkı güvenli tarafa düşer"
+    },
+    {
+      "id": "F4-1",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "activate_main: kararın active_tag'i = güncel ana model"
+    },
+    {
+      "id": "F4-2",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "kritik_ret kalıcı (_decision_for); web --adapter-id eksikliği açık not"
+    },
+    {
+      "id": "F4-3",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "son sayı içeren satır, binlik/ondalık okumaları, Unicode eksi"
+    },
+    {
+      "id": "F4-4",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "yalnız cevap taranır (soru değil); olumsuzlama yanlış pozitifi açık not"
+    },
+    {
+      "id": "F4-5",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "proposal": "ana model için final rolü şartı politika kararı; set_sha normalize (ayrı iş)"
+    },
+    {
+      "id": "F4-6",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "proposal": "risk_kabul — yerel onur sistemi; mühürlü dosya zaten diskte"
+    },
+    {
+      "id": "F4-7",
+      "votes": "KISMEN/KISMEN",
+      "status": "duzeltildi",
+      "fix": "0db8735 (#34)"
+    },
+    {
+      "id": "F4-8",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "proposal": "rollback'te karar deposu denetimi (ayrı iş) ya da risk_kabul"
+    },
+    {
+      "id": "F4-9",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "fix": "load_set sayısal answer_key şartı"
+    },
+    {
+      "id": "F4-10",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "proposal": "reddedildi — betik FROM'u aynı adla yazar, köken denetimi güvenli tarafa düşer"
+    }
+  ]
+}

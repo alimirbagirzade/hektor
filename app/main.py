@@ -831,12 +831,16 @@ def _train_impl(
 
         # Seçili sohbet veri sürümünde sonradan geçersizleşen kayıt varsa (ret/hariç/düzenleme)
         # hangi yoldan gelinirse gelinsin eğitim başlamaz (Faz 1: yalnız pretrain-gate/web).
-        from app.feedback.chat_dataset import chat_selection_blockers
+        # Kademe 2 (2026-10-06) F3-2: kalite kapısı (Kural 1, şablon tekrarı, boş cevap) +
+        # DB tazeliği + sohbet seçimi doğrudan CLI yolunda da (eskiden yalnız web/kolay akış).
+        from app.training.detached_launch import _pretrain_gate_blockers
 
-        _chat_blockers = chat_selection_blockers()
-        if _chat_blockers:
+        _gate_blockers = _pretrain_gate_blockers(get_settings())
+        if _gate_blockers:
             console.print(
-                Panel.fit(" | ".join(_chat_blockers), title="⛔ Sohbet verisi", border_style="red")
+                Panel.fit(
+                    " | ".join(_gate_blockers[:5]), title="⛔ Kalite kapısı", border_style="red"
+                )
             )
             raise typer.Exit(1)
 

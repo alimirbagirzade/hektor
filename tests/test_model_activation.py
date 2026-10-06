@@ -48,6 +48,7 @@ def _decide(decision: str, *, tag: str = CAND, digest: str = DIG_CAND, adapter_i
             "candidate_digest": digest,
             "decision": decision,
             "comparison_id": "cmp_test",
+            "active_tag": BASE,  # karar GÜNCEL ana modele karşı (Kademe 2 F4-1)
             "adapter_id": adapter_id,
         }
     )
@@ -92,15 +93,41 @@ def test_rejected_candidates_never_activate(ollama, decision) -> None:
     with pytest.raises(ma.ActivationError) as main_exc:
         ma.activate_main(CAND, "yeterince uzun gerekçe")
     if decision == "kritik_ret":
-        assert "üretime geçirilemez" in str(main_exc.value)
-    with pytest.raises(ma.ActivationError, match="deneme sohbetinde de"):
+        assert "KRİTİK RET" in str(main_exc.value)
+    with pytest.raises(ma.ActivationError, match=r"deneme sohbetinde de|KRİTİK RET"):
         ma.activate_trial(CAND)
 
 
 def test_latest_decision_wins_and_critical_after_accept_blocks(ollama) -> None:
     _decide("kabul")
     _decide("kritik_ret")
-    with pytest.raises(ma.ActivationError, match="üretime geçirilemez"):
+    with pytest.raises(ma.ActivationError, match="KRİTİK RET"):
+        ma.activate_main(CAND, "yeterince uzun gerekçe")
+
+
+def test_k2_f4_2_critical_reject_is_sticky(ollama) -> None:
+    """Kademe 2 F4-2: kritik retten SONRA yazılan kabul onu kaldırmaz (ana + deneme)."""
+    _decide("kritik_ret")
+    _decide("kabul")
+    with pytest.raises(ma.ActivationError, match="KRİTİK RET"):
+        ma.activate_main(CAND, "yeterince uzun gerekçe")
+    with pytest.raises(ma.ActivationError, match="KRİTİK RET"):
+        ma.activate_trial(CAND)
+
+
+def test_k2_f4_1_accept_must_be_against_current_main(ollama) -> None:
+    """Kademe 2 F4-1: zayıf ya da eski bir modele karşı alınmış kabul ana modelin yerine geçemez."""
+    record_decision(
+        {
+            "candidate_tag": CAND,
+            "candidate_digest": DIG_CAND,
+            "decision": "kabul",
+            "comparison_id": "cmp_x",
+            "adapter_id": "",
+            "active_tag": "kucuk-zayif-model",
+        }
+    )
+    with pytest.raises(ma.ActivationError, match="şu anki ana model"):
         ma.activate_main(CAND, "yeterince uzun gerekçe")
 
 

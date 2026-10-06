@@ -364,6 +364,19 @@ def _decision_for(tag: str, root: Path | None = None) -> tuple[dict[str, Any], s
         raise ActivationError("Ollama'ya ulaşılamadı — aday digest'i doğrulanamadı.")
     if not cur:
         raise ActivationError(f"Aday '{tag}' Ollama'da bulunamadı.")
+    from app.evals.candidate_decisions import list_decisions, norm_digest
+
+    # Kademe 2 (2026-10-06) F4-2: kritik ret KALICIDIR — aynı digest için sonradan yazılan bir
+    # karar onu geçersiz kılamaz (yeniden karşılaştırma ile "temize çıkarma" yok).
+    if any(
+        r["decision"] == "kritik_ret"
+        and r["candidate_tag"] == norm_tag(tag)
+        and r["candidate_digest"] == norm_digest(cur)
+        for r in list_decisions(root)
+    ):
+        raise ActivationError(
+            f"'{tag}' ({cur[:12]}) daha önce KRİTİK RET aldı; sonraki kararlar bunu kaldırmaz."
+        )
     dec = latest_decision(tag, cur, root)
     if dec is None:
         any_dec = latest_decision(tag, "", root)
@@ -398,6 +411,15 @@ def activate_main(tag: str, reason: str, *, root: Path | None = None) -> dict[st
         st = load_state(root)
         if st.get("recovery_error"):
             raise ActivationError(st["recovery_error"])
+        # F4-1: karar ŞU ANKİ ana modele karşı verilmiş olmalı (zayıf bir modele ya da artık
+        # ana olmayan eski modele karşı alınmış "kabul" ana modelin yerine geçemez).
+        cur_main = norm_tag(str((st.get("main") or {}).get("tag") or ""))
+        vs = norm_tag(str(dec.get("active_tag") or ""))
+        if vs != cur_main:
+            raise ActivationError(
+                f"Karar '{vs or '?'}' modeline karşı verilmiş; şu anki ana model '{cur_main}'. "
+                "Aday güncel ana modelle yeniden karşılaştırılmalı."
+            )
         prev = dict(st["main"])
         if prev.get("source") == "baseline" and not prev.get("digest"):
             prev["digest"] = _ollama_digest(str(prev.get("tag") or "")) or ""
