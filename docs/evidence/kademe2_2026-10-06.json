@@ -112,9 +112,10 @@
     {
       "id": "F3-5",
       "votes": "KISMEN/KISMEN",
-      "status": "KARAR_GEREKLI",
+      "status": "duzeltildi",
       "proposal": "reddedildi — işlevsel hata yok, özet farkı güvenli tarafa düşer",
-      "zincir_denetimi": "Kullanıcı isteğiyle veri seçimi → karışım → anlık görüntü → reçete → alt süreç → eğitici zinciri denetlendi. Bulunan ve kapatılan iki açık: (1) alt süreç seçili sohbet veri sürümünü reçeteyle doğrudan karşılaştırmıyordu (yalnız tazelik/veri özeti üzerinden dolaylı) → recipe_binding_problems'a eklendi; (2) eğitici onaylı train/valid özetini 30B model YÜKLENDİKTEN sonra denetliyordu → yükleme öncesi de denetler. Her halkanın bozulması eğiticiye ulaşmadan ve onay tüketilmeden durur: tests/test_kademe2_real_git.py::test_f3_5_*. ORİJİNAL bulgu metni bilinmediği için 'düzeltildi' yazılmadı; kapatma kararı kullanıcıda."
+      "zincir_denetimi": "Kullanıcı isteğiyle veri seçimi → karışım → anlık görüntü → reçete → alt süreç → eğitici zinciri denetlendi. Bulunan ve kapatılan iki açık: (1) alt süreç seçili sohbet veri sürümünü reçeteyle doğrudan karşılaştırmıyordu (yalnız tazelik/veri özeti üzerinden dolaylı) → recipe_binding_problems'a eklendi; (2) eğitici onaylı train/valid özetini 30B model YÜKLENDİKTEN sonra denetliyordu → yükleme öncesi de denetler. Her halkanın bozulması eğiticiye ulaşmadan ve onay tüketilmeden durur: tests/test_kademe2_real_git.py::test_f3_5_*. ORİJİNAL bulgu metni bilinmediği için 'düzeltildi' yazılmadı; kapatma kararı kullanıcıda.",
+      "sonuc": "Özgün tanım bulunamadı; c0d6aea'da veri zinciri yeniden denetlendi (docs/evidence/kademe2_2026-10-06b.json f3_5_yeniden_denetim, 2 doğrulayıcı ONAY/KISMEN). Bulunan sorunlar düzeltildi + testli (#38, e16cb77)."
     },
     {
       "id": "F4-1",

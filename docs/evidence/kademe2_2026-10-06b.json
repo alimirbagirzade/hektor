@@ -1,0 +1,196 @@
+{
+  "kademe": 2,
+  "tarih": "2026-10-06",
+  "denetlenen_fark": "3ef2079..c0d6aea (app scripts configs pyproject)",
+  "duzeltmeler_commit": "e16cb77",
+  "yontem": "4 paralel bulucu (başlatma/yetki · veri zinciri+F3-5 yeniden denetim · değerlendirme/etkinleştirme · bulut/web) × her bulgu 2 bağımsız şüpheci doğrulayıcı. Düzeltmeler regresyon testli; tam paket 2× yeşil (3234).",
+  "f3_5_yeniden_denetim": {
+    "oylar": "ONAY/KISMEN",
+    "sonuc": "Özgün tanım bulunamadı; c0d6aea'da kolay akış zinciri (seçim→birleştirme→kapılar→bölme→anlık görüntü/reçete→alt süreç→eğitici) yeniden denetlendi: her halka özetli ya da fail-closed. Bu turdan önce bulunan iki sorun (#38) ve bu turda D-1/D-3/D-4/L-3 düzeltildi. KISMEN oyunun gerekçesi nöbetçi kurtarmasının reçetesiz olması (L-4, güvenli taraf)."
+  },
+  "bulgular": [
+    {
+      "id": "L-1",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "severity": "MEDIUM",
+      "ozet": "risk_kabul kapsamı sihirli dizeye bağlıydı → kapsam zorunlu + tanımlı"
+    },
+    {
+      "id": "L-2",
+      "votes": "ONAY/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "severity": "LOW-MED",
+      "ozet": "SUPERVISED+RECOVERY env ya da elle basılan kilit belirteci taze onayı atlar (Python tarafı kurtarmayı doğrulamaz). Yerel CLI onayı da insan kapısız (approval-approve) → yerel onur sistemi.",
+      "oneri": "risk_kabul (kapsam: kayit) ya da ayrı iş: kurtarmada tüketilmiş onay kimliğini Python'da doğrula"
+    },
+    {
+      "id": "L-3",
+      "votes": "ONAY/KISMEN",
+      "status": "duzeltildi",
+      "severity": "MEDIUM",
+      "ozet": "8 sn erken çıkış penceresi → kapı-geçti işareti el sıkışması"
+    },
+    {
+      "id": "L-4",
+      "votes": "KISMEN/ONAY",
+      "status": "KARAR_GEREKLI",
+      "severity": "LOW",
+      "ozet": "Nöbetçi kurtarması reçetesiz: pilot kaydıyla kurtarma exit 10 (güvenli taraf; çöken pilot otomatik dirilmez, yeniden onay gerekir).",
+      "oneri": "risk_kabul (kapsam: yalniz_recete) — pilot için kabul edilebilir erişilebilirlik kaybı"
+    },
+    {
+      "id": "D-1",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "severity": "MEDIUM",
+      "ozet": "Reçetesiz yollarda eğitici özet kontrolsüz okuyordu → kapı sonrası özet"
+    },
+    {
+      "id": "D-2",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "severity": "LOW",
+      "ozet": "64 örnek tabakasız seçiliyor; tam setin oranları alt kümede garanti değil (ör. damıtma %42 vs %31).",
+      "oneri": "risk_kabul (kapsam: yalniz_recete) — pilot yalnız hattı sınar; sonuçtan karışım çıkarımı yapılmaz"
+    },
+    {
+      "id": "D-3",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "severity": "LOW",
+      "ozet": "Onay metni etkin örnek/seed göstermiyordu"
+    },
+    {
+      "id": "D-4",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "severity": "LOW",
+      "ozet": "Sızıntı kapısı completion/text/kök user-assistant biçimlerini görmüyordu"
+    },
+    {
+      "id": "D-5",
+      "votes": "KISMEN/ÇÜRÜTÜLDÜ",
+      "status": "reddedildi",
+      "severity": "INFO",
+      "ozet": "Tazelik yedeği; süreçler arası belirsizlik fail-closed BAYAT verir"
+    },
+    {
+      "id": "E-1",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "severity": "HIGH",
+      "ozet": "Pilot adapter ana modele geçebiliyordu → pilot_block"
+    },
+    {
+      "id": "E-2",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "severity": "MEDIUM",
+      "ozet": "Karar sonrası entegrasyon işareti etkisizdi"
+    },
+    {
+      "id": "E-3",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "severity": "HIGH",
+      "ozet": "Geliştirme kullanımı loglanmıyordu → final seti iz bırakmadan görülebilirdi"
+    },
+    {
+      "id": "E-4",
+      "votes": "KISMEN/ONAY",
+      "status": "duzeltildi",
+      "severity": "LOW",
+      "ozet": "Kör eşleme cmp_id tohumundan yeniden kurulabiliyordu"
+    },
+    {
+      "id": "E-5",
+      "votes": "ONAY/KISMEN",
+      "status": "duzeltildi",
+      "severity": "LOW-MED",
+      "ozet": "Serbest gevşek ölçüt final rolüyle kullanılabiliyordu"
+    },
+    {
+      "id": "E-6",
+      "votes": "ONAY/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "severity": "LOW",
+      "ozet": "Final 'use' kaydı üretimden önce: üretim düşerse set boşa yanar (güvenli taraf).",
+      "oneri": "risk_kabul (kapsam: kayit) — işletim kuralı: final karşılaştırması eğitim/kilit yokken başlatılır"
+    },
+    {
+      "id": "E-7",
+      "votes": "ONAY/KISMEN",
+      "status": "duzeltildi",
+      "severity": "LOW",
+      "ozet": "Dönüşüm doğrulaması karşılaştırılan digest'e bağlı değildi"
+    },
+    {
+      "id": "E-8",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "severity": "LOW",
+      "ozet": "(b) düzeltildi: geri dönüş final rollü kabul ister. (a) Etkinleştirme dosyası yokken ana model .env'deki HEKTOR_CHAT_MODEL (tasarım; ana kurulumda dosya yok).",
+      "oneri": "risk_kabul (kapsam: kayit) — .env'e aday etiketi YAZILMAZ işletim kuralı"
+    },
+    {
+      "id": "C-1",
+      "votes": "KISMEN/KISMEN",
+      "status": "KARAR_GEREKLI",
+      "severity": "LOW",
+      "ozet": "Bulut metni 'Düzelt'e elle yapıştırılırsa köken bağı yok (insan + onay gerekir; bulut varsayılan kapalı).",
+      "oneri": "risk_kabul (kapsam: kayit) — bulut kapalıyken etkisiz; açılmadan önce ayrı iş"
+    },
+    {
+      "id": "C-2",
+      "votes": "ONAY/ONAY",
+      "status": "duzeltildi",
+      "severity": "MEDIUM",
+      "ozet": "Ollama -cloud etiketleri / model_tag kaçıyordu"
+    },
+    {
+      "id": "C-3",
+      "votes": "KISMEN/ONAY",
+      "status": "duzeltildi",
+      "severity": "LOW",
+      "ozet": "pretrain-gate CLI bulut kontrolü yapmıyordu"
+    },
+    {
+      "id": "C-4",
+      "votes": "KISMEN/KISMEN",
+      "status": "duzeltildi",
+      "severity": "LOW",
+      "ozet": "claude -p alt süreci API anahtarını/insan sırrını devralıyordu"
+    },
+    {
+      "id": "C-5",
+      "votes": "KISMEN/ONAY",
+      "status": "KARAR_GEREKLI",
+      "severity": "LOW",
+      "ozet": "İkinci görüş kota/bekleyen kontrolü kilitsiz (çift tıklamada fazladan istek).",
+      "oneri": "risk_kabul (kapsam: kayit) — bulut kapalı; açılmadan önce ayrı iş"
+    },
+    {
+      "id": "C-6",
+      "votes": "ONAY/ONAY",
+      "status": "KARAR_GEREKLI",
+      "severity": "LOW",
+      "ozet": "İptal/tamamlama yarışı iptal edilmiş kayda metin yazabilir (eğitime girmez).",
+      "oneri": "risk_kabul (kapsam: kayit) — bulut kapalı; açılmadan önce ayrı iş"
+    },
+    {
+      "id": "C-7",
+      "votes": "KISMEN/KISMEN",
+      "status": "duzeltildi",
+      "severity": "LOW",
+      "ozet": "exclude ucu require_human taşımıyordu"
+    },
+    {
+      "id": "K-1",
+      "votes": "bulucu dışı (test kararsızlığı)",
+      "status": "duzeltildi",
+      "severity": "LOW",
+      "ozet": "easy_train eşzamanlı istekte Windows PermissionError ile istek kaydı kaybolabiliyordu → paylaşım yeniden denemesi"
+    }
+  ]
+}
