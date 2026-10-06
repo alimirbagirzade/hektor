@@ -31,7 +31,7 @@
       "severity": "LOW",
       "status": "duzeltildi",
       "ozet": "E-8a ActivationError'ı bazı çağıranlar yakalamıyordu (aday sayfası 500, strateji taslağı, kaynak kapısı).",
-      "evidence": "resource_guard → GuardDecision(False), chat_strategy → DraftError, candidate_routes.overview → active='' + active_error. candidate_jobs.py (≈479/490) paralel oturuma devredildi (J-* ile aynı dosya). test_e8a_pilot_tag_in_env_never_becomes_main."
+      "evidence": "resource_guard → GuardDecision(False), chat_strategy → DraftError, candidate_routes.overview → active='' + active_error. candidate_jobs.py (≈479/490) paralel oturuma devredildi (J-* ile aynı dosya). test_e8a_pilot_tag_in_env_never_becomes_main. candidate_jobs kısmı PR #44'te (ActivationError → JobError)."
     },
     {
       "id": "P-5",
@@ -71,30 +71,37 @@
     {
       "id": "J-1",
       "severity": "MED-HIGH",
-      "status": "ACIK_PARALEL",
+      "status": "duzeltildi",
       "ozet": "Windows'ta O_EXCL silinmekte olan kilit dosyasında PermissionError verir; _job_lock yalnız FileExistsError yakalar → çalıştırıcı sonuç yazmadan ölür, iş 'lost' (kararsız test_nonzero_exit_is_failed'ın büyük olasılıkla kökü).",
-      "not": "Paralel oturuma devredildi (Fix flaky candidate_jobs nonzero-exit test)."
+      "evidence": "PR #44 (paralel oturum): bağımsız yeniden doğrulandı ve düzeltildi; stres 18/18. Birleşmesi bekleniyor."
     },
     {
       "id": "J-3",
       "severity": "LOW-MED",
-      "status": "ACIK_PARALEL",
+      "status": "duzeltildi",
       "ozet": "'starting' iken durdurulan iş çalıştırıcı başlayınca yine koşar.",
-      "not": "Paralel oturuma devredildi."
+      "evidence": "PR #44 (paralel oturum): bağımsız yeniden doğrulandı ve düzeltildi; stres 18/18. Birleşmesi bekleniyor."
     },
     {
       "id": "J-4",
       "severity": "LOW",
-      "status": "ACIK_PARALEL",
+      "status": "duzeltildi",
       "ozet": "reconcile taze okuma başarısızsa bayat görüntüye düşer; _job_lock zaman aşımında sahibinin kilidini siler.",
-      "not": "Paralel oturuma devredildi."
+      "evidence": "PR #44 (paralel oturum): bağımsız yeniden doğrulandı ve düzeltildi; stres 18/18. Birleşmesi bekleniyor."
     },
     {
       "id": "J-5",
       "severity": "LOW",
-      "status": "ACIK_PARALEL",
+      "status": "duzeltildi",
       "ozet": "create_time None iken _alive yalnız pid varlığına bakar.",
-      "not": "Paralel oturuma devredildi."
+      "evidence": "PR #44 (paralel oturum): bağımsız yeniden doğrulandı ve düzeltildi; stres 18/18. Birleşmesi bekleniyor."
+    },
+    {
+      "id": "J-1b",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Aynı Windows O_EXCL→PermissionError deseni eğitim kilidinde (resource_lock._write_new/_break_mutex): acquire istisna fırlatıp yanlış 'kilit alınamadı' veriyordu (fail-closed).",
+      "evidence": "PermissionError 'var/meşgul' gibi ele alınır, yeniden denenir. test_j1_resource_lock_treats_windows_delete_pending_as_busy."
     }
   ]
 }

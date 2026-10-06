@@ -457,3 +457,24 @@ def test_j2_stop_does_not_kill_reused_or_finished_pid(
         st.write_text(_json.dumps(info), "utf-8")
         res = dl.request_stop_detached_training(tmp_path)
         assert bool(killed) is expect_kill, (info, res)
+
+
+def test_j1_resource_lock_treats_windows_delete_pending_as_busy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kademe 2 J-1 deseni (eğitim kilidi): O_EXCL'in PermissionError'ı istisna fırlatmaz."""
+    from app.training import resource_lock as rl
+
+    real_open = rl.os.open
+    calls = {"n": 0}
+
+    def flaky_open(path, flags, *a):  # ilk deneme: silinmekte olan dosya (Windows)
+        calls["n"] += 1
+        if calls["n"] == 1 and flags & rl.os.O_EXCL:
+            raise PermissionError(13, "delete pending")
+        return real_open(path, flags, *a)
+
+    monkeypatch.setattr(rl.os, "open", flaky_open)
+    info, why = rl.acquire("training", "t", root=tmp_path)
+    assert info is not None, why
+    assert rl.release(str(info["token"]), root=tmp_path)

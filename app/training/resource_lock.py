@@ -203,7 +203,9 @@ def blocker(root: Path | None = None) -> str | None:
 def _write_new(path: Path, info: dict[str, Any]) -> bool:
     try:
         fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
+    except (FileExistsError, PermissionError):
+        # Windows: silinmekte (delete-pending) olan dosyada O_EXCL PermissionError verir
+        # (Kademe 2 J-1 deseni) — "var" gibi davran; çağıran durumu yeniden okur.
         return False
     try:
         os.write(fd, json.dumps(info, ensure_ascii=False).encode("utf-8"))
@@ -229,6 +231,9 @@ def _break_mutex(root: Path | None) -> Iterator[bool]:
             os.close(fd)
             got = True
             break
+        except PermissionError:  # Windows delete-pending (J-1 deseni) → kısa bekle, yeniden dene
+            time.sleep(0.05)
+            continue
         except FileExistsError:
             try:
                 if time.time() - bp.stat().st_mtime > _BREAK_TTL_S:
