@@ -414,3 +414,36 @@ def test_e1_pilot_adapter_never_main_but_trial_ok(ollama, monkeypatch) -> None:
     assert not ma.state_path().exists()
     ma.activate_trial(CAND)  # deneme sohbeti serbest
     assert ma.load_state()["trial"]["tag"] == CAND
+
+
+def test_e8a_pilot_tag_in_env_never_becomes_main(ollama, monkeypatch) -> None:
+    """Kademe 2 E-8a: etkinleştirme dosyası yokken `.env` (HEKTOR_CHAT_MODEL) yolu da pilotu
+    ana modele alamaz — "pilot etiketini .env'ye yazmayız" kuralına güvenilmez, kod engeller."""
+    from app.config import get_settings
+
+    g = get_settings().root / "models" / "gguf"
+    g.mkdir(parents=True, exist_ok=True)
+    (g / f"Modelfile.{CAND}").write_text(
+        f"# {CAND} - hektor_lora_pilot birlesik GGUF Q4_K_M; sablon x'dan.\nFROM x.gguf\n", "utf-8"
+    )
+    monkeypatch.setattr(
+        "app.training.candidate_checks.recipe_for_adapter",
+        lambda name: {"recipe_sha": "p" * 64} if name == "hektor_lora_pilot" else None,
+    )
+    monkeypatch.setattr(
+        "app.training.easy_train.recipe_has_limited_acceptance", lambda sha: sha == "p" * 64
+    )
+    assert ma.resolve_chat_tag("main") == BASE  # temel model .env'den: serbest
+    monkeypatch.setenv("HEKTOR_CHAT_MODEL", CAND)
+    get_settings.cache_clear()
+    assert not ma.state_path().exists()
+    with pytest.raises(ma.ActivationError, match="pilot"):
+        ma.resolve_chat_tag("main")
+    assert "pilot" in str(ma.describe_slot("main").get("error", ""))
+    # Ayar temel modele geri alınınca ana yuva açılır; pilot deneme yuvasında serbest.
+    monkeypatch.setenv("HEKTOR_CHAT_MODEL", BASE)
+    get_settings.cache_clear()
+    assert ma.resolve_chat_tag("main") == BASE
+    _decide("kabul")
+    ma.activate_trial(CAND)
+    assert ma.resolve_chat_tag("trial") == CAND

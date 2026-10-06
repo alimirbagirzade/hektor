@@ -1,0 +1,353 @@
+{
+  "kademe": 2,
+  "tarih": "2026-10-06",
+  "tur": "karar",
+  "inceleme": "Toplu/kalıcı risk kabulü YOK. F3-4/L-4/D-2/E-6/C-1/C-5/C-6 yalnız 64 örnek ≤8 optimizer adımlı pilot reçetesine bağlı (yalniz_recete + sayısal sınır; C-* ayrıca bulut_kapali koşulu). L-2 ve E-8a düzeltildi. Sıra: kod birleşir → kurulum güncellenir → anlık görüntü/reçete → bu reçetenin SHA'sına bağlı kayıt. Eğitim onayı AYRI; eğitim başlatılmadı.",
+  "bulgular": [
+    {
+      "id": "F1-1",
+      "status": "duzeltildi",
+      "evidence": "preflight_launch(recipe_sha) → kademe2_check(recipe_sha=...)",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F1-2",
+      "status": "duzeltildi",
+      "evidence": "precheck: sohbet kirası + adapter klasörü + _recipe_blockers onaydan ÖNCE; launch preflight check_recipe=True",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F1-3",
+      "status": "duzeltildi",
+      "evidence": "train_guard.is_training_action: train_run:<reçete> kabul",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F1-4",
+      "status": "duzeltildi",
+      "evidence": "HEKTOR_TRAIN_SUPERVISED artık TEK BAŞINA iç onayı atlatmaz: üst sürecin devrettiği kilit belirteci (launch → claim doğrular) ya da nöbetçi kurtarması (RECOVERY=1) şart; aksi hâlde uyarı + taze onay (tests/test_agent_phase2_cli.py::test_f1_4_*). Kalan: kurtarma yolu belgelenmiş Kural 8 muafiyeti (train-recovery-check ile doğrulanır); yerel CLI onayları genel olarak onur sistemine dayanır (bkz. F4-6).",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F1-5",
+      "status": "duzeltildi",
+      "evidence": "recipe_for_adapter en yeni launch.json (at)",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F1-6",
+      "status": "duzeltildi",
+      "evidence": "_set_request güncel dosya üzerine yazar",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F1-7",
+      "status": "duzeltildi",
+      "evidence": "snapshot_id ^snap_[0-9a-f]{16}$",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F1-8",
+      "status": "duzeltildi",
+      "evidence": "başlamayan koşunun ağırlık kararı revoke",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F1-9",
+      "status": "duzeltildi",
+      "evidence": "easy_train._normalize: istekte mix_profile var, mix_weights yoksa kayıtlı eski özel ağırlık temizlenir (açık profil seçimi ezilmez) — tests/test_kademe2_2026_10_06.py::test_f1_9_*",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F2-1",
+      "status": "duzeltildi",
+      "evidence": "pilot reçetesi moe30b_attn_long (6144); ölçüm: en uzun 5911 token, 64 örnekte kayıp 0",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F2-2",
+      "status": "reddedildi",
+      "evidence": "--iterations birimi belgelenmiş mikro-adım; kolay akış 0 geçer",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F3-1",
+      "status": "duzeltildi",
+      "evidence": "_pretrain_gate_blockers check_assembly_freshness çağırır",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F3-2",
+      "status": "duzeltildi",
+      "evidence": "train --run _pretrain_gate_blockers",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F3-3",
+      "status": "duzeltildi",
+      "evidence": "F1-8",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F3-4",
+      "status": "risk_kabul",
+      "kapsam": "yalniz_recete",
+      "sinir": {
+        "max_examples": 64,
+        "max_optimizer_steps": 8
+      },
+      "gerekce": "Yalnız 64 örnek / en fazla 8 optimizer adımlı teknik pilot için. Doğrulama kaybı kalite kanıtı SAYILMAZ; terfi yalnız LLM-30/aday karşılaştırmasıyla. Sınır record_kademe2'de reçeteye karşı denetlenir; pilot ana modele geçemez (E-1, E-8a).",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F3-5",
+      "status": "duzeltildi",
+      "evidence": "bkz. kanıt dosyası",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-1",
+      "status": "duzeltildi",
+      "evidence": "activate_main: kararın active_tag'i = güncel ana model",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-2",
+      "status": "duzeltildi",
+      "evidence": "kritik_ret kalıcı (_decision_for); web --adapter-id eksikliği açık not",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-3",
+      "status": "duzeltildi",
+      "evidence": "son sayı içeren satır, binlik/ondalık okumaları, Unicode eksi",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-4",
+      "status": "duzeltildi",
+      "evidence": "yalnız cevap taranır (soru değil); olumsuzlama yanlış pozitifi açık not",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-5",
+      "status": "duzeltildi",
+      "evidence": "Teknik: set özeti içerikten + final soru parmak izleri (görülmüş soru → development). Politika (kullanıcı kararı 2026-10-06): ana model YALNIZ kullanılmamış gizli final setiyle verilmiş 'Kabul' + insan eylemi/gerekçe ile değişir; geliştirme 'Kabul' yalnız deneme yuvası (model_activation.main_role_ok; tests/test_model_activation.py::test_f4_5_*).",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-6",
+      "status": "risk_kabul",
+      "kapsam": "kayit",
+      "gerekce": "Kullanıcı kararı 2026-10-06: yerel kör incelemenin sınırı kabul. Mühürlü eşleme diskte; aynı bilgisayarın sahibi açabilir ('erişilemez' DEĞİL). Kural: karar verilene kadar model kimlikleri açılmaz; AI'ya yalnız kör paket verilir. docs/PROTOKOL_ADAY_KARSILASTIRMA.md §4.",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-7",
+      "status": "duzeltildi",
+      "evidence": "0db8735 (#34)",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-8",
+      "status": "duzeltildi",
+      "evidence": "rollback_main → _check_rollback_decision: önceki modelin etiket+digest için kritik ret → engel; karşılaştırmayla gelmiş modelin en son kararı 'Kabul' değilse → engel; baseline yalnız kritik retle engellenir — tests/test_model_activation.py::test_f4_8_*",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-9",
+      "status": "duzeltildi",
+      "evidence": "load_set sayısal answer_key şartı",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "F4-10",
+      "status": "duzeltildi",
+      "evidence": "Modelfile FROM'un gösterdiği GGUF'un KENDİ .src köken anahtarı adapter ağırlık sha'sıyla eşleşmeli (yalnız ad öneki yetmez). Gerçek v14 adayı (hektor-v14-30b-aday) yeni kuralla doğrulandı: modelfile ✓ (tests/test_candidate_compare.py::test_partial_conversion_is_not_success).",
+      "kaynak": "docs/evidence/kademe2_2026-10-06.json"
+    },
+    {
+      "id": "L-1",
+      "status": "duzeltildi",
+      "evidence": "risk_kabul kapsamı sihirli dizeye bağlıydı → kapsam zorunlu + tanımlı",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "L-2",
+      "status": "duzeltildi",
+      "evidence": "Kabul edilmedi, düzeltildi (claude/pilot-recipe-approval-review-5a3b5b (9236af1)): RECOVERY=1 kurtarması alt süreçte durum dosyası + tüketilmiş onayla yeniden doğrulanır (_recovery_verdict, nöbetçiyle aynı karar, aynı adapter); kilit belirteci yolu üst sürecin tükettiği onay kimliğini (HEKTOR_TRAIN_APPROVAL_ID) ister, onaylı+tüketilmiş+≤20 dk denetlenir. F1-4 yalnız SUPERVISED'ın tek başına verildiği hâli kapatmıştı. Testler: test_l2_recovery_env_alone_does_not_bypass_approval[5], test_l2_recovery_of_approved_crash_allowed, test_l2_forged_lock_token_does_not_bypass_approval[3].",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "L-3",
+      "status": "duzeltildi",
+      "evidence": "8 sn erken çıkış penceresi → kapı-geçti işareti el sıkışması",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "L-4",
+      "status": "risk_kabul",
+      "kapsam": "yalniz_recete",
+      "sinir": {
+        "max_examples": 64,
+        "max_optimizer_steps": 8
+      },
+      "gerekce": "Aynı pilot için: çöken pilot nöbetçiyle otomatik dirilmez (exit 10), yeniden insan onayı gerekir — güvenli taraf, yalnız erişilebilirlik kaybı.",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "D-1",
+      "status": "duzeltildi",
+      "evidence": "Reçetesiz yollarda eğitici özet kontrolsüz okuyordu → kapı sonrası özet",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "D-2",
+      "status": "risk_kabul",
+      "kapsam": "yalniz_recete",
+      "sinir": {
+        "max_examples": 64,
+        "max_optimizer_steps": 8
+      },
+      "gerekce": "Aynı pilot için: 64 örnek tabakasız seçilir; pilot yalnız hattı sınar, sonucundan karışımın başarısı hakkında çıkarım YAPILMAZ.",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "D-3",
+      "status": "duzeltildi",
+      "evidence": "Onay metni etkin örnek/seed göstermiyordu",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "D-4",
+      "status": "duzeltildi",
+      "evidence": "Sızıntı kapısı completion/text/kök user-assistant biçimlerini görmüyordu",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "D-5",
+      "status": "reddedildi",
+      "evidence": "Tazelik yedeği; süreçler arası belirsizlik fail-closed BAYAT verir",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "E-1",
+      "status": "duzeltildi",
+      "evidence": "Pilot adapter ana modele geçebiliyordu → pilot_block",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "E-2",
+      "status": "duzeltildi",
+      "evidence": "Karar sonrası entegrasyon işareti etkisizdi",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "E-3",
+      "status": "duzeltildi",
+      "evidence": "Geliştirme kullanımı loglanmıyordu → final seti iz bırakmadan görülebilirdi",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "E-4",
+      "status": "duzeltildi",
+      "evidence": "Kör eşleme cmp_id tohumundan yeniden kurulabiliyordu",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "E-5",
+      "status": "duzeltildi",
+      "evidence": "Serbest gevşek ölçüt final rolüyle kullanılabiliyordu",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "E-6",
+      "status": "risk_kabul",
+      "kapsam": "yalniz_recete",
+      "sinir": {
+        "max_examples": 64,
+        "max_optimizer_steps": 8
+      },
+      "gerekce": "Yalnız bu pilot reçetesi için KAPSAM DIŞI, kalıcı kabul değil: pilot aday final rolünde karşılaştırılamaz, set kullanımı loglanmadan reddedilir (test_e6_pilot_candidate_cannot_use_final_set). Tam eğitim/final değerlendirmesinden önce ayrı iş olarak ele alınmalı.",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "E-7",
+      "status": "duzeltildi",
+      "evidence": "Dönüşüm doğrulaması karşılaştırılan digest'e bağlı değildi",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "E-8",
+      "status": "duzeltildi",
+      "evidence": "(b) #39'da. (a) claude/pilot-recipe-approval-review-5a3b5b (9236af1): etkinleştirme dosyası yokken .env'den gelen ana model pilotsa resolve_chat_tag ActivationError verir, sohbet cevaplanmaz; deneme yuvası serbest. Test: test_e8a_pilot_tag_in_env_never_becomes_main (düzeltmeden önce kırmızıydı).",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "C-1",
+      "status": "risk_kabul",
+      "kapsam": "yalniz_recete",
+      "sinir": {
+        "max_examples": 64,
+        "max_optimizer_steps": 8
+      },
+      "kosul": "bulut_kapali",
+      "gerekce": "Yalnız bu pilot reçetesi için KAPSAM DIŞI: bulut ikinci görüş kapalı (HEKTOR_CLOUD_SECOND_OPINION varsayılan False, ana kurulum .env'de ayarlı değil — 2026-10-06 doğrulandı). Koşul kodla her kontrolde yeniden denetlenir; bulut açılırsa kayıt eğitimi kapsamaz → yeniden değerlendirme zorunlu.",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "C-2",
+      "status": "duzeltildi",
+      "evidence": "Ollama -cloud etiketleri / model_tag kaçıyordu",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "C-3",
+      "status": "duzeltildi",
+      "evidence": "pretrain-gate CLI bulut kontrolü yapmıyordu",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "C-4",
+      "status": "duzeltildi",
+      "evidence": "claude -p alt süreci API anahtarını/insan sırrını devralıyordu",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "C-5",
+      "status": "risk_kabul",
+      "kapsam": "yalniz_recete",
+      "sinir": {
+        "max_examples": 64,
+        "max_optimizer_steps": 8
+      },
+      "kosul": "bulut_kapali",
+      "gerekce": "Yalnız bu pilot reçetesi için KAPSAM DIŞI: bulut ikinci görüş kapalı (HEKTOR_CLOUD_SECOND_OPINION varsayılan False, ana kurulum .env'de ayarlı değil — 2026-10-06 doğrulandı). Koşul kodla her kontrolde yeniden denetlenir; bulut açılırsa kayıt eğitimi kapsamaz → yeniden değerlendirme zorunlu.",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "C-6",
+      "status": "risk_kabul",
+      "kapsam": "yalniz_recete",
+      "sinir": {
+        "max_examples": 64,
+        "max_optimizer_steps": 8
+      },
+      "kosul": "bulut_kapali",
+      "gerekce": "Yalnız bu pilot reçetesi için KAPSAM DIŞI: bulut ikinci görüş kapalı (HEKTOR_CLOUD_SECOND_OPINION varsayılan False, ana kurulum .env'de ayarlı değil — 2026-10-06 doğrulandı). Koşul kodla her kontrolde yeniden denetlenir; bulut açılırsa kayıt eğitimi kapsamaz → yeniden değerlendirme zorunlu.",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "C-7",
+      "status": "duzeltildi",
+      "evidence": "exclude ucu require_human taşımıyordu",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    },
+    {
+      "id": "K-1",
+      "status": "duzeltildi",
+      "evidence": "easy_train eşzamanlı istekte Windows PermissionError ile istek kaydı kaybolabiliyordu → paylaşım yeniden denemesi",
+      "kaynak": "docs/evidence/kademe2_2026-10-06b.json"
+    }
+  ]
+}

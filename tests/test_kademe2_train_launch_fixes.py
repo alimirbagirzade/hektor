@@ -311,6 +311,13 @@ def _prep_recovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> object:
         "app.training.peft_lora_train.train",
         lambda cfg: {"ok": True, "adapter_path": str(cfg.adapter_output_path), "device": "cpu"},
     )
+    # Bu testler ağırlık kararını sınar; kurtarma yetkisi (L-2) test_kademe2_real_git'te.
+    from app.training.train_guard import RecoveryVerdict
+
+    monkeypatch.setattr(
+        "app.main._recovery_verdict",
+        lambda *a, **k: RecoveryVerdict(True, "test", {"approval_id": "t"}),
+    )
     from app.lora.weight_decision import WeightDecisionStore
 
     return WeightDecisionStore().record({"math": 1.0}, "custom", "recorded")

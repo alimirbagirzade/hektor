@@ -153,6 +153,35 @@ def find_run_approval(
 MAX_RECOVERY_ATTEMPTS = 3
 
 
+def launch_approval_problem(
+    row: dict[str, Any] | None,
+    *,
+    now: dt.datetime,
+    window_minutes: int = APPROVAL_WINDOW_MINUTES,
+) -> str | None:
+    """Üst sürecin (web/kolay akış/Auto-LoRA) devrettiği onay bu koşuyu yetkilendiriyor mu?
+
+    Kademe 2 L-2: kilit belirteci yalnız "kilit bende" der, onay kanıtı değildir — elle
+    yazılmış kilit dosyası + belirteç taze onayı atlatıyordu. Alt süreç, üst sürecin
+    TÜKETTİĞİ onayın kimliğini alır ve burada doğrular: eğitim aksiyonu, onaylı, tüketilmiş
+    ve tüketimi ``window_minutes`` içinde (eski bir onay yeniden kullanılamaz).
+    """
+    if not row:
+        return "üst süreçten onay kimliği gelmedi ya da kayıt bulunamadı"
+    if not is_training_action(row.get("action")) or row.get("status") != "approved":
+        return f"onay {row.get('approval_id', '?')} onaylı bir eğitim onayı değil"
+    consumed = _parse_iso(row.get("consumed_at"))
+    if consumed is None:
+        return f"onay {row.get('approval_id', '?')} tüketilmemiş — üst süreç onayı kullanmadı"
+    age = now - consumed
+    if age < dt.timedelta(minutes=-1) or age > dt.timedelta(minutes=window_minutes):
+        return (
+            f"onay {row.get('approval_id', '?')} {int(age.total_seconds() // 60)} dk önce "
+            f"tüketildi (> {window_minutes} dk) — başka bir başlatmaya ait"
+        )
+    return None
+
+
 def read_run_markers(adapter_dir: Path) -> dict[str, Any]:
     """Trainer'ın adapter klasörüne yazdığı koşu işaretleri (salt-okuma).
 

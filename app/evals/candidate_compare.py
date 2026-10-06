@@ -290,6 +290,18 @@ def create(
 ) -> dict[str, Any]:
     if role not in ("development", "final"):
         raise CompareError("Rol 'development' ya da 'final' olmalı.")
+    if role == "final":
+        # Kademe 2 E-6 (inceleme kararı): pilot (yalnız-reçete risk kabulü) ana modele hiç
+        # geçemez → gizli final setini harcaması anlamsızdır. Kullanım LOGLANMADAN reddedilir.
+        from app.feedback.model_activation import pilot_block
+
+        blocked = pilot_block(
+            candidate_tag,
+            str(candidate_meta.get("adapter_id") or ""),
+            adapter_name=str(candidate_meta.get("adapter") or ""),
+        )
+        if blocked:
+            raise CompareError(f"Final seti pilot adaya kullanılamaz: {blocked}")
     crit = _criteria(criteria_sha)
     questions, set_sha = load_set(set_path)
     cmp_id = "cmp_" + secrets.token_hex(6)

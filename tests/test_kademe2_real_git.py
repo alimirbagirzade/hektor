@@ -237,12 +237,50 @@ def test_cli_paths_exit_10_without_record(repo, monkeypatch, mode) -> None:
 
 def _parent_lock(monkeypatch) -> str:
     """`launch()` gibi: kilidi üst süreç alır, belirteci alt sürece devreder."""
+    from app.agents.runtime import approvals
     from app.training import resource_lock
+    from app.training.detached_launch import APPROVAL_ENV
 
     info, why = resource_lock.acquire("training", "web:test", state="launching")
     assert info is not None, why
     monkeypatch.setenv(resource_lock.TOKEN_ENV, str(info["token"]))
+    # Üst süreç onayı TÜKETİR ve kimliğini devreder (L-2: belirteç tek başına yetki değil).
+    req = approvals.request_approval("lora-trainer", "train_run", "web", "high")
+    approvals.approve(req.approval_id)
+    assert approvals.require_fresh_approval("lora-trainer", "train_run", "high", "web").authorized
+    monkeypatch.setenv(APPROVAL_ENV, req.approval_id)
     return str(info["token"])
+
+
+@pytest.mark.parametrize("case", ["no_approval_env", "unconsumed", "stale"])
+def test_l2_forged_lock_token_does_not_bypass_approval(repo, monkeypatch, case) -> None:
+    """Kademe 2 L-2: elle yazılmış kilit + belirteç, tüketilmiş TAZE onay olmadan eğitmez."""
+    import datetime as dt
+
+    from app.agents.runtime import approvals
+    from app.training.detached_launch import APPROVAL_ENV
+
+    seen = _fake_trainer(monkeypatch)
+    _record(data_sha256=_data_sha())
+    monkeypatch.setenv("HEKTOR_TRAIN_SUPERVISED", "1")
+    _parent_lock(monkeypatch)
+    if case == "no_approval_env":
+        monkeypatch.delenv(APPROVAL_ENV)
+    elif case == "unconsumed":
+        req = approvals.request_approval("lora-trainer", "train_run", "x", "high")
+        approvals.approve(req.approval_id)
+        monkeypatch.setenv(APPROVAL_ENV, req.approval_id)
+    else:  # tüketilmiş ama pencere dışında (eski onayın yeniden kullanımı)
+        from app.training import train_guard
+
+        real = train_guard.launch_approval_problem
+        later = dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)
+        monkeypatch.setattr(
+            train_guard, "launch_approval_problem", lambda row, **kw: real(row, now=later)
+        )
+    res = _cli("--mix-weights", _W)
+    assert res.exit_code == 3, res.output
+    assert "onayı doğrulanamadı" in res.output and seen == []
 
 
 def _fake_trainer(monkeypatch) -> list:
@@ -257,15 +295,93 @@ def _fake_trainer(monkeypatch) -> list:
     return seen
 
 
+def _crashed_run(
+    root: Path, adapter: str = "hektor_lora_k2g", *, consume: bool = True, attempts: int = 1
+) -> str:
+    """Nöbetçinin diriltebileceği gerçek bir çöküş: tüketilmiş onay + durum dosyası."""
+    import datetime as dt
+
+    from app.agents.runtime import approvals
+    from app.training.train_guard import SOURCE_DATA_REL, sha256_file
+
+    req = approvals.request_approval("lora-trainer", "train_run", "çöken koşu", "high")
+    approvals.approve(req.approval_id)
+    if consume:
+        assert approvals.require_fresh_approval("lora-trainer", "train_run", "high", "t").authorized
+    st = root / "storage" / "train_status.json"
+    st.parent.mkdir(parents=True, exist_ok=True)
+    st.write_text(
+        json.dumps(
+            {
+                "adapter": adapter,
+                "iterations": 100,
+                "approval_id": req.approval_id,
+                "started_at": dt.datetime.now(dt.UTC).isoformat(),
+                "recovery_attempts": attempts,
+                "data_sha256": sha256_file(root / SOURCE_DATA_REL),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return req.approval_id
+
+
+def _recovery_env(monkeypatch) -> None:
+    monkeypatch.setenv("HEKTOR_TRAIN_SUPERVISED", "1")
+    monkeypatch.setenv("HEKTOR_TRAIN_RECOVERY", "1")
+    monkeypatch.setenv("HEKTOR_TRAIN_RESUME", "1")
+
+
+_W = "math=0.2,statistics=0.2,reasoning=0.2,trading=0.2,coding=0.2"
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["no_status", "other_adapter", "unconsumed", "attempts_exhausted", "stopped"],
+)
+def test_l2_recovery_env_alone_does_not_bypass_approval(repo, monkeypatch, case) -> None:
+    """Kademe 2 L-2: `SUPERVISED=1 RECOVERY=1` elle verilse de onaylı çöküş yoksa eğitim YOK."""
+    seen = _fake_trainer(monkeypatch)
+    _record(data_sha256=_data_sha())
+    if case == "other_adapter":
+        _crashed_run(repo["root"], adapter="baska_kosu")
+    elif case == "unconsumed":
+        _crashed_run(repo["root"], consume=False)
+    elif case == "attempts_exhausted":
+        _crashed_run(repo["root"], attempts=4)  # nöbetçi sayacı (3) + bu denemenin artışı aşıldı
+    elif case == "stopped":
+        _crashed_run(repo["root"])
+        st = repo["root"] / "storage" / "train_status.json"
+        data = json.loads(st.read_text("utf-8"))
+        data["stop_requested_at"] = "2026-10-06T10:00:00+00:00"
+        st.write_text(json.dumps(data), encoding="utf-8")
+    _recovery_env(monkeypatch)
+    res = _cli("--mix-weights", _W)
+    assert res.exit_code == 3, res.output
+    assert "Kurtarma yetkisiz" in res.output
+    assert seen == []
+
+
+def test_l2_recovery_of_approved_crash_allowed(repo, monkeypatch) -> None:
+    seen = _fake_trainer(monkeypatch)
+    _record(data_sha256=_data_sha())
+    aid = _crashed_run(repo["root"], attempts=3)  # start-train.ps1'in artırdığı son deneme
+    _recovery_env(monkeypatch)
+    res = _cli("--mix-weights", _W)
+    assert res.exit_code == 0, res.output
+    assert aid in res.output and len(seen) == 1
+
+
 def test_resume_of_unchanged_run_allowed_but_not_after_data_change(repo, monkeypatch) -> None:
     seen = _fake_trainer(monkeypatch)
     _record(data_sha256=_data_sha())
+    _crashed_run(repo["root"])
     ad = repo["root"] / "models" / "adapters" / "hektor_lora_k2g" / "checkpoint-12"
     ad.mkdir(parents=True)
     monkeypatch.setenv("HEKTOR_TRAIN_SUPERVISED", "1")
     monkeypatch.setenv("HEKTOR_TRAIN_RECOVERY", "1")
     monkeypatch.setenv("HEKTOR_TRAIN_RESUME", "1")
-    w = "math=0.2,statistics=0.2,reasoning=0.2,trading=0.2,coding=0.2"
+    w = _W
     res = _cli("--mix-weights", w)
     assert res.exit_code == 0, res.output
     # Reçetesiz yol da (D-1) kapılardan hemen sonraki bölme dosyasına özetle bağlanır.
@@ -446,6 +562,9 @@ def test_concurrent_launches_single_spawn_and_dead_child_lock_is_stale(repo, mon
     statuses = sorted(r["status"] for r in out)
     assert statuses == ["needs_approval", "started"], out
     assert len(spawned) == 1 and spawned[0][et.RECIPE_ENV] == snap["recipe_sha"]
+    # L-2: alt süreç, üst sürecin TÜKETTİĞİ onayın kimliğini alır (doğrulasın diye).
+    started = next(r for r in out if r["status"] == "started")
+    assert spawned[0][dl.APPROVAL_ENV] == started["approval_id"]
     # Alt süreç öldü → kilit bayat; yeni başlatmayı kalıcı olarak engellemez.
     assert resource_lock.blocker() is None
 
@@ -589,6 +708,7 @@ def test_recipe_limited_risk_acceptance_does_not_carry_over(repo) -> None:
             "status": "risk_kabul",
             "kapsam": "yalniz_recete",
             "gerekce": "yalnız 64 örneklik teknik pilot; valid loss kalite kanıtı değil",
+            "sinir": {"max_examples": 64, "max_optimizer_steps": 64},
         }
     ]
     pilot = et.prepare_snapshot(_settings(max_examples=64))
@@ -624,6 +744,7 @@ def test_recipe_has_limited_acceptance_marks_only_pilot(repo) -> None:
                 "status": "risk_kabul",
                 "kapsam": "yalniz_recete",
                 "gerekce": "yalnız 64 örneklik teknik pilot; kalite kanıtı değil",
+                "sinir": {"max_examples": 64, "max_optimizer_steps": 64},
             }
         ],
         closure_evidence="pilot kapsamı; make ci yeşil (commit abc123)",
@@ -632,3 +753,91 @@ def test_recipe_has_limited_acceptance_marks_only_pilot(repo) -> None:
     assert et.recipe_has_limited_acceptance(pilot["recipe_sha"])
     assert not et.recipe_has_limited_acceptance(other["recipe_sha"])
     assert not et.recipe_has_limited_acceptance("")
+
+
+def test_limited_acceptance_is_bound_to_numeric_pilot_limits(repo) -> None:
+    """İnceleme kararı: F3-4/L-4/D-2 kabulü yalnız '≤64 örnek, ≤N optimizer adımı' reçetesine."""
+    pilot = et.prepare_snapshot(_settings(max_examples=64))
+    size = et.recipe_training_size(pilot)
+    assert size["examples"] <= 64
+
+    def rec(snap, sinir):
+        f = {
+            "id": "F3-4",
+            "status": "risk_kabul",
+            "kapsam": "yalniz_recete",
+            "gerekce": "yalnız teknik pilot; valid loss kalite kanıtı değil",
+        }
+        if sinir is not None:
+            f["sinir"] = sinir
+        return et.record_kademe2(
+            scope={"recipe_sha": snap["recipe_sha"]},
+            findings=[f],
+            closure_evidence="pilot kapsamı; make ci yeşil (commit abc123)",
+            reviewer="insan",
+        )
+
+    with pytest.raises(et.EasyTrainError, match="sayısal sınır"):
+        rec(pilot, None)
+    with pytest.raises(et.EasyTrainError, match="optimizer adımı"):
+        rec(pilot, {"max_examples": 64, "max_optimizer_steps": size["optimizer_steps"] - 1})
+    with pytest.raises(et.EasyTrainError, match="örnek"):
+        rec(pilot, {"max_examples": size["examples"] - 1, "max_optimizer_steps": 999})
+    full = et.prepare_snapshot(_settings(max_examples=0, adapter_name="hektor_lora_tam"))
+    with pytest.raises(et.EasyTrainError, match="tavansız"):
+        rec(full, {"max_examples": 64, "max_optimizer_steps": 8})
+    out = rec(pilot, {"max_examples": 64, "max_optimizer_steps": size["optimizer_steps"]})
+    assert out["findings"][0]["sinir_dogrulama"]["optimizer_steps"] == size["optimizer_steps"]
+    assert et.recipe_has_limited_acceptance(pilot["recipe_sha"])
+
+
+def test_pilot_recipe_size_matches_review_limits() -> None:
+    """Gerçek pilot reçetesi: moe30b_attn_long, 64 örnek → 64 mikro-adım / birikim 8 = 8 adım."""
+    size = et.recipe_training_size(
+        {"n_train": 1500, "max_examples": 64, "profile": "moe30b_attn_long"}
+    )
+    assert size == {
+        "examples": 64,
+        "micro_steps": 64,
+        "epochs": 1,
+        "grad_accum": 8,
+        "optimizer_steps": 8,
+    }
+
+
+def test_cloud_out_of_scope_record_lapses_when_cloud_enabled(repo, monkeypatch) -> None:
+    """C-1/C-5/C-6: 'bulut kapalı' koşuluyla kapsam dışı kayıt, bulut açılınca eğitimi kapsamaz."""
+    from app.config import get_settings
+
+    finding = {
+        "id": "C-1",
+        "status": "risk_kabul",
+        "kapsam": "kayit",
+        "kosul": "bulut_kapali",
+        "gerekce": "bulut ikinci görüş kapalı; açılmadan önce ayrı iş",
+    }
+    data_sha = _data_sha()
+    et.record_kademe2(
+        scope={"data_sha256": data_sha},
+        findings=[finding],
+        closure_evidence="bulut kapalı doğrulandı; make ci yeşil",
+        reviewer="insan",
+    )
+    assert et.kademe2_blocker() is None
+    monkeypatch.setenv("HEKTOR_CLOUD_SECOND_OPINION", "1")
+    get_settings.cache_clear()
+    assert et.kademe2_blocker() is not None  # koşul bozuldu → kayıt geçmez
+    with pytest.raises(et.EasyTrainError, match="Koşul şu an sağlanmıyor"):
+        et.record_kademe2(
+            scope={"data_sha256": data_sha},
+            findings=[finding],
+            closure_evidence="bulut kapalı doğrulandı; make ci yeşil",
+            reviewer="insan",
+        )
+    with pytest.raises(et.EasyTrainError, match="Tanımsız koşul"):
+        et.record_kademe2(
+            scope={"data_sha256": data_sha},
+            findings=[{**finding, "kosul": "yok_boyle"}],
+            closure_evidence="bulut kapalı doğrulandı; make ci yeşil",
+            reviewer="insan",
+        )

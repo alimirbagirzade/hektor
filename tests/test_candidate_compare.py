@@ -517,3 +517,21 @@ def test_e4_blind_seed_not_derived_from_cmp_id(iso, tmp_path) -> None:  # noqa: 
     seed = json.loads((cc._root() / m["comparison_id"] / "sealed_seed.json").read_text("utf-8"))
     assert seed["seed"] and m["comparison_id"] not in seed["seed"]
     assert "seed" not in json.dumps(cc.blind_packet(m["comparison_id"]))
+
+
+def test_e6_pilot_candidate_cannot_use_final_set(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    """Kademe 2 E-6: pilot aday final rolünde reddedilir ve set kullanımı LOGLANMAZ."""
+    monkeypatch.setattr(
+        "app.training.candidate_checks.recipe_for_adapter",
+        lambda name: {"recipe_sha": "p" * 64} if name == "hektor_lora_pilot" else None,
+    )
+    monkeypatch.setattr(
+        "app.training.easy_train.recipe_has_limited_acceptance", lambda sha: sha == "p" * 64
+    )
+    meta = {**VERIFIED, "adapter": "hektor_lora_pilot"}
+    with pytest.raises(cc.CompareError, match="pilot"):
+        _create(tmp_path, role="final", meta=meta)
+    _, set_sha = cc.load_set(_set(tmp_path))
+    assert cc.final_accesses(set_sha) == []
+    dev = _create(tmp_path, role="development", meta=meta)  # geliştirme rolü serbest
+    assert dev["role"] == "development"
