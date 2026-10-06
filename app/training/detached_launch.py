@@ -1187,8 +1187,9 @@ def _terminate_tree(pid: int) -> tuple[bool, str]:
     try:
         if not psutil.pid_exists(pid):
             return False, f"pid {pid} zaten ölü — stop_requested"
-        proc = psutil.Process(pid)
-        procs = [*proc.children(recursive=True), proc]
+        from app.training.resource_lock import process_tree
+
+        procs = process_tree(pid)  # yalnız gerçek alt süreçler (bayat ppid'li yetim değil)
         for p in procs:
             with contextlib.suppress(Exception):
                 p.terminate()
