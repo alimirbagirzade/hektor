@@ -319,6 +319,20 @@ def recipe_binding_problems(
     for name, key in (("train.jsonl", "train_sha256"), ("valid.jsonl", "valid_sha256")):
         if norm_sha(s.jsonl_dir / name) != r[key]:  # satır sonu normalize (Windows CRLF)
             out.append(f"{name} onaylanan anlık görüntüyle aynı değil")
+    # F3-5 zinciri: seçili sohbet veri sürümü reçetedekiyle aynı olmalı (eskiden yalnız web
+    # precheck'te; alt süreçte dolaylıydı — tazelik + veri özeti üzerinden).
+    from app.feedback.chat_dataset import read_selection
+
+    try:
+        sel = read_selection() or {}
+    except ValueError as exc:
+        return [*out, f"sohbet veri seçimi okunamadı: {exc}"]
+    want_sel = r.get("chat_selection") or {}
+    if (sel.get("version_id", ""), sel.get("train_sha256", "")) != (
+        want_sel.get("version_id", ""),
+        want_sel.get("train_sha256", ""),
+    ):
+        out.append("seçili sohbet veri sürümü onaylanan reçeteden farklı")
     want = {
         "adapter_name": (adapter_name, r.get("adapter_name")),
         "base_model": (base_model or s.peft_base_model, r.get("base_model") or s.peft_base_model),
@@ -349,16 +363,46 @@ def record_kademe2(
     findings: list[dict[str, Any]],
     closure_evidence: str,
     reviewer: str,
+    allow_empty: bool = False,
 ) -> dict[str, Any]:
-    """Kademe 2 derin av kaydı (kapanış kanıtıyla). Kod durumu temiz olmalı."""
+    """Kademe 2 derin av kaydı (kapanış kanıtıyla). Kod durumu temiz olmalı.
+
+    Boş bulgu listesi YALNIZ ``allow_empty`` ile (açıkça "bulgusuz av") kabul edilir: yanlış
+    biçimli dosya boş listeye dönüşüp "hepsi kapalı" diye kapıyı açmasın. ``risk_kabul``
+    yazılı gerekçe (``gerekce``) ister — açık maddeyi gerekçesiz kapatmak kayıtta görünür.
+    """
     code = code_state_provider()
     if not code.get("ok"):
         raise EasyTrainError(f"Kod durumu temiz değil, denetlenen kod sabitlenemez: {code}")
     if not (scope.get("recipe_sha") or scope.get("data_sha256")):
         raise EasyTrainError("Kapsam reçete ya da veri özeti içermeli.")
+    if not isinstance(findings, list) or not all(isinstance(f, dict) for f in findings):
+        raise EasyTrainError("Bulgular bir liste olmalı (her biri id + status).")
+    if not findings and not allow_empty:
+        raise EasyTrainError(
+            "Bulgu listesi boş — bulgusuz bir av ise bunu açıkça belirt (--temiz-av); "
+            "yanlış dosya verilmiş olabilir."
+        )
+    nameless = [f for f in findings if not str(f.get("id") or "").strip()]
+    if nameless:
+        raise EasyTrainError(f"Kimliksiz bulgu var ({len(nameless)}): her bulgu 'id' taşımalı.")
+    bare_risk = [
+        f["id"]
+        for f in findings
+        if f.get("status") == "risk_kabul" and len(str(f.get("gerekce") or "").strip()) < 20
+    ]
+    if bare_risk:
+        raise EasyTrainError(
+            f"risk_kabul gerekçesiz ({', '.join(map(str, bare_risk))}): her biri en az 20 "
+            "karakterlik 'gerekce' taşımalı."
+        )
     open_ = [f for f in findings if f.get("status") not in CLOSED_FINDING]
     if open_:
-        raise EasyTrainError(f"Kapanmamış bulgu var ({len(open_)}): kayıt kapatılamaz.")
+        raise EasyTrainError(
+            f"Kapanmamış bulgu var ({len(open_)}): "
+            + ", ".join(f"{f.get('id')}={f.get('status')}" for f in open_[:10])
+            + " — kayıt kapatılamaz."
+        )
     if len((closure_evidence or "").strip()) < 20:
         raise EasyTrainError("Kapanış kanıtı (testler, commit'ler) en az 20 karakter olmalı.")
     rec = {

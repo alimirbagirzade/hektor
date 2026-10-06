@@ -300,3 +300,66 @@ def test_f4_5_final_set_reuse_survives_crlf_reorder_and_id_rename(iso, tmp_path)
         "utf-8",
     )
     assert _final_create(d)["role"] == "final"
+
+
+# ── Kayıt kapısı: gerçek kanıt dosyasıyla bugün ne olur? (açık madde → kayıt YOK) ───────
+
+_EVIDENCE = Path(__file__).resolve().parents[1] / "docs" / "evidence" / "kademe2_2026-10-06.json"
+
+
+def _k2_cli(iso, monkeypatch, path: Path, *extra: str):  # noqa: F811
+    from typer.testing import CliRunner
+
+    from app.main import app
+    from app.training import easy_train
+
+    monkeypatch.setenv("COLUMNS", "300")
+    monkeypatch.setattr(
+        easy_train, "code_state_provider", lambda: {"ok": True, "code_sha": "c" * 64, "head": "h"}
+    )
+    return CliRunner().invoke(
+        app,
+        [
+            "kademe2-kayit",
+            "--findings",
+            str(path),
+            "--data-sha",
+            "d" * 64,
+            "--evidence",
+            "make ci yeşil; PR #37 commitleri",
+            *extra,
+        ],
+    )
+
+
+def test_real_evidence_file_with_open_findings_is_refused(iso, monkeypatch) -> None:  # noqa: F811
+    from app.training import easy_train
+
+    data = json.loads(_EVIDENCE.read_text("utf-8"))
+    open_ids = {b["id"] for b in data["bulgular"] if b["status"] not in easy_train.CLOSED_FINDING}
+    res = _k2_cli(iso, monkeypatch, _EVIDENCE)
+    if not open_ids:  # tüm maddeler bir gün kapanırsa kayıt yazılabilir — bu da doğru davranış
+        assert res.exit_code == 0, res.output
+        return
+    assert res.exit_code == 1, res.output
+    assert "Kapanmamış" in res.output
+    for fid in open_ids:
+        assert fid in res.output  # hangi maddenin engellediği açıkça yazılır
+    assert easy_train.list_kademe2() == []  # kayıt YAZILMADI → eğitim kapısı kapalı kalır
+
+
+def test_malformed_or_empty_findings_do_not_open_gate(iso, monkeypatch, tmp_path) -> None:  # noqa: F811
+    from app.training import easy_train
+
+    other = tmp_path / "x.json"
+    other.write_text(json.dumps({"bulgu": "yanlış anahtar"}), "utf-8")
+    assert _k2_cli(iso, monkeypatch, other).exit_code == 1  # eskiden [] → "hepsi kapalı"
+    empty = tmp_path / "e.json"
+    empty.write_text("[]", "utf-8")
+    assert _k2_cli(iso, monkeypatch, empty).exit_code == 1
+    assert _k2_cli(iso, monkeypatch, empty, "--temiz-av").exit_code == 0  # bilinçli bulgusuz av
+    bare = tmp_path / "r.json"
+    bare.write_text(json.dumps([{"id": "F9", "status": "risk_kabul"}]), "utf-8")
+    res = _k2_cli(iso, monkeypatch, bare)
+    assert res.exit_code == 1 and "gerekçesiz" in res.output
+    assert len(easy_train.list_kademe2()) == 1  # yalnız --temiz-av kaydı

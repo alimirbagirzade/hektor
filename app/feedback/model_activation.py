@@ -357,6 +357,11 @@ def _check_registry_target(adapter_id: str, root: Path | None = None) -> None:
         )
 
 
+def main_role_ok(dec: dict[str, Any]) -> bool:
+    """Karar bağımsız final kanıtı mı? (karşılaştırmanın ETKİN rolü 'final')."""
+    return str(dec.get("role") or "") == "final"
+
+
 def _decision_for(tag: str, root: Path | None = None) -> tuple[dict[str, Any], str]:
     """Etiketin GÜNCEL digest'iyle eşleşen son karar → (karar, digest)."""
     cur = _ollama_digest(tag)
@@ -406,6 +411,16 @@ def activate_main(tag: str, reason: str, *, root: Path | None = None) -> dict[st
             raise ActivationError(
                 f"Karar '{DECISION_TR[dec['decision']]}' — ana model yalnız 'Kabul' kararıyla "
                 "etkinleştirilebilir. 'Yetersiz kanıt' yalnız deneme sohbetinde kullanılabilir."
+            )
+        # Kademe 2 (2026-10-06) F4-5, kullanıcı kararı: ana model YALNIZ kullanılmamış gizli
+        # final setiyle verilmiş 'Kabul' ile değişir. Geliştirme setindeki 'Kabul' (ya da
+        # daha önce görülmüş final soruları → 'development'e düşmüş koşu) yalnız deneme
+        # yuvasına yeter. İnsan onayı: web ucu require_human + gerekçe.
+        if not main_role_ok(dec):
+            raise ActivationError(
+                f"Karar '{dec.get('role') or '?'}' rollü karşılaştırmadan — ana model yalnız "
+                "kullanılmamış gizli FİNAL setiyle verilmiş 'Kabul' ile değişir. Bu aday deneme "
+                "sohbetinde kullanılabilir."
             )
         _check_registry_target(str(dec.get("adapter_id") or ""), root)
         st = load_state(root)
@@ -582,7 +597,8 @@ def overview(root: Path | None = None) -> dict[str, Any]:
                     )
                 },
                 "decision_label": DECISION_TR.get(row["decision"], row["decision"]),
-                "main_allowed": row["decision"] in MAIN_OK,
+                "main_allowed": row["decision"] in MAIN_OK and main_role_ok(row),
+                "role": row.get("role", ""),
                 "trial_allowed": row["decision"] in TRIAL_OK,
             }
         )

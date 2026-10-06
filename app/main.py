@@ -1098,6 +1098,9 @@ def kademe2_kayit(
     recipe_sha: str = typer.Option("", "--recipe-sha", help="Kapsam: eğitim reçetesi özeti"),
     data_sha: str = typer.Option("", "--data-sha", help="Kapsam: lora_sft.jsonl özeti"),
     reviewer: str = typer.Option("insan", "--reviewer"),
+    temiz_av: bool = typer.Option(
+        False, "--temiz-av", help="Av hiç bulgu üretmedi (boş liste bilinçli)"
+    ),
 ) -> None:
     """Kapanmış Kademe 2 derin av kaydı yaz (reports/kademe2/). Eğitim BAŞLATMAZ.
 
@@ -1111,13 +1114,20 @@ def kademe2_kayit(
 
     try:
         rows = _json.loads(findings.read_text(encoding="utf-8"))
+        # Kanıt dosyası biçimi ({"bulgular": [...]}) da kabul; başka sözlük → hata (eskiden
+        # sessizce boş listeye dönüp "hepsi kapalı" sayılıyordu).
+        if isinstance(rows, dict):
+            if not isinstance(rows.get("bulgular"), list):
+                raise ValueError("Bulgu dosyası liste ya da {'bulgular': [...]} olmalı.")
+            rows = rows["bulgular"]
         rec = record_kademe2(
             scope={
                 k: v for k, v in {"recipe_sha": recipe_sha, "data_sha256": data_sha}.items() if v
             },
-            findings=rows if isinstance(rows, list) else [],
+            findings=rows,
             closure_evidence=evidence,
             reviewer=reviewer,
+            allow_empty=temiz_av,
         )
     except (OSError, ValueError, EasyTrainError) as exc:
         console.print(f"[red]Kayıt yazılmadı: {exc}[/red]")
