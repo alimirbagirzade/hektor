@@ -41,7 +41,14 @@ def ollama(monkeypatch, iso):  # noqa: F811
     return models
 
 
-def _decide(decision: str, *, tag: str = CAND, digest: str = DIG_CAND, adapter_id: str = ""):
+def _decide(
+    decision: str,
+    *,
+    tag: str = CAND,
+    digest: str = DIG_CAND,
+    adapter_id: str = "",
+    role: str = "final",
+):
     return record_decision(
         {
             "candidate_tag": tag,
@@ -50,6 +57,7 @@ def _decide(decision: str, *, tag: str = CAND, digest: str = DIG_CAND, adapter_i
             "comparison_id": "cmp_test",
             "active_tag": BASE,  # karar GÜNCEL ana modele karşı (Kademe 2 F4-1)
             "adapter_id": adapter_id,
+            "role": role,  # ana model yalnız final rollü kararla (Kademe 2 F4-5)
         }
     )
 
@@ -125,6 +133,7 @@ def test_k2_f4_1_accept_must_be_against_current_main(ollama) -> None:
             "comparison_id": "cmp_x",
             "adapter_id": "",
             "active_tag": "kucuk-zayif-model",
+            "role": "final",
         }
     )
     with pytest.raises(ma.ActivationError, match="şu anki ana model"):
@@ -346,6 +355,7 @@ def test_f4_8_rollback_rechecks_decision_of_previous_model(ollama) -> None:
             "comparison_id": "cmp_test2",
             "active_tag": CAND,
             "adapter_id": "",
+            "role": "final",
         }
     )
     ma.activate_main(cand2, "İkinci aday da kabul aldı.")
@@ -365,3 +375,18 @@ def test_f4_8_rollback_to_baseline_blocked_only_by_critical_reject(ollama) -> No
     _decide("kritik_ret", tag=BASE, digest=DIG_BASE)
     with pytest.raises(ma.ActivationError, match="KRİTİK RET"):
         ma.rollback_main("Aday sohbette kötü davrandı.")
+
+
+def test_f4_5_main_requires_final_role_trial_does_not(ollama) -> None:
+    """Kullanıcı kararı: geliştirme 'Kabul' → yalnız deneme; ana model → final 'Kabul'."""
+    _decide("kabul", adapter_id=_adapter(), role="development")
+    with pytest.raises(ma.ActivationError, match="FİNAL"):
+        ma.activate_main(CAND, "Geliştirme setinde kabul aldı.")
+    assert not ma.state_path().exists()  # hiçbir şey yazılmadı
+    ma.activate_trial(CAND)
+    assert ma.load_state()["trial"]["tag"] == CAND
+    row = next(c for c in ma.overview()["candidates"] if c["candidate_tag"] == CAND)
+    assert row["trial_allowed"] and not row["main_allowed"]
+    _decide("kabul", adapter_id=_adapter(), role="final")
+    st = ma.activate_main(CAND, "Gizli final setinde kabul aldı.")
+    assert st["main"]["tag"] == CAND

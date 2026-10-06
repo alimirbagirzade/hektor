@@ -47,17 +47,30 @@ Matematik: doğrulanmış `answer_key` ile otomatik. Diğerleri: **kör inceleme
 Kör inceleme) — cevaplar A/B/C, seed'li karışık; eşleme mühürlü dosyada, API'de sunulmaz;
 kaynaklı sorularda kanıt metni inceleyene gösterilir. Tüm cevaplar puanlanmadan karar yok.
 
+**Sınır (Kademe 2 F4-6, kabul edildi):** mühürlü eşleme `storage/comparisons/<id>/
+sealed_mapping.json` dosyasıdır; aynı bilgisayarın sahibi onu AÇABİLİR — "erişilemez" değildir,
+yalnız API/arayüz sunmaz. Çalışma kuralı: model kimlikleri karar verilene kadar açılmaz; AI
+incelemesine yalnız kör cevap paketi verilir (`ai_review.json` ayrı dosya, insan puanı yerine
+geçmez).
+
 ## 5 · Gizli final seti
 
 `--role final` her kullanımda `storage/final_set_access.jsonl`'e yazılır (kullanım, sonuç
 erişimi). Aynı set ikinci kez kullanılırsa koşu **geliştirme** sayılır ve gerekçesi kararda yazar.
+Set kimliği içerikten hesaplanır (satır sonu / sıra / anahtar sırası değişikliği yeni set
+yapmaz); her final kullanımında normalize soru parmak izleri de loglanır → daha önce final'de
+GÖRÜLMÜŞ bir soruyu içeren set (kimliği değiştirilmiş olsa da) **geliştirme** sayılır. Final
+soruları görüldükten sonra aynı sorularla yapılan yeni geliştirmeler bağımsız final başarısı
+DEĞİLDİR (Kademe 2 F4-5).
 
 ## 6 · Etkinleştirme (2A, Öğrenme Havuzu → Modeller)
 
 Karar `storage/candidate_decisions.jsonl`'e (aday etiketi + KARŞILAŞTIRILAN digest) yazılır;
 kabulde kayıt defteri `eval_passed`, ret/kritik retta `rejected` olur (production yok).
-Ana model: yalnız **kabul** + Ollama'daki digest eşleşmesi + gerekçe. Deneme sohbeti: kabul ya da
-**yetersiz kanıt**. Ret/kritik ret hiçbir yuvada. Mevcut model "başlangıç kaydı —
+Ana model: yalnız **kullanılmamış gizli final setiyle** verilmiş **kabul** + Ollama'daki digest
+eşleşmesi + insan eylemi ve gerekçe (Kademe 2 F4-5, kullanıcı kararı). Geliştirme rollü kabul
+(ya da final'den geliştirmeye düşmüş koşu) yalnız deneme sohbetine yeter. Deneme sohbeti: kabul ya
+da **yetersiz kanıt**. Ret/kritik ret hiçbir yuvada. Mevcut model "başlangıç kaydı —
 değerlendirilmemiş". Geri dönüşte önceki modelin varlığı ve digest'i doğrulanır. Etkinleştirme
 günlüğü + kayıt defteri iki aşamalı tutarlı güncellenir; devam eden cevap başladığı modelle biter.
 

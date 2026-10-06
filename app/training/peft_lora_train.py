@@ -1101,6 +1101,18 @@ def train(cfg: PeftTrainConfig) -> dict:
         logger.error("%s", resume_plan.error)
         return {"ok": False, "error": resume_plan.error}
 
+    # Kademe 2 (2026-10-06) F3-5 zinciri: onaylanan anlık görüntü özetleri GB'lık model
+    # YÜKLENMEDEN de denetlenir (uyumsuzlukta saatlerce yükleme boşa gitmesin). Aşağıdaki
+    # ayrıştırma-anı kontrolü yedek olarak kalır: arada dosya değişirse o da yakalar.
+    try:
+        if cfg.expect_train_sha256:
+            _load_jsonl(cfg.train_jsonl, cfg.expect_train_sha256)
+        if cfg.expect_valid_sha256:
+            _load_jsonl(cfg.valid_jsonl, cfg.expect_valid_sha256)
+    except (DataIntegrityError, OSError) as exc:
+        logger.error("%s", exc)
+        return {"ok": False, "error": str(exc)}
+
     import torch
     from peft import LoraConfig, get_peft_model
     from transformers import (

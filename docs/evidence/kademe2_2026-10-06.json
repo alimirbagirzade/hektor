@@ -106,14 +106,15 @@
       "proposal": "risk_kabul (pilot) — yalnız valid loss iyimser; terfi LLM-30/karşılaştırmayla. Kalıcı çözüm: bağlamdaki paper_id'lerle gruplama (ayrı iş)",
       "fix": "split_lines_by_source: ortak chunk_id/context_chunk_ids paylaşan kaynak grupları union-find ile birleşir. Gerçek veri (sha 613700551afb…): önce 80 valid satırının 5'i train ile parça paylaşıyordu → sonra 0/78. Makale düzeyi birleştirme 1569 satırın 1068'ini tek bileşene çöktürdüğü için seçilmedi; kalan bilinen örtüşme: disiplin 'baglam_grounded' şablonlarının sabit sentetik HMM bağlam cümlesi (korpus değil) — tests/test_fix_detached_epoch_calc.py",
       "fix_tarih": "2026-10-06 (PR #37)",
-      "kalan": "Yalnız ortak PARÇA KİMLİĞİ (chunk_id/context_chunk_ids) örtüşmesi sıfırlandı (gerçek veri 5/80 → 0/78). Farklı kimlikle tekrar eden metin, aynı makalenin farklı parçaları ve disiplin şablonlarının sabit sentetik HMM bağlamı bu kontrolün DIŞINDA. Valid loss bağımsız genelleme kanıtı DEĞİLDİR; terfi kararı ayrı karşılaştırma setiyle verilir."
+      "kalan": "Yalnız ortak PARÇA KİMLİĞİ (chunk_id/context_chunk_ids) örtüşmesi sıfırlandı (gerçek veri 5/80 → 0/78). Farklı kimlikle tekrar eden metin, aynı makalenin farklı parçaları ve disiplin şablonlarının sabit sentetik HMM bağlamı bu kontrolün DIŞINDA. Valid loss bağımsız genelleme kanıtı DEĞİLDİR; terfi kararı ayrı karşılaştırma setiyle verilir.",
+      "pilot_kapsami": "Kullanıcı yönü 2026-10-06: pilot yalnız eğitim HATTINI sınar; kalite iddiası eğitimden bağımsız makale ve soru aileleriyle ölçülür. Bu kayıtta risk_kabul YAZILMADI — açık madde olarak Kademe 2 kaydını engeller."
     },
     {
       "id": "F3-5",
       "votes": "KISMEN/KISMEN",
       "status": "KARAR_GEREKLI",
       "proposal": "reddedildi — işlevsel hata yok, özet farkı güvenli tarafa düşer",
-      "not": "Bulucu/doğrulayıcı ayrıntısı bu kayıtta yok ve av dökümü bulunamadı; bulgu yeniden üretilemedi. Öneri: ret yerine bir sonraki Kademe 2'de veri/karışım bulucusuna açık soru olarak yeniden verilsin."
+      "zincir_denetimi": "Kullanıcı isteğiyle veri seçimi → karışım → anlık görüntü → reçete → alt süreç → eğitici zinciri denetlendi. Bulunan ve kapatılan iki açık: (1) alt süreç seçili sohbet veri sürümünü reçeteyle doğrudan karşılaştırmıyordu (yalnız tazelik/veri özeti üzerinden dolaylı) → recipe_binding_problems'a eklendi; (2) eğitici onaylı train/valid özetini 30B model YÜKLENDİKTEN sonra denetliyordu → yükleme öncesi de denetler. Her halkanın bozulması eğiticiye ulaşmadan ve onay tüketilmeden durur: tests/test_kademe2_real_git.py::test_f3_5_*. ORİJİNAL bulgu metni bilinmediği için 'düzeltildi' yazılmadı; kapatma kararı kullanıcıda."
     },
     {
       "id": "F4-1",
@@ -142,17 +143,19 @@
     {
       "id": "F4-5",
       "votes": "KISMEN/KISMEN",
-      "status": "kismen_duzeltildi",
+      "status": "duzeltildi",
       "proposal": "ana model için final rolü şartı politika kararı; set_sha normalize (ayrı iş)",
-      "fix": "Teknik kısım düzeltildi: set özeti içerikten (CRLF/sıra/anahtar sırası bağımsız) + final kullanımında normalize soru parmak izleri loglanır; daha önce final'de kullanılmış soru içeren set 'development' sayılır (tests/test_kademe2_2026_10_06.py::test_f4_5_*). KALAN POLİTİKA KARARI (kullanıcı): ana model etkinleştirmesi 'final' rollü karşılaştırma kararı mı şartı koşsun? Bugün development rollü 'Kabul' de ana modele geçebiliyor.",
+      "fix": "Teknik: set özeti içerikten + final soru parmak izleri (görülmüş soru → development). Politika (kullanıcı kararı 2026-10-06): ana model YALNIZ kullanılmamış gizli final setiyle verilmiş 'Kabul' + insan eylemi/gerekçe ile değişir; geliştirme 'Kabul' yalnız deneme yuvası (model_activation.main_role_ok; tests/test_model_activation.py::test_f4_5_*).",
       "fix_tarih": "2026-10-06 (PR #37)"
     },
     {
       "id": "F4-6",
       "votes": "KISMEN/KISMEN",
-      "status": "KARAR_GEREKLI",
+      "status": "risk_kabul",
       "proposal": "risk_kabul — yerel onur sistemi; mühürlü dosya zaten diskte",
-      "not": "Kör inceleme eşlemesi diskte; kodla gizlenemez (aynı makinede okuyan herkes görür). Önerilen işletim kuralı: AI incelemesi yalnız kör paketi alır (zaten öyle); insan incelemeci mühürlü dosyayı karar sonrasına kadar açmaz. Karar kullanıcıda."
+      "not": "Kör inceleme eşlemesi diskte; kodla gizlenemez (aynı makinede okuyan herkes görür). Önerilen işletim kuralı: AI incelemesi yalnız kör paketi alır (zaten öyle); insan incelemeci mühürlü dosyayı karar sonrasına kadar açmaz. Karar kullanıcıda.",
+      "fix_tarih": "2026-10-06 (PR #37)",
+      "gerekce": "Kullanıcı kararı 2026-10-06: yerel kör incelemenin sınırı kabul. Mühürlü eşleme diskte; aynı bilgisayarın sahibi açabilir ('erişilemez' DEĞİL). Kural: karar verilene kadar model kimlikleri açılmaz; AI'ya yalnız kör paket verilir. docs/PROTOKOL_ADAY_KARSILASTIRMA.md §4."
     },
     {
       "id": "F4-7",
