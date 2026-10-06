@@ -71,19 +71,41 @@ def _path(job_id: str) -> Path:
     return jobs_dir() / f"{job_id}.json"
 
 
+# Windows'ta açık bir dosyanın üzerine ``os.replace`` ve değiştirilmekte olan dosyayı okuma
+# kısa süre PermissionError verir (web yoklaması ↔ çalıştırıcı yazımı). Bu pencere geçicidir:
+# bekleyip yeniden denenir; aksi halde iş "yok" görünür ya da sonuç yazılamaz (iş asılı kalır).
+_SHARE_RETRY_S = 5.0
+
+
 def _read(p: Path) -> dict[str, Any] | None:
-    try:
-        d = json.loads(p.read_text(encoding="utf-8"))
-        return d if isinstance(d, dict) else None
-    except (OSError, ValueError):
-        return None
+    deadline = time.monotonic() + _SHARE_RETRY_S
+    while True:
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) else None
+        except PermissionError:
+            if time.monotonic() > deadline:
+                return None
+            time.sleep(0.01)
+        except (OSError, ValueError):
+            return None
 
 
 def _write(p: Path, data: dict[str, Any]) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(f"{p.name}.{os.getpid()}.{secrets.token_hex(3)}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, p)
+    deadline = time.monotonic() + _SHARE_RETRY_S
+    while True:
+        try:
+            os.replace(tmp, p)
+            return
+        except PermissionError:
+            if time.monotonic() > deadline:
+                with contextlib.suppress(OSError):
+                    tmp.unlink()
+                raise
+            time.sleep(0.01)
 
 
 @contextlib.contextmanager
