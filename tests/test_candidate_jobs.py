@@ -270,6 +270,65 @@ def test_result_written_during_liveness_check_is_not_lost(iso, monkeypatch) -> N
     assert (cj._read(cj._path(job_id)) or {})["status"] == "failed"  # dosyada da ezilmedi
 
 
+def test_job_lock_treats_delete_pending_permission_error_as_busy(iso, monkeypatch) -> None:  # noqa: F811
+    """Windows: silinmekte olan kilit dosyasına ``O_EXCL`` → PermissionError (FileExistsError
+    değil). Kaçarsa çalıştırıcı sonucu yazamadan çöker ve bitmiş iş "lost" görünür
+    (2026-10-06 kararsız ``test_nonzero_exit_is_failed``). Meşgul sayılıp yeniden denenmeli."""
+    import os
+
+    job_id = "job_" + "4" * 12
+    cj._write(cj._path(job_id), {"job_id": job_id, "status": "running"})
+    real_open = os.open
+    calls = {"n": 0}
+
+    def flaky_open(path, flags, *a, **k):
+        if str(path).endswith(".lock") and calls["n"] < 3:
+            calls["n"] += 1
+            raise PermissionError(13, "Erişim engellendi (silinme bekliyor)")
+        return real_open(path, flags, *a, **k)
+
+    monkeypatch.setattr(cj.os, "open", flaky_open)
+    got = cj._update(job_id, status="failed", exit_code=3)
+    assert calls["n"] == 3 and got["status"] == "failed"
+    assert (cj._read(cj._path(job_id)) or {})["exit_code"] == 3
+    assert not cj._path(job_id).with_suffix(".lock").exists()
+
+
+def test_read_retries_transient_missing_file_during_replace(iso, monkeypatch) -> None:  # noqa: F811
+    """Windows: ``os.replace`` anında okuyucu hedefi kısa süre YOK görebilir; bu "iş yok"
+    ya da ``_update``'te alanları silinmiş kayıt demek olmamalı."""
+    from pathlib import Path
+
+    job_id = "job_" + "5" * 12
+    cj._write(cj._path(job_id), {"job_id": job_id, "n": 1})
+    real_read = Path.read_text
+    calls = {"n": 0}
+
+    def flaky_read(self, *a, **k):
+        if self.name == f"{job_id}.json" and calls["n"] < 2:
+            calls["n"] += 1
+            raise FileNotFoundError(2, "yeniden adlandırma sürüyor")
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read)
+    assert cj._read(cj._path(job_id)) == {"job_id": job_id, "n": 1}
+    assert cj._read(cj.jobs_dir() / "job_ffffffffffff.json") is None  # gerçekten yok → None
+
+
+def test_unreadable_fresh_record_never_marks_lost(iso, monkeypatch) -> None:  # noqa: F811
+    """Taze kayıt (kilit altında) okunamazsa bayat "running" görüntüsüyle "lost" yazılmaz."""
+    job_id = "job_" + "6" * 12
+    _fake_running_job(job_id)
+    snapshot = cj._read(cj._path(job_id))
+    cj._update(job_id, status="failed", exit_code=3)  # çalıştırıcı sonucu yazdı ve çıktı
+    monkeypatch.setattr(cj, "_alive", lambda pid, create_time=None: False)
+    monkeypatch.setattr(cj, "_read", lambda p: None)
+    got = cj.reconcile(snapshot)
+    assert got["status"] == "running"  # karar ertelendi (bayat görüntü döner)
+    monkeypatch.undo()
+    assert (cj._read(cj._path(job_id)) or {})["status"] == "failed"  # dosyada ezilmedi
+
+
 def test_dead_runner_without_result_is_still_lost(iso, monkeypatch) -> None:  # noqa: F811
     job_id = "job_" + "2" * 12
     _fake_running_job(job_id)

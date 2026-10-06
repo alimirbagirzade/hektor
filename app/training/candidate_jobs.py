@@ -75,16 +75,23 @@ def _path(job_id: str) -> Path:
 # kısa süre PermissionError verir (web yoklaması ↔ çalıştırıcı yazımı). Bu pencere geçicidir:
 # bekleyip yeniden denenir; aksi halde iş "yok" görünür ya da sonuç yazılamaz (iş asılı kalır).
 _SHARE_RETRY_S = 5.0
+# ``os.replace`` sırasında okuyucu hedefi çok kısa süre YOK da görebilir (FileNotFoundError;
+# 2026-10-06 stres testinde ölçüldü). Gerçekten olmayan iş için bekleme kısa tutulur.
+_MISSING_RETRY_S = 0.5
 
 
 def _read(p: Path) -> dict[str, Any] | None:
-    deadline = time.monotonic() + _SHARE_RETRY_S
+    t0 = time.monotonic()
     while True:
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
             return d if isinstance(d, dict) else None
         except PermissionError:
-            if time.monotonic() > deadline:
+            if time.monotonic() - t0 > _SHARE_RETRY_S:
+                return None
+            time.sleep(0.01)
+        except FileNotFoundError:
+            if time.monotonic() - t0 > _MISSING_RETRY_S:
                 return None
             time.sleep(0.01)
         except (OSError, ValueError):
@@ -110,15 +117,22 @@ def _write(p: Path, data: dict[str, Any]) -> None:
 
 @contextlib.contextmanager
 def _job_lock(job_id: str) -> Iterator[None]:
-    """İş dosyasının oku-değiştir-yaz güncellemesi için kısa kilit (başlatıcı ↔ çalıştırıcı)."""
+    """İş dosyasının oku-değiştir-yaz güncellemesi için kısa kilit (başlatıcı ↔ çalıştırıcı).
+
+    Windows'ta başka sürecin o an sildiği (silinme-bekleyen) kilit dosyasına ``O_EXCL`` açma
+    FileExistsError DEĞİL PermissionError verir; bu da "kilit meşgul" demektir. Yakalanmazsa
+    çalıştırıcı sonucunu yazamadan çöker ve iş "kesildi" görünür (2026-10-06 kararsız test).
+    """
     p = _path(job_id).with_suffix(".lock")
     p.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + 15
+    acquired = False
     while True:
         try:
             os.close(os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            acquired = True
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):
             with contextlib.suppress(OSError):
                 if time.time() - p.stat().st_mtime > 30:
                     p.unlink()
@@ -129,8 +143,9 @@ def _job_lock(job_id: str) -> Iterator[None]:
     try:
         yield
     finally:
-        with contextlib.suppress(OSError):
-            p.unlink()
+        if acquired:  # alınmamış kilidi silmek gerçek sahibinin kilidini düşürür
+            with contextlib.suppress(OSError):
+                p.unlink()
 
 
 def _update(job_id: str, **fields: Any) -> dict[str, Any]:
@@ -154,7 +169,7 @@ def _start_mutex() -> Iterator[None]:
             fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.close(fd)
             break
-        except FileExistsError as exc:
+        except (FileExistsError, PermissionError) as exc:  # Windows: silinme-bekleyen kilit
             with contextlib.suppress(OSError):
                 if time.time() - p.stat().st_mtime > 30:  # çökmüş başlatıcı
                     p.unlink()
@@ -277,7 +292,16 @@ def reconcile(job: dict[str, Any]) -> dict[str, Any]:
         job_id = job["job_id"]
         p = _path(job_id)
         with _job_lock(job_id):
-            cur = _read(p) or job
+            fresh = _read(p)
+            if fresh is None:
+                # Taze kayıt okunamadı: bayat görüntüye dayanıp "kesildi" yazmak çalıştırıcının
+                # gerçek sonucunu ezebilir → bu turda karar verme, sonraki yoklama yeniden dener.
+                return {
+                    **job,
+                    "progress": _stage(job),
+                    "kind_label": KIND_TR.get(job.get("kind", ""), ""),
+                }
+            cur = fresh
             if cur.get("status") in ACTIVE and _runner_dead(cur):
                 # Çalıştırıcı sonucu yazamadan öldü (çökme, yeniden başlatma, öldürme).
                 if cur.get("status") == "stopping":
