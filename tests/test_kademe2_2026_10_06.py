@@ -359,7 +359,113 @@ def test_malformed_or_empty_findings_do_not_open_gate(iso, monkeypatch, tmp_path
     assert _k2_cli(iso, monkeypatch, empty).exit_code == 1
     assert _k2_cli(iso, monkeypatch, empty, "--temiz-av").exit_code == 0  # bilinçli bulgusuz av
     bare = tmp_path / "r.json"
-    bare.write_text(json.dumps([{"id": "F9", "status": "risk_kabul"}]), "utf-8")
+    bare.write_text(json.dumps([{"id": "F9", "status": "risk_kabul", "kapsam": "kayit"}]), "utf-8")
     res = _k2_cli(iso, monkeypatch, bare)
     assert res.exit_code == 1 and "gerekçesiz" in res.output
     assert len(easy_train.list_kademe2()) == 1  # yalnız --temiz-av kaydı
+
+
+# ── c0d6aea avı L-1 · L-3 ───────────────────────────────────────────────────────────────
+
+
+def test_l1_risk_scope_must_be_known(iso, monkeypatch, tmp_path) -> None:  # noqa: F811
+    from app.training import easy_train
+
+    for kapsam in ("yalnız_reçete", None, "pilot"):
+        row = {"id": "F3-4", "status": "risk_kabul", "gerekce": "x" * 30}
+        if kapsam is not None:
+            row["kapsam"] = kapsam
+        f = tmp_path / "k.json"
+        f.write_text(json.dumps([row], ensure_ascii=False), "utf-8")
+        res = _k2_cli(iso, monkeypatch, f)
+        assert res.exit_code == 1 and "kapsamı tanımsız" in res.output, res.output
+    assert easy_train.list_kademe2() == []
+
+
+def test_l3_launch_waits_for_gates_marker_or_exit(tmp_path) -> None:
+    import time
+
+    from app.training import detached_launch as dl
+
+    class Proc:
+        def __init__(self, rc=None):
+            self.rc = rc
+
+        def poll(self):
+            return self.rc
+
+    marker = tmp_path / "gates.ok"
+    t0 = time.monotonic()
+    assert dl._early_exit_code(Proc(rc=10), 30, marker) == 10  # kapıda düştü → başlamadı
+    marker.write_text("1", "utf-8")
+    assert dl._early_exit_code(Proc(), 30, marker) is None  # kapılar geçti → başlatıldı
+    assert time.monotonic() - t0 < 5  # işaret/çıkış beklemeyi hemen bitirir
+    assert dl._EARLY_EXIT_WAIT_S >= 60  # 8 sn penceresi geri gelmesin
+
+
+# ── c0d6aea avı C-2 · C-4 · C-7 ─────────────────────────────────────────────────────────
+
+
+def test_c2_ollama_cloud_tags_are_cloud_origin() -> None:
+    from app.cloud.policy import cloud_origin_lines
+
+    rows = [
+        {"metadata": {"teacher": "deepseek-v3.1:671b-cloud"}},
+        {"metadata": {"source": "chat", "model_tag": "gpt-oss:120b-cloud"}},
+        {"metadata": {"teacher": "kimi-k2:1t-cloud:latest"}},
+        {"metadata": {"teacher": "qwen3:30b-a3b-instruct-2507-q4_K_M"}},  # yerel → temiz
+        {"metadata": {"source": "chat", "model_tag": "hektor-v12-30b"}},  # yerel → temiz
+    ]
+    assert cloud_origin_lines([json.dumps(r) for r in rows]) == [0, 1, 2]
+
+
+def test_c4_cloud_cli_child_env_has_no_api_key(monkeypatch) -> None:
+    from app.cloud import providers
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-degil")
+    monkeypatch.setenv("HEKTOR_API_TOKEN", "insan-sirri")
+    env = providers._child_env()
+    assert "ANTHROPIC_API_KEY" not in env and "HEKTOR_API_TOKEN" not in env
+    assert env.get("PATH")  # geri kalan ortam korunur
+
+
+def test_c7_exclude_endpoint_requires_human() -> None:
+    from app.web.chat_routes import chat_router
+    from app.web.security import require_human
+
+    route = next(r for r in chat_router.routes if getattr(r, "path", "").endswith("/exclude"))
+    assert require_human in {d.call for d in route.dependant.dependencies}
+
+
+# ── c0d6aea avı D-3 · D-4 ───────────────────────────────────────────────────────────────
+
+
+def test_d3_summary_shows_effective_examples_and_seed() -> None:
+    from app.training.easy_train import summary
+
+    text = summary(
+        {
+            "adapter_name": "p",
+            "base_model": "b",
+            "profile": "moe30b_attn_long",
+            "mix_label": "x",
+            "mix_weights": {"math": 1.0},
+            "n_train": 1491,
+            "n_valid": 78,
+            "max_examples": 64,
+            "data_sha256": "d" * 64,
+            "recipe_sha": "r" * 64,
+        }
+    )
+    assert "eğitilecek 64 örnek" in text and "seed 42" in text
+
+
+def test_d4_leakage_extractor_sees_all_trained_formats() -> None:
+    from app.evals.profile.leakage import extract_train_texts
+
+    for row in (
+        {"prompt": "p", "completion": "GIZLI-CEVAP"},
+        {"text": "GIZLI-CEVAP"},
+        {"user": "u", "assistant": "GIZLI-CEVAP"},
+    ):
+        assert any("GIZLI-CEVAP" in t for t in extract_train_texts(row, 0).texts)

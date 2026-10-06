@@ -893,6 +893,23 @@ def _train_impl(
                 "expect_valid_sha256": _snap["valid_sha256"],
             }
 
+        # Kademe 2 (c0d6aea avı) D-1: reçetesiz yollarda (web/Auto-LoRA/start-train/CLI) da
+        # eğitici, kapılardan HEMEN SONRAKİ train/valid dosyalarına özetle bağlanır. Arada kilitsiz
+        # bir yazıcı (lora-split, lora-dataset, web veri ucu) dosyayı değiştirirse eğitim durur.
+        if not _expect:
+            import hashlib as _hl
+
+            def _norm_sha(_p: Path) -> str:
+                try:
+                    return _hl.sha256(_p.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+                except OSError:
+                    return ""
+
+            _expect = {
+                "expect_train_sha256": _norm_sha(settings.jsonl_dir / "train.jsonl"),
+                "expect_valid_sha256": _norm_sha(settings.jsonl_dir / "valid.jsonl"),
+            }
+
         # Ortak ağır iş kilidi: onaydan ÖNCE (ucuz), sohbet kirasıyla yarışsız.
         _acquire_train_lock(adapter_name, lock_holder)
 
@@ -956,6 +973,13 @@ def _train_impl(
             f"weights={weights_to_arg(weight_decision.weights)}",
             flush=True,
         )
+        # Kademe 2 L-3: TÜM kapılar geçti → başlatan ebeveyne bildir ("başlatıldı" ancak şimdi).
+        _marker = _os.environ.get("HEKTOR_TRAIN_GATES_MARKER", "").strip()
+        if _marker:
+            try:
+                Path(_marker).write_text(str(_os.getpid()), encoding="utf-8")
+            except OSError:
+                console.print("[yellow]Kapı işareti yazılamadı (başlatan bekleyecek).[/yellow]")
 
     if resolved == "mlx":
         from app.training.mlx_lora_train import TrainConfig
@@ -4465,6 +4489,16 @@ def pretrain_gate_cmd(
     from app.training import easy_train as _easy_train
 
     report.blockers.extend(chat_selection_blockers())
+    # Kademe 2 (c0d6aea avı) C-3: bulut kökenli satır kontrolü eğitim yollarıyla AYNI olsun
+    # (eskiden yalnız _pretrain_gate_blockers'ta → bu komut GO, eğitim NO-GO diyebiliyordu).
+    from app.cloud.policy import cloud_origin_lines
+
+    _cloud = cloud_origin_lines(lines)
+    if _cloud:
+        report.blockers.append(
+            f"Eğitim verisinde bulut kökenli {len(_cloud)} satır var (ilk satır {_cloud[0] + 1}); "
+            "bulut çıktısıyla eğitim yasak (docs/TASARIM_FAZ3_BULUT.md §3)."
+        )
     # Kademe 2 kaydı her eğitimden önce zorunlu → start-train.ps1 de burada erken durur.
     _k2 = _easy_train.kademe2_check()
     if _k2:

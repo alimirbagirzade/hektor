@@ -11,6 +11,7 @@ Her sağlayıcı iptal edilebilir: ``cancel()`` alt süreci sonlandırır; yarı
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import threading
@@ -128,6 +129,7 @@ class ClaudeCodeCLIProvider:
                 self._proc = subprocess.Popen(  # shell=False: istem tek argv öğesi
                     argv,
                     cwd=cwd,
+                    env=_child_env(),
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -165,3 +167,24 @@ def make_provider(name: str) -> Provider:
         f"Desteklenmeyen sağlayıcı: '{name}'. API anahtarlı sağlayıcılar bu dalda uygulanmadı "
         "(karar kullanıcıda; docs/TASARIM_FAZ3_BULUT.md §4)."
     )
+
+
+# Kademe 2 (c0d6aea avı) C-4: `claude -p` alt sürecine geçmeyecek değişkenler.
+# ANTHROPIC_API_KEY varsa CLI aboneliği değil ÜCRETLİ API'yi kullanır (politika: API anahtarlı
+# istemci yok); HEKTOR_API_TOKEN insan sırrıdır; ayar-ezme yolları --safe-mode'u delebilir
+# (aynı sertleştirme: app/orchestration/driver.py build_child_env).
+_STRIP_ENV = (
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "HEKTOR_API_TOKEN",
+    "CLAUDE_CODE_MANAGED_SETTINGS_PATH",
+    "CLAUDE_CODE_REMOTE_SETTINGS_PATH",
+    "CLAUDE_CODE_MOCK_REMOTE_SETTINGS",
+)
+
+
+def _child_env() -> dict[str, str]:
+    env = dict(os.environ)
+    for key in _STRIP_ENV:
+        env.pop(key, None)
+    return env

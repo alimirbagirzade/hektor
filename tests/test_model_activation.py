@@ -390,3 +390,27 @@ def test_f4_5_main_requires_final_role_trial_does_not(ollama) -> None:
     _decide("kabul", adapter_id=_adapter(), role="final")
     st = ma.activate_main(CAND, "Gizli final setinde kabul aldı.")
     assert st["main"]["tag"] == CAND
+
+
+def test_e1_pilot_adapter_never_main_but_trial_ok(ollama, monkeypatch) -> None:
+    """Kademe 2 E-1: yalnız-reçete risk kabulüyle eğitilen (pilot) adapter ana modele geçemez."""
+    from app.config import get_settings
+
+    g = get_settings().root / "models" / "gguf"
+    g.mkdir(parents=True, exist_ok=True)
+    (g / f"Modelfile.{CAND}").write_text(
+        f"# {CAND} - hektor_lora_pilot birlesik GGUF Q4_K_M; sablon x'dan.\nFROM x.gguf\n", "utf-8"
+    )
+    monkeypatch.setattr(
+        "app.training.candidate_checks.recipe_for_adapter",
+        lambda name: {"recipe_sha": "p" * 64} if name == "hektor_lora_pilot" else None,
+    )
+    monkeypatch.setattr(
+        "app.training.easy_train.recipe_has_limited_acceptance", lambda sha: sha == "p" * 64
+    )
+    _decide("kabul", role="final")
+    with pytest.raises(ma.ActivationError, match="pilot"):
+        ma.activate_main(CAND, "Final setinde kabul aldı.")
+    assert not ma.state_path().exists()
+    ma.activate_trial(CAND)  # deneme sohbeti serbest
+    assert ma.load_state()["trial"]["tag"] == CAND

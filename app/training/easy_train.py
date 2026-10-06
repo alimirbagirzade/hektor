@@ -25,6 +25,7 @@ olduğundan commit'lenmesi denetlenen kod özetini DEĞİŞTİRMEZ → sonsuz ye
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -32,6 +33,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -41,6 +43,8 @@ from app.feedback.chat_store import utcnow
 
 CODE_PATHS = ("app", "scripts", "configs", "pyproject.toml")
 CLOSED_FINDING = frozenset({"duzeltildi", "reddedildi", "risk_kabul"})
+# risk_kabul kapsamı: yalnız kaydın reçetesi (pilot) ya da kaydın tüm kapsamı (veri/reçete).
+RISK_SCOPES = frozenset({"yalniz_recete", "kayit"})
 
 
 class EasyTrainError(ValueError):
@@ -99,18 +103,41 @@ def kademe2_dir() -> Path:
     return get_settings().reports_dir / "kademe2"
 
 
+# Windows'ta açık bir dosyanın üzerine ``os.replace`` ve değiştirilmekte olan dosyayı okuma
+# kısa süre PermissionError verir (eşzamanlı iki başlatma isteği). Geçici pencere: bekleyip
+# yeniden denenir. Okumada hatayı "dosya yok" saymak, istek kaydının boş sanılıp üzerine
+# yazılmasına (diğer isteklerin kaybına) yol açardı (#36 ile aynı sınıf; c0d6aea avı).
+_SHARE_RETRY_S = 5.0
+
+
 def _read(path: Path) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    deadline = time.monotonic() + _SHARE_RETRY_S
+    while True:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except PermissionError:
+            if time.monotonic() > deadline:
+                return None
+            time.sleep(0.01)
+        except (OSError, ValueError):
+            return None
 
 
 def _write(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(3)}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    deadline = time.monotonic() + _SHARE_RETRY_S
+    while True:
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if time.monotonic() > deadline:
+                with contextlib.suppress(OSError):
+                    tmp.unlink()
+                raise
+            time.sleep(0.01)
 
 
 def _sha_text(text: str) -> str:
@@ -386,6 +413,18 @@ def record_kademe2(
     nameless = [f for f in findings if not str(f.get("id") or "").strip()]
     if nameless:
         raise EasyTrainError(f"Kimliksiz bulgu var ({len(nameless)}): her bulgu 'id' taşımalı.")
+    # Kademe 2 L-1: risk kabulünün KAPSAMI açık ve tanımlı olmalı — yazım farkı (ör.
+    # 'yalnız_reçete') sessizce sınırsız kabul sayılıp tam eğitime taşınıyordu.
+    bad_scope = [
+        f"{f['id']}={f.get('kapsam')!r}"
+        for f in findings
+        if f.get("status") == "risk_kabul" and f.get("kapsam") not in RISK_SCOPES
+    ]
+    if bad_scope:
+        raise EasyTrainError(
+            f"risk_kabul kapsamı tanımsız ({', '.join(bad_scope)}): 'kapsam' alanı "
+            f"{sorted(RISK_SCOPES)} değerlerinden biri olmalı."
+        )
     bare_risk = [
         f["id"]
         for f in findings
@@ -431,6 +470,17 @@ def record_kademe2(
 
 def _recipe_limited(finding: dict[str, Any]) -> bool:
     return finding.get("status") == "risk_kabul" and finding.get("kapsam") == "yalniz_recete"
+
+
+def recipe_has_limited_acceptance(recipe_sha: str) -> bool:
+    """Bu reçete yalnız-reçete kapsamlı (pilot) bir risk kabulüyle mi kayıtlı?"""
+    if not recipe_sha:
+        return False
+    return any(
+        (r.get("scope") or {}).get("recipe_sha") == recipe_sha
+        and any(_recipe_limited(f) for f in r.get("findings", []))
+        for r in list_kademe2()
+    )
 
 
 def list_kademe2() -> list[dict[str, Any]]:
@@ -538,13 +588,29 @@ def prepare_snapshot(settings: dict[str, Any]) -> dict[str, Any]:
     return {**(_read(d / "recipe.json") or recipe), "summary": summary(recipe)}
 
 
+def _effective_note(recipe: dict[str, Any]) -> str:
+    """Kademe 2 (c0d6aea avı) D-3: onay metni FİİLEN eğitilecek örnek sayısını + seed'i gösterir."""
+    try:
+        from app.training.detached_launch import plan_iterations
+        from app.training.peft_lora_train import PeftTrainConfig
+
+        iters, n_eff, epochs = plan_iterations(
+            int(recipe["n_train"]), int(recipe.get("max_examples") or 0), recipe.get("profile")
+        )
+        seed = PeftTrainConfig.__dataclass_fields__["seed"].default
+    except Exception:  # özet metni asla başlatmayı bozmasın
+        return ""
+    return f" (eğitilecek {n_eff} örnek, seed {seed}, {iters} mikro-adım ≈ {epochs} epoch)"
+
+
 def summary(recipe: dict[str, Any]) -> str:
     from app.lora.mix_common import format_weights
 
     return (
         f"{recipe['adapter_name']} ← {recipe['base_model']} · profil {recipe['profile']} · "
         f"karışım {recipe.get('mix_label', '')} ({format_weights(recipe['mix_weights'])}) · "
-        f"{recipe['n_train']} train / {recipe['n_valid']} valid · veri "
+        f"{recipe['n_train']} train / {recipe['n_valid']} valid"
+        f"{_effective_note(recipe)} · veri "
         f"{recipe['data_sha256'][:12]}… · reçete {recipe['recipe_sha'][:12]}…"
     )
 

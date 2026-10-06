@@ -187,7 +187,7 @@ def turn_feedback(turn_id: str, req: FeedbackRequest) -> dict[str, Any]:
     return _call(_svc().set_feedback, turn_id, req.label, req.note, req.spans)
 
 
-@chat_router.post("/turns/{turn_id}/exclude")
+@chat_router.post("/turns/{turn_id}/exclude", dependencies=[_human])
 def turn_exclude(turn_id: str, req: ExcludeRequest) -> dict[str, Any]:
     """Eğitimden hariç tut / geri al. Eski veri sürümü dosyalarını değiştirmez."""
     return _call(_svc().set_excluded, turn_id, req.excluded, req.reason)

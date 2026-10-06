@@ -155,7 +155,8 @@
       "proposal": "risk_kabul — yerel onur sistemi; mühürlü dosya zaten diskte",
       "not": "Kör inceleme eşlemesi diskte; kodla gizlenemez (aynı makinede okuyan herkes görür). Önerilen işletim kuralı: AI incelemesi yalnız kör paketi alır (zaten öyle); insan incelemeci mühürlü dosyayı karar sonrasına kadar açmaz. Karar kullanıcıda.",
       "fix_tarih": "2026-10-06 (PR #37)",
-      "gerekce": "Kullanıcı kararı 2026-10-06: yerel kör incelemenin sınırı kabul. Mühürlü eşleme diskte; aynı bilgisayarın sahibi açabilir ('erişilemez' DEĞİL). Kural: karar verilene kadar model kimlikleri açılmaz; AI'ya yalnız kör paket verilir. docs/PROTOKOL_ADAY_KARSILASTIRMA.md §4."
+      "gerekce": "Kullanıcı kararı 2026-10-06: yerel kör incelemenin sınırı kabul. Mühürlü eşleme diskte; aynı bilgisayarın sahibi açabilir ('erişilemez' DEĞİL). Kural: karar verilene kadar model kimlikleri açılmaz; AI'ya yalnız kör paket verilir. docs/PROTOKOL_ADAY_KARSILASTIRMA.md §4.",
+      "kapsam": "kayit"
     },
     {
       "id": "F4-7",

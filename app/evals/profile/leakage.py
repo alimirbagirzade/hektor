@@ -144,7 +144,21 @@ def extract_train_texts(example: dict[str, Any], index: int) -> TrainText:
                 q = question_segment(content)
                 if q and q != content.strip():
                     texts.append(q)
-    for key in ("question", "prompt", "instruction", "input", "answer", "output", "response"):
+    # Kademe 2 (c0d6aea avı) D-4: eğiticinin (_row_to_messages) eğittiği TÜM biçimler —
+    # completion / text / kökte user-assistant da taranır (yoksa sızıntı kapısı kör kalıyordu).
+    for key in (
+        "question",
+        "prompt",
+        "instruction",
+        "input",
+        "answer",
+        "output",
+        "response",
+        "completion",
+        "text",
+        "user",
+        "assistant",
+    ):
         if example.get(key):
             texts.append(str(example[key]))
     raw_meta = example.get("metadata")

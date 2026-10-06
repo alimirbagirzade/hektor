@@ -268,7 +268,8 @@ def test_resume_of_unchanged_run_allowed_but_not_after_data_change(repo, monkeyp
     w = "math=0.2,statistics=0.2,reasoning=0.2,trading=0.2,coding=0.2"
     res = _cli("--mix-weights", w)
     assert res.exit_code == 0, res.output
-    assert len(seen) == 1 and seen[0].expect_train_sha256 == ""  # reçetesiz yol
+    # Reçetesiz yol da (D-1) kapılardan hemen sonraki bölme dosyasına özetle bağlanır.
+    assert len(seen) == 1 and len(seen[0].expect_train_sha256) == 64
     repo["src"].write_text(repo["src"].read_text("utf-8") + _row(1234) + "\n", encoding="utf-8")
     again = _cli("--mix-weights", w)
     assert again.exit_code == 10, again.output  # veri değişti → kurtarma da durur
@@ -449,8 +450,18 @@ def test_concurrent_launches_single_spawn_and_dead_child_lock_is_stale(repo, mon
     assert resource_lock.blocker() is None
 
     # (B) İki başlatma (ör. web + kolay akış) aynı anda kilide gelir → yalnız biri doğar.
+    # Alt süreç bu bölümde CANLI (gerçekte olduğu gibi): ölü pid'e devredilen kilit bayat
+    # sayılır ve geç kalan ikinci başlatma onu meşru olarak kırabilirdi → zamanlamaya bağlı test.
+    import os as _os
+
     spawned.clear()
     gate = threading.Barrier(2)
+
+    def popen_alive(cmd, **kw):
+        spawned.append(kw["env"])
+        return _Proc(_os.getpid())
+
+    monkeypatch.setattr(dl.subprocess, "Popen", _only_training_popen(popen_alive))
 
     def preflight_sync(*a, **k):
         gate.wait(timeout=10)
@@ -470,6 +481,7 @@ def test_concurrent_launches_single_spawn_and_dead_child_lock_is_stale(repo, mon
     )
     oks = [r for r in res if r.get("ok")]
     assert len(oks) == 1 and len(spawned) == 1, res
+    resource_lock.release(spawned[0][resource_lock.TOKEN_ENV])
 
 
 # --- Kademe 2 (2026-10-06) F3-5: veri seçimi → karışım → anlık görüntü → reçete → alt süreç ---
@@ -599,3 +611,24 @@ def test_recipe_limited_risk_acceptance_does_not_carry_over(repo) -> None:
     full = et.prepare_snapshot(_settings(max_examples=0, adapter_name="hektor_lora_tam"))
     assert full["recipe_sha"] != pilot["recipe_sha"]
     assert et.kademe2_blocker(recipe_sha=full["recipe_sha"]) is not None  # tam eğitime taşınmaz
+
+
+def test_recipe_has_limited_acceptance_marks_only_pilot(repo) -> None:
+    pilot = et.prepare_snapshot(_settings(max_examples=64))
+    other = et.prepare_snapshot(_settings(max_examples=0, adapter_name="hektor_lora_tam"))
+    et.record_kademe2(
+        scope={"recipe_sha": pilot["recipe_sha"]},
+        findings=[
+            {
+                "id": "F3-4",
+                "status": "risk_kabul",
+                "kapsam": "yalniz_recete",
+                "gerekce": "yalnız 64 örneklik teknik pilot; kalite kanıtı değil",
+            }
+        ],
+        closure_evidence="pilot kapsamı; make ci yeşil (commit abc123)",
+        reviewer="insan",
+    )
+    assert et.recipe_has_limited_acceptance(pilot["recipe_sha"])
+    assert not et.recipe_has_limited_acceptance(other["recipe_sha"])
+    assert not et.recipe_has_limited_acceptance("")
