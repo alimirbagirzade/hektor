@@ -61,8 +61,12 @@ def test_stop_all_and_clear(monkeypatch, tmp_path) -> None:
 
 def test_train_run_blocked_without_approval(monkeypatch) -> None:
     """train --run taze onay olmadan eğitim BAŞLATMAZ (exit 3 + onay isteği)."""
-    monkeypatch.setenv("COLUMNS", "300")
     monkeypatch.delenv("HEKTOR_TRAIN_SUPERVISED", raising=False)
+    _assert_train_run_needs_approval(monkeypatch)
+
+
+def _assert_train_run_needs_approval(monkeypatch) -> None:
+    monkeypatch.setenv("COLUMNS", "300")
     # STOP_ALL etkisini ayır: bu test onay kapısını sınar
     monkeypatch.setattr("app.agents.runtime.supervisor.is_stop_all_active", lambda root=None: False)
     # Kademe-2 A6: bölme + sızıntı kapısı onaydan ÖNCE koşar → veri varmış gibi sahtele ki
@@ -87,6 +91,14 @@ def test_train_run_blocked_without_approval(monkeypatch) -> None:
         ],
     )
     assert r.exit_code == 3  # onay gerekli → eğitim başlamadı
+
+
+def test_f1_4_supervised_env_alone_does_not_skip_approval(monkeypatch) -> None:
+    """Kademe 2 (2026-10-06) F1-4: kilit belirteci/kurtarma OLMADAN bayrak yok sayılır."""
+    monkeypatch.setenv("HEKTOR_TRAIN_SUPERVISED", "1")
+    monkeypatch.delenv("HEKTOR_TRAIN_RECOVERY", raising=False)
+    monkeypatch.delenv("HEKTOR_HEAVY_LOCK_TOKEN", raising=False)
+    _assert_train_run_needs_approval(monkeypatch)
 
 
 def test_train_dry_run_not_gated(monkeypatch) -> None:

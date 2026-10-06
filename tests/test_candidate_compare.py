@@ -283,6 +283,15 @@ def test_partial_conversion_is_not_success(iso) -> None:  # noqa: F811
     tags = [{"name": "hektor-t:latest", "digest": "sha256:" + "f" * 64}]
     ok = verify_conversion("hektor_lora_t", "hektor-t", tags=tags)
     assert ok["ok"], ok["checks"]
+    # Kademe 2 (2026-10-06) F4-10: FROM köken anahtarı OLMAYAN aynı-önekli GGUF'u gösterirse
+    # ad öneki tutsa bile dönüşüm doğrulanmış sayılmaz.
+    (g / "hektor_lora_t-Q8_0.gguf").write_bytes(b"eski")
+    mf = g / "Modelfile.hektor-t"
+    good_mf = mf.read_text("utf-8")
+    mf.write_text(good_mf.replace("Q4_K_M.gguf", "Q8_0.gguf"), "utf-8")
+    stray = verify_conversion("hektor_lora_t", "hektor-t", tags=tags)
+    assert not {c["key"]: c["ok"] for c in stray["checks"]}["modelfile"]
+    mf.write_text(good_mf, "utf-8")
     (g / "hektor_lora_t-bf16.gguf.partial").write_bytes(b"yarim")
     bad = verify_conversion("hektor_lora_t", "hektor-t", tags=tags)
     assert not bad["ok"] and "partial" in json.dumps(bad["checks"])

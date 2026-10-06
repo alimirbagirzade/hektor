@@ -689,9 +689,23 @@ def _train_impl(
         import os as _os
 
         from app.agents.runtime import supervisor
+        from app.training import resource_lock as _rlock
         from app.training.unattended_policy import authorize_training_action
 
-        supervised = bool(_os.environ.get("HEKTOR_TRAIN_SUPERVISED"))
+        # Kademe 2 (2026-10-06) F1-4: env bayrağı TEK BAŞINA iç onayı atlatmasın. Meşru
+        # denetimli yollar ya üst sürecin (onaydan sonra) aldığı kilit belirtecini devreder
+        # (`launch()` → `claim()` aşağıda doğrular) ya da nöbetçi kurtarmasıdır (start-train.ps1
+        # -Supervised → RECOVERY=1). Elle `HEKTOR_TRAIN_SUPERVISED=1 hektor train --run` →
+        # normal taze onay kapısı.
+        supervised = bool(_os.environ.get("HEKTOR_TRAIN_SUPERVISED")) and (
+            bool(_os.environ.get(_rlock.TOKEN_ENV, "").strip())
+            or _os.environ.get("HEKTOR_TRAIN_RECOVERY") == "1"
+        )
+        if _os.environ.get("HEKTOR_TRAIN_SUPERVISED") and not supervised:
+            console.print(
+                "[yellow]HEKTOR_TRAIN_SUPERVISED üst süreç kilidi ya da kurtarma olmadan "
+                "verildi — yok sayıldı; taze onay istenecek.[/yellow]"
+            )
 
         if supervisor.is_stop_all_active():
             console.print(
