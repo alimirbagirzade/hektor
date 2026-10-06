@@ -483,6 +483,39 @@ def clear_trial(*, root: Path | None = None) -> dict[str, Any]:
     return load_state(root)
 
 
+def _check_rollback_decision(prev: dict[str, Any], root: Path | None = None) -> None:
+    """Kademe 2 (2026-10-06) F4-8: geri dönülecek modelin karar deposundaki GÜNCEL durumu.
+
+    Önceki model etkinleştirildiğinde geçerli olan karar sonradan değişmiş olabilir:
+    - aynı etiket+digest için KRİTİK RET (F4-2: kalıcı) → hiçbir yuvaya, geri dönüşle de dönmez;
+    - karşılaştırmayla gelmiş (``decision_id`` taşıyan) model için en son karar artık
+      'Kabul' değilse → geri dönüş eski, geçersizleşmiş kararla ana modeli kurmuş olurdu.
+    Karşılaştırmasız başlangıç modeli (baseline) yalnız kritik ret ile engellenir.
+    """
+    from app.evals.candidate_decisions import list_decisions
+
+    tag = norm_tag(str(prev.get("tag") or ""))
+    digest = norm_digest(str(prev.get("digest") or ""))
+    if any(
+        r["decision"] == "kritik_ret"
+        and r["candidate_tag"] == tag
+        and r["candidate_digest"] == digest
+        for r in list_decisions(root)
+    ):
+        raise ActivationError(
+            f"Önceki model '{tag}' ({digest[:12]}) sonradan KRİTİK RET aldı; geri dönüş yapılmadı."
+        )
+    if not prev.get("decision_id"):
+        return
+    dec = latest_decision(tag, digest, root)
+    if dec is None or dec["decision"] not in MAIN_OK:
+        now = DECISION_TR.get(dec["decision"], dec["decision"]) if dec else "karar yok"
+        raise ActivationError(
+            f"Önceki model '{tag}' için güncel karar '{now}' — ana model yalnız 'Kabul' kararıyla "
+            "kurulabilir; geri dönüş yapılmadı."
+        )
+
+
 def rollback_main(reason: str, *, root: Path | None = None) -> dict[str, Any]:
     """Önceki ana modele dön: Ollama'da var mı + digest eşleşiyor mu doğrulanır."""
     reason = (reason or "").strip()
@@ -501,6 +534,7 @@ def rollback_main(reason: str, *, root: Path | None = None) -> dict[str, Any]:
                 "geri dönüş yapılmadı."
             )
         _require_present(tag, digest, "Önceki model")
+        _check_rollback_decision(prev, root)
         _check_registry_target(str(prev.get("adapter_id") or ""), root)
         cur = dict(st["main"])
         cur.pop("previous", None)

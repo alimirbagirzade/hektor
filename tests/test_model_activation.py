@@ -328,3 +328,40 @@ def test_web_activation_endpoints(ollama) -> None:
     for rt in client.app.routes:
         if getattr(rt, "path", "") in human:
             assert require_human in {d.call for d in rt.dependant.dependencies}
+
+
+# ── Kademe 2 (2026-10-06) F4-8: geri dönüşte karar deposu yeniden denetlenir ──────────
+
+
+def test_f4_8_rollback_rechecks_decision_of_previous_model(ollama) -> None:
+    cand2, dig2 = "cand-v2", "d" * 64
+    ollama[cand2] = dig2
+    _decide("kabul", adapter_id=_adapter())
+    ma.activate_main(CAND, "Karşılaştırma kabul, inceledim.")
+    record_decision(
+        {
+            "candidate_tag": cand2,
+            "candidate_digest": dig2,
+            "decision": "kabul",
+            "comparison_id": "cmp_test2",
+            "active_tag": CAND,
+            "adapter_id": "",
+        }
+    )
+    ma.activate_main(cand2, "İkinci aday da kabul aldı.")
+    _decide("ret")  # CAND sonradan yeniden karşılaştırıldı → artık 'Ret'
+    with pytest.raises(ma.ActivationError, match="güncel karar 'Ret'"):
+        ma.rollback_main("Aday sohbette kötü davrandı.")
+    assert ma.load_state()["main"]["tag"] == cand2  # hiçbir şey yazılmadı
+    _decide("kritik_ret")
+    with pytest.raises(ma.ActivationError, match="KRİTİK RET"):
+        ma.rollback_main("Aday sohbette kötü davrandı.")
+
+
+def test_f4_8_rollback_to_baseline_blocked_only_by_critical_reject(ollama) -> None:
+    _decide("kabul", adapter_id=_adapter())
+    ma.activate_main(CAND, "Karşılaştırma kabul, inceledim.")
+    _decide("ret", tag=BASE, digest=DIG_BASE)  # baseline için sıradan ret engel değil
+    _decide("kritik_ret", tag=BASE, digest=DIG_BASE)
+    with pytest.raises(ma.ActivationError, match="KRİTİK RET"):
+        ma.rollback_main("Aday sohbette kötü davrandı.")

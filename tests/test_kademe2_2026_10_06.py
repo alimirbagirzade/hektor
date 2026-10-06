@@ -223,3 +223,22 @@ def test_f4_9_non_numeric_math_key_rejected_at_load(tmp_path) -> None:
     p.write_text(json.dumps(row, ensure_ascii=False) + "\n", "utf-8")
     with pytest.raises(CompareError, match="sayısal"):
         load_set(Path(p))
+
+
+# ── F1-9: açık profil seçimi, kayıtlı eski özel ağırlıklarla ezilmez ───────────────────
+
+
+def test_f1_9_explicit_mix_profile_overrides_saved_custom_weights(iso, monkeypatch) -> None:  # noqa: F811
+    from app.training import easy_train
+
+    saved = {**easy_train.default_settings(), "mix_weights": {"math": 1.0}}
+    monkeypatch.setattr(easy_train, "last_settings", lambda: saved)
+    # Arayüz isteği: yalnız mix_profile (mix_weights anahtarı YOK).
+    norm = easy_train._normalize({"adapter_name": "p1", "mix_profile": "trading_analysis_v1"})
+    assert norm["mix_label"] == "trading_analysis_v1"
+    assert norm["mix_weights_resolved"] != {"math": 1.0}
+    # Açıkça özel ağırlık gönderen istemci (CLI/API) hâlâ özel ağırlığı alır.
+    norm = easy_train._normalize(
+        {"adapter_name": "p1", "mix_profile": "trading_analysis_v1", "mix_weights": {"math": 1.0}}
+    )
+    assert norm["mix_label"] == "özel"

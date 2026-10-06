@@ -61,8 +61,10 @@
     {
       "id": "F1-9",
       "votes": "KISMEN/KISMEN",
-      "status": "KARAR_GEREKLI",
-      "proposal": "risk_kabul — arayüz mix_weights göndermiyor; özet 'özel' gösteriyor; dosya yok"
+      "status": "duzeltildi",
+      "proposal": "risk_kabul — arayüz mix_weights göndermiyor; özet 'özel' gösteriyor; dosya yok",
+      "fix": "easy_train._normalize: istekte mix_profile var, mix_weights yoksa kayıtlı eski özel ağırlık temizlenir (açık profil seçimi ezilmez) — tests/test_kademe2_2026_10_06.py::test_f1_9_*",
+      "fix_tarih": "2026-10-06 (pilot-training-blockers dalı)"
     },
     {
       "id": "F2-1",
@@ -97,8 +99,10 @@
     {
       "id": "F3-4",
       "votes": "KISMEN/ONAY",
-      "status": "KARAR_GEREKLI",
-      "proposal": "risk_kabul (pilot) — yalnız valid loss iyimser; terfi LLM-30/karşılaştırmayla. Kalıcı çözüm: bağlamdaki paper_id'lerle gruplama (ayrı iş)"
+      "status": "duzeltildi",
+      "proposal": "risk_kabul (pilot) — yalnız valid loss iyimser; terfi LLM-30/karşılaştırmayla. Kalıcı çözüm: bağlamdaki paper_id'lerle gruplama (ayrı iş)",
+      "fix": "split_lines_by_source: ortak chunk_id/context_chunk_ids paylaşan kaynak grupları union-find ile birleşir. Gerçek veri (sha 613700551afb…): önce 80 valid satırının 5'i train ile parça paylaşıyordu → sonra 0/78. Makale düzeyi birleştirme 1569 satırın 1068'ini tek bileşene çöktürdüğü için seçilmedi; kalan bilinen örtüşme: disiplin 'baglam_grounded' şablonlarının sabit sentetik HMM bağlam cümlesi (korpus değil) — tests/test_fix_detached_epoch_calc.py",
+      "fix_tarih": "2026-10-06 (pilot-training-blockers dalı)"
     },
     {
       "id": "F3-5",
@@ -151,8 +155,10 @@
     {
       "id": "F4-8",
       "votes": "KISMEN/KISMEN",
-      "status": "KARAR_GEREKLI",
-      "proposal": "rollback'te karar deposu denetimi (ayrı iş) ya da risk_kabul"
+      "status": "duzeltildi",
+      "proposal": "rollback'te karar deposu denetimi (ayrı iş) ya da risk_kabul",
+      "fix": "rollback_main → _check_rollback_decision: önceki modelin etiket+digest için kritik ret → engel; karşılaştırmayla gelmiş modelin en son kararı 'Kabul' değilse → engel; baseline yalnız kritik retle engellenir — tests/test_model_activation.py::test_f4_8_*",
+      "fix_tarih": "2026-10-06 (pilot-training-blockers dalı)"
     },
     {
       "id": "F4-9",

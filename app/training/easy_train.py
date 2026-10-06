@@ -164,6 +164,11 @@ def _normalize(settings: dict[str, Any]) -> dict[str, Any]:
 
     base = last_settings()
     merged = {k: settings.get(k, base.get(k)) for k in default_settings()}
+    # Kademe 2 2026-10-06 F1-9: arayüz yalnız `mix_profile` gönderir. Eksik `mix_weights`
+    # son kaydedilen ayardan dolarsa, eski ÖZEL ağırlıklar açıkça seçilen profili sessizce
+    # eziyordu (resolve_weights özel ağırlığı önceler). Açık profil seçimi = profil ağırlığı.
+    if settings.get("mix_profile") and "mix_weights" not in settings:
+        merged["mix_weights"] = {}
     if not _ADAPTER_RE.match(str(merged.get("adapter_name") or "")):
         raise EasyTrainError("Hedef adapter adı gerekli (harf, rakam, _ ve -; en çok 64).")
     merged["max_examples"] = int(merged.get("max_examples") or 0)
