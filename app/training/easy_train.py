@@ -396,6 +396,15 @@ def record_kademe2(
             f"risk_kabul gerekçesiz ({', '.join(map(str, bare_risk))}): her biri en az 20 "
             "karakterlik 'gerekce' taşımalı."
         )
+    # Reçeteye SINIRLI risk kabulü (ör. F3-4: yalnız 64 örneklik teknik pilot): kayıt yalnız o
+    # reçeteyi kapsayabilir — veri özeti kapsamı, aynı veriyle HER reçeteye (tam eğitime)
+    # taşınırdı.
+    limited = [f["id"] for f in findings if _recipe_limited(f)]
+    if limited and (scope.get("data_sha256") or not scope.get("recipe_sha")):
+        raise EasyTrainError(
+            f"Reçeteye sınırlı risk kabulü ({', '.join(map(str, limited))}): kayıt YALNIZ "
+            "--recipe-sha ile yazılabilir (--data-sha verilmez)."
+        )
     open_ = [f for f in findings if f.get("status") not in CLOSED_FINDING]
     if open_:
         raise EasyTrainError(
@@ -420,6 +429,10 @@ def record_kademe2(
     return rec
 
 
+def _recipe_limited(finding: dict[str, Any]) -> bool:
+    return finding.get("status") == "risk_kabul" and finding.get("kapsam") == "yalniz_recete"
+
+
 def list_kademe2() -> list[dict[str, Any]]:
     d = kademe2_dir()
     if not d.is_dir():
@@ -439,9 +452,13 @@ def latest_kademe2(code_sha: str, recipe_sha: str = "", data_sha: str = "") -> d
         if any(f.get("status") not in CLOSED_FINDING for f in r.get("findings", [])):
             continue
         sc = r.get("scope") or {}
-        covered = (recipe_sha and sc.get("recipe_sha") == recipe_sha) or (
-            data_sha and sc.get("data_sha256") == data_sha
-        )
+        if any(_recipe_limited(f) for f in r.get("findings", [])):
+            # Sınırlı kabul yalnız kendi reçetesini kapsar (elle düzenlenmiş kayıtta da).
+            covered = bool(recipe_sha) and sc.get("recipe_sha") == recipe_sha
+        else:
+            covered = (recipe_sha and sc.get("recipe_sha") == recipe_sha) or (
+                data_sha and sc.get("data_sha256") == data_sha
+            )
         if (recipe_sha or data_sha) and not covered:
             continue
         found = r

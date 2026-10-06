@@ -565,3 +565,37 @@ def test_f3_5_trainer_rejects_changed_split_before_model_load(tmp_path, monkeypa
     )
     out = plt.train(cfg)
     assert out["ok"] is False and "VERİ BÜTÜNLÜĞÜ" in out["error"]
+
+
+# --- Reçeteye sınırlı risk kabulü (F3-4 pilot) başka reçeteye / veri kapsamına taşınmaz ---
+
+
+def test_recipe_limited_risk_acceptance_does_not_carry_over(repo) -> None:
+    limited = [
+        {
+            "id": "F3-4",
+            "status": "risk_kabul",
+            "kapsam": "yalniz_recete",
+            "gerekce": "yalnız 64 örneklik teknik pilot; valid loss kalite kanıtı değil",
+        }
+    ]
+    pilot = et.prepare_snapshot(_settings(max_examples=64))
+    data_sha = pilot["data_sha256"]
+    with pytest.raises(et.EasyTrainError, match="YALNIZ --recipe-sha"):
+        et.record_kademe2(
+            scope={"recipe_sha": pilot["recipe_sha"], "data_sha256": data_sha},
+            findings=limited,
+            closure_evidence="pilot kapsamı; make ci yeşil (commit abc123)",
+            reviewer="insan",
+        )
+    et.record_kademe2(
+        scope={"recipe_sha": pilot["recipe_sha"]},
+        findings=limited,
+        closure_evidence="pilot kapsamı; make ci yeşil (commit abc123)",
+        reviewer="insan",
+    )
+    assert et.kademe2_blocker(recipe_sha=pilot["recipe_sha"]) is None  # pilot geçer
+    assert et.kademe2_blocker() is not None  # reçetesiz yol (CLI/start-train) kapsanmaz
+    full = et.prepare_snapshot(_settings(max_examples=0, adapter_name="hektor_lora_tam"))
+    assert full["recipe_sha"] != pilot["recipe_sha"]
+    assert et.kademe2_blocker(recipe_sha=full["recipe_sha"]) is not None  # tam eğitime taşınmaz
