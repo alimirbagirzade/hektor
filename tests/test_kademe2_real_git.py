@@ -235,13 +235,14 @@ def test_cli_paths_exit_10_without_record(repo, monkeypatch, mode) -> None:
     assert approvals.list_approvals() == [] and not resource_lock.status()["held"]
 
 
-def _parent_lock(monkeypatch) -> None:
+def _parent_lock(monkeypatch) -> str:
     """`launch()` gibi: kilidi üst süreç alır, belirteci alt sürece devreder."""
     from app.training import resource_lock
 
     info, why = resource_lock.acquire("training", "web:test", state="launching")
     assert info is not None, why
     monkeypatch.setenv(resource_lock.TOKEN_ENV, str(info["token"]))
+    return str(info["token"])
 
 
 def _fake_trainer(monkeypatch) -> list:
@@ -469,3 +470,98 @@ def test_concurrent_launches_single_spawn_and_dead_child_lock_is_stale(repo, mon
     )
     oks = [r for r in res if r.get("ok")]
     assert len(oks) == 1 and len(spawned) == 1, res
+
+
+# --- Kademe 2 (2026-10-06) F3-5: veri seçimi → karışım → anlık görüntü → reçete → alt süreç ---
+# Her halka ayrı bozulur; eğitim alt süreci eğiticiye ULAŞMADAN ve onay/kilit TÜKETİLMEDEN durmalı.
+
+
+def _chain_child(repo, monkeypatch):
+    from app.lora.weight_decision import WeightDecisionStore
+    from app.training import resource_lock
+
+    seen = _fake_trainer(monkeypatch)
+    snap = et.prepare_snapshot(_settings())
+    _record(recipe_sha=snap["recipe_sha"])
+    monkeypatch.setenv("HEKTOR_TRAIN_SUPERVISED", "1")
+    monkeypatch.setenv(et.RECIPE_ENV, snap["recipe_sha"])
+
+    def run(weights=None):
+        from app.agents.runtime import approvals
+
+        WeightDecisionStore().record(weights or snap["mix_weights"], snap["mix_label"], "t")
+        token = _parent_lock(monkeypatch)
+        before = len(approvals.list_approvals())
+        res = _cli("--profile", snap["profile"], "--base-model", snap["base_model"])
+        resource_lock.release(token)  # üst süreç gibi: alt süreç bitince kilidi bırak
+        assert len(approvals.list_approvals()) == before  # hiçbir onay istenmedi/tüketilmedi
+        return res
+
+    return snap, seen, run
+
+
+def test_f3_5_chain_each_link_mismatch_stops_before_trainer(repo, monkeypatch) -> None:
+    from app.feedback.chat_dataset import selection_path
+
+    snap, seen, run = _chain_child(repo, monkeypatch)
+    # 0) Sağlam zincir → eğitici ÇAĞRILIR ve onaylı özetleri alır.
+    ok = run()
+    assert ok.exit_code == 0, ok.output
+    assert len(seen) == 1 and seen[0].expect_train_sha256 == snap["train_sha256"]
+
+    # 1) Karışım: reçetedekinden farklı ağırlık kararı.
+    other = dict.fromkeys(snap["mix_weights"], round(1 / len(snap["mix_weights"]), 6))
+    if other == snap["mix_weights"]:
+        other = {**other, next(iter(other)): 0.9}
+    bad = run(weights=other)
+    assert bad.exit_code == 11 and "karışım" in bad.output, bad.output
+
+    # 2) Veri seçimi: sohbet veri sürümü onaydan sonra değişti.
+    sel = selection_path()
+    sel.write_text(json.dumps({"version_id": "dsv_baska", "train_sha256": "e" * 64}), "utf-8")
+    bad = run()
+    assert bad.exit_code != 0 and "sohbet veri sürümü" in bad.output, bad.output
+    sel.unlink()
+
+    # 3) Anlık görüntü: reçete dosyası elle değiştirildi.
+    rp = et.snapshots_dir() / snap["snapshot_id"] / "recipe.json"
+    good = rp.read_text("utf-8")
+    rp.write_text(good.replace(f'"{snap["profile"]}"', '"baska_profil"', 1), "utf-8")
+    bad = run()
+    # Kademe 2 kapısı reçeteyi zaten doğrularken durur (10); bağlama kontrolü de (11) aynı
+    # nedenle durdururdu.
+    assert bad.exit_code in (10, 11) and "doğrulanamadı" in bad.output, bad.output
+    rp.write_text(good, "utf-8")
+
+    # 4) Veri: lora_sft.jsonl onaydan sonra değişti.
+    src = repo["src"]
+    orig = src.read_text("utf-8")
+    src.write_text(orig + _row(4242) + "\n", encoding="utf-8")
+    bad = run()
+    assert bad.exit_code in (10, 11) and "veri" in bad.output, bad.output
+    src.write_text(orig, encoding="utf-8")
+
+    assert len(seen) == 1  # bozuk halkaların HİÇBİRİ eğiticiye ulaşmadı
+
+
+def test_f3_5_trainer_rejects_changed_split_before_model_load(tmp_path, monkeypatch) -> None:
+    """Son halka: kontrol ile kullanım arasında dosya değişirse eğitici model YÜKLEMEDEN durur."""
+    import sys
+
+    from app.training import peft_lora_train as plt
+
+    tr = tmp_path / "train.jsonl"
+    tr.write_text(_row(1) + "\n", "utf-8")
+    va = tmp_path / "valid.jsonl"
+    va.write_text(_row(2) + "\n", "utf-8")
+    monkeypatch.setattr(plt, "_check_deps", lambda: [])
+    monkeypatch.setitem(sys.modules, "torch", None)  # model yükleme yoluna girerse ImportError
+    cfg = plt.PeftTrainConfig(
+        base_model="yok/model",
+        train_jsonl=tr,
+        valid_jsonl=va,
+        adapter_output_path=tmp_path / "ad",
+        expect_train_sha256="0" * 64,
+    )
+    out = plt.train(cfg)
+    assert out["ok"] is False and "VERİ BÜTÜNLÜĞÜ" in out["error"]

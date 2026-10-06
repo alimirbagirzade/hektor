@@ -101,7 +101,7 @@ def test_kademe2_record_requirements(env, monkeypatch) -> None:
     with pytest.raises(et.EasyTrainError, match="Kapanmamış"):
         et.record_kademe2(
             scope={"data_sha256": "x"},
-            findings=[{"status": "acik"}],
+            findings=[{"id": "F1", "status": "acik"}],
             closure_evidence="x" * 30,
             reviewer="i",
         )
