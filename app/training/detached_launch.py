@@ -191,9 +191,18 @@ def _pretrain_gate_blockers(settings) -> list[str]:
     except Exception as exc:
         return [f"kalite kapısı çalıştırılamadı: {exc}"]
     # Seçili sohbet veri sürümünde sonradan reddedilen/hariç tutulan/düzenlenen kayıt → dur.
+    from app.cloud.policy import cloud_origin_lines
     from app.feedback.chat_dataset import chat_selection_blockers
 
-    return list(report.blockers) + chat_selection_blockers()
+    blockers = list(report.blockers) + chat_selection_blockers()
+    # Faz 3 (B): bulut kökenli satır eğitime GİRMEZ — sağlayıcı şartları izin varsaymaz.
+    cloud = cloud_origin_lines(lines)
+    if cloud:
+        blockers.append(
+            f"Eğitim verisinde bulut kökenli {len(cloud)} satır var (ilk satır {cloud[0] + 1}); "
+            "bulut çıktısıyla eğitim yasak (docs/TASARIM_FAZ3_BULUT.md §3)."
+        )
+    return blockers
 
 
 def ensure_train_split(settings=None) -> tuple[int, int]:

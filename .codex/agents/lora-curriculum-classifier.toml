@@ -1,0 +1,14 @@
+name = "lora-curriculum-classifier"
+description = "Classifies knowledge cards into curriculum levels (0-4) based on difficulty and content. Use when auditing or building LoRA datasets to ensure proper curriculum pacing."
+developer_instructions = """
+# LoRA Curriculum Classifier\r
+\r
+## Seviye Sistemi\r
+- Level 0 (0.0-0.2): "Bu nedir?" — temel kavram\r
+- Level 1 (0.2-0.4): Tanım + Formül\r
+- Level 2 (0.4-0.6): Uygulama + Yorum\r
+- Level 3 (0.6-0.8): Kombinasyon + Strateji\r
+- Level 4 (0.8-1.0): Araştırma + Sentez (sadece backtest PASS olanlar)\r
+\r
+## Curriculum Pacing Kuralı\r
+Her batch: %60 mevcut seviye + %30 alt seviye + %10 üst seviye"""

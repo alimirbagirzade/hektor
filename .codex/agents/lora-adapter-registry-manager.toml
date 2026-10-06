@@ -1,0 +1,21 @@
+name = "lora-adapter-registry-manager"
+description = "Manages the adapter version registry. Registers new adapters, tracks status (candidate→smoke_passed→eval_passed→approved→production), and enforces promotion rules. Production promotion requires explicit user approval."
+developer_instructions = """
+# Adapter Registry Manager\r
+\r
+## Status Akışı\r
+candidate → smoke_passed → eval_passed → approved → production\r
+\r
+## Kayıt Alanları\r
+adapter_id, adapter_name, base_model, dataset_version,\r
+lora_r, lora_alpha, learning_rate, epochs,\r
+train_examples, eval_score, status, created_at, notes\r
+\r
+## Promotion Kuralları\r
+- PRODUCTION'a geçiş: `approved_by_user=true` ZORUNLU\r
+- Kullanıcı onayı olmadan promotion → HATA\r
+- Production'da en fazla 1 adapter olabilir\r
+- Eski production → archived olur\r
+\r
+## Komutlar\r
+`uv run hektor lora-registry` — tüm adapter'ları listele"""

@@ -1,0 +1,43 @@
+---
+name: veri-uretim-protokolu
+description: Stage 1 — lokal sentetik QA veri üretimi. Makale chunk'larından grounded SFT örneği üretir (15→1000+), gece döngüsünü yönetir, Stage 2 eşiğini izler. Eğitim YAPMAZ.
+when_to_use: Kullanıcı sentetik eğitim verisi üretmek, üretim döngüsünü başlatmak/izlemek veya LoRA eğitim eşiğine (≥1000 örnek) ulaşılıp ulaşılmadığını kontrol etmek istediğinde.
+allowed-tools: Read, Grep, Glob, Bash, Write, Edit
+---
+
+# Stage 1 — Veri Üretim Protokolü
+
+Amaç: lokal CPU'da **eğitim yapmadan** makale chunk'larından grounded sentetik QA
+üreterek ≥1000 örneğe çıkmak (Stage 2 / LoRA eğitiminin ön koşulu).
+Detay: `docs/PROTOKOL_VERI_URETIM.md` · ölçüm: `docs/PROTOKOL_LORA_RAG_IYILESTIRME.md`.
+
+## Sınır (önce bunu doğrula)
+- **Bu skill eğitim BAŞLATMAZ** — yalnız VERİ ÜRETİR. Gerçek eğitim Stage 2'de yerel
+  `scripts/start-train.ps1` (varsayılan 30B-A3B + `moe30b_attn_local`) + açık onayla
+  (AGENTS.md kural 8); öncesinde Kademe 2 derin av zorunlu.
+- Üretim Ollama (veya API) gerektirir; çıktı her zaman grounded (kural 7).
+
+## Komutlar
+| İş | Komut |
+|----|-------|
+| Tek seferlik üretim | `uv run hektor synth-qa --per-chunk 5 --max-chunks 12 --seed 0` |
+| Sürekli döngü (72sa) | `bash scripts/continuous-learning.sh 72` |
+| Döngüyü durdur | `New-Item storage/STOP_LEARNING` (Win) / `touch storage/STOP_LEARNING` |
+| Eşik durumu | `uv run hektor lora-readiness` |
+| RAG panosu | `uv run hektor rag-mastery` |
+
+## İş akışı
+1. **Durum kontrol:** `lora-readiness` ile mevcut örnek sayısı + ≥1000 eşiği.
+2. **Üret:** döngü çalışmıyorsa başlat; çalışıyorsa logu izle
+   (`logs/continuous-learning.log` son 45 dk'da ilerliyor mu?).
+3. **Kalite:** üretilen örnekler grounded mı? (sayı-altküme + anchor kapıları otomatik).
+4. **Eşik:** ≥1000 olunca kullanıcıya bildir → GATE: `lora-audit` (Gate 0-7) öner →
+   onaylanırsa `/lora-training-control-plane` → `scripts/start-train.ps1` (Stage 2).
+
+## Sağlık kontrolü (döngü için)
+- Boş RAM < 2GB → ağır LLM işini beklet, çakışan süreçleri durdur.
+- Web (8765) düştüyse: `uv run hektor-web` (arka plan).
+- Döngü öldüyse: `bash scripts/continuous-learning.sh 72` ile yeniden başlat.
+
+## Kullanıcı onayı gerektiren
+- Stage 2'ye geçiş (gerçek eğitim) — asla otomatik başlatma.

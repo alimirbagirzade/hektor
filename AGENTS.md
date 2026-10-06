@@ -1,17 +1,13 @@
-# CLAUDE.md — Hektor çalışma kuralları
+# AGENTS.md — Hektor çalışma kuralları
 
-Bu dosya, bu repoda çalışan Claude (Claude Code) için bağlayıcı yönergeleri içerir.
+Bu dosya, bu repoda çalışan Codex (Codex) için bağlayıcı yönergeleri içerir.
 
 ## Proje nedir
 Yerel-öncelikli AI trading **araştırma** sistemi: PDF literatür → RAG/bilgi
 kartı → (opsiyonel LoRA) → disiplinli backtest. **Canlı bot değil, tavsiye değil.**
 
-Cevap ve eğitim hattı **yalnız yerel Ollama**'dır; API anahtarlı bulut istemcisi kodda
-YOKTUR. Tek istisna (Faz 3, `app/cloud/`, varsayılan KAPALI): insanın tur başına açıkça
-başlattığı **ikinci görüş** — gönderilecek metin önceden aynen gösterilir, çıktısı doğrulama
-sayılmaz, öğrenme adayı olmaz, eğitime GİRMEZ (bulut kökenli satır = eğitim kapısında NO-GO;
-`docs/TASARIM_FAZ3_BULUT.md`). Toplu/otomatik bulut döngüsü ve bulut çıktısıyla eğitim yasak.
-Geliştirme yardımı aylık abonelikli CLI araçlarıyla yapılır.
+LLM hattı **yalnız yerel Ollama**'dır; bulut sağlayıcı istemcisi kodda YOKTUR ve
+eklenmez (kalıcı kısıt). Geliştirme yardımı aylık abonelikli CLI araçlarıyla yapılır.
 
 ## Mutlak kurallar (asla ihlal etme)
 1. **Yatırım tavsiyesi üretme.** Çıktılar her zaman _hipotez_ + _test noktası_.
@@ -46,7 +42,7 @@ seviyesine göre kademeli tarama:
 | Kademe | Ne | Tetikleyici | Otonomi |
 |--------|-----|-------------|---------|
 | **0 — Kapı** | `make format && lint && typecheck && test` (+ pre-commit/CI) | **Her commit** | Otomatik |
-| **1 — Hafif tarama** | Tek `claude -p` rapor-only tarama (son diff + çekirdek) | **Haftalık** (yerel Task Scheduler: `scripts/weekly-bug-scan.ps1`) | **Rapor-only** (kod değiştirmez, push etmez) |
+| **1 — Hafif tarama** | Tek `Codex -p` rapor-only tarama (son diff + çekirdek) | **Haftalık** (yerel Task Scheduler: `scripts/weekly-bug-scan.ps1`) | **Rapor-only** (kod değiştirmez, push etmez) |
 | **2 — Derin adversarial av** | Çok-ajan workflow (finder + 2-oylu adversarial doğrulama) | **Ayda 1 + her LoRA eğitiminden ÖNCE (zorunlu)** veya ~25-30 commit'te | **Denetimli** (fix+push insan gözetiminde) |
 
 - **Kademe 2 her eğitimden önce zorunlu** — projenin tüm amacı backtest/eval'e güvenmek;
@@ -81,7 +77,7 @@ seviyesine göre kademeli tarama:
 
 Bu depo `alimirbagirzade/hektor`'dır; v1'den ne taşınmadığı `docs/MIGRASYON_2.0.md`'de.
 
-### Proje skill'leri (`.claude/skills/`)
+### Proje skill'leri (`.Codex/skills/`)
 
 | Skill | Ne zaman |
 |-------|----------|
