@@ -259,6 +259,16 @@ class Settings(BaseSettings):
     # Token sayımı: "auto" → PEFT base tokenizer'ı (yalnız yerel önbellek), yoksa yaklaşık.
     learning_tokenizer: str = "auto"
 
+    # --- Faz 3 · bulut ikinci görüş (varsayılan KAPALI; docs/TASARIM_FAZ3_BULUT.md) ---
+    # Açmak için ÜÇÜ birden: etkin + sağlayıcı + şartları okuduğunuz tarih (YYYY-MM-DD).
+    # Anahtar ALANI YOK: API anahtarlı sağlayıcı bu dalda uygulanmadı.
+    cloud_second_opinion: bool = False
+    cloud_provider: str = ""  # "" | fake | claude_code_cli
+    cloud_terms_ack: str = ""
+    cloud_daily_max: int = 10  # günlük istek üst sınırı (abonelik kotası / maliyet koruması)
+    cloud_timeout_s: int = 180
+    cloud_max_chars: int = 12000  # gönderilecek metnin üst sınırı
+
     # --- Trading ---
     default_market: str = "XAUUSD"
     default_timeframe: str = "15m"

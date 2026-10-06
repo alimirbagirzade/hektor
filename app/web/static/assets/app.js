@@ -5833,6 +5833,80 @@
       });
   }
 
+  // --- Faz 3 · buluttan ikinci görüş (varsayılan kapalı; tek ekran önizleme) ---
+  function cloudDialog() {
+    var d = document.getElementById("cloudDlg");
+    if (!d) {
+      d = document.createElement("dialog");
+      d.id = "cloudDlg";
+      d.className = "chat-dialog";
+      document.body.appendChild(d);
+    }
+    return d;
+  }
+  function cloudCols(r) {
+    var b = r.bulut || {};
+    var v = r.bagimsiz_dogrulama;
+    var vHtml = !v ? '<span class="muted">bulut cevabı bekleniyor</span>'
+      : !v.ran ? '<span class="muted">doğrulama çalışmadı: ' + esc(v.error || "") + "</span>"
+      : (v.checks || []).map(checkBadge).join(" ") + '<div class="muted small">' + esc(v.note || "") + "</div>";
+    return '<div class="lp-grid">' +
+      '<div class="lp-box"><div class="lp-lbl">Yerel cevap · ' + esc((r.yerel || {}).model_tag || "") + '</div><div class="small">' + nl2br((r.yerel || {}).answer || "") + "</div></div>" +
+      '<div class="lp-box"><div class="lp-lbl">Bulut önerisi · ' + esc(r.provider || "") + " · " + esc(b.status || "") + '</div><div class="small">' +
+        (b.status === "done" ? nl2br(b.text || "") : b.status === "pending" ? '<span class="spinner"></span> bekleniyor…' : esc(b.error || b.status || "")) + "</div></div>" +
+      '<div class="lp-box"><div class="lp-lbl">Bağımsız doğrulama (yerel, deterministik)</div><div class="small">' + vHtml + "</div></div>" +
+      '</div><div class="small"><strong>' + esc(r.note || "") + "</strong></div>";
+  }
+  function pollCloud(id, box) {
+    api("/cloud/second-opinion/" + encodeURIComponent(id), { method: "GET" })
+      .then(function (r) {
+        box.innerHTML = cloudCols(r) + ((r.bulut || {}).status === "pending"
+          ? '<button type="button" class="btn btn-sm" id="cloudCancel">İptal</button>' : "");
+        var c = document.getElementById("cloudCancel");
+        if (c) c.addEventListener("click", function () {
+          postJson("/cloud/second-opinion/" + encodeURIComponent(id) + "/cancel", {}).then(function () { pollCloud(id, box); });
+        });
+        if ((r.bulut || {}).status === "pending") setTimeout(function () { pollCloud(id, box); }, 2500);
+      })
+      .catch(function (e) { box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  function openCloudDialog(t) {
+    var d = cloudDialog();
+    d.innerHTML = '<h3>Buluttan ikinci görüş</h3><div id="cloudBody"><span class="spinner"></span> önizleme…</div>' +
+      '<div class="dlg-actions"><button type="button" class="btn" id="cloudClose">Kapat</button></div>';
+    d.showModal();
+    document.getElementById("cloudClose").addEventListener("click", function () { d.close(); });
+    var body = document.getElementById("cloudBody");
+    api("/cloud/second-opinion/turn/" + encodeURIComponent(t.turn_id) + "/preview", { method: "GET" })
+      .then(function (p) {
+        var pol = p.policy || {};
+        body.innerHTML =
+          '<div class="small"><strong>Sağlayıcı:</strong> ' + esc(p.provider || "(seçilmedi)") + " · " + esc(p.provider_detail || "") + "</div>" +
+          (pol.reason ? '<div class="small"><strong>Kullanım şartı:</strong> ' + esc(pol.reason) + " " + (pol.sources || []).map(function (u) { return '<a href="' + esc(u) + '" target="_blank" rel="noopener">kaynak</a>'; }).join(" ") + "</div>" : "") +
+          '<div class="small"><strong>Kota:</strong> bugün ' + esc(String((p.quota || {}).used_today)) + " / " + esc(String((p.quota || {}).daily_max)) +
+          " · <strong>Tahmini girdi:</strong> ~" + esc(String(p.est_input_tokens)) + " token (" + esc(String(p.payload_chars)) + " kr) · <strong>Maliyet:</strong> " + esc(p.cost_note || "") + "</div>" +
+          '<div class="small"><strong>İptal:</strong> ' + esc(p.cancel_note || "") + "</div>" +
+          '<div class="small"><strong>Gönderilmeyenler:</strong> ' + esc((p.not_sent || []).join(" · ")) + "</div>" +
+          '<details open><summary>Gönderilecek metnin TAMAMI (sha256 ' + esc(String(p.payload_sha256).slice(0, 12)) + '…)</summary><pre class="chat-pre">' + esc(p.payload) + "</pre></details>" +
+          ((p.blockers || []).length ? '<div class="chat-blocked">Kapalı: ' + p.blockers.map(esc).join("<br>") + "</div>" : "") +
+          '<div class="small"><strong>' + esc(p.note || "") + "</strong></div>" +
+          '<button type="button" class="btn btn-primary" id="cloudSend"' + (p.enabled ? "" : " disabled") + ">Bu metni gönder</button>" +
+          '<div id="cloudResult"></div>';
+        var send = document.getElementById("cloudSend");
+        send.addEventListener("click", function () {
+          send.disabled = true;
+          postJson("/cloud/second-opinion/turn/" + encodeURIComponent(t.turn_id), { payload_sha256: p.payload_sha256 })
+            .then(function (r) { pollCloud(r.id, document.getElementById("cloudResult")); })
+            .catch(function (e) { toast(e.message, true); send.disabled = false; });
+        });
+        api("/cloud/second-opinion/turn/" + encodeURIComponent(t.turn_id), { method: "GET" }).then(function (l) {
+          var items = l.items || [];
+          if (items.length) pollCloud(items[items.length - 1].id, document.getElementById("cloudResult"));
+        }).catch(function () {});
+      })
+      .catch(function (e) { body.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+
   function newConversation(isTest) {
     return postJson("/chat/conversations", { slot: chatState.slot, is_test: !!isTest }).then(function (c) {
       chatState.conv = c;
@@ -5918,7 +5992,8 @@
         '<button type="button" class="btn btn-sm' + (fb === "wrong" ? " btn-on" : "") + '" data-act="wrong" title="Hata kuyruğuna ekler. Önce cevapta hatalı kısmı seçebilirsiniz.">Hatalı</button>' +
         (answered ? '<button type="button" class="btn btn-sm" data-act="correct" title="Doğru metni yazın; eğitim adayı olur ve kontrol edilir.">Düzelt</button>' +
           (trialTurn ? "" : '<button type="button" class="btn btn-sm" data-act="learn" title="Bu cevap eğitim adayı olur (kontrollerden geçer).">Öğrensin</button>') +
-          '<button type="button" class="btn btn-sm" data-act="strategy" title="Cevaptaki stratejiyi taslağa çevir, kontrol et ve gerçek veride test et.">Strateji testi</button>' : "") +
+          '<button type="button" class="btn btn-sm" data-act="strategy" title="Cevaptaki stratejiyi taslağa çevir, kontrol et ve gerçek veride test et.">Strateji testi</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" data-act="cloud" title="Buluttan ikinci görüş: önce gönderilecek metni gösterir; doğrulama değildir, eğitime girmez. Varsayılan kapalı.">☁ İkinci görüş</button>' : "") +
         '<button type="button" class="btn btn-sm btn-ghost" data-act="exclude">' +
         (t.excluded ? "Hariç tutmayı kaldır" : "⋯ Eğitimden hariç tut") + "</button>" +
         "</div>";
@@ -6041,6 +6116,9 @@
       return;
     } else if (act === "strategy") {
       openStrategyDialog(t);
+      return;
+    } else if (act === "cloud") {
+      openCloudDialog(t);
       return;
     } else if (act === "exclude") {
       if (t.excluded) {

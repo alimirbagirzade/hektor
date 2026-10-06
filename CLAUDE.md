@@ -6,8 +6,12 @@ Bu dosya, bu repoda çalışan Claude (Claude Code) için bağlayıcı yönergel
 Yerel-öncelikli AI trading **araştırma** sistemi: PDF literatür → RAG/bilgi
 kartı → (opsiyonel LoRA) → disiplinli backtest. **Canlı bot değil, tavsiye değil.**
 
-LLM hattı **yalnız yerel Ollama**'dır; bulut sağlayıcı istemcisi kodda YOKTUR ve
-eklenmez (kalıcı kısıt). Geliştirme yardımı aylık abonelikli CLI araçlarıyla yapılır.
+Cevap ve eğitim hattı **yalnız yerel Ollama**'dır; API anahtarlı bulut istemcisi kodda
+YOKTUR. Tek istisna (Faz 3, `app/cloud/`, varsayılan KAPALI): insanın tur başına açıkça
+başlattığı **ikinci görüş** — gönderilecek metin önceden aynen gösterilir, çıktısı doğrulama
+sayılmaz, öğrenme adayı olmaz, eğitime GİRMEZ (bulut kökenli satır = eğitim kapısında NO-GO;
+`docs/TASARIM_FAZ3_BULUT.md`). Toplu/otomatik bulut döngüsü ve bulut çıktısıyla eğitim yasak.
+Geliştirme yardımı aylık abonelikli CLI araçlarıyla yapılır.
 
 ## Mutlak kurallar (asla ihlal etme)
 1. **Yatırım tavsiyesi üretme.** Çıktılar her zaman _hipotez_ + _test noktası_.
