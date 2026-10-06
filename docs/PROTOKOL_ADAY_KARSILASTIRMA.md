@@ -82,3 +82,22 @@ günlüğü + kayıt defteri iki aşamalı tutarlı güncellenir; devam eden cev
   tüketilmiş olmalı.
 - `evals/candidate_compare/smoke_v1.jsonl` yalnız ENTEGRASYON setidir (6 aile < 8 → en fazla
   yetersiz kanıt); sızıntı kapsamındadır, eğitime girmez.
+
+## 8 · Geniş boyutlu set, AI incelemesi, entegrasyon işareti (2026-10-06)
+
+- **`broad_v1`** (27 aile, her aile tek soru): matematik 10 (doğrulanmış anahtar, otomatik),
+  kaynak 7 (kanıt metni istemde; biri "kaynakta yok" çekimserliği), talimat 5, strateji kural
+  eksiksizliği 5. Ölçüt `DIMENSION_CRITERIA` cevaplar görülmeden `hektor compare-lock-criteria
+  --preset boyutlu` ile kilitlenir; `compare-run` ölçütü setin biçiminden seçer. Sonuç boyut
+  bazında AYRI raporlanır (ortalama + kritik sayısı); karar kuralları v1 ile aynıdır.
+- **Sızıntı:** `scripts/eval_set_leak_check.py` aile düzeyinde (bir soru sızarsa aile sızmış)
+  eğitim/damıtma verisine VE geliştirme setlerine karşı. Sözcükseldir; anlamsal yakınlığı
+  yakalamaz. Set eğitime girmez (`adapter_eval_items`).
+- **Gizli final:** set ilk kullanımda `--role final` istenebilir; kod her kullanımı kaydeder,
+  ikinci kullanımdan itibaren GELİŞTİRME sayar. Geliştirmede görülmüş set final diye sunulmaz.
+- **AI incelemesi** (`hektor compare-ai-review`) ayrı dosyadır (`ai_review.json`): insan puanı
+  DEĞİLDİR, `finalize` okumaz, durum değişmez, kayıt defterine/terfiye girmez. Web'den yazılamaz;
+  insan incelemesi bitene kadar ekranda gizli ("Yine de göster" ile açılır — çapalanma riski).
+- **Yalnız entegrasyon testi** (`hektor compare-mark-integration`): karar en fazla yetersiz
+  kanıt, kayıt defteri güncellenmez, ana model terfisinde kullanılamaz. `cmp_ab63a45247fe`
+  (smoke_v1, 6 aile) bu işaretle tutulur.

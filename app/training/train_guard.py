@@ -29,6 +29,14 @@ from typing import Any
 # `auto_lora_start_training` (bkz. app/lora/auto_pipeline.py). Eskiden kimlik eşleşse bile
 # yalnız `train_run` kabul ediliyordu → Auto-LoRA koşusu hiçbir zaman onaya bağlanamıyordu.
 TRAINING_ACTIONS: frozenset[str] = frozenset({"train_run", "auto_lora_start_training"})
+
+
+def is_training_action(action: object) -> bool:
+    """Kademe 2 (2026-10-06) F1-3: kolay akış reçeteye bağlı ``train_run:<16hex>`` tüketir."""
+    a = str(action or "")
+    return a in TRAINING_ACTIONS or a.startswith("train_run:")
+
+
 # Kanonik eğitim kaynağı (kök-göreli). Kurtarma bunu YENİDEN böler; `train.jsonl` her
 # bölmede yeniden yazıldığından mtime'ı veri kayması için güvenilmez — içerik hash'i esas.
 SOURCE_DATA_REL = Path("data") / "lora_sft" / "lora_sft.jsonl"
@@ -121,7 +129,7 @@ def find_run_approval(
         for row in approvals:
             if row.get("approval_id") != approval_id:
                 continue
-            if row.get("action") not in TRAINING_ACTIONS or row.get("status") != "approved":
+            if not is_training_action(row.get("action")) or row.get("status") != "approved":
                 return None
             if _parse_iso(row.get("consumed_at")) is None:
                 return None

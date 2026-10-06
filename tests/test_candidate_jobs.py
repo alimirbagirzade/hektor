@@ -143,6 +143,33 @@ def test_idempotent_request_and_single_running_job(env, monkeypatch) -> None:
     _wait(retry["job_id"])
 
 
+def test_stop_does_not_kill_reused_pid(env, monkeypatch) -> None:
+    """Kayıtlı PID başka bir sürece geçmişse (başlangıç zamanı tutmuyor) durdurma ona dokunmaz."""
+    import os
+
+    j = _start(monkeypatch, _py("import time; time.sleep(30)"))
+    real = cj.get_job(j["job_id"])
+    killed: list[int] = []
+    monkeypatch.setattr(cj, "_kill_tree", lambda pid: killed.append(pid) or [pid])
+    # Kaydı, canlı ama İLGİSİZ bir sürece (bu test süreci) işaret edecek şekilde boz.
+    cj._update(
+        j["job_id"],
+        child_pid=os.getpid(),
+        child_create_time=1.0,
+        runner_pid=os.getpid(),
+        runner_create_time=1.0,
+    )
+    cj.stop_job(j["job_id"], "test")
+    assert killed == []
+    monkeypatch.undo()  # gerçek süreci temizle
+    from app.training.resource_lock import pid_alive
+
+    for key in ("child_pid", "runner_pid"):
+        pid = real.get(key)
+        if isinstance(pid, int) and pid_alive(pid):
+            cj._kill_tree(pid)
+
+
 def test_existing_or_live_tag_never_overwritten(env, monkeypatch) -> None:
     with pytest.raises(cj.JobError, match="zaten var"):
         _start(monkeypatch, _py("pass"), tag="temel")

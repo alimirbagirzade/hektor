@@ -179,7 +179,8 @@ def test_training_code_never_references_eval_sets() -> None:
     offenders = []
     for sub in ("app/training", "app/lora", "scripts"):
         for p in (repo / sub).rglob("*.py"):
-            if p.name in {"mix_cli.py"}:  # yalnız sızıntı DENETİMİ için okur
+            # Yalnız sızıntı DENETİMİ için okurlar (eğitim verisi üretmez, eğitim başlatmaz).
+            if p.name in {"mix_cli.py", "eval_set_leak_check.py"}:
                 continue
             text = p.read_text(encoding="utf-8", errors="ignore")
             if any(k in text for k in ("profile_mix", "golden_test", "llm30")):

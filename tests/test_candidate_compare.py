@@ -360,3 +360,94 @@ def test_records_based_recipe_for_start_train_runs(iso) -> None:  # noqa: F811
     again = verify_run_completion("hektor_lora_t", recipe_for_adapter("hektor_lora_t"))
     assert not again["ok"]
     assert {c["key"]: c["ok"] for c in again["checks"]}["veri_ozeti"] is False
+
+
+# ── AI incelemesi ayrı · yalnız entegrasyon testi · boyut raporu ────────────────
+
+
+def _scores_for(cmp_id, score):
+    return {
+        p["question_id"]: {a["label"]: {"score": score} for a in p["answers"]}
+        for p in cc.blind_packet(cmp_id)
+    }
+
+
+def test_ai_review_is_separate_and_never_decides(iso, tmp_path) -> None:  # noqa: F811
+    m = _create(tmp_path)
+    cid = m["comparison_id"]
+    cc.generate(cid, transport=_ollama())
+    with pytest.raises(cc.CompareError, match="model kimliği"):
+        cc.submit_ai_review(cid, _scores_for(cid, 0), reviewer_model=" ", method="")
+    rec = cc.submit_ai_review(cid, _scores_for(cid, 0), reviewer_model="ai-x", method="kör paket")
+    assert rec["kind"] == "ai_review" and "İNSAN puanı DEĞİLDİR" in rec["note"]
+    assert cc._manifest(cid)["status"] == "generated"  # insan incelemesi hâlâ gerekir
+    with pytest.raises(cc.CompareError):
+        cc.finalize(cid)  # AI puanı kararı açmaz
+    _review_all(cid, score=3)
+    res = cc.finalize(cid)
+    assert res["decision"] == "kabul"  # AI'nin 0 puanları karara girmedi
+    assert cc.ai_review(cid)["scores"]  # ayrı kayıt korunur
+
+
+def test_integration_only_caps_decision_and_skips_registry(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    calls = []
+    monkeypatch.setattr(cc, "_sync_registry", lambda *a: calls.append(a))
+    m = _create(tmp_path, meta={**VERIFIED, "adapter_id": "adapter_x"})
+    cid = m["comparison_id"]
+    cc.generate(cid, transport=_ollama())
+    cc.mark_integration_only(cid, "6 aile, entegrasyon koşusu")
+    _review_all(cid, score=4)
+    res = cc.finalize(cid)
+    assert res["decision"] == "yetersiz_kanit" and res["purpose"] == "entegrasyon_testi"
+    assert any("ENTEGRASYON" in r for r in res["reasons"]) and calls == []
+    assert cc.list_comparisons()[0]["purpose"] == "entegrasyon_testi"
+
+
+def test_dimension_report_and_key_summary_without_identity(iso, tmp_path) -> None:  # noqa: F811
+    m = _create(tmp_path)
+    cid = m["comparison_id"]
+    cc.generate(cid, transport=_ollama(wrong_for="aday"))
+    keys = cc.key_summary(cid)
+    assert keys and all(k["dimension"] == "matematik" for k in keys)
+    assert all(k["n_answers"] == 3 and k["n_matched"] == 2 for k in keys)
+    blob = json.dumps(keys, ensure_ascii=False)
+    assert "aday" not in blob and "candidate" not in blob  # model kimliği yok
+    assert {p["dimension"] for p in cc.blind_packet(cid)} == {"kaynak"}
+    _review_all(cid)
+    dims = cc.finalize(cid)["dimensions"]
+    assert dims["candidate"]["matematik"]["critical"] == len(keys)
+    assert dims["active"]["matematik"]["critical"] == 0 and "kaynak" in dims["active"]
+
+
+def test_dimension_criteria_chosen_from_set_shape(tmp_path) -> None:
+    plain = _set(tmp_path)
+    assert cc.criteria_for_set(plain)["name"] == "aday_karsilastirma_v1"
+    dim = tmp_path / "dim.jsonl"
+    dim.write_text(
+        json.dumps({"id": "a", "family": "f", "question": "q", "dimension": "talimat"}) + "\n",
+        encoding="utf-8",
+    )
+    crit = cc.criteria_for_set(dim)
+    assert crit["name"] == "aday_karsilastirma_v2_boyutlu"
+    assert set(crit["dimensions"]) == {"matematik", "kaynak", "talimat", "strateji"}
+
+
+def test_web_ai_review_hidden_until_human_review(iso, tmp_path) -> None:  # noqa: F811
+    from fastapi.testclient import TestClient
+
+    from app.web.server import app
+
+    m = _create(tmp_path)
+    cid = m["comparison_id"]
+    cc.generate(cid, transport=_ollama())
+    client = TestClient(app)
+    assert client.get(f"/api/compare/{cid}/ai-review").json()["available"] is False
+    cc.submit_ai_review(cid, _scores_for(cid, 2), reviewer_model="ai-x", method="kör")
+    hidden = client.get(f"/api/compare/{cid}/ai-review").json()
+    assert hidden["hidden"] is True and "scores" not in hidden
+    shown = client.get(f"/api/compare/{cid}/ai-review?reveal=true").json()
+    assert shown["scores"] and shown["kind"] == "ai_review"
+    assert client.get(f"/api/compare/{cid}/keys").json()["items"]
+    # AI incelemesi web'den YAZILAMAZ (yalnız CLI); insan uç noktası ayrı.
+    paths = {getattr(rt, "path", "") for rt in client.app.routes}
+    assert not any("ai-review" in p and p.endswith("/submit") for p in paths)

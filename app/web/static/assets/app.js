@@ -491,9 +491,15 @@
           el.className = "muted";
           el.textContent = "sürüm: git yok";
           el.title = "git deposu bulunamadı";
+        } else if (v.restart_needed) {
+          // Disk güncellendi ama bu web süreci ESKİ kodu çalıştırıyor.
+          el.className = "conn-warn";
+          el.textContent = "sürüm: ⚠ çalışan " + (v.running || "?") + " ≠ disk " + (v.head || "?") + " — web'i yeniden başlat";
+          el.title = "Sunucu açıldığında commit " + (v.running || "?") + " idi; diskte şimdi " + (v.head || "?") +
+            ". Yeni kod ancak web süreci yeniden başlatılınca çalışır.";
         } else if (v.converged) {
           el.className = "conn-ok";
-          el.textContent = "sürüm: güncel ✓";
+          el.textContent = "sürüm: güncel ✓ · çalışan " + (v.running || v.head || "?");
           el.title = "main · " + (v.head || "") + " — GitHub origin/main ile aynı" +
             (v.last_update ? "\nson güncelleme: " + v.last_update : "");
         } else if (!v.on_main) {
@@ -5798,6 +5804,7 @@
               '<button type="button" class="chat-conv' + (active ? " active" : "") +
               '" data-conv="' + esc(c.conversation_id) + '">' +
               (c.slot === "trial" ? '<span class="badge badge-warning">DENEME</span> ' : "") +
+              (c.is_test ? '<span class="badge badge-warning" title="Eğitim verisine girmez">TEST</span> ' : "") +
               esc(c.title || "(başlıksız)") + ' <span class="muted small">' +
               esc(String(c.n_turns || 0)) + " tur</span></button>"
             );
@@ -5826,8 +5833,8 @@
       });
   }
 
-  function newConversation() {
-    return postJson("/chat/conversations", { slot: chatState.slot }).then(function (c) {
+  function newConversation(isTest) {
+    return postJson("/chat/conversations", { slot: chatState.slot, is_test: !!isTest }).then(function (c) {
       chatState.conv = c;
       chatState.turns = [];
       try {
@@ -6103,6 +6110,16 @@
       if (f) f.addEventListener("submit", sendChat);
       var nb = document.getElementById("chatNewBtn");
       if (nb) nb.addEventListener("click", function () { newConversation(); });
+      var ntb = document.getElementById("chatNewTestBtn");
+      if (ntb) ntb.addEventListener("click", function () { newConversation(true); });
+      var mtb = document.getElementById("chatMarkTestBtn");
+      if (mtb) mtb.addEventListener("click", function () {
+        if (!chatState.conv) { toast("Açık konuşma yok.", true); return; }
+        if (!window.confirm("Bu konuşma TEST olarak işaretlensin mi? İşaret KALDIRILAMAZ; adayları hiçbir veri sürümüne girmez.")) return;
+        postJson("/chat/conversations/" + encodeURIComponent(chatState.conv.conversation_id) + "/mark-test", {})
+          .then(function (c) { chatState.conv = c; toast("Konuşma TEST olarak işaretlendi."); loadConversations(); })
+          .catch(function (e) { toast(e.message, true); });
+      });
       var st = document.getElementById("chatSlotToggle");
       if (st) st.addEventListener("click", function (ev) {
         var b = ev.target.closest("[data-slot]");
@@ -6600,6 +6617,8 @@
       " · Hariç <strong>" + esc(String(bs.excluded || 0)) + "</strong> · Çatışma <strong>" + esc(String(bs.conflict || 0)) +
       "</strong> · Eval sızıntısı <strong>" + esc(String(bs.leak || 0)) + "</strong> · Yinelenen <strong>" + esc(String(bs.duplicate || 0)) +
       "</strong> · Hata kuyruğu (düzeltmesiz) <strong>" + esc(String(s.errors_open || 0)) + "</strong></div>" +
+      ((s.test || {}).total ? '<div class="lp-sub"><span class="badge badge-warning">TEST</span> TEST konuşmalarından aday <strong>' + esc(String(s.test.total)) +
+        "</strong> (uygun " + esc(String(s.test.eligible || 0)) + ') — <span class="muted small">' + esc(s.test.note || "") + "</span></div>" : "") +
       '<div class="lp-sub">Eğitim bölmesindeki (train/zaman) uygun aile: <strong>' + esc(String(fam.eligible_train_or_time || 0)) + " / " + esc(String(fam.threshold || 0)) +
       '</strong> <span class="muted small">' + esc(fam.threshold_note || "") + "</span></div>" +
       '<div class="muted small">' + esc(s.training_use_note || "") + "</div>";
@@ -6616,6 +6635,7 @@
       '<div class="lp-card" data-cand="' + esc(c.candidate_id) + '">' +
       '<div class="lp-card-head"><span class="badge ' + (LP_STATUS_CLS[c.status] || "badge-info") + '">' + esc(LP_STATUS[c.status] || c.status) + "</span> " +
       (cls ? '<span class="badge badge-llm">' + esc(cls) + "</span> " : "") +
+      (c.is_test ? '<span class="badge badge-warning" title="TEST konuşmasından — eğitime girmez">TEST</span> ' : "") +
       '<span class="muted small">' + esc(c.kind === "learn" ? "Öğrensin" : "Düzeltme") + " · alan: " + esc(c.domain) +
       " · aile: " + esc(c.family_id || "—") + (c.split ? " (" + esc(c.split) + ")" : "") +
       " · model: " + esc(c.model_tag || "—") + " · rev " + esc(String(c.revision)) + "</span></div>" +
@@ -6951,7 +6971,9 @@
                 : c.status === "reviewed"
                 ? '<button type="button" class="btn btn-sm" data-cmp="finalize" data-id="' + esc(c.comparison_id) + '">Kararı hesapla</button>'
                 : '<button type="button" class="btn btn-sm" data-cmp="result" data-id="' + esc(c.comparison_id) + '">Sonuç</button>';
-              return "<tr><td>" + esc(c.comparison_id) + '<div class="muted small">' + esc(c.created_at || "") + "</div></td><td>" + esc(c.role) +
+              return "<tr><td>" + esc(c.comparison_id) + '<div class="muted small">' + esc(c.created_at || "") + "</div>" +
+                (c.purpose === "entegrasyon_testi" ? '<span class="badge badge-warning" title="Kalite üstünlüğü / terfi için kullanılamaz">YALNIZ ENTEGRASYON TESTİ</span>' : "") +
+                "</td><td>" + esc(c.role) +
                 "</td><td>" + esc(c.status) + "</td><td>" + esc(String(c.n_questions)) + " / " + esc(String(c.n_families)) + "</td><td>" + act + "</td></tr>";
             }).join("") + '</tbody></table><div id="cmpDetail"></div>'
           : '<p class="muted small">Karşılaştırma yok.</p>';
@@ -6962,8 +6984,9 @@
     var box = document.getElementById("cmpDetail");
     cmpState.open = id;
     box.innerHTML = '<form id="cmpForm">' + items.map(function (p) {
-      return '<div class="lp-card"><div class="small muted">' + esc(p.question_id) + " · aile " + esc(p.family) + " · " + esc(p.type) + "</div>" +
+      return '<div class="lp-card"><div class="small muted">' + esc(p.question_id) + " · aile " + esc(p.family) + " · boyut <strong>" + esc(p.dimension || p.type) + "</strong></div>" +
         '<div class="lp-q"><strong>Soru:</strong> ' + esc(p.question) + "</div>" +
+        ((p.rubric || []).length ? '<details open><summary>Rubrik (ölçüt kilitli)</summary><ul class="small">' + p.rubric.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") + "</ul></details>" : "") +
         ((p.evidence || []).length ? '<details><summary>Kaynak kanıtı</summary><div class="lp-target">' + p.evidence.map(function (e) { return nl2br(e); }).join("<hr>") + "</div></details>" : "") +
         p.answers.map(function (a) {
           return '<div class="cmp-answer"><strong>' + esc(a.label) + ":</strong> " + nl2br(a.answer) +
@@ -6971,7 +6994,10 @@
             '<option value="">—</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select> ' +
             '<label><input type="checkbox" data-q="' + esc(p.question_id) + '" data-l="' + esc(a.label) + '" data-k="critical"/> kritik hata</label></div></div>';
         }).join("") + "</div>";
-    }).join("") + '<button type="submit" class="btn btn-primary">Puanları gönder</button></form>';
+    }).join("") + '<button type="submit" class="btn btn-primary">Puanları gönder</button></form>' +
+      '<div id="cmpKeys"></div><div id="cmpAi"></div>';
+    loadCmpKeys(id);
+    loadCmpAi(id, false);
     document.getElementById("cmpForm").addEventListener("submit", function (e) {
       e.preventDefault();
       var scores = {};
@@ -6989,6 +7015,49 @@
         .catch(function (err) { toast(err.message, true); });
     });
   }
+  function loadCmpKeys(id) {
+    api("/compare/" + encodeURIComponent(id) + "/keys", { method: "GET" })
+      .then(function (d) {
+        var el = document.getElementById("cmpKeys");
+        var items = d.items || [];
+        if (!el || !items.length) return;
+        el.innerHTML = '<div class="lp-card"><strong>Otomatik puanlanan sorular (doğrulanmış anahtar)</strong>' +
+          '<div class="muted small">Model kimliği gösterilmez; yalnız kaç cevabın anahtarla eşleştiği.</div>' +
+          '<table class="lp-table"><thead><tr><th>Soru</th><th>Anahtar</th><th>Eşleşen</th><th>Kritik</th></tr></thead><tbody>' +
+          items.map(function (k) {
+            return "<tr><td>" + esc(k.question_id) + " · " + esc(k.question) + "</td><td>" + esc(String(k.answer_key)) +
+              (k.tolerance != null ? ' <span class="muted small">±' + esc(String(k.tolerance)) + "</span>" : "") + "</td><td>" +
+              esc(String(k.n_matched)) + " / " + esc(String(k.n_answers)) + "</td><td>" + esc(String(k.n_critical)) + "</td></tr>";
+          }).join("") + "</tbody></table></div>";
+      })
+      .catch(function () {});
+  }
+  function loadCmpAi(id, reveal) {
+    api("/compare/" + encodeURIComponent(id) + "/ai-review" + (reveal ? "?reveal=true" : ""), { method: "GET" })
+      .then(function (d) {
+        var el = document.getElementById("cmpAi");
+        if (!el || !d.available) return;
+        if (d.hidden) {
+          el.innerHTML = '<div class="lp-card"><span class="badge badge-llm">AI incelemesi</span> kayıtlı (' + esc(d.reviewer_model || "") + ", " + esc(d.at || "") +
+            ') — <span class="small">' + esc(d.note) + '</span> <button type="button" class="btn btn-sm" id="cmpAiReveal">Yine de göster</button></div>';
+          var b = document.getElementById("cmpAiReveal");
+          if (b) b.addEventListener("click", function () { loadCmpAi(id, true); });
+          return;
+        }
+        var sc = d.scores || {};
+        el.innerHTML = '<div class="lp-card"><span class="badge badge-llm">AI incelemesi — insan puanı DEĞİL</span> ' + esc(d.reviewer_model || "") +
+          ' <span class="muted small">' + esc(d.at || "") + "</span><div class=\"small\">" + esc(d.note || "") + "</div>" +
+          (d.method ? '<div class="muted small">Yöntem: ' + esc(d.method) + "</div>" : "") +
+          '<table class="lp-table"><thead><tr><th>Soru</th><th>Etiket</th><th>Puan</th><th>Kritik</th><th>Not</th></tr></thead><tbody>' +
+          Object.keys(sc).sort().map(function (q) {
+            return Object.keys(sc[q]).sort().map(function (l) {
+              var v = sc[q][l];
+              return "<tr><td>" + esc(q) + "</td><td>" + esc(l) + "</td><td>" + esc(String(v.score)) + "</td><td>" + (v.critical ? "evet" : "") + "</td><td>" + esc(v.note || "") + "</td></tr>";
+            }).join("");
+          }).join("") + "</tbody></table></div>";
+      })
+      .catch(function () {});
+  }
   function renderCmpResult(r) {
     var res = r.result || r;
     var bs = res.bootstrap || {};
@@ -6997,6 +7066,13 @@
         '<div class="small">Fark (aday − aktif, aile ortalaması): ' + esc((bs.point || 0).toFixed(3)) + " · GA [" + esc((bs.lo || 0).toFixed(3)) + ", " +
         esc((bs.hi || 0).toFixed(3)) + "] · aile " + esc(String(bs.n_families || 0)) + " · temel referans " + esc(String(res.base_reference)) + "</div>" +
         "<ul>" + (res.reasons || []).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" +
+        (res.dimensions ? '<table class="lp-table"><thead><tr><th>Model rolü</th><th>Boyut</th><th>Ortalama (0–4)</th><th>Soru</th><th>Kritik</th></tr></thead><tbody>' +
+          Object.keys(res.dimensions).sort().map(function (role) {
+            var dm = res.dimensions[role] || {};
+            return Object.keys(dm).map(function (k) {
+              return "<tr><td>" + esc(role) + "</td><td>" + esc(k) + "</td><td>" + esc(dm[k].mean.toFixed(2)) + "</td><td>" + esc(String(dm[k].n)) + "</td><td>" + esc(String(dm[k].critical)) + "</td></tr>";
+            }).join("");
+          }).join("") + "</tbody></table>" : "") +
         '<div class="small"><strong>' + esc(res.disclaimer || "") + "</strong></div></div>"
       : '<span class="muted">Henüz karar yok.</span>';
   }

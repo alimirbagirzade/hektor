@@ -330,3 +330,52 @@ def test_rollback_drops_only_chat_tables(tmp_path) -> None:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert "feedback_corrections" in names and "chat_turns" not in names
         assert conn.execute("SELECT COUNT(*) FROM feedback_corrections").fetchone()[0] == 1
+
+
+# ── TEST konuşmaları: gerçek eğitim havuzuna karışmaz ─────────────────────────
+
+
+def test_test_conversation_candidates_never_enter_a_version(store) -> None:
+    from app.feedback.chat_dataset import create_version, preview
+    from app.feedback.learning import LearningService
+
+    svc = LearningService(store)
+    conv = store.create_conversation("TEST — tarayıcı doğrulaması", is_test=True)
+    assert conv["is_test"] is True
+    t = send(store, conv["conversation_id"], "Benzersiz test sorusu hakkında ayrıntı")
+    c, _ = svc.correct(t["turn_id"], SUPPORTED_SENTENCE)
+    c = svc.approve(c["candidate_id"], "Kaynak parçasıyla elle karşılaştırıldı.")
+    assert c["status"] == "eligible"  # akış çalışır (sayaçlar doğrulanabilir) …
+    summary = svc.summary()
+    assert summary["test"] == {**summary["test"], "total": 1, "eligible": 1}
+    assert svc.list_candidates()[0]["is_test"] is True
+    assert preview(store, token_counter=_counter)["skipped_test"] == 1
+    with pytest.raises(ValueError, match="TEST"):  # … ama sürüme girmez
+        create_version(store, token_counter=_counter, token_method="t")
+
+
+def test_marking_test_later_invalidates_existing_version(store) -> None:
+    from app.feedback.chat_dataset import create_version, version_blockers
+
+    _eligible(store, 3)
+    v, _ = create_version(store, token_counter=_counter, token_method="t")
+    conv_id = store.list_conversations()[0]["conversation_id"]
+    store.mark_test(conv_id)  # tek yönlü
+    assert store.get_conversation(conv_id)["is_test"] is True
+    blockers = version_blockers(v["version_id"], store)
+    assert blockers and "TEST sohbetinden" in blockers[0]
+
+
+def test_mark_test_api_and_unknown_conversation(iso) -> None:  # noqa: F811
+    from fastapi.testclient import TestClient
+
+    from app.web.server import app
+
+    client = TestClient(app)
+    c = client.post("/api/chat/conversations", json={"title": "x", "is_test": True}).json()
+    assert c["is_test"] is True
+    plain = client.post("/api/chat/conversations", json={"title": "y"}).json()
+    assert plain["is_test"] is False
+    r = client.post(f"/api/chat/conversations/{plain['conversation_id']}/mark-test")
+    assert r.status_code == 200 and r.json()["is_test"] is True
+    assert client.post("/api/chat/conversations/conv_yok/mark-test").status_code == 404
