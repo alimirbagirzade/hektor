@@ -268,6 +268,8 @@ def test_train_run_skip_load_check_bypasses_doctor(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.lora.mix_cli.run_leakage_check", lambda p: {"clean": True, "counts": {}}
     )
+    # Veri kalite kapısı (Kademe 2 F3-2) bu testin konusu değil.
+    monkeypatch.setattr("app.training.detached_launch._pretrain_gate_blockers", lambda s: [])
 
     result = runner.invoke(
         app, ["train", "--run", "--skip-load-check", "--mix-profile", "balanced_v1"], env=_ENV

@@ -1,9 +1,23 @@
 {
-  "name": "smoke_v1",
-  "purpose": "Aday hattı ENTEGRASYON testi (6 aile < 8 asgari aile → karar en fazla 'yetersiz_kanit'). Kalite üstünlüğü kanıtı DEĞİLDİR.",
-  "sha256": "7c283e1c46ed001203f4825ede877305e6e311cecb20bbada1192b0ac05aec83",
-  "n_questions": 6,
-  "n_families": 6,
-  "answer_keys": "matematik anahtarları kapalı formla hesaplandı: 0.4*300-0.6*150=30; (1/0.9-1)*100=11.11; (1-0.99**10)*100=9.56",
-  "training_use": "Eğitime ve retrieval indeksine GİRMEZ."
+  "training_use": "Bu klasördeki setler eğitime ve retrieval indeksine GİRMEZ (app.lora.mix_cli.adapter_eval_items sızıntı kapısına dahil).",
+  "sets": {
+    "smoke_v1": {
+      "purpose": "Aday hattı ENTEGRASYON testi (6 aile < 8 asgari aile → karar en fazla 'yetersiz_kanit'). Kalite üstünlüğü kanıtı DEĞİLDİR. cmp_ab63a45247fe bu setle koştu ve 'entegrasyon_testi' olarak işaretlidir.",
+      "sha256": "7c283e1c46ed001203f4825ede877305e6e311cecb20bbada1192b0ac05aec83",
+      "n_questions": 6,
+      "n_families": 6,
+      "answer_keys": "matematik anahtarları kapalı formla hesaplandı: 0.4*300-0.6*150=30; (1/0.9-1)*100=11.11; (1-0.99**10)*100=9.56"
+    },
+    "broad_v1": {
+      "purpose": "Geniş, BOYUTLU aday karşılaştırma seti: matematik (10, otomatik anahtar), kaynak kullanımı (7, kanıt metni istemde; 1'i çekimserlik), talimat takibi (5), strateji kural eksiksizliği (5). Her aile tek soru → 27 aile (asgari 8). Kritik hatalar her boyutta ayrı sayılır.",
+      "sha256": "e9eb5d2ab309a34fe07fd62d8b7d3da321a1ff86b16308681bef03ba4e481a5f",
+      "n_questions": 27,
+      "n_families": 27,
+      "criteria": "app.evals.candidate_compare.DIMENSION_CRITERIA (aday_karsilastirma_v2_boyutlu) — cevaplar üretilmeden 'hektor compare-lock-criteria --preset boyutlu' ile kilitlenir; compare-run setin biçiminden bu ölçütü seçer.",
+      "generator": "scripts/build_broad_eval_set.py (anahtarlar kapalı formla; kanıt metinleri korpus SQLite'tan chunk kimliğiyle)",
+      "answer_keys": "50; 2*0.55-1=10%; 0.30-2*(0.05+0.02)=0.16; 0.0005/0.01*sqrt(252)=0.7937; (1.2*0.8*1.1-1)=5.6%; maxDD(100,120,90,130,104)=25%; 100/3=33.33; 0.2/(1.5/10)=1.333; 0.10/0.25=40%; 0.5*1.5-0.5-0.1=0.15R",
+      "leakage": "scripts/eval_set_leak_check.py — aile düzeyinde exact/normalize/içerme/3-gram Jaccard≥0.8; ana kurulumdaki 7 eğitim/damıtma dosyası + 7 geliştirme seti: sızan aile YOK (2026-10-06). Not: kaynak boyutundaki 5 makale eğitimde özet düzeyinde (2–4 örnek) görüldü; kanıt metni istemde verildiği için bu boyut 'kanıta sadakat' ölçer, ezberi değil. Sözcüksel denetim anlamsal yakınlığı yakalamaz.",
+      "role": "İlk kullanım 'final' (gizli) olarak istenebilir; kod her kullanımı kaydeder ve ikinci kullanımdan itibaren GELİŞTİRME sayar. Set yapay zekâ yardımıyla yazıldı (insan onayı bekliyor); modellerin hiçbiri bu sorularla eğitilmedi veya değerlendirilmedi."
+    }
+  }
 }

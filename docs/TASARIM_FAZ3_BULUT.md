@@ -36,7 +36,10 @@ sağlayıcı şartı kayda bağlanır; insan onayı olmadan politika açılmaz.
 - **İptal:** iş dosyası + alt süreç; "İptal" süreci sonlandırır, yarım cevap saklanmaz
   ("iptal edildi" kaydı kalır). Zaman aşımı aynı davranış.
 - **Sağlayıcılar:** `fake` (test), `claude_code_cli` (resmi `claude -p --safe-mode`, kullanıcının
-  kendi aboneliği; araçsız). API anahtarlı sağlayıcı EKLENMEDİ (proje kararı "API yok" + anahtar
+  kendi aboneliği; araçsız). İkili mutlak yola çözülür (çalışma dizinindeki taklitçiye düşmez),
+  `.cmd/.bat` sarmalayıcı reddedilir (cmd.exe argümanı yeniden yorumlar → enjeksiyon), CLI **boş
+  geçici dizinde** koşar (projenin CLAUDE.md'si vb. bağlam olarak gitmez). Aynı tur + aynı metin
+  için bekleyen istek varsa ikinci gönderim yeni istek açmaz. API anahtarlı sağlayıcı EKLENMEDİ (proje kararı "API yok" + anahtar
   yönetimi kullanıcı kararı). Açmak için `.env`: `HEKTOR_CLOUD_SECOND_OPINION=1`,
   `HEKTOR_CLOUD_PROVIDER=claude_code_cli`, `HEKTOR_CLOUD_TERMS_ACK=<YYYY-MM-DD>` (şartları
   okuduğunuz tarih), `HEKTOR_CLOUD_DAILY_MAX=<n>`.

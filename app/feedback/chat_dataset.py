@@ -228,6 +228,7 @@ def build_payload(
         token_counter, token_method = make_token_counter()
     rows: list[tuple[dict, dict, dict, str]] = []  # (cand, turn, fam, class)
     skipped_human = 0
+    skipped_test = 0
     for c in store.list_candidates(status="eligible"):
         vclass = (c["verification"] or {}).get("class") or "auto"
         if vclass == "human" and not include_human:
@@ -236,6 +237,9 @@ def build_payload(
         turn = store.get_turn(c["turn_id"])
         fam = store.get_family(store.resolve_family(c["family_id"])) if c["family_id"] else None
         if turn is None or fam is None or turn["excluded"]:
+            continue
+        if store.is_test_turn(turn):  # TEST sohbeti: hiçbir veri sürümüne girmez
+            skipped_test += 1
             continue
         rows.append((c, turn, fam, vclass))
 
@@ -293,6 +297,7 @@ def build_payload(
             "n_train_families": len({m["family_id"] for _, _, m in train}),
             "n_eval_families": len({m["family_id"] for _, _, m in evals}),
             "skipped_human": skipped_human,
+            "skipped_test": skipped_test,
             "train_target_tokens": tokens,
             "token_method": token_method,
             "trading_time_split": {
@@ -386,7 +391,11 @@ def create_version(
         store, include_human=include_human, token_counter=token_counter, token_method=token_method
     )
     if not payload["train_lines"] and not payload["eval_lines"]:
-        raise ValueError("Uygun (eligible) aday yok — veri sürümü oluşturulmadı.")
+        n_test = payload["stats"]["skipped_test"]
+        raise ValueError(
+            "Uygun (eligible) aday yok — veri sürümü oluşturulmadı."
+            + (f" ({n_test} uygun aday TEST sohbetinden; eğitime girmez.)" if n_test else "")
+        )
     content_sha = _content_sha(payload["train_lines"], payload["eval_lines"], payload["params"])
     existing = store.find_version_by_sha(content_sha)
     if existing is not None:
@@ -541,6 +550,8 @@ def version_invalid_members(version_id: str, store: ChatStore) -> list[dict[str,
         turn = store.get_turn(c["turn_id"])
         if turn is None or turn["excluded"]:
             bad.append({**m, "why": "hariç tutuldu"})
+        elif store.is_test_turn(turn):
+            bad.append({**m, "why": "TEST sohbetinden"})
         elif c["target_sha"] != m["target_sha"]:
             bad.append({**m, "why": "hedef metin sonradan düzenlendi"})
         elif c["status"] != "eligible":

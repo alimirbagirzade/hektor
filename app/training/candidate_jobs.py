@@ -535,9 +535,10 @@ def stop_job(job_id: str, reason: str = "") -> dict[str, Any]:
         return {**job, "note": "İş zaten bitmiş."}
     _update(job_id, status="stopping", stop_reason=(reason or "kullanıcı durdurdu")[:300])
     killed: list[int] = []
-    for key in ("child_pid", "runner_pid"):
-        pid = job.get(key)
-        if isinstance(pid, int) and _alive(pid):
+    for key in ("child", "runner"):
+        pid = job.get(f"{key}_pid")
+        # Kayıtlı başlangıç zamanı tutmuyorsa PID başka sürece geçmiştir → ona dokunma.
+        if isinstance(pid, int) and _alive(pid, job.get(f"{key}_create_time")):
             killed += _kill_tree(pid)
     _after_stop(job)
     _update(job_id, status="stopped", finished_at=utcnow(), killed_pids=killed)

@@ -33,6 +33,9 @@ class VersionResponse(BaseModel):
     on_main: bool = False
     converged: bool = False
     last_update: str | None = None
+    # Sunucu açılışındaki commit (çalışan kod) + diskteki HEAD'den farklıysa yeniden başlatma gerek.
+    running: str | None = None
+    restart_needed: bool = False
 
 
 class PaperOut(BaseModel):

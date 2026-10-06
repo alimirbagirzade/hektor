@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -511,6 +512,14 @@ def _snapshot(snap_id: str) -> dict[str, Any]:
 # ── başlatma ─────────────────────────────────────────────────────────────────
 
 
+def _set_request(request_id: str, value: dict[str, Any]) -> None:
+    """F1-6: istek kaydını DOSYANIN güncel hâli üzerine yaz (bayat kopya diğer istekleri
+    silmesin)."""
+    reqs = _read(requests_path()) or {}
+    reqs[request_id] = value
+    _write(requests_path(), reqs)
+
+
 def approval_action(recipe_sha: str) -> str:
     return f"train_run:{recipe_sha[:16]}"
 
@@ -544,6 +553,19 @@ def precheck(recipe: dict[str, Any]) -> list[str]:
     lock = resource_lock.blocker()
     if lock or is_running():
         problems.append(lock or "eğitim zaten çalışıyor")
+    # Kademe 2 (2026-10-06) F1-2: onay TÜKETİLMEDEN önce sohbet kirası, adapter klasörü ve
+    # reçete (RAM + hedef modüller) — eskiden onaydan sonra/alt süreçte düşüyordu.
+    from app.feedback.resource_guard import chat_lease_blocker
+    from app.training.detached_launch import _adapter_dir_blocker, _recipe_blockers
+
+    s = get_settings()
+    lease = chat_lease_blocker(s.root)
+    if lease:
+        problems.append(lease)
+    dir_blocker = _adapter_dir_blocker(s.adapters_dir / recipe["adapter_name"])
+    if dir_blocker:
+        problems.append(dir_blocker)
+    problems += _recipe_blockers(recipe.get("base_model"), recipe.get("profile"))
     k2 = kademe2_check(recipe_sha=recipe["recipe_sha"], data_sha=recipe["data_sha256"])
     if k2:
         problems.append(k2)
@@ -559,6 +581,9 @@ def launch(snapshot_id: str, request_id: str) -> dict[str, Any]:
     request_id = (request_id or "").strip()
     if not 8 <= len(request_id) <= 80:
         raise EasyTrainError("Geçersiz istek kimliği.")
+    # F1-7: kimlik yalnız kendi biçiminde (yol öğesi yok) — launch.json başka yere yazılmasın.
+    if not re.fullmatch(r"snap_[0-9a-f]{16}", snapshot_id or ""):
+        raise EasyTrainError("Geçersiz anlık görüntü kimliği.")
     reqs = _read(requests_path()) or {}
     if request_id in reqs and reqs[request_id].get("status") in ("started", "starting"):
         return {**reqs[request_id], "replayed": True}
@@ -571,8 +596,7 @@ def launch(snapshot_id: str, request_id: str) -> dict[str, Any]:
             "problems": problems,
             "message": "Ön kontroller geçmedi — onay TÜKETİLMEDİ.",
         }
-    reqs[request_id] = {"status": "starting", "snapshot_id": snapshot_id, "at": utcnow()}
-    _write(requests_path(), reqs)
+    _set_request(request_id, {"status": "starting", "snapshot_id": snapshot_id, "at": utcnow()})
     decision = approvals.require_fresh_approval(
         "lora-trainer",
         approval_action(recipe["recipe_sha"]),
@@ -580,8 +604,7 @@ def launch(snapshot_id: str, request_id: str) -> dict[str, Any]:
         "Gerçek LoRA eğitimi (kolay akış): " + summary(recipe),
     )
     if not decision.authorized:
-        reqs[request_id] = {"status": "needs_approval", "approval_id": decision.approval_id}
-        _write(requests_path(), reqs)
+        _set_request(request_id, {"status": "needs_approval", "approval_id": decision.approval_id})
         return {
             "ok": False,
             "status": "needs_approval",
@@ -591,7 +614,7 @@ def launch(snapshot_id: str, request_id: str) -> dict[str, Any]:
             "(reçete değişirse bu onay kullanılamaz).",
         }
     # Ağırlık kararı: kullanıcı özeti (ağırlıklar dahil) onayladı → bu reçetenin ağırlıkları.
-    WeightDecisionStore().record(
+    wd = WeightDecisionStore().record(
         recipe["mix_weights"], recipe.get("mix_label") or "özel", source="easy_train:" + snapshot_id
     )
     res = detached_launch.launch(
@@ -610,8 +633,11 @@ def launch(snapshot_id: str, request_id: str) -> dict[str, Any]:
         "approval_id": decision.approval_id,
         "snapshot_id": snapshot_id,
     }
-    reqs[request_id] = {**out, "at": utcnow()}
-    _write(requests_path(), reqs)
+    _set_request(request_id, {**out, "at": utcnow()})
+    if not res.get("ok"):
+        # F1-8: başlamayan koşunun ağırlık kararı açık kalırsa sonraki (başka reçeteli) koşu onu
+        # sormadan tüketirdi → geri çek (her eğitimde yeniden sorulur).
+        WeightDecisionStore().revoke(wd.decision_id, "kolay akış başlatılamadı")
     if res.get("ok"):
         _write(snapshots_dir() / snapshot_id / "launch.json", {**out, "at": utcnow()})
     return out

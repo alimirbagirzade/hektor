@@ -188,6 +188,13 @@ def _pretrain_gate_blockers(settings) -> list[str]:
             else []
         )
         report = audit_dataset(lines, discipline_lines=discipline_jsonl_lines())
+        # Kademe 2 (2026-10-06) F3-1: dosya ŞU ANKİ DB + sentetik QA'dan kanonik birleştirmeyle
+        # aynı mı? Eskiden yalnız CLI pretrain-gate'te; web/Auto-LoRA/kolay akış atlıyordu.
+        canonical = settings.root / "data" / "lora_sft" / "lora_sft.jsonl"
+        if src.exists() and src.resolve() == canonical.resolve():
+            from app.training.sft_assembly import check_assembly_freshness
+
+            report.blockers.extend(check_assembly_freshness(lines, settings).blockers)
     except Exception as exc:
         return [f"kalite kapısı çalıştırılamadı: {exc}"]
     # Seçili sohbet veri sürümünde sonradan reddedilen/hariç tutulan/düzenlenen kayıt → dur.
@@ -673,6 +680,7 @@ def preflight_launch(
     base_model: str | None = None,
     profile: str | None = None,
     check_recipe: bool = False,
+    recipe_sha: str = "",
 ) -> dict:
     """Başlatma öncesi UCUZ, deterministik kontroller — onay TÜKETİLMEDEN önce çağrılır.
 
@@ -729,7 +737,9 @@ def preflight_launch(
     # Kademe 2 derin av kaydı HER eğitimden önce zorunlu (CLAUDE.md) — onay tüketilmeden önce.
     from app.training import easy_train
 
-    k2 = easy_train.kademe2_check()
+    # Kademe 2 (2026-10-06) F1-1: kolay akış reçete kapsamlı kayıtla gelir; argümansız
+    # çağrı yalnız veri kapsamlı kayıt arıyordu → onay yandıktan sonra "kayıt yok".
+    k2 = easy_train.kademe2_check(recipe_sha=recipe_sha)
     if k2:
         return _fail(k2)
 
@@ -822,7 +832,15 @@ def launch(
     # Ucuz ön-kontroller (adapter adı, koşan eğitim, ağırlık kararı, bölme, kapı, sızıntı,
     # yük doktoru). Çağıran (web/Auto-LoRA) bunları onayı tüketmeden ÖNCE de çağırır;
     # burada durum değişmiş olabileceği için TEKRAR denetlenir.
-    pre = preflight_launch(adapter_name)
+    # F1-2: kolay akışta (reçete bağlı) RAM/hedef modül ön-kontrolü de burada — alt süreçte
+    # 8 sn erken-çıkış penceresinden sonra düşüp "başlatıldı" görünmesin.
+    pre = preflight_launch(
+        adapter_name,
+        base_model=base_model,
+        profile=profile,
+        check_recipe=bool(recipe_sha),
+        recipe_sha=recipe_sha,
+    )
     if not pre.get("ok"):
         return _fail(str(pre.get("message", "Ön-kontrol başarısız.")))
     n_train = int(pre.get("n_train", 0))

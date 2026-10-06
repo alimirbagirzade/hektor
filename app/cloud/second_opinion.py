@@ -213,6 +213,11 @@ def start(turn_id: str, payload_sha256: str, *, wait: bool = False) -> dict[str,
         raise CloudError("İkinci görüş kapalı: " + " | ".join(pv["blockers"]))
     if payload_sha256 != pv["payload_sha256"]:
         raise CloudError("Gönderilecek metin önizlemeden farklı — önizlemeyi yenileyin.")
+    # Çift tıklama / yeniden deneme ikinci isteği göndermesin (kota): aynı tur + aynı metin için
+    # bekleyen istek varsa o döner.
+    for r in list_for_turn(turn_id):
+        if r["bulut"]["status"] == "pending" and r["payload_sha256"] == payload_sha256:
+            return {**r, "replayed": True}
     turn = _turn(turn_id)
     s = get_settings()
     rec_id = "so_" + secrets.token_hex(6)

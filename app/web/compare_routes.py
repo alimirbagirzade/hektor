@@ -49,6 +49,35 @@ def compare_blind(cmp_id: str) -> dict[str, Any]:
     return {"items": _call(blind_packet, cmp_id)}
 
 
+@compare_router.get("/{cmp_id}/keys")
+def compare_keys(cmp_id: str) -> dict[str, Any]:
+    """Doğrulanmış cevap anahtarları + kaç cevabın eşleştiği (model kimliği YOK)."""
+    from app.evals.candidate_compare import key_summary
+
+    return {"items": _call(key_summary, cmp_id)}
+
+
+@compare_router.get("/{cmp_id}/ai-review")
+def compare_ai_review(cmp_id: str, reveal: bool = False) -> dict[str, Any]:
+    """AYRI kayıtlı AI incelemesi. İnsan incelemesi bitmeden puanlar yalnız ``reveal=true`` ile
+    döner (insan inceleyici çapalanmasın). İnsan puanı DEĞİLDİR; karara girmez."""
+    from app.evals.candidate_compare import AI_REVIEW_NOTE, _manifest, ai_review
+
+    rec = _call(ai_review, cmp_id)
+    if rec is None:
+        return {"available": False, "note": AI_REVIEW_NOTE}
+    pending_human = _call(_manifest, cmp_id).get("status") == "generated"
+    if pending_human and not reveal:
+        return {
+            "available": True,
+            "hidden": True,
+            "reviewer_model": rec.get("reviewer_model"),
+            "at": rec.get("at"),
+            "note": AI_REVIEW_NOTE + " Kendi puanlarınızı verdikten sonra görmeniz önerilir.",
+        }
+    return {"available": True, "hidden": False, **rec}
+
+
 @compare_router.post("/{cmp_id}/review", dependencies=[_human])
 def compare_review(cmp_id: str, req: ReviewRequest) -> dict[str, Any]:
     from app.evals.candidate_compare import submit_review

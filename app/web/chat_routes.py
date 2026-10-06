@@ -31,6 +31,7 @@ _human = Depends(require_human)
 class ConversationCreate(BaseModel):
     title: str = Field(default="", max_length=200)
     slot: str = Field(default="main", pattern="^(main|trial)$")
+    is_test: bool = False
 
 
 class ActivateRequest(BaseModel):
@@ -146,7 +147,13 @@ def list_conversations(limit: int = 50) -> dict[str, Any]:
 
 @chat_router.post("/conversations")
 def create_conversation(req: ConversationCreate) -> dict[str, Any]:
-    return _store().create_conversation(req.title, slot=req.slot)
+    return _store().create_conversation(req.title, slot=req.slot, is_test=req.is_test)
+
+
+@chat_router.post("/conversations/{conversation_id}/mark-test")
+def mark_test_conversation(conversation_id: str) -> dict[str, Any]:
+    """Sohbeti TEST olarak işaretle (tek yönlü): adayları hiçbir veri sürümüne girmez."""
+    return _call(_store().mark_test, conversation_id)
 
 
 @chat_router.get("/conversations/{conversation_id}")

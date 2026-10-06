@@ -200,3 +200,76 @@ def test_no_api_key_fields_in_cloud_settings() -> None:
 
     names = [n for n in Settings.model_fields if n.startswith("cloud_")]
     assert names and not any("key" in n or "token" in n or "secret" in n for n in names)
+
+
+# ── CLI sağlayıcı sertleştirmesi (ağ yok; sahte ikili) ───────────────────────────────
+
+
+def test_cli_provider_refuses_batch_wrapper_and_missing_binary(monkeypatch, tmp_path) -> None:
+    from app.cloud.providers import ClaudeCodeCLIProvider
+
+    monkeypatch.setattr(
+        "app.orchestration.executable.resolve_cli", lambda b: str(tmp_path / "claude.cmd")
+    )
+    ok, why = ClaudeCodeCLIProvider().available()
+    assert not ok and "toplu dosya" in why
+    with pytest.raises(ProviderError, match="toplu dosya"):
+        ClaudeCodeCLIProvider().ask("x", timeout_s=5)
+    monkeypatch.setattr("app.orchestration.executable.resolve_cli", lambda b: None)
+    assert ClaudeCodeCLIProvider().available()[0] is False
+
+
+def test_cli_provider_runs_in_empty_temp_dir_with_prompt_as_single_arg(
+    monkeypatch, tmp_path
+) -> None:
+    """İstem tek argv öğesi; çalışma dizini boş geçici klasör (proje bağlamı gönderilmez)."""
+    import sys
+
+    from app.cloud.providers import ClaudeCodeCLIProvider
+
+    out = tmp_path / "seen.json"
+    script = tmp_path / "fake_claude.py"
+    script.write_text(
+        "import json, os, sys\n"
+        f"json.dump({{'argv': sys.argv[1:], 'cwd_files': os.listdir('.')}}, open(r'{out}', 'w'))\n"
+        "print('ELEŞTİRİ: tamam')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.orchestration.executable.resolve_cli", lambda b: sys.executable)
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")  # gerçek CLI (node) UTF-8 basar
+    real_popen = __import__("subprocess").Popen
+
+    def popen(argv, **kw):  # gerçek CLI yerine aynı argv ile sahte betik
+        return real_popen([argv[0], str(script), *argv[1:]], **kw)
+
+    monkeypatch.setattr("app.cloud.providers.subprocess.Popen", popen)
+    prompt = 'SORU: "a" && del * ; $(x)'
+    reply = ClaudeCodeCLIProvider().ask(prompt, timeout_s=30)
+    seen = json.loads(out.read_text(encoding="utf-8"))
+    assert "ELEŞTİRİ" in reply.text
+    assert seen["argv"][:2] == ["-p", prompt] and "--safe-mode" in seen["argv"]
+    assert seen["cwd_files"] == []  # CLAUDE.md vb. proje dosyası görünmez
+
+
+def test_double_send_returns_pending_request(turn, monkeypatch) -> None:
+    _enable(monkeypatch)
+    gate = threading.Event()
+
+    asked = []
+
+    class Slow(FakeProvider):
+        def ask(self, prompt, *, timeout_s):
+            asked.append(prompt)
+            gate.wait(5)
+            return ProviderReply(text="ok", model="slow")
+
+    monkeypatch.setattr(so, "provider_factory", lambda n: Slow())
+    pv = so.preview(turn["turn_id"])
+    a = so.start(turn["turn_id"], pv["payload_sha256"])
+    b = so.start(turn["turn_id"], pv["payload_sha256"])
+    gate.set()
+    import time
+
+    time.sleep(0.5)
+    assert b["id"] == a["id"] and b["replayed"] and len(asked) == 1
+    assert len(so.list_for_turn(turn["turn_id"])) == 1

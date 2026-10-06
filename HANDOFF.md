@@ -33,6 +33,24 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-06 — Faz 1–2 gerçek kullanıma geçiş (PR #34 açık · Faz 3 taslak PR #35)
+
+Kanıt: `docs/evidence/faz12_uretim_2026-10-06.md`, `docs/evidence/kademe2_2026-10-06.json`.
+
+- **Ana kurulum** `C:\HP\hektor` a56b635 → 3ef2079 (`update.ps1`, yedek
+  `storage/backups/pre-update-20261005T231219Z/`). Aktif model `hektor-v12-30b` (`acebe185…`)
+  DEĞİŞMEDİ. Tarayıcıda gerçek modelle: iki tur + geçmiş, Düzelt/Öğrensin/hariç, havuz
+  sayaçları, veri sürümü kapalı kalması, strateji ÇELİŞKİ + onaysız test yok, aday hattı ve kör
+  inceleme ekranları doğrulandı (TEST konuşması hariç tutuldu).
+- **cmp_ab63a45247fe:** yalnız entegrasyon testi işaretli; AI incelemesi ayrı dosyada; **insan
+  kör incelemesi bekliyor**. broad_v1 (27 aile) boyutlu ölçüt cevaplar üretilmeden kilitlendi.
+- **Kademe 2 (main 3ef2079):** 26 bulgu → 17 düzeltildi (#34), 1 çürütüldü, 8 kısmi = kullanıcı
+  kararı. Pilotu engelleyen F2-1 (1024 token profili) + F1-1 (reçete kapsamlı kayıt).
+- **Pilot BAŞLATILMADI:** reçete hazır (`moe30b_attn_long`, 64 örnek, 8 adım, ayrı adapter);
+  #34 birleşmesi + 8 kısmi bulgu kararı + uygulamadaki insan onayı bekleniyor.
+- **Faz 3:** #35 taslak — ikinci görüş varsayılan kapalı, sahte sağlayıcıyla test edildi;
+  bulut çıktısıyla eğitim kapalı (şartlar izin vermiyor). Gerçek bulut çağrısı yapılmadı.
+
 ### 2026-10-05 (akşam) — Faz 1–2 açıkları kapatıldı (dal `claude/hektor-faz-1-2-completion-297c12`, PR #33 — main'e birleşmedi)
 
 Kanıt: `docs/evidence/faz2_tamamlama_2026-10-05.md`, `docs/evidence/gercek_veri_backtest_denetimi_2026-10-05.md`.

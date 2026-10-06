@@ -305,6 +305,8 @@ def _prep_recovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> object:
     monkeypatch.setenv("HEKTOR_TRAIN_RECOVERY", "1")
     monkeypatch.setattr("app.training.detached_launch.ensure_train_split", lambda s=None: (5, 1))
     monkeypatch.setattr("app.lora.mix_cli.run_leakage_check", lambda p: {"clean": True})
+    # Bu testler ağırlık kararını sınar; veri kalite kapısı ayrı testte (F3-2).
+    monkeypatch.setattr("app.training.detached_launch._pretrain_gate_blockers", lambda s: [])
     monkeypatch.setattr(
         "app.training.peft_lora_train.train",
         lambda cfg: {"ok": True, "adapter_path": str(cfg.adapter_output_path), "device": "cpu"},
@@ -390,3 +392,20 @@ def test_start_train_erken_cikis_supervised_icin_de_ve_exit4_logout() -> None:
 def test_watchdog_kurtarmada_agirligi_geri_verir() -> None:
     src = (_SCRIPTS / "training-watchdog.ps1").read_text(encoding="utf-8")
     assert "-MixWeights $mw" in src and "-MixProfile $mp" in src
+
+
+def test_k2_2026_10_06_f3_2_train_run_kalite_kapisindan_gecer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kademe 2 F3-2: doğrudan `train --run` da kalite/tazelik/sohbet kapısından geçer."""
+    _prep_recovery(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "app.training.detached_launch._pretrain_gate_blockers",
+        lambda s: ["Kural 1: garanti dili (test)"],
+    )
+    weights = "math=0.3,statistics=0.2,reasoning=0.2,trading=0.2,coding=0.1"
+    r = runner.invoke(
+        app,
+        ["train", "--run", "--backend", "peft", "--adapter-name", "t", "--mix-weights", weights],
+    )
+    assert r.exit_code == 1 and "Kural 1" in r.output

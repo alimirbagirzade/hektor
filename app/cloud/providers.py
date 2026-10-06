@@ -11,10 +11,11 @@ Her sağlayıcı iptal edilebilir: ``cancel()`` alt süreci sonlandırır; yarı
 
 from __future__ import annotations
 
-import shutil
 import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 
@@ -88,15 +89,29 @@ class ClaudeCodeCLIProvider:
         self._lock = threading.Lock()
         self._cancelled = False
 
-    def available(self) -> tuple[bool, str]:
-        path = shutil.which(self._binary)
+    def _resolve(self) -> tuple[str | None, str]:
+        """Mutlak yol (çalışma dizinindeki taklitçiye düşmeden). ``.cmd/.bat`` sarmalayıcı
+        REDDEDİLİR: Windows toplu dosyaya geçen argümanı cmd.exe yeniden yorumlar — istem
+        metni komut enjeksiyonuna dönüşebilir (shell=False bunu engellemez)."""
+        from app.orchestration.executable import resolve_cli
+
+        path = resolve_cli(self._binary)
         if not path:
-            return False, "`claude` CLI PATH'te yok — Claude Code kurulu ve girişli olmalı."
-        return True, f"`claude` bulundu ({path}); giriş durumu ancak çağrıda anlaşılır."
+            return None, "`claude` CLI güvenilir PATH dizinlerinde yok — Claude Code kurulu olmalı."
+        if Path(path).suffix.lower() in (".cmd", ".bat"):
+            return None, f"`{path}` bir toplu dosya sarmalayıcı; güvenli argüman geçişi yok."
+        return path, f"`claude` bulundu ({path}); giriş durumu ancak çağrıda anlaşılır."
+
+    def available(self) -> tuple[bool, str]:
+        path, detail = self._resolve()
+        return path is not None, detail
 
     def ask(self, prompt: str, *, timeout_s: float) -> ProviderReply:
+        path, detail = self._resolve()
+        if path is None:
+            raise ProviderError(detail)
         argv = [
-            self._binary,
+            path,
             "-p",
             prompt,
             "--safe-mode",
@@ -104,25 +119,30 @@ class ClaudeCodeCLIProvider:
             "--disallowedTools",  # VARIADIC → en sonda, tek virgüllü argüman
             _tools_off(),
         ]
-        with self._lock:
-            if self._cancelled:
-                raise ProviderError("iptal edildi")
-            self._proc = subprocess.Popen(  # shell=False: istem tek argv öğesi
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-        try:
-            out, err = self._proc.communicate(timeout=timeout_s)
-        except subprocess.TimeoutExpired as exc:
-            self.cancel()
-            raise ProviderError(
-                f"zaman aşımı ({timeout_s:.0f} sn) — yarım cevap saklanmadı"
-            ) from exc
+        # Boş geçici çalışma dizini: CLI'nin proje bağlamı (CLAUDE.md vb.) okuyup isteme
+        # eklememesi için — gönderilen yalnız önizlemede gösterilen metindir.
+        with tempfile.TemporaryDirectory(prefix="hektor_cloud_") as cwd:
+            with self._lock:
+                if self._cancelled:
+                    raise ProviderError("iptal edildi")
+                self._proc = subprocess.Popen(  # shell=False: istem tek argv öğesi
+                    argv,
+                    cwd=cwd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            try:
+                out, err = self._proc.communicate(timeout=timeout_s)
+            except subprocess.TimeoutExpired as exc:
+                self.cancel()
+                self._proc.communicate()
+                raise ProviderError(
+                    f"zaman aşımı ({timeout_s:.0f} sn) — yarım cevap saklanmadı"
+                ) from exc
         if self._cancelled:
             raise ProviderError("iptal edildi — yarım cevap saklanmadı")
         if self._proc.returncode != 0:
