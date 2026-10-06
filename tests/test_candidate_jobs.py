@@ -270,6 +270,112 @@ def test_result_written_during_liveness_check_is_not_lost(iso, monkeypatch) -> N
     assert (cj._read(cj._path(job_id)) or {})["status"] == "failed"  # dosyada da ezilmedi
 
 
+def test_job_lock_treats_delete_pending_permission_error_as_busy(iso, monkeypatch) -> None:  # noqa: F811
+    """Windows: silinmekte olan kilit dosyasına ``O_EXCL`` → PermissionError (FileExistsError
+    değil). Kaçarsa çalıştırıcı sonucu yazamadan çöker ve bitmiş iş "lost" görünür
+    (2026-10-06 kararsız ``test_nonzero_exit_is_failed``). Meşgul sayılıp yeniden denenmeli."""
+    import os
+
+    job_id = "job_" + "4" * 12
+    cj._write(cj._path(job_id), {"job_id": job_id, "status": "running"})
+    real_open = os.open
+    calls = {"n": 0}
+
+    def flaky_open(path, flags, *a, **k):
+        if str(path).endswith(".lock") and calls["n"] < 3:
+            calls["n"] += 1
+            raise PermissionError(13, "Erişim engellendi (silinme bekliyor)")
+        return real_open(path, flags, *a, **k)
+
+    monkeypatch.setattr(cj.os, "open", flaky_open)
+    got = cj._update(job_id, status="failed", exit_code=3)
+    assert calls["n"] == 3 and got["status"] == "failed"
+    assert (cj._read(cj._path(job_id)) or {})["exit_code"] == 3
+    assert not cj._path(job_id).with_suffix(".lock").exists()
+
+
+def test_read_retries_transient_missing_file_during_replace(iso, monkeypatch) -> None:  # noqa: F811
+    """Windows: ``os.replace`` anında okuyucu hedefi kısa süre YOK görebilir; bu "iş yok"
+    ya da ``_update``'te alanları silinmiş kayıt demek olmamalı."""
+    from pathlib import Path
+
+    job_id = "job_" + "5" * 12
+    cj._write(cj._path(job_id), {"job_id": job_id, "n": 1})
+    real_read = Path.read_text
+    calls = {"n": 0}
+
+    def flaky_read(self, *a, **k):
+        if self.name == f"{job_id}.json" and calls["n"] < 2:
+            calls["n"] += 1
+            raise FileNotFoundError(2, "yeniden adlandırma sürüyor")
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read)
+    assert cj._read(cj._path(job_id)) == {"job_id": job_id, "n": 1}
+    assert cj._read(cj.jobs_dir() / "job_ffffffffffff.json") is None  # gerçekten yok → None
+
+
+def test_unreadable_fresh_record_never_marks_lost(iso, monkeypatch) -> None:  # noqa: F811
+    """Taze kayıt (kilit altında) okunamazsa bayat "running" görüntüsüyle "lost" yazılmaz."""
+    job_id = "job_" + "6" * 12
+    _fake_running_job(job_id)
+    snapshot = cj._read(cj._path(job_id))
+    cj._update(job_id, status="failed", exit_code=3)  # çalıştırıcı sonucu yazdı ve çıktı
+    monkeypatch.setattr(cj, "_alive", lambda pid, create_time=None: False)
+    monkeypatch.setattr(cj, "_read", lambda p: None)
+    got = cj.reconcile(snapshot)
+    assert got["status"] == "running"  # karar ertelendi (bayat görüntü döner)
+    monkeypatch.undo()
+    assert (cj._read(cj._path(job_id)) or {})["status"] == "failed"  # dosyada ezilmedi
+
+
+def test_stop_while_starting_never_runs_command(iso, tmp_path) -> None:  # noqa: F811
+    """Durdurma iş "starting" iken gelirse çalıştırıcı komutu HİÇ başlatmaz (arayüz
+    "durduruldu" derken iş arka planda koşmaz)."""
+    job_id = "job_" + "7" * 12
+    marker = tmp_path / "kostu.txt"
+    cj._write(
+        cj._path(job_id),
+        {
+            "job_id": job_id,
+            "kind": "conversion",
+            "status": "stopping",  # stop_job "starting"i yakaladı, çalıştırıcı henüz koşmadı
+            "cmd": _py(f"open({str(marker)!r}, 'w').write('x')"),
+            "log_path": str(cj.jobs_dir() / f"{job_id}.log"),
+        },
+    )
+    assert cj.run(job_id) == 0
+    assert not marker.exists()
+    assert (cj._read(cj._path(job_id)) or {})["status"] == "stopped"
+
+
+def test_stop_never_kills_pid_without_recorded_create_time(iso, monkeypatch) -> None:  # noqa: F811
+    """Başlangıç zamanı kayıtlı olmayan PID bu işe ait doğrulanamaz (yeniden kullanılmış
+    olabilir) → durdurma ona dokunmaz, "doğrulanamadı" olarak kaydeder."""
+    import os
+
+    job_id = "job_" + "8" * 12
+    _fake_running_job(job_id)
+    cj._update(job_id, runner_pid=os.getpid(), runner_create_time=None, child_pid=os.getpid())
+    monkeypatch.setattr(cj, "_kill_tree", lambda pid: pytest.fail("doğrulanmamış PID öldürüldü"))
+    got = cj.stop_job(job_id, "test")
+    assert got["status"] == "stopped" and got["killed_pids"] == []
+    assert got["unverified_pids"] == [os.getpid(), os.getpid()]
+
+
+def test_activation_refusal_is_job_error_not_500(env, monkeypatch) -> None:
+    """E-8a: ayardaki pilot ana model ``resolve_chat_tag``'te ActivationError verir; iş
+    başlatma bunu kullanıcıya gösterilen JobError'a çevirir (ham 500 değil)."""
+    from app.feedback.model_activation import ActivationError
+
+    def refuse(slot="main", root=None):
+        raise ActivationError("Ayardaki ana model — pilot")
+
+    monkeypatch.setattr("app.feedback.model_activation.resolve_chat_tag", refuse)
+    with pytest.raises(cj.JobError, match="pilot"):
+        _start(monkeypatch, _py("pass"))
+
+
 def test_dead_runner_without_result_is_still_lost(iso, monkeypatch) -> None:  # noqa: F811
     job_id = "job_" + "2" * 12
     _fake_running_job(job_id)

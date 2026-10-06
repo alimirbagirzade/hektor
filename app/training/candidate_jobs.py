@@ -75,16 +75,23 @@ def _path(job_id: str) -> Path:
 # kısa süre PermissionError verir (web yoklaması ↔ çalıştırıcı yazımı). Bu pencere geçicidir:
 # bekleyip yeniden denenir; aksi halde iş "yok" görünür ya da sonuç yazılamaz (iş asılı kalır).
 _SHARE_RETRY_S = 5.0
+# ``os.replace`` sırasında okuyucu hedefi çok kısa süre YOK da görebilir (FileNotFoundError;
+# 2026-10-06 stres testinde ölçüldü). Gerçekten olmayan iş için bekleme kısa tutulur.
+_MISSING_RETRY_S = 0.5
 
 
 def _read(p: Path) -> dict[str, Any] | None:
-    deadline = time.monotonic() + _SHARE_RETRY_S
+    t0 = time.monotonic()
     while True:
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
             return d if isinstance(d, dict) else None
         except PermissionError:
-            if time.monotonic() > deadline:
+            if time.monotonic() - t0 > _SHARE_RETRY_S:
+                return None
+            time.sleep(0.01)
+        except FileNotFoundError:
+            if time.monotonic() - t0 > _MISSING_RETRY_S:
                 return None
             time.sleep(0.01)
         except (OSError, ValueError):
@@ -110,15 +117,22 @@ def _write(p: Path, data: dict[str, Any]) -> None:
 
 @contextlib.contextmanager
 def _job_lock(job_id: str) -> Iterator[None]:
-    """İş dosyasının oku-değiştir-yaz güncellemesi için kısa kilit (başlatıcı ↔ çalıştırıcı)."""
+    """İş dosyasının oku-değiştir-yaz güncellemesi için kısa kilit (başlatıcı ↔ çalıştırıcı).
+
+    Windows'ta başka sürecin o an sildiği (silinme-bekleyen) kilit dosyasına ``O_EXCL`` açma
+    FileExistsError DEĞİL PermissionError verir; bu da "kilit meşgul" demektir. Yakalanmazsa
+    çalıştırıcı sonucunu yazamadan çöker ve iş "kesildi" görünür (2026-10-06 kararsız test).
+    """
     p = _path(job_id).with_suffix(".lock")
     p.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + 15
+    acquired = False
     while True:
         try:
             os.close(os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            acquired = True
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):
             with contextlib.suppress(OSError):
                 if time.time() - p.stat().st_mtime > 30:
                     p.unlink()
@@ -129,8 +143,9 @@ def _job_lock(job_id: str) -> Iterator[None]:
     try:
         yield
     finally:
-        with contextlib.suppress(OSError):
-            p.unlink()
+        if acquired:  # alınmamış kilidi silmek gerçek sahibinin kilidini düşürür
+            with contextlib.suppress(OSError):
+                p.unlink()
 
 
 def _update(job_id: str, **fields: Any) -> dict[str, Any]:
@@ -154,7 +169,7 @@ def _start_mutex() -> Iterator[None]:
             fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.close(fd)
             break
-        except FileExistsError as exc:
+        except (FileExistsError, PermissionError) as exc:  # Windows: silinme-bekleyen kilit
             with contextlib.suppress(OSError):
                 if time.time() - p.stat().st_mtime > 30:  # çökmüş başlatıcı
                     p.unlink()
@@ -277,7 +292,16 @@ def reconcile(job: dict[str, Any]) -> dict[str, Any]:
         job_id = job["job_id"]
         p = _path(job_id)
         with _job_lock(job_id):
-            cur = _read(p) or job
+            fresh = _read(p)
+            if fresh is None:
+                # Taze kayıt okunamadı: bayat görüntüye dayanıp "kesildi" yazmak çalıştırıcının
+                # gerçek sonucunu ezebilir → bu turda karar verme, sonraki yoklama yeniden dener.
+                return {
+                    **job,
+                    "progress": _stage(job),
+                    "kind_label": KIND_TR.get(job.get("kind", ""), ""),
+                }
+            cur = fresh
             if cur.get("status") in ACTIVE and _runner_dead(cur):
                 # Çalıştırıcı sonucu yazamadan öldü (çökme, yeniden başlatma, öldürme).
                 if cur.get("status") == "stopping":
@@ -430,6 +454,17 @@ def _existing_tag(tag: str) -> bool:
     return bool(tags is not None and match_entry(tags, tag))
 
 
+def _chat_tag(slot: str) -> str:
+    """Sohbet yuvasının etiketi; etkinleştirme reddi (ör. ayardaki pilot ana model, E-8a) ham
+    500 değil kullanıcıya gösterilen iş hatası olur."""
+    from app.feedback.model_activation import ActivationError, resolve_chat_tag
+
+    try:
+        return resolve_chat_tag(slot)
+    except ActivationError as exc:
+        raise JobError(str(exc)) from exc
+
+
 def start_job(
     kind: str,
     *,
@@ -469,14 +504,12 @@ def start_job(
         if lease:
             raise JobError(lease)
         if kind == "conversion":
-            from app.feedback.model_activation import resolve_chat_tag
-
             if _existing_tag(tag):
                 raise JobError(
                     f"Ollama etiketi '{tag}' zaten var — mevcut etiketin üzerine yazılmaz; "
                     "yeni bir aday etiketi seçin."
                 )
-            live = {resolve_chat_tag("main"), resolve_chat_tag("trial")}
+            live = {_chat_tag("main"), _chat_tag("trial")}
             if tag in live or f"{tag}:latest" in live:
                 raise JobError("Bu etiket şu an sohbette kullanılan model — üzerine yazılmaz.")
             template = str(params.get("template_from") or DEFAULT_TEMPLATE)
@@ -485,9 +518,7 @@ def start_job(
             cmd = conversion_cmd(adapter, tag, template)
             meta = {"ollama_tag": tag, "template_from": template}
         else:
-            from app.feedback.model_activation import resolve_chat_tag
-
-            active = str(params.get("active") or resolve_chat_tag("main"))
+            active = str(params.get("active") or _chat_tag("main"))
             base = str(params.get("base") or DEFAULT_TEMPLATE)
             qset = str(params.get("question_set") or DEFAULT_SET)
             qpath = Path(qset) if Path(qset).is_absolute() else get_settings().root / qset
@@ -587,17 +618,33 @@ def stop_job(job_id: str, reason: str = "") -> dict[str, Any]:
     if job["status"] not in ACTIVE:
         return {**job, "note": "İş zaten bitmiş."}
     reason = (reason or "kullanıcı durdurdu")[:300]
-    if _transition(job_id, ACTIVE, status="stopping", stop_reason=reason) is None:
+    fresh = _transition(job_id, ACTIVE, status="stopping", stop_reason=reason)
+    if fresh is None:
         return {**get_job(job_id), "note": "İş zaten bitmiş."}  # o arada sonuç yazıldı
+    # PID'ler geçişin TAZE kaydından: ilk anlık görüntüden sonra çalıştırıcı "running"i
+    # sahiplenmiş olabilir. "starting" iken durdurulan çalıştırıcı komutu hiç başlatmaz (``run``).
+    job = fresh
     killed: list[int] = []
+    unverified: list[int] = []
     for key in ("child", "runner"):
         pid = job.get(f"{key}_pid")
-        # Kayıtlı başlangıç zamanı tutmuyorsa PID başka sürece geçmiştir → ona dokunma.
-        if isinstance(pid, int) and _alive(pid, job.get(f"{key}_create_time")):
+        ctime = job.get(f"{key}_create_time")
+        if not isinstance(pid, int):
+            continue
+        # Başlangıç zamanı kayıtlı değilse PID'in hâlâ bu işe ait olduğu doğrulanamaz (yeniden
+        # kullanılmış olabilir) → öldürme. Kayıtlı zaman tutmuyorsa PID başka sürece geçmiştir.
+        if not isinstance(ctime, int | float):
+            unverified.append(pid)
+        elif _alive(pid, ctime):
             killed += _kill_tree(pid)
     _after_stop(job)
     _transition(
-        job_id, ("stopping", "stopped"), status="stopped", finished_at=utcnow(), killed_pids=killed
+        job_id,
+        ("stopping", "stopped"),
+        status="stopped",
+        finished_at=utcnow(),
+        killed_pids=killed,
+        unverified_pids=unverified,
     )
     return get_job(job_id)
 
@@ -654,6 +701,21 @@ def run(job_id: str) -> int:
     log.parent.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
+    # Komutu başlatmadan ÖNCE "starting → running" geçişini kilit altında sahiplen: o arada
+    # durdurma geldiyse (stopping/stopped) komut hiç başlamaz — arayüz "durduruldu" derken iş
+    # arka planda koşmaz. Çalıştırıcı kendi kimliğini de yazar (başlatıcının yazımıyla
+    # yarışmasın; durdurma bu kimlikle ağacı bulur).
+    claimed = _transition(
+        job_id,
+        ("starting",),
+        status="running",
+        started_at=utcnow(),
+        runner_pid=os.getpid(),
+        runner_create_time=process_create_time(os.getpid()),
+    )
+    if claimed is None:
+        _transition(job_id, ("stopping",), status="stopped", finished_at=utcnow())
+        return 0
     with log.open("ab") as fh:
         fh.write(f"[{utcnow()}] başlıyor: {' '.join(job['cmd'])}\n".encode())
         fh.flush()
@@ -664,16 +726,7 @@ def run(job_id: str) -> int:
         except OSError as exc:
             _update(job_id, status="failed", finished_at=utcnow(), error=f"başlatılamadı: {exc}")
             return 1
-        _update(
-            job_id,
-            status="running",
-            started_at=utcnow(),
-            child_pid=proc.pid,
-            child_create_time=process_create_time(proc.pid),
-            # Çalıştırıcı kendi kimliğini de yazar (başlatıcının yazımıyla yarışmasın).
-            runner_pid=os.getpid(),
-            runner_create_time=process_create_time(os.getpid()),
-        )
+        _update(job_id, child_pid=proc.pid, child_create_time=process_create_time(proc.pid))
         rc = proc.wait()
     cur = _read(_path(job_id)) or job
     if cur.get("status") in ("stopping", "stopped"):
