@@ -77,6 +77,36 @@ def process_create_time(pid: int) -> float | None:
         return None
 
 
+def process_tree(pid: int) -> list[Any]:
+    """pid'in GERÇEK alt süreçleri + kendisi (``psutil.Process`` listesi; kök EN SONDA).
+
+    ``psutil.Process.children(recursive=True)`` her torunu yalnız KÖKÜN başlangıç zamanıyla
+    kıyaslar. Windows'ta ebeveyni ölmüş (yetim) bir sürecin ppid'i bayat kalır; o pid ağaçtaki
+    bir alt sürece yeniden verilmişse, kökten sonra doğmuş İLGİSİZ yetim (ör. ayrık başlatılmış
+    bir aday-iş çalıştırıcısı) "torun" sayılıp öldürülür. Burada ağaç kat kat yürünür; her
+    düğüm DOĞRUDAN ebeveyninin başlangıç zamanıyla kıyaslanır (tek katlı ``children()``
+    bunu yapar). psutil yoksa / kök yoksa ``psutil`` hatası yükselir.
+    """
+    import psutil
+
+    root = psutil.Process(pid)
+    found: list[Any] = []
+    seen = {root.pid}
+    stack = [root]
+    while stack:
+        parent = stack.pop()
+        try:
+            kids = parent.children()
+        except psutil.Error:
+            continue
+        for kid in kids:
+            if kid.pid not in seen:
+                seen.add(kid.pid)
+                found.append(kid)
+                stack.append(kid)
+    return [*found, root]
+
+
 def pid_alive(pid: Any) -> bool:
     if not isinstance(pid, int) or pid <= 0:
         return False

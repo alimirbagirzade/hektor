@@ -235,6 +235,121 @@ def test_dead_runner_reconciles_as_lost(env, monkeypatch) -> None:
     assert lost["status"] == "lost" and "TAMAMLANMIŞ" in lost["error"]
 
 
+def _fake_running_job(job_id: str) -> None:
+    cj._write(
+        cj._path(job_id),
+        {
+            "job_id": job_id,
+            "kind": "conversion",
+            "status": "running",
+            "runner_pid": 999_999,
+            "runner_create_time": 1.0,
+            "log_path": str(cj.jobs_dir() / f"{job_id}.log"),
+        },
+    )
+
+
+def test_result_written_during_liveness_check_is_not_lost(iso, monkeypatch) -> None:  # noqa: F811
+    """Yarış (2026-10-06 kararsız test): yoklayıcı "running" anlık görüntüsünü okur; çalıştırıcı
+    TAM o anda "failed" sonucunu yazıp çıkar; yoklayıcı sonra pid'i ölü görür. Bayat görüntüye
+    dayanıp "lost" yazmak gerçek sonucu ezer. Sıra burada zorlanır (uyku/zamanlama yok)."""
+    job_id = "job_" + "1" * 12
+    _fake_running_job(job_id)
+    snapshot = cj._read(cj._path(job_id))
+    calls = {"n": 0}
+
+    def alive_then_runner_finishes(pid, create_time=None) -> bool:
+        calls["n"] += 1
+        if calls["n"] == 1:  # canlılık kontrolü sırasında çalıştırıcı sonucu yazar ve ölür
+            cj._update(job_id, status="failed", exit_code=3, error="komut başarısız (çıkış 3)")
+        return False
+
+    monkeypatch.setattr(cj, "_alive", alive_then_runner_finishes)
+    got = cj.reconcile(snapshot)
+    assert got["status"] == "failed" and got["exit_code"] == 3, got
+    assert (cj._read(cj._path(job_id)) or {})["status"] == "failed"  # dosyada da ezilmedi
+
+
+def test_dead_runner_without_result_is_still_lost(iso, monkeypatch) -> None:  # noqa: F811
+    job_id = "job_" + "2" * 12
+    _fake_running_job(job_id)
+    monkeypatch.setattr(cj, "_alive", lambda pid, create_time=None: False)
+    got = cj.get_job(job_id)
+    assert got["status"] == "lost" and "TAMAMLANMIŞ" in got["error"]
+
+
+def test_stop_after_result_written_does_not_overwrite(iso, monkeypatch) -> None:  # noqa: F811
+    """Durdurma "running" görür, o arada çalıştırıcı "done" yazar → sonuç "stopped" olmaz."""
+    job_id = "job_" + "3" * 12
+    _fake_running_job(job_id)
+    monkeypatch.setattr(cj, "_alive", lambda pid, create_time=None: True)
+    real_get = cj.get_job
+    calls = {"n": 0}
+
+    def get_then_runner_finishes(jid: str) -> dict:
+        j = real_get(jid)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            cj._update(jid, status="done", exit_code=0)
+        return j
+
+    monkeypatch.setattr(cj, "get_job", get_then_runner_finishes)
+    monkeypatch.setattr(cj, "_kill_tree", lambda pid: pytest.fail("bitmiş iş öldürülmemeli"))
+    got = cj.stop_job(job_id, "test")
+    assert got["status"] == "done" and "zaten bitmiş" in got["note"]
+
+
+def test_kill_tree_spares_orphan_with_stale_ppid(monkeypatch) -> None:
+    """Windows'ta yetim sürecin ppid'i bayat kalır. Başka bir işin ağacındaki torun o pid'i
+    yeniden alırsa, ``children(recursive=True)`` (yalnız KÖK zamanına bakar) ilgisiz yetimi
+    — ör. ayrık başlatılmış bir aday-iş çalıştırıcısını — torun sayıp öldürür; o iş "lost"
+    olur. Ağaç kat kat ve doğrudan ebeveyn zamanıyla yürünmeli."""
+    import psutil
+
+    # pid: (ppid, create_time). 100 = durdurulan iş çalıştırıcısı, 200 = onun çocuğu (pid'i
+    # yeniden kullanılmış), 300 = başka işin yetim çalıştırıcısı: ppid'i bayat 200, ama 200'ün
+    # ŞİMDİKİ sahibinden ÖNCE doğmuş → gerçek torun değil.
+    table = {100: (1, 10.0), 200: (100, 30.0), 300: (200, 20.0)}
+    terminated: list[int] = []
+
+    class FakeProc:
+        def __init__(self, pid: int) -> None:
+            if pid not in table:
+                raise psutil.NoSuchProcess(pid)
+            self.pid = pid
+
+        def create_time(self) -> float:
+            return table[self.pid][1]
+
+        def children(self, recursive: bool = False) -> list:
+            # psutil semantiği: tek katta çocuk ebeveynden sonra doğmuş olmalı; özyineli
+            # taramada ise her torun yalnız KÖKÜN zamanıyla kıyaslanır (açık burada).
+            out, stack = [], [self.pid]
+            while stack:
+                cur = stack.pop()
+                ref = self.create_time() if recursive else table[cur][1]
+                for c, (pp, ct) in table.items():
+                    if pp == cur and ref <= ct:
+                        out.append(FakeProc(c))
+                        if recursive:
+                            stack.append(c)
+            return out
+
+        def terminate(self) -> None:
+            terminated.append(self.pid)
+
+        def kill(self) -> None:
+            terminated.append(self.pid)
+
+    monkeypatch.setattr(psutil, "Process", FakeProc)
+    monkeypatch.setattr(psutil, "wait_procs", lambda procs, timeout=None: (procs, []))
+    from app.training.resource_lock import process_tree
+
+    assert [p.pid for p in process_tree(100)] == [200, 100]
+    cj._kill_tree(100)
+    assert sorted(terminated) == [100, 200] and 300 not in terminated
+
+
 def test_comparison_requires_existing_candidate_tag(env, monkeypatch) -> None:
     from app.config import get_settings
 

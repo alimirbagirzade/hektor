@@ -191,8 +191,9 @@ def _kill_tree(pid: int) -> list[int]:
     try:
         import psutil
 
-        root = psutil.Process(pid)
-        procs = [*root.children(recursive=True), root]
+        from app.training.resource_lock import process_tree
+
+        procs = process_tree(pid)  # yalnız gerçek alt süreçler (bayat ppid'li yetim değil)
         for p in procs:
             with contextlib.suppress(psutil.Error):
                 p.terminate()
@@ -241,25 +242,55 @@ def _stage(job: dict[str, Any]) -> dict[str, Any]:
     return {**stage, "log_tail": lines[-15:]}
 
 
-def reconcile(job: dict[str, Any]) -> dict[str, Any]:
-    """İş dosyasını gerçek süreç durumuyla uzlaştır (sayfa yenileme / sunucu yeniden açılış)."""
-    runner_dead = not _alive(job.get("runner_pid"), job.get("runner_create_time"))
+def _runner_dead(job: dict[str, Any]) -> bool:
     if job.get("runner_pid") is None and job.get("status") == "starting":
         # Başlatıcı henüz çalıştırıcı pid'ini yazmadı (çok kısa pencere) → kesilmiş sayma.
-        runner_dead = False
-    if job.get("status") in ACTIVE and runner_dead:
-        # Çalıştırıcı sonucu yazamadan öldü (çökme, yeniden başlatma, öldürme).
-        if job.get("status") == "stopping":
-            job.update(status="stopped", finished_at=job.get("finished_at") or utcnow())
-        else:
-            job.update(
-                status="lost",
-                finished_at=utcnow(),
-                error="Çalıştırıcı süreç sonucu yazmadan sonlandı — iş TAMAMLANMIŞ "
-                "sayılmaz; kısmi çıktılar geçerli aday değildir. Yeniden deneyin.",
-            )
-        keep = {k: job[k] for k in ("status", "finished_at", "error") if k in job}
-        job = _update(job["job_id"], **keep)
+        return False
+    return not _alive(job.get("runner_pid"), job.get("runner_create_time"))
+
+
+def _transition(job_id: str, allowed: tuple[str, ...], **fields: Any) -> dict[str, Any] | None:
+    """Durumu YALNIZ güncel kayıt hâlâ ``allowed`` içindeyse değiştir (kilit altında, taze okuma).
+
+    Bayat bir anlık görüntüye dayanan yazım, çalıştırıcının o arada yazdığı gerçek sonucu
+    (``failed``/``done``) ezmesin diye. Değişiklik yapılmadıysa ``None``.
+    """
+    p = _path(job_id)
+    with _job_lock(job_id):
+        cur = _read(p)
+        if cur is None or cur.get("status") not in allowed:
+            return None
+        cur.update(fields)
+        _write(p, cur)
+    return cur
+
+
+def reconcile(job: dict[str, Any]) -> dict[str, Any]:
+    """İş dosyasını gerçek süreç durumuyla uzlaştır (sayfa yenileme / sunucu yeniden açılış).
+
+    Sıra önemli: çalıştırıcı önce sonucunu yazar, SONRA çıkar. Okunan anlık görüntü "running"
+    iken çalıştırıcı sonucu yazıp çıkmış olabilir; bu yüzden "kesildi" kararı kilit altında
+    TAZE kayıt + o kayda göre canlılıkla yeniden verilir (çalıştırıcının yazımı da aynı kilidi
+    ister → karar ile yazım arasına sonuç giremez).
+    """
+    if job.get("status") in ACTIVE and _runner_dead(job):
+        job_id = job["job_id"]
+        p = _path(job_id)
+        with _job_lock(job_id):
+            cur = _read(p) or job
+            if cur.get("status") in ACTIVE and _runner_dead(cur):
+                # Çalıştırıcı sonucu yazamadan öldü (çökme, yeniden başlatma, öldürme).
+                if cur.get("status") == "stopping":
+                    cur.update(status="stopped", finished_at=cur.get("finished_at") or utcnow())
+                else:
+                    cur.update(
+                        status="lost",
+                        finished_at=utcnow(),
+                        error="Çalıştırıcı süreç sonucu yazmadan sonlandı — iş TAMAMLANMIŞ "
+                        "sayılmaz; kısmi çıktılar geçerli aday değildir. Yeniden deneyin.",
+                    )
+                _write(p, cur)
+        job = cur
     return {**job, "progress": _stage(job), "kind_label": KIND_TR.get(job.get("kind", ""), "")}
 
 
@@ -555,7 +586,9 @@ def stop_job(job_id: str, reason: str = "") -> dict[str, Any]:
     job = get_job(job_id)
     if job["status"] not in ACTIVE:
         return {**job, "note": "İş zaten bitmiş."}
-    _update(job_id, status="stopping", stop_reason=(reason or "kullanıcı durdurdu")[:300])
+    reason = (reason or "kullanıcı durdurdu")[:300]
+    if _transition(job_id, ACTIVE, status="stopping", stop_reason=reason) is None:
+        return {**get_job(job_id), "note": "İş zaten bitmiş."}  # o arada sonuç yazıldı
     killed: list[int] = []
     for key in ("child", "runner"):
         pid = job.get(f"{key}_pid")
@@ -563,7 +596,9 @@ def stop_job(job_id: str, reason: str = "") -> dict[str, Any]:
         if isinstance(pid, int) and _alive(pid, job.get(f"{key}_create_time")):
             killed += _kill_tree(pid)
     _after_stop(job)
-    _update(job_id, status="stopped", finished_at=utcnow(), killed_pids=killed)
+    _transition(
+        job_id, ("stopping", "stopped"), status="stopped", finished_at=utcnow(), killed_pids=killed
+    )
     return get_job(job_id)
 
 
