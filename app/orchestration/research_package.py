@@ -22,6 +22,7 @@ import psutil
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.procutil import NO_WINDOW
+from app.training import resource_lock
 
 Stage = Literal["discovery", "ingestion", "cards", "data", "methods", "report"]
 STAGES: tuple[Stage, ...] = ("discovery", "ingestion", "cards", "data", "methods", "report")
@@ -114,8 +115,12 @@ def blockers(root: Path, cfg: PackageConfig, *, check_processes: bool = True) ->
     for marker in ("STOP_ALL", "STOP_LEARNING", "STOP_RESEARCH"):
         if (root / "storage" / marker).exists():
             reasons.append(f"Durdurma işareti: {marker}")
-    if (root / "storage" / ".training_launching").exists():
-        reasons.append("Eğitim başlatma kilidi var.")
+    # Eğitim/dönüşüm/karşılaştırma ortak ağır iş kilidini kullanır. Eski
+    # ``.training_launching`` artık kimse tarafından yazılıp silinmiyor; ona bakmak bayat
+    # dosyayla araştırmayı süresiz bekletiyordu (2026-09-29 kalıntısı). Bayat kilit (ölü
+    # sahip / süresi geçmiş başlatma) ``resource_lock`` tarafından tutulmuyor sayılır.
+    if lock_reason := resource_lock.blocker(root):
+        reasons.append(lock_reason)
     adapters = root / "models" / "adapters"
     names = set(cfg.wait_for_adapters)
     names.update(p.parent.name for p in adapters.glob("*/run_plan.json"))

@@ -5198,8 +5198,8 @@
       " · Motorlar: " + (state.engines || []).join(" + ") +
       " · Sıradaki: " + (stages[plan.next_stage] || "Planlanan zamanı bekliyor");
     var lines = (plan.blocked || []).slice();
-    if (lines.indexOf("Eğitim başlatma kilidi var.") !== -1) {
-      lines.push("Eğitim bitmiş olsa da başlatma kilidi işi engeller. Kilit otomatik kaldırılmaz; süreç ve tamamlanma kayıtları incelenmelidir.");
+    if (lines.some(function (l) { return l.indexOf("Ağır iş kilidi") === 0; })) {
+      lines.push("Eğitim/dönüşüm/karşılaştırma sürerken araştırma bekler; sahibi ölmüş ya da süresi geçmiş kilit engel sayılmaz.");
     }
     if (state.last_checked) lines.push("Son yönetici kontrolü: " + new Date(state.last_checked * 1000).toLocaleString("tr-TR"));
     if (state.retry_after > Date.now() / 1000) lines.push("Yeniden deneme: " + new Date(state.retry_after * 1000).toLocaleString("tr-TR"));
