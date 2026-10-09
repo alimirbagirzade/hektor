@@ -41,6 +41,7 @@ from typing import Any
 
 from app.config import DEFAULT_TRAIN_PROFILE, get_settings
 from app.feedback.chat_store import utcnow
+from app.procutil import NO_WINDOW
 
 CODE_PATHS = ("app", "scripts", "configs", "pyproject.toml")
 CLOSED_FINDING = frozenset({"duzeltildi", "reddedildi", "risk_kabul"})
@@ -58,7 +59,12 @@ class EasyTrainError(ValueError):
 def _git(args: list[str], root: Path) -> tuple[int, str]:
     try:
         p = subprocess.run(
-            ["git", *args], cwd=str(root), capture_output=True, text=True, timeout=30
+            ["git", *args],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return 1, str(exc)

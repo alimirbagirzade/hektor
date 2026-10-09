@@ -41,6 +41,7 @@ from typing import Any
 from app.config import get_settings
 from app.config.settings import PROJECT_ROOT
 from app.feedback.chat_store import utcnow
+from app.procutil import CREATE_BREAKAWAY_FROM_JOB, DETACHED_HIDDEN, NO_WINDOW
 
 KINDS = ("conversion", "comparison")
 KIND_TR = {"conversion": "Ollama'ya hazırlama (dönüşüm)", "comparison": "Karşılaştırma"}
@@ -219,7 +220,11 @@ def _kill_tree(pid: int) -> list[int]:
                 p.kill()
     except Exception:  # psutil yoksa ya da süreç bitti
         if os.name == "nt":
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                creationflags=NO_WINDOW,
+            )
         else:
             with contextlib.suppress(OSError):
                 os.kill(pid, 15)
@@ -564,12 +569,14 @@ def _popen_detached(cmd: list[str], err_path: Path) -> subprocess.Popen[bytes]:
     kwargs.update(stdin=subprocess.DEVNULL, stdout=err_fh, stderr=err_fh)
     try:
         if os.name == "nt":
-            # DETACHED | NEW_PROCESS_GROUP | NO_WINDOW; mümkünse iş nesnesinden de ayrıl.
-            base = 0x00000008 | 0x00000200 | 0x08000000
+            # Gizli konsol (DETACHED_PROCESS DEĞİL): torunlar da pencere açamaz — bkz.
+            # app/procutil.py. Mümkünse iş nesnesinden de ayrıl.
             try:
-                return subprocess.Popen(cmd, creationflags=base | 0x01000000, **kwargs)
+                return subprocess.Popen(
+                    cmd, creationflags=DETACHED_HIDDEN | CREATE_BREAKAWAY_FROM_JOB, **kwargs
+                )
             except OSError:  # iş nesnesi ayrılmaya izin vermiyor
-                return subprocess.Popen(cmd, creationflags=base, **kwargs)
+                return subprocess.Popen(cmd, creationflags=DETACHED_HIDDEN, **kwargs)
         return subprocess.Popen(cmd, start_new_session=True, **kwargs)
     finally:
         err_fh.close()
@@ -721,7 +728,12 @@ def run(job_id: str) -> int:
         fh.flush()
         try:
             proc = subprocess.Popen(
-                job["cmd"], cwd=str(PROJECT_ROOT), env=env, stdout=fh, stderr=fh
+                job["cmd"],
+                cwd=str(PROJECT_ROOT),
+                env=env,
+                stdout=fh,
+                stderr=fh,
+                creationflags=NO_WINDOW,
             )
         except OSError as exc:
             _update(job_id, status="failed", finished_at=utcnow(), error=f"başlatılamadı: {exc}")

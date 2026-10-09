@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Literal
 
+from app.procutil import NO_WINDOW
+
 try:
     import psutil
 
@@ -74,6 +76,7 @@ def _call_ollama(model: str, prompt: str, timeout: int = 60) -> tuple[str, float
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            creationflags=NO_WINDOW,
         )
         elapsed_ms = (time.perf_counter() - start) * 1000
         response = result.stdout.strip()

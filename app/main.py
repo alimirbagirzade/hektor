@@ -18,6 +18,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from app.config import DEFAULT_TRAIN_PROFILE, configure_logging, get_settings
+from app.procutil import NO_WINDOW
 
 if TYPE_CHECKING:
     from app.training.train_guard import RecoveryVerdict
@@ -111,6 +112,7 @@ def _git_ro(args: list[str], cwd: Path) -> tuple[int, str]:
             encoding="utf-8",
             errors="replace",
             timeout=10,
+            creationflags=NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError):
         return 127, ""
@@ -138,6 +140,7 @@ def _task_path_matches(task_name: str, repo: Path) -> tuple[bool | None, str | N
             text=True,
             errors="replace",
             timeout=15,
+            creationflags=NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError):
         return None, None

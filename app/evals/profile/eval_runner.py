@@ -46,6 +46,7 @@ from app.evals.profile.schema import EvalItem, ItemScore, Split
 from app.evals.profile.score_aggregator import aggregate, overall_score
 from app.lora.mix_common import git_commit, hash_file, hash_obj, repo_root
 from app.memory.rag_version import RagSnapshot, RetrievalTrace, assert_same_rag
+from app.procutil import NO_WINDOW
 
 
 def default_eval_config_path() -> Path:
@@ -92,6 +93,7 @@ def _resources() -> dict[str, Any]:
                 text=True,
                 timeout=10,
                 check=False,
+                creationflags=NO_WINDOW,
             )
             vals = [float(x) for x in r.stdout.split() if x.strip()]
             out["vram_mb"] = sum(vals) if vals else None

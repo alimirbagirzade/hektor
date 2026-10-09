@@ -8,6 +8,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from app.procutil import NO_WINDOW
+
 
 class CpuInfo(BaseModel):
     name: str = "unknown"
@@ -110,7 +112,11 @@ def _memory_info() -> MemoryInfo:
     if platform.system() == "Darwin":
         try:
             out = subprocess.check_output(
-                ["sysctl", "hw.memsize"], text=True, errors="replace", timeout=3
+                ["sysctl", "hw.memsize"],
+                text=True,
+                errors="replace",
+                timeout=3,
+                creationflags=NO_WINDOW,
             )
             total_bytes = int(out.split(":")[1].strip())
             total_gb = round(total_bytes / 1024**3, 1)
@@ -137,7 +143,11 @@ def _gpu_info() -> GpuInfo:
         vram = 0.0
         try:
             out = subprocess.check_output(
-                ["system_profiler", "SPHardwareDataType"], text=True, errors="replace", timeout=5
+                ["system_profiler", "SPHardwareDataType"],
+                text=True,
+                errors="replace",
+                timeout=5,
+                creationflags=NO_WINDOW,
             )
             for line in out.splitlines():
                 if "Memory:" in line:
@@ -162,6 +172,7 @@ def _gpu_info() -> GpuInfo:
             ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
             text=True,
             timeout=5,
+            creationflags=NO_WINDOW,
         )
         line = out.strip().splitlines()[0]
         gpu_name, mem_mb = line.split(",")
@@ -176,7 +187,9 @@ def _gpu_info() -> GpuInfo:
     rocm = False
     if vendor == "unknown":
         try:
-            out = subprocess.check_output(["rocminfo"], text=True, errors="replace", timeout=5)
+            out = subprocess.check_output(
+                ["rocminfo"], text=True, errors="replace", timeout=5, creationflags=NO_WINDOW
+            )
             if "gfx" in out.lower():
                 vendor = "AMD"
                 rocm = True
@@ -188,7 +201,9 @@ def _gpu_info() -> GpuInfo:
     if vendor == "unknown":
         try:
             if system == "Linux":
-                out = subprocess.check_output(["lspci"], text=True, errors="replace", timeout=5)
+                out = subprocess.check_output(
+                    ["lspci"], text=True, errors="replace", timeout=5, creationflags=NO_WINDOW
+                )
                 for line in out.splitlines():
                     if "VGA" in line or "Display" in line:
                         gpu_name = line.split(":")[-1].strip()[:60]
@@ -202,6 +217,7 @@ def _gpu_info() -> GpuInfo:
                     ["wmic", "path", "win32_VideoController", "get", "name"],
                     text=True,
                     timeout=5,
+                    creationflags=NO_WINDOW,
                 )
                 all_lines = out.splitlines()
                 lines = [ln.strip() for ln in all_lines if ln.strip() and ln.strip() != "Name"]

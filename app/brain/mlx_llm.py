@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from app.procutil import NO_WINDOW
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,6 +80,7 @@ class MlxLLM:
                 errors="replace",
                 timeout=300,
                 check=False,
+                creationflags=NO_WINDOW,
             )
         except subprocess.TimeoutExpired as exc:
             raise MlxLLMUnavailable("MLX generate zaman aşımı (300s).") from exc

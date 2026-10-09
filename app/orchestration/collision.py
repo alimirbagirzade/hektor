@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.procutil import NO_WINDOW
+
 log = logging.getLogger(__name__)
 
 # git_runner sözleşmesi: argv (git'siz) -> (returncode, stdout). stderr yutulur (yoklama).
@@ -103,6 +105,7 @@ class CollisionDetector:
                 timeout=30,
                 check=False,
                 cwd=str(self._repo_root) if self._repo_root else None,
+                creationflags=NO_WINDOW,
             )
         except Exception as exc:  # git yok/patladı → çağıran skip'e düşsün
             log.debug("Collision: git çalıştırılamadı (%s): %s", args, exc)

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from app.monitoring.store import MonitoringStore, utcnow
+from app.procutil import NO_WINDOW
 
 log = logging.getLogger(__name__)
 
@@ -218,6 +219,7 @@ def read_scheduled_tasks() -> dict[str, str]:
         text=True,
         timeout=_TASK_QUERY_TIMEOUT_S,
         check=False,
+        creationflags=NO_WINDOW,
     )
     tasks: dict[str, str] = {}
     for satir in (proc.stdout or "").splitlines():

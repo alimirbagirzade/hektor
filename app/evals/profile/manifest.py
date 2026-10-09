@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from app.lora.mix_common import hash_obj
+from app.procutil import NO_WINDOW
 
 _SOFTWARE = ("hektor", "torch", "transformers", "peft", "chromadb", "pydantic", "httpx")
 
@@ -42,6 +43,7 @@ def _gpu_name() -> str | None:
             text=True,
             timeout=10,
             check=False,
+            creationflags=NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError):
         return None

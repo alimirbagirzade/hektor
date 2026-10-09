@@ -14,6 +14,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from app.procutil import NO_WINDOW
+
 # app/web/version_info.py → parents[2] = repo kökü
 REPO = Path(__file__).resolve().parents[2]
 
@@ -34,6 +36,7 @@ def _git(args: list[str], timeout: int = 8) -> tuple[int, str]:
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            creationflags=NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError):
         return 127, ""

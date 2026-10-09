@@ -100,3 +100,13 @@ Bu depo `alimirbagirzade/hektor`'dır; v1'den ne taşınmadığı `docs/MIGRASYO
 - Gizli anahtar/credential commit etme (`.env` ignore'da).
 - `data/`, `models/`, `vector_db/`, `storage/` çıktısını commit etme (.gitkeep hariç).
 - Stratejiyi backtest+denetimden geçirmeden "kullanıma hazır" sunma.
+- **Bu makine kullanıcının masaüstüdür — stres/yük testi sınırlı.** 2026-10-06'da paralel
+  stres (8 paralel pytest × onlarca tur + 48 süreçli CPU yakıcı) yüzlerce konsol penceresi
+  açtı, masaüstü kilitlendi, yeniden başlatma gerekti. Bu yüzden:
+  - CPU yakıcı / yapay yük süreci (`multiprocessing` busy-loop vb.) **çalıştırma**.
+  - Paralel test kopyası en fazla **4**, toplam stres süresi **≤ 10 dk**; daha fazlası
+    gerekiyorsa önce kullanıcıya sor. Gerçek alt süreç doğuran testlerde tur sayısını
+    düşük tut ve bittiğinde artık süreç kalmadığını (`Get-CimInstance Win32_Process`) doğrula.
+  - Yeni `subprocess` çağrısı → `creationflags=NO_WINDOW`; arka plan süreci →
+    `procutil.DETACHED_HIDDEN` (`DETACHED_PROCESS` YASAK). `tests/test_no_console_windows.py`
+    bunu zorlar.

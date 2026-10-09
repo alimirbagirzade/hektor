@@ -30,6 +30,7 @@ from app.orchestration import engine_procs, engines, verdict_audit
 from app.orchestration.engine_procs import DEFAULT_GRACE_S
 from app.orchestration.engines import DEFAULT_ENGINE
 from app.orchestration.orchestrator import TrainingOrchestrator
+from app.procutil import NO_WINDOW
 from app.web import driver_scope
 
 log = logging.getLogger(__name__)
@@ -429,7 +430,7 @@ def _default_runner(
         env=env,
         # Av HER ZAMAN bu deponun kökünü tarar — sunucuyu kim nereden başlattıysa değil.
         cwd=str(cwd or _REPO_ROOT),
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        creationflags=NO_WINDOW,
     )
     engine_procs.register(run_id, proc)
     stopped = False

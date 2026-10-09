@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from app.procutil import NO_WINDOW
+
 
 class TrainState(StrEnum):
     IDLE = "idle"
@@ -102,6 +104,7 @@ class TrainingManager:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            creationflags=NO_WINDOW,
         )
         threading.Thread(target=self._read_output, daemon=True).start()
         return True
