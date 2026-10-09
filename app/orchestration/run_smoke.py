@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.procutil import NO_WINDOW
+
 log = logging.getLogger(__name__)
 
 
@@ -296,6 +298,7 @@ class RunPipelineSmoke:
             [sys.executable, "-c", "import time; time.sleep(60)"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            creationflags=NO_WINDOW,
         )
         engine_procs.register("smoke-stop", proc)
         try:

@@ -29,6 +29,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
+from app.procutil import NO_WINDOW
 
 Verdict = Literal["GO", "WARN", "NO-GO"]
 # Eğitimin koşacağı cihaz. "unknown": torch yok/sorgulanamadı → temkinli (GPU varsay).
@@ -113,6 +114,7 @@ def _nvidia_smi_memory_gb(*, timeout: float = 5.0) -> tuple[float, float] | None
             ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
             text=True,
             timeout=timeout,
+            creationflags=NO_WINDOW,
         )
         line = out.strip().splitlines()[0]
         used_mb, total_mb = (float(x.strip()) for x in line.split(","))

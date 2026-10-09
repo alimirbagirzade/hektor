@@ -42,6 +42,7 @@ from app.evals.llm30 import SYSTEM_PROMPT, answer_flags, llm30_root, load_llm30,
 from app.evals.profile.dataset_loader import dataset_version
 from app.evals.profile.schema import Split
 from app.memory.rag_version import current_rag_snapshot
+from app.procutil import NO_WINDOW
 
 CONDITIONS: dict[str, tuple[str, bool]] = {  # harf → (model rolü, rag)
     "A": ("base", False),
@@ -150,7 +151,11 @@ def freeze_contexts(items: list[Any], path: Path, top_k: int | None) -> dict[str
 def git_commit() -> str:
     try:
         return subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=NO_WINDOW,
         ).stdout.strip()
     except OSError:
         return "unknown"

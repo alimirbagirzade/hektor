@@ -24,6 +24,7 @@ from typing import Any
 import yaml
 
 from app.config import get_settings
+from app.procutil import NO_WINDOW
 
 DOMAINS: tuple[str, ...] = ("math", "statistics", "reasoning", "trading", "coding")
 MERGE_METHODS: tuple[str, ...] = ("svd", "ties", "dare_ties", "linear")
@@ -128,6 +129,7 @@ def git_commit(cwd: Path | None = None) -> str:
             text=True,
             timeout=10,
             check=False,
+            creationflags=NO_WINDOW,
         )
     except (OSError, subprocess.SubprocessError):
         return "unknown"

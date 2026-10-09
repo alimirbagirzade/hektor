@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from app.procutil import NO_WINDOW
+
 
 class ProviderError(RuntimeError):
     """Sağlayıcı çağrısı tamamlanamadı (iptal, zaman aşımı, araç yok)."""
@@ -145,6 +147,7 @@ class ClaudeCodeCLIProvider:
                     text=True,
                     encoding="utf-8",
                     errors="replace",
+                    creationflags=NO_WINDOW,
                 )
             try:
                 out, err = self._proc.communicate(timeout=timeout_s)

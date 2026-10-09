@@ -6,6 +6,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Literal
 
+from app.procutil import NO_WINDOW
+
 # Güvenli komut whitelist — sadece bunlar çalıştırılabilir
 _ALLOWED_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^ollama\s+(--version|list|ps|version)$"),
@@ -52,6 +54,7 @@ def _run(cmd: str, timeout: int = 60) -> CommandResult:
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            creationflags=NO_WINDOW,
         )
         return CommandResult(
             command=cmd,
@@ -108,6 +111,7 @@ def smoke_test(ollama_name: str) -> CommandResult:
             encoding="utf-8",
             errors="replace",
             timeout=60,
+            creationflags=NO_WINDOW,
         )
         ok = result.returncode == 0 and len(result.stdout.strip()) > 0
         return CommandResult(

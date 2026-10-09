@@ -21,6 +21,8 @@ from typing import Any, Literal
 import psutil
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.procutil import NO_WINDOW
+
 Stage = Literal["discovery", "ingestion", "cards", "data", "methods", "report"]
 STAGES: tuple[Stage, ...] = ("discovery", "ingestion", "cards", "data", "methods", "report")
 BASE_MODELS = frozenset({"qwen3:30b-a3b-instruct-2507-q4_K_M", "qwen3:4b-instruct-2507-q4_K_M"})
@@ -215,7 +217,7 @@ def run_stage(
             env=worker_env(cfg),
             stdout=log,
             stderr=log,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            creationflags=NO_WINDOW,
         )
         try:
             while child.poll() is None:

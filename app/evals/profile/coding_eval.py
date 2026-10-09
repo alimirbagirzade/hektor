@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from app.evals.profile.schema import EvalItem
+from app.procutil import NO_WINDOW
 
 _CODE_BLOCK = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 _UNSAFE = re.compile(
@@ -52,6 +53,7 @@ def run_code_tests(code: str, tests: str, timeout_s: float = DEFAULT_TIMEOUT_S) 
                 text=True,
                 timeout=timeout_s,
                 check=False,
+                creationflags=NO_WINDOW,
             )
         except subprocess.TimeoutExpired:
             return {"passed": False, "error": f"zaman aşımı ({timeout_s}s)"}

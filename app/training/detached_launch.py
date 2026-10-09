@@ -1037,8 +1037,11 @@ def launch(
 
         popen_kwargs: dict = {"cwd": str(root), "env": env, "close_fds": True}
         if os.name == "nt":
-            # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-            popen_kwargs["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000
+            # Gizli konsol + yeni süreç grubu (DETACHED_PROCESS DEĞİL): eğitimin açtığı
+            # git/nvidia-smi gibi torunlar pencere açamaz — bkz. app/procutil.py.
+            from app.procutil import DETACHED_HIDDEN
+
+            popen_kwargs["creationflags"] = DETACHED_HIDDEN
         else:
             popen_kwargs["start_new_session"] = True
 
