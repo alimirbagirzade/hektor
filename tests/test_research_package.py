@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from app.orchestration import research_package as package
 from app.orchestration import research_worker as worker
+from app.training import resource_lock
 
 
 def config() -> package.PackageConfig:
@@ -66,8 +67,16 @@ def test_training_status_outside_plan_and_launch_lock_block(tmp_path):
     package.write_json(tmp_path / "storage/train_status.json", {"adapter": "starting_v15"})
     assert "starting_v15" in " ".join(package.blockers(tmp_path, config(), check_processes=False))
     package.write_json(tmp_path / "storage/train_status.json", {})
+    # Eski başlatma işareti artık kimsenin yazıp silmediği bayat dosyadır → bekletmemeli.
     (tmp_path / "storage/.training_launching").touch()
-    assert package.blockers(tmp_path, config(), check_processes=False)
+    assert package.blockers(tmp_path, config(), check_processes=False) == []
+    # Ortak ağır iş kilidi canlı sahiple tutuluyorsa bekletir; bırakılınca engel kalkar.
+    info, why = resource_lock.acquire("training", "test", root=tmp_path, pid=os.getpid())
+    assert info is not None, why
+    reasons = package.blockers(tmp_path, config(), check_processes=False)
+    assert "Ağır iş kilidi" in " ".join(reasons)
+    resource_lock.release(str(info["token"]), root=tmp_path)
+    assert package.blockers(tmp_path, config(), check_processes=False) == []
 
 
 def test_quiet_period_and_stop_are_observed(tmp_path):

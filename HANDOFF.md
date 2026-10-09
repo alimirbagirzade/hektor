@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-10-01 (**v14 EĞİTİMİ KOŞUYOR** — base öz-damıtma verisi + `moe30b_attn_long` (seq 6144) · v14 öncesi Kademe 2 (4 bulucu × 2 doğrulayıcı) · PR #27 çakışması giderildi, CI yeşil · v13 candidate, 2×2'de geriliyor · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-10-09 (v14 eğitimi 2026-10-03'te 187/187 BİTTİ, aday — karşılaştırmalı değerlendirme bekliyor · araştırma otomasyonunu bekleten bayat kilit giderildi · #34–#45 main'de · aktif model hâlâ `hektor-v12-30b` · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
 
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
@@ -33,7 +33,30 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
-### 2026-10-06 — Faz 1–2 gerçek kullanıma geçiş (PR #34 açık · Faz 3 taslak PR #35)
+### 2026-10-09 — araştırma otomasyonunu bekleten kilit giderildi · durum kaydı düzeltildi
+
+- **Kilit teşhisi:** araştırma paketi `storage/.training_launching` dosyasını engel sayıyordu.
+  Ana kurulumdaki dosya **2026-09-29 08:10** tarihli (v14 başlamadan önce); hiçbir canlı sürece
+  ait değil. Eğitim başlatıcı bu dosyadan ortak `storage/heavy_job.lock`'a (`resource_lock`)
+  geçmişti; eski dosyayı artık kimse yazmıyor/silmiyordu → v14 bitse de araştırma süresiz
+  bekledi. **Düzeltme:** `research_package.blockers` ortak ağır iş kilidine bakar (ölü sahip /
+  süresi geçmiş başlatma bayat sayılır); web ipucu metni güncellendi; test eklendi. Yeni kodla
+  ana kurulumda salt-okuma kontrol: **engel yok**. Bayat dosya SİLİNMEDİ (artık etkisiz).
+  Etkinleşmesi için ana kurulum güncellenip 8765 web süreci yeniden başlatılmalı.
+- **Durum düzeltmesi:** #34 (Faz 1–2) ve #35 (Faz 3, varsayılan kapalı) **main'e birleşti**
+  (2026-10-05/06); ardından #36–#45 (Kademe 2 düzeltmeleri, aday-işleri yarışları, Windows
+  konsol penceresi kilitlenmesi) de birleşti. Aşağıdaki 2026-10-06 notundaki "açık/taslak"
+  ifadeleri o günün durumudur.
+- **Sıradaki (öncelik):** (1) güncelle + web'i yeniden başlat, araştırma → RAG işleme → aday
+  veri döngüsünü bir kez uçtan uca gözle (her aşamanın kaydı ve durma nedeni); (2) v14 / v12 /
+  temel modeli kilitli sorular + kör insan incelemesi + kaynak/hesap doğruluğu ile karşılaştır
+  (`cmp_ab63a45247fe` kör inceleme hâlâ bekliyor); strateji iddialarında maliyetli OOS
+  backtest; (3) ancak sonra kontrollü pilot (güncel kod+veri için Kademe 2, reçeteye bağlı
+  insan onayı, kısa koşu); (4) günlük işletim: `doctor` bu makinede `HektorWeb` /
+  `HektorUpdate` zamanlanmış görevlerini kayıtlı bulmadı — kurulum kullanıcı kararı.
+- Eğitim başlatılmadı, `.env`/STOP/zamanlayıcı değiştirilmedi.
+
+### 2026-10-06 — Faz 1–2 gerçek kullanıma geçiş (o gün PR #34 açık · Faz 3 taslak PR #35 — ikisi de sonra birleşti)
 
 Kanıt: `docs/evidence/faz12_uretim_2026-10-06.md`, `docs/evidence/kademe2_2026-10-06.json`.
 
