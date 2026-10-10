@@ -87,6 +87,22 @@ $LogOut     = Join-Path $ProjectDir "logs\train-full.log"
 $LogErr     = Join-Path $ProjectDir "logs\train-full-err.log"
 $StatusFile = Join-Path $ProjectDir "storage\train_status.json"
 
+# Kademe 2 P-1: sonuclanmis (finished/failed) kosunun kaydi, durum dosyasi ezilmeden/
+# silinmeden once adapter klasorune kalici kopyalanir (train_status.final.json). Yoksa
+# bitmis kosunun onay/veri/bitis kaniti kaybolur ve tamamlanma dogrulamasi gecmez.
+function Save-FinalStatus {
+    if (-not (Test-Path $StatusFile)) { return }
+    try {
+        $old = Get-Content $StatusFile -Raw | ConvertFrom-Json
+        $name = [string]$old.adapter
+        if ($name -notmatch '^[A-Za-z0-9_-]{1,64}$') { return }
+        if (-not ($old.finished_at -or $old.failed_at)) { return }
+        $dir = Join-Path $ProjectDir ("models\adapters\" + $name)
+        $arch = Join-Path $dir "train_status.final.json"
+        if ((Test-Path $dir) -and -not (Test-Path $arch)) { Copy-Item $StatusFile $arch }
+    } catch { }
+}
+
 function Find-Uv {
     $fromPath = (Get-Command uv -ErrorAction SilentlyContinue).Source
     if ($fromPath -and (Test-Path $fromPath)) { return $fromPath }
@@ -116,6 +132,7 @@ if ($Stop) {
     $p = Get-TrainProcs
     if ($p) { $p | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Write-Host "  [OK] Egitim durduruldu." -ForegroundColor Yellow }
     else    { Write-Host "  Zaten calismiyor." -ForegroundColor Gray }
+    Save-FinalStatus
     Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
     exit 0
 }
@@ -308,6 +325,7 @@ try {
 }
 # Rozet/durum icin: adapter adini storage'a yaz (web /api/training/live okur)
 $null = New-Item -ItemType Directory -Path (Split-Path $StatusFile) -Force
+Save-FinalStatus
 # Recetenin TAMAMI yazilir: nobetci (training-watchdog.ps1) coken egitimi YALNIZ bu
 # dosyadan diriltir; profil/ornek tavani eksik kalirsa yeniden baslatma sessizce
 # BASKA bir receteye kayar (bkz. _status_payload, detached_launch.py).

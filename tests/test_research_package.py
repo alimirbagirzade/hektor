@@ -214,7 +214,7 @@ def test_running_training_interrupts_only_owned_worker(tmp_path, monkeypatch):
 
     monkeypatch.setattr(package.subprocess, "Popen", lambda *a, **kw: Child())
     monkeypatch.setattr(package, "blockers", lambda *a, **kw: ["Yeni eğitim başladı"])
-    with pytest.raises(RuntimeError, match="duraklatıldı"):
+    with pytest.raises(package.StagePaused, match="duraklatıldı"):
         package.run_stage(tmp_path, tmp_path / "config.json", config(), "data")
     assert events == ["terminate-owned"]
 
@@ -285,3 +285,47 @@ def test_candidate_data_never_rewrites_training_source(tmp_path, monkeypatch):
     assert Path(result["output"]).is_relative_to(tmp_path / "data/research_package/staging")
     assert source.read_text(encoding="utf-8") == "SABİT EĞİTİM VERİSİ"
     assert package.read_json(package.package_dir(tmp_path) / "questions_done.json")
+
+
+def test_pause_by_heavy_lock_is_not_a_failure(tmp_path, monkeypatch):
+    """Kademe 2 E-1: kilit/kapı kaynaklı kesinti deneme bütçesini yakmaz, aşama vadeli kalır."""
+    cfg_path = tmp_path / "config.json"
+    package.write_json(cfg_path, config().model_dump())
+    monkeypatch.setattr(package, "blockers", lambda *a, **kw: [])
+
+    def paused(*args, **kwargs):
+        raise package.StagePaused("Aşama duraklatıldı: Ağır iş kilidi: karşılaştırma sürüyor")
+
+    monkeypatch.setattr(package, "run_stage", paused)
+    for _ in range(4):
+        result = package.tick(tmp_path, cfg_path, execute=True)
+        row = result["state"]["discovery"]
+        assert row["status"] == "paused" and row.get("failures", 0) == 0
+        assert "error" not in result["outcome"] and "paused" in result["outcome"]
+    assert package.next_stage(config(), result["state"], time.time()) == "discovery"
+
+
+def test_abandoned_crashed_run_stops_blocking_only_when_system_quiet(tmp_path, monkeypatch):
+    """Kademe 2 P-3: çökmüş, eski ve başka koşuya devredilmiş plan süresiz bekletmez."""
+    finish(tmp_path)
+    pilot = tmp_path / "models/adapters/pilot"
+    package.write_json(pilot / "run_plan.json", {"max_steps": 64})
+    monkeypatch.setattr(package.psutil, "process_iter", lambda *a, **kw: [])
+    monkeypatch.setattr(
+        package.psutil, "virtual_memory", lambda: SimpleNamespace(available=1024**4)
+    )
+    cfg = config()
+    # Taze plan: hâlâ bekletir.
+    assert "pilot" in " ".join(package.blockers(tmp_path, cfg))
+    old = time.time() - 25 * 3600
+    os.utime(pilot / "run_plan.json", (old, old))
+    # Durum dosyası pilotu sonuçsuz gösteriyorsa kurtarılabilir sayılır → bekletir.
+    package.write_json(tmp_path / "storage/train_status.json", {"adapter": "pilot"})
+    assert "pilot" in " ".join(package.blockers(tmp_path, cfg))
+    # Başarısız işaretli + eski → terk edilmiş, engel değil.
+    package.write_json(
+        tmp_path / "storage/train_status.json", {"adapter": "pilot", "failed_at": "x"}
+    )
+    assert package.blockers(tmp_path, cfg) == []
+    # Süreç taraması yoksa (check_processes=False) terk sayılmaz.
+    assert "pilot" in " ".join(package.blockers(tmp_path, cfg, check_processes=False))

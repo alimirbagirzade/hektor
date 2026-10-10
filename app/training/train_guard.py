@@ -386,6 +386,7 @@ def diagnose(
     data_mtime: dt.datetime | None = None,
     approvals: list[dict[str, Any]] | None = None,
     data_sha256: str | None = None,
+    trainer_pids: set[int] | None = None,
 ) -> TrainingDiagnosis:
     """Eğitim sağlığını değerlendir (saf). Hiçbir şey başlatmaz/durdurmaz.
 
@@ -402,6 +403,23 @@ def diagnose(
     started_at = _parse_iso(status.get("started_at"))
 
     if running:
+        # Kademe 2 T-1 (2026-10-10): koşan trainer, sonuçlanmış ESKİ bir koşunun kaydına
+        # (ya da başka pid'e) bağlanıp onun onayıyla "OK" görünmesin.
+        if status and (status.get("finished_at") or status.get("failed_at")):
+            problems.append(
+                "eğitim süreci çalışıyor ama durum kaydı SONUÇLANMIŞ bir koşuya ait "
+                f"({status.get('adapter')}) — bu koşu insan onayına bağlanamıyor"
+            )
+        elif status and trainer_pids is not None and status.get("pid"):
+            try:
+                pid_ok = int(status["pid"]) in trainer_pids
+            except (TypeError, ValueError):
+                pid_ok = False
+            if not pid_ok:
+                problems.append(
+                    f"durum kaydındaki pid {status.get('pid')} koşan eğitim süreçlerinden "
+                    "biri değil — koşu bu kayda/onaya bağlanamıyor"
+                )
         if log_mtime is not None:
             stall_min = (now - log_mtime).total_seconds() / 60.0
             info["log_stall_minutes"] = round(stall_min, 1)
@@ -463,10 +481,24 @@ def diagnose(
         # "koşu TAMAMLANMIŞ" der). v14 bittikten sonra burada yanlış DİKKAT veriliyordu.
         return TrainingDiagnosis("BOSTA", [], info)
     elif status:
-        problems.append(
-            "durum dosyası var ama eğitim süreci YOK — ölü koşu kaydı; nöbetçi bunu "
-            "diriltmeye çalışır (kurtarma kontrolü: hektor train-recovery-check)"
+        # Kademe 2 T-2: mesaj nöbetçinin GERÇEK kararına göre (recovery_allowed).
+        verdict = (
+            recovery_allowed(
+                status, approvals, now=now, data_mtime=data_mtime, data_sha256=data_sha256
+            )
+            if approvals is not None
+            else None
         )
+        if verdict is not None and not verdict.allowed:
+            problems.append(
+                "durum dosyası var ama eğitim süreci YOK — ölü koşu kaydı; nöbetçi "
+                f"DİRİLTMEZ ({verdict.reason}); kayıt elle incelenmeli"
+            )
+        else:
+            problems.append(
+                "durum dosyası var ama eğitim süreci YOK — ölü koşu kaydı; nöbetçi bunu "
+                "diriltmeye çalışır (kurtarma kontrolü: hektor train-recovery-check)"
+            )
 
     if not running and not status:
         return TrainingDiagnosis("BOSTA", [], info)
@@ -552,6 +584,14 @@ def collect_diagnosis(
     status = read_detached_training_status(root)
     procs = _trainer_processes()
     running = bool(procs)
+    # Durum kaydındaki pid çoğu zaman sarmalayıcıdır (uv/hektor); trainer'ın ataları da sayılır.
+    pids: set[int] = set()
+    for entry in procs:
+        pids.add(int(entry["pid"] or 0))
+        try:
+            pids.update(int(a.pid) for a in entry["proc"].parents())
+        except Exception:
+            continue
     log_path = _newest_train_log(root)
     diagnosis = diagnose(
         status=status,
@@ -562,6 +602,7 @@ def collect_diagnosis(
         data_mtime=_file_mtime(root / "data" / "training" / "jsonl" / "train.jsonl"),
         approvals=approvals,
         data_sha256=sha256_file(root / SOURCE_DATA_REL),
+        trainer_pids=pids if running else None,
     )
     diagnosis.info["log_file"] = str(log_path) if log_path else ""
     diagnosis.info["trainer_pids"] = [p["pid"] for p in procs]

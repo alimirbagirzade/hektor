@@ -42,6 +42,9 @@ class PackageConfig(BaseModel):
     papers_per_cycle: int = Field(default=2, ge=1, le=5)
     questions_per_cycle: int = Field(default=6, ge=1, le=20)
     max_attempts: int = Field(default=3, ge=1, le=5)
+    # Bitmemiş (run_complete'siz) adapter, bu kadar saattir dokunulmamışsa ve hiçbir
+    # ağır süreç/kilit yoksa terk edilmiş çökük koşu sayılır (Kademe 2 P-3, 2026-10-10).
+    abandoned_run_hours: int = Field(default=24, ge=1, le=720)
     interval_hours: dict[Stage, int]
 
     @field_validator("teacher_model")
@@ -64,6 +67,14 @@ class PackageConfig(BaseModel):
         if set(values) != set(STAGES) or any(not 1 <= v <= 720 for v in values.values()):
             raise ValueError("Altı aşamanın her biri için 1–720 saat aralığı gerekli.")
         return values
+
+
+class StagePaused(RuntimeError):
+    """Kapı/kilit/durdurma kaynaklı BEKLENEN kesinti: hata sayılmaz, deneme bütçesi yanmaz.
+
+    Kademe 2 E-1 (2026-10-10): ağır iş kilidi (karşılaştırma/dönüşüm) görülünce atılan
+    RuntimeError ``failures`` sayacını artırıyor, 3. seferde aşama kalıcı düşüyordu.
+    """
 
 
 def read_json(path: Path, default: Any = None) -> Any:
@@ -109,6 +120,25 @@ def process_is_heavy(args: list[str]) -> bool:
     )
 
 
+def abandoned_run(path: Path, cfg: PackageConfig, status: dict[str, Any]) -> bool:
+    """Bitmemiş adapter terk edilmiş mi? Yalnız: başka koşunun durumu ya da bu koşu
+    başarısız/durduruldu işaretli VE plan ``abandoned_run_hours``'tan eski.
+
+    Durum dosyası hâlâ bu adapter'ı sonuçsuz (failed/stop/finished yok) gösteriyorsa
+    kurtarılabilir sayılır → beklemeye devam (nöbetçi kararı ayrı kapıdır).
+    """
+    plan = path / "run_plan.json"
+    try:
+        age_h = (time.time() - plan.stat().st_mtime) / 3600
+    except OSError:
+        return False
+    if age_h < cfg.abandoned_run_hours:
+        return False
+    if status.get("adapter") != path.name:
+        return True
+    return bool(status.get("failed_at") or status.get("stop_requested_at"))
+
+
 def blockers(root: Path, cfg: PackageConfig, *, check_processes: bool = True) -> list[str]:
     """Tüm kontroller salt-okunur; belirsiz eğitim durumu işi bekletir."""
     reasons: list[str] = []
@@ -119,8 +149,23 @@ def blockers(root: Path, cfg: PackageConfig, *, check_processes: bool = True) ->
     # ``.training_launching`` artık kimse tarafından yazılıp silinmiyor; ona bakmak bayat
     # dosyayla araştırmayı süresiz bekletiyordu (2026-09-29 kalıntısı). Bayat kilit (ölü
     # sahip / süresi geçmiş başlatma) ``resource_lock`` tarafından tutulmuyor sayılır.
-    if lock_reason := resource_lock.blocker(root):
-        reasons.append(lock_reason)
+    try:
+        if lock_reason := resource_lock.blocker(root):
+            reasons.append(lock_reason)
+    except (OSError, ValueError, TypeError) as exc:  # Kademe 2 E-3: bozuk kayıt fail-closed
+        reasons.append(f"Ağır iş kilidi okunamadı: {exc}")
+    heavy: list[str] = []
+    if check_processes:
+        for proc in psutil.process_iter(["pid", "cmdline", "name"]):
+            try:
+                if proc.pid != os.getpid() and process_is_heavy(proc.info["cmdline"] or []):
+                    heavy.append(f"Ağır süreç çalışıyor: PID {proc.pid}")
+            except psutil.NoSuchProcess:
+                continue
+            except psutil.AccessDenied:
+                heavy.append("Bir sürecin eğitim durumu doğrulanamadı.")
+    # Terk edilmiş sayılabilmesi için canlı ağır iş olmadığı GÖZLENMİŞ olmalı.
+    quiet_system = check_processes and not heavy and not reasons
     adapters = root / "models" / "adapters"
     names = set(cfg.wait_for_adapters)
     names.update(p.parent.name for p in adapters.glob("*/run_plan.json"))
@@ -134,6 +179,8 @@ def blockers(root: Path, cfg: PackageConfig, *, check_processes: bool = True) ->
         for name in sorted(names):
             path = adapters / name
             if not completed_adapter(path):
+                if quiet_system and abandoned_run(path, cfg, status):
+                    continue
                 reasons.append(f"Eğitim tamamlanması doğrulanmadı: {name}")
             elif time.time() - (path / "run_complete.json").stat().st_mtime < (
                 cfg.quiet_minutes * 60
@@ -141,17 +188,9 @@ def blockers(root: Path, cfg: PackageConfig, *, check_processes: bool = True) ->
                 reasons.append(f"Eğitim sonrası {cfg.quiet_minutes} dk bekleme: {name}")
     except (OSError, ValueError, TypeError, AttributeError) as exc:
         reasons.append(f"Eğitim kayıtları okunamadı: {exc}")
-    if check_processes:
-        for proc in psutil.process_iter(["pid", "cmdline", "name"]):
-            try:
-                if proc.pid != os.getpid() and process_is_heavy(proc.info["cmdline"] or []):
-                    reasons.append(f"Ağır süreç çalışıyor: PID {proc.pid}")
-            except psutil.NoSuchProcess:
-                continue
-            except psutil.AccessDenied:
-                reasons.append("Bir sürecin eğitim durumu doğrulanamadı.")
-        if psutil.virtual_memory().available < cfg.min_available_ram_gb * 1024**3:
-            reasons.append(f"Kullanılabilir RAM {cfg.min_available_ram_gb} GB altında.")
+    reasons.extend(heavy)
+    if check_processes and (psutil.virtual_memory().available < cfg.min_available_ram_gb * 1024**3):
+        reasons.append(f"Kullanılabilir RAM {cfg.min_available_ram_gb} GB altında.")
     return reasons
 
 
@@ -227,12 +266,12 @@ def run_stage(
         try:
             while child.poll() is None:
                 if should_stop and should_stop():
-                    raise RuntimeError("Paket yöneticisi durduruldu.")
+                    raise StagePaused("Paket yöneticisi durduruldu.")
                 if time.monotonic() - started > cfg.stage_timeout_minutes * 60:
                     raise RuntimeError("Aşama süre bütçesini aştı.")
                 reasons = blockers(root, cfg)
                 if reasons:
-                    raise RuntimeError("Aşama duraklatıldı: " + "; ".join(reasons))
+                    raise StagePaused("Aşama duraklatıldı: " + "; ".join(reasons))
                 time.sleep(2)
             if child.returncode:
                 raise RuntimeError(f"Aşama hata kodu: {child.returncode}; bkz. {stage}.log")
@@ -295,7 +334,7 @@ def tick(
                 write_json(state_path, state)
             reasons = blockers(root, cfg)
             if reasons or (should_stop and should_stop()):
-                raise RuntimeError("İş öncesi kapı: " + "; ".join(reasons or ["Durduruldu"]))
+                raise StagePaused("İş öncesi kapı: " + "; ".join(reasons or ["Durduruldu"]))
             if should_stop is None:
                 outcome = run_stage(root, config_path, cfg, stage)
             else:
@@ -304,6 +343,11 @@ def tick(
             state[stage].update(
                 status="partial" if partial else "completed", failures=0, result=outcome
             )
+        except StagePaused as exc:
+            # Deneme sayılmaz: son deneme zamanı ve hata sayacı eski hâline döner, aşama
+            # vadesi gelmiş kalır; servis hata/geri çekilme yerine bekleme görür.
+            outcome = {"paused": str(exc)}
+            state[stage] = {**old, "status": "paused", "result": outcome}
         except Exception as exc:
             outcome = {"error": str(exc)}
             state[stage].update(status="failed", failures=int(old.get("failures", 0)) + 1)

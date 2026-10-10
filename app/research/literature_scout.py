@@ -242,8 +242,10 @@ def _default_downloader(url: str) -> bytes:
     """Gerçek indirici (ağ). Testlerde enjekte edilerek devre dışı bırakılır."""
     import httpx
 
+    from app.ingestion.arxiv_fetcher import polite_get
+
     with httpx.Client(timeout=90, follow_redirects=True) as client:
-        resp = client.get(url)
+        resp = polite_get(client, url)  # Kademe 2 E-5: kısma + 429 yeniden deneme
         resp.raise_for_status()
         return bytes(resp.content)
 

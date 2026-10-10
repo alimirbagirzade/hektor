@@ -33,6 +33,31 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-10 — Kademe 2 (798c4ca..ae73710 + pilot yolu) · aday veri denetimi
+
+Kanıt: `docs/evidence/kademe2_2026-10-10.json` (bulgu-bazında karar).
+
+- **Av:** 3 paralel bulucu → 23 bulgu → 2 bağımsız şüpheci doğrulayıcı. **17 düzeltildi**,
+  6 gerekçeyle reddedildi, **risk kabulü yok**. Öne çıkanlar:
+  - E-1: ağır iş kilidi/kapı kaynaklı duraklama araştırmayı "hata" sayıp 3. seferde kalıcı
+    düşürüyordu → `StagePaused` (bütçe yanmaz).
+  - P-1: her eğitim başlatması `storage/train_status.json`'u ezip v14'ün tamamlanma kanıtını
+    siliyordu → bitiş/başlatmada `models/adapters/<ad>/train_status.final.json` arşivi.
+  - P-2: koşulsuz `kayit` kapsamlı risk kabulü artık yazılamaz (toplu kabul yasağı kodda).
+  - P-4: yük doktoru onay TÜKETİLMEDEN önce · P-5: `uv.lock` Kademe 2 kod özetinde ·
+    P-3: çökmüş eski koşu araştırmayı süresiz bekletmez · T-1/T-2 train-doctor tutarlılığı ·
+    T-3/T-5/T-6 aday-işleri kayıt/kilit/ağaç öldürme · E-5 PDF kısması · E-7/E-9/P-6.
+  - broad_v1 kanıt örtüşmesi (gerçek ölçüm): aynı parça eğitimde **0**, aynı makale 4–6/soru.
+- **Kayıt:** birleşme + `update.ps1` sonrası ana kurulumda `hektor kademe2-kayit` (pilot
+  reçetesine bağlı) yazılacak — kod özeti ancak birleşmiş main'den alınabilir.
+- **Aday veri (`data/research_package/staging/distill_qa.jsonl`, 2 satır) — eğitime
+  ALINMAMALI:** (1) Gârleanu-Pedersen "aim in front of the target" sorusu RAG'sız modda
+  cevaplanmış; doğru koşulu (işlem maliyeti + kalıcı getiri öngörücüleri) kaçırıp genel
+  "hedefe dayalı yatırım" anlatıyor → yanlış. (2) Cholesky tanımı: doğru ama düşük değer.
+  **Tasarım açığı (açık iş):** makale parçasından üretilen soru "plain" (RAG'sız) modda kaynak
+  verilmeden cevaplatılıyor → kaynağa özgü sorularda yanlış cevap neredeyse kaçınılmaz.
+- **Zamanlayıcı:** UAC kullanıcı tarafından iptal edildi; `HektorWeb`/`HektorUpdate` hâlâ yok.
+
 ### 2026-10-10 — v14 / v12 / temel karşılaştırması: kaynak metni modele gitmiyordu
 
 - `cmp_ff270ea507b7` (broad_v1, 27 aile, boyutlu ölçüt `edfd5537…`, 81/81 cevap) koştu.

@@ -19,6 +19,7 @@ from app.orchestration import engine_procs, research_engines
 from app.orchestration.research_package import (
     PackageConfig,
     Stage,
+    StagePaused,
     blockers,
     control,
     package_dir,
@@ -177,7 +178,7 @@ class ResearchService:
         for name in state["engines"]:
             reasons = blockers(self.root, cfg)
             if self._stopped() or reasons:
-                raise RuntimeError("İnceleme bekletildi: " + "; ".join(reasons))
+                raise StagePaused("İnceleme bekletildi: " + "; ".join(reasons))
             reason = research_engines.blocked_reason(name)
             if reason:
                 raise RuntimeError(reason)
@@ -252,6 +253,9 @@ class ResearchService:
                     retry_after=time.time() + min(3600, 300 * 2**failures),
                     last_result=result,
                 )
+            elif result.get("outcome", {}).get("paused"):
+                # Beklenen kesinti (kilit/kapı/durdurma): hata sayacına dokunma (Kademe 2 E-1).
+                self._update(status="waiting", last_result=result)
             else:
                 self._update(status="idle", failures=0, retry_after=0, last_result=result)
             return result

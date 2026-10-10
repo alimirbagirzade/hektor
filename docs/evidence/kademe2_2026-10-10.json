@@ -1,0 +1,170 @@
+{
+  "kademe": 2,
+  "tarih": "2026-10-10",
+  "denetlenen_fark": "798c4ca..ae73710 (#44 aday-işleri yarışı, #45 NO_WINDOW, #46 araştırma kilidi, #47 arXiv kısma, #48 kanıt istemi, #50 train-doctor) + kontrollü pilot yolu (moe30b_attn_long, 64 örnek/8 adım, trading_analysis_v1)",
+  "yontem": "3 paralel bulucu (eğitim kapıları · değerlendirme/araştırma · pilot yolu) → 22 bulgu → 2 bağımsız şüpheci doğrulayıcı (varsayılan çürütülmüş, kod yolu izlendi) → onaylanan/kısmen onaylananlar düzeltildi + regresyon testi; çürütülenler gerekçeyle reddedildi. Toplu risk kabulü YOK; risk_kabul kullanılmadı.",
+  "curutulen_yok": "Sorunsuz bulunanlar: #45 bayrakları (CREATE_NO_WINDOW, POSIX 0, taskkill /T değişmedi); pilot sayısal sınırı (recipe_binding_problems, clamp yalnız azaltır); onay reçeteye + kilide bağlı ve tek kullanımlık; storage/KADEME2_OK kodda okunmuyor; sızıntı kapısı candidate_compare soru metinlerini tarıyor; #50 BOŞTA ↔ recovery_allowed tutarlı.",
+  "bulgular": [
+    {
+      "id": "E-1",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "ozet": "Ağır iş kilidi/kapı/durdurma kaynaklı kesinti RuntimeError olarak hata sayılıyor; 3. seferde servis needs_attention, aşama max_attempts ile kalıcı düşüyordu.",
+      "evidence": "StagePaused istisnası (run_stage, iş öncesi kapı, inceleme bekletmesi); tick 'paused' yazar, failures/last_attempt değişmez; servis 'waiting'. test_pause_by_heavy_lock_is_not_a_failure."
+    },
+    {
+      "id": "E-2",
+      "severity": "LOW",
+      "status": "reddedildi",
+      "ozet": "'launching' kilidi 180 sn TTL sonrası bayat → kısa eşzamanlılık.",
+      "gerekce": "İki doğrulayıcı çürüttü: launching yalnız kilit alma↔devir arası (saniyeler); devirden sonra 'running' + pid ölçümü + process_is_heavy taraması."
+    },
+    {
+      "id": "E-3",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "blockers() içinde resource_lock.blocker try dışında; bozuk kayıt ValueError.",
+      "evidence": "Çağrı try içinde; hata 'Ağır iş kilidi okunamadı' engeli (fail-closed, duraklama)."
+    },
+    {
+      "id": "E-4",
+      "severity": "LOW",
+      "status": "reddedildi",
+      "ozet": "429 sonrası uyku kilit dışında; kısma süreç içi.",
+      "gerekce": "İki doğrulayıcı: her istek _throttle'dan geçer, ≥3 sn aralık korunur; araştırma işçisi tek süreç (package_lock)."
+    },
+    {
+      "id": "E-5",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "PDF indirmeleri kısmasız/429 yeniden denemesiz.",
+      "evidence": "polite_get: arama + fetch_arxiv_papers + literature_scout._default_downloader aynı kısma/yeniden deneme yolundan. test_pdf_downloads_share_throttle_and_retry."
+    },
+    {
+      "id": "E-6",
+      "severity": "LOW",
+      "status": "reddedildi",
+      "ozet": "Manifestte istem sürümü yok; aynı criteria_sha ile #48 öncesi/sonrası koşular.",
+      "gerekce": "İki doğrulayıcı: criteria_sha üzerinden koşular arası birleştirme yok; her satır prompt_sha taşır; #48 öncesi koşu entegrasyon işaretli."
+    },
+    {
+      "id": "E-7",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "user_content evidence tipini doğrulamıyor.",
+      "evidence": "load_set: evidence yalnız metin listesi. test_evidence_must_be_list_of_strings."
+    },
+    {
+      "id": "E-8",
+      "severity": "LOW",
+      "status": "reddedildi",
+      "ozet": "Kanıt metninde istem enjeksiyonu.",
+      "gerekce": "İki doğrulayıcı: kanıt depoda insan-kürate edilmiş donmuş setten; 'talimat izleme' çerçevesi var; üç modele aynı metin."
+    },
+    {
+      "id": "E-9",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Sızıntı kapısı evidence alanını taramıyor.",
+      "evidence": "P-6 ile aynı kök: scripts/eval_set_leak_check.py parça/makale düzeyi kanıt örtüşmesini raporlar (karar kapısını değiştirmez; makale düzeyi örtüşme manifestte bilinçli). Gerçek ölçüm 2026-10-10: aynı parça 0, aynı makale 4–6/soru."
+    },
+    {
+      "id": "T-1",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Koşan trainer, bitmiş eski koşunun onayıyla 'OK' görünebiliyordu.",
+      "evidence": "diagnose: koşu varken kayıt sonuçlanmışsa ya da kayıt pid'i trainer/atası değilse DİKKAT. test_t1_running_trainer_not_bound_to_finished_or_foreign_record."
+    },
+    {
+      "id": "T-2",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Ölü kayıt mesajı nöbetçi kararıyla çelişiyor.",
+      "evidence": "Mesaj recovery_allowed sonucuna göre ('DİRİLTMEZ (<neden>)'). test_t2_dead_record_message_follows_recovery_decision."
+    },
+    {
+      "id": "T-3",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Okuma başarısızken iş kaydı bayat/boş görüntüyle eziliyordu.",
+      "evidence": "_update okunamayan kaydı ezmez (hata); start_job yazmaz; run() yeniden okur, olmazsa hata. test_t3_unreadable_record_is_not_overwritten_by_update."
+    },
+    {
+      "id": "T-4",
+      "severity": "LOW",
+      "status": "reddedildi",
+      "ozet": "Doğrulanamayan pid öldürülmeden 'stopped' → ikinci ağır iş.",
+      "gerekce": "Doğrulayıcı 2 çürüttü, 1 kısmen: create_time her zaman yazılıyor; canlı alt süreç ortak ağır iş kilidini tutar → start_job reddeder."
+    },
+    {
+      "id": "T-5",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Yetim .lock + 15 sn sonra kilitsiz yazım; kilit çalma TOCTOU.",
+      "evidence": "Bekleme 45 sn (>30 sn bayat eşiği), alınamazsa TimeoutError (kilitsiz yazım yok); bayat kilit os.rename ile atomik sahiplenilir, taze çıkarsa iade. test_t5_stale_lock_broken_once_fresh_lock_restored."
+    },
+    {
+      "id": "T-6",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "_kill_tree yedek dalı kök bitmişken pid'e taskkill /T /F.",
+      "evidence": "NoSuchProcess → hiçbir şey öldürülmez. test_t6_kill_tree_does_not_taskkill_vanished_root."
+    },
+    {
+      "id": "T-7",
+      "severity": "INFO",
+      "status": "reddedildi",
+      "ozet": "TrainingManager.stop yalnız terminate.",
+      "gerekce": "İki doğrulayıcı: TrainingManager.start hiçbir yerden çağrılmıyor → süreç hiç oluşmaz, stop etkisiz; davranış etkisi yok. Ölü kodun kaldırılması ayrı temizlik işi."
+    },
+    {
+      "id": "P-1",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "ozet": "Yeni başlatma storage/train_status.json'u ezip/silip bitmiş v14'ün tamamlanma kanıtını yok ediyordu.",
+      "evidence": "Bitişte ve her başlatmadan önce (Python + start-train.ps1) models/adapters/<ad>/train_status.final.json arşivi; verify_run_completion ortak dosya başka koşuya aitse arşivi kullanır. test_finished_run_record_survives_next_launch, test_launch_archives_previous_finished_status."
+    },
+    {
+      "id": "P-2",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "'kayit' kapsamlı risk kabulü koşul/sayısal sınır istemiyordu (toplu risk kabulü yasağıyla çelişki).",
+      "evidence": "record_kademe2 koşulsuz 'kayit' kabulünü reddeder; elle yazılmış böyle kayıt kapsamaz. test_p2_unconditional_record_scope_risk_is_rejected."
+    },
+    {
+      "id": "P-3",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Çökmüş pilotun run_plan.json'u araştırmayı süresiz bekletiyordu.",
+      "evidence": "abandoned_run: plan ≥24 sa eski + durum başka koşuya ait ya da failed/stop + ağır süreç/kilit yok → engel değil. test_abandoned_crashed_run_stops_blocking_only_when_system_quiet."
+    },
+    {
+      "id": "P-4",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Yük doktoru onay tüketildikten sonra çalışıyordu.",
+      "evidence": "precheck yük doktorunu onaydan önce çalıştırır. test_load_doctor_no_go_blocks_before_approval_is_consumed."
+    },
+    {
+      "id": "P-5",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "Kademe 2 kod özeti uv.lock'u kapsamıyordu.",
+      "evidence": "CODE_PATHS += uv.lock."
+    },
+    {
+      "id": "P-6",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "broad_v1 kanıt kaynakları örtüşme denetimine girmiyordu.",
+      "evidence": "E-9 ile aynı düzeltme (raporlama; kapı değişmedi). test_evidence_chunk_overlap_is_reported_not_gating."
+    },
+    {
+      "id": "P-7",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "ozet": "readiness reçeteye bağlı kaydı 'yok' gösteriyordu.",
+      "evidence": "Reçeteye bağlı kapanmış kayıtlar özet kimliğiyle gösterilir (gerçek kapı precheck'te reçeteyle)."
+    }
+  ]
+}
