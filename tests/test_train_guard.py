@@ -173,6 +173,15 @@ def test_olu_kosu_kaydi_bildirilir() -> None:
     assert any("ölü koşu" in p for p in d.problems)
 
 
+def test_tamamlanmis_kosu_olu_sayilmaz() -> None:
+    """finished_at dolu, failed_at yok → bitmiş koşu; DİKKAT değil BOŞTA (2026-10-10 v14)."""
+    st = {**_status(_NOW - dt.timedelta(days=2)), "finished_at": _NOW.isoformat()}
+    d = diagnose(status=st, running=False, now=_NOW)
+    assert d.verdict == "BOSTA" and d.problems == []
+    failed = {**st, "failed_at": _NOW.isoformat()}
+    assert diagnose(status=failed, running=False, now=_NOW).verdict == "DIKKAT"
+
+
 def test_bosta_durum() -> None:
     d = diagnose(status={}, running=False, now=_NOW)
     assert d.verdict == "BOSTA"
