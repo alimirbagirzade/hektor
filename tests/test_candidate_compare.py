@@ -535,3 +535,22 @@ def test_e6_pilot_candidate_cannot_use_final_set(iso, tmp_path, monkeypatch) -> 
     assert cc.final_accesses(set_sha) == []
     dev = _create(tmp_path, role="development", meta=meta)  # geliştirme rolü serbest
     assert dev["role"] == "development"
+
+
+def test_sourced_question_sends_evidence_to_every_model(iso, tmp_path) -> None:  # noqa: F811
+    """Kaynaklı soruda kanıt metni modele gider (2026-10-10: yalnız soru gidiyordu)."""
+    sent: list[tuple[str, str]] = []
+    base = _ollama()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/api/chat":
+            body = json.loads(req.content)
+            sent.append((body["model"], body["messages"][-1]["content"]))
+        return base.handle_request(req)
+
+    m = _create(tmp_path)
+    cc.generate(m["comparison_id"], transport=httpx.MockTransport(handler))
+    sourced = [c for _, c in sent if "Kavram" in c]
+    assert sourced and all("KAYNAK:" in c and "kanıt metni" in c for c in sourced)
+    assert {mdl for mdl, c in sent if "Kavram" in c} == {"aktif", "aday", "temel"}
+    assert all("KAYNAK:" not in c for _, c in sent if "kaç eder" in c)

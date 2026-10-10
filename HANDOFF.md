@@ -33,6 +33,23 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-10 — v14 / v12 / temel karşılaştırması: kaynak metni modele gitmiyordu
+
+- `cmp_ff270ea507b7` (broad_v1, 27 aile, boyutlu ölçüt `edfd5537…`, 81/81 cevap) koştu.
+  **Matematik (10 soru, anahtarla):** v14 ort 4.0 / 0 kritik · temel 3.6 / 1 · v12 2.8 / 3.
+  v12'nin 2 hatası gerçek hesap hatası (net getiri 28.16; azami düşüş %30), temelin 1 ve
+  v12'nin 1 "kritik"i birim biçimi (doğru değer oran olarak: 0.10↔%10, 0.4↔%40) — kilitli
+  ölçüt sonradan DEĞİŞTİRİLMEDİ.
+- **Hata:** `candidate_compare.generate()` yalnız soru metnini gönderiyordu; setteki
+  `evidence` modele hiç gitmedi, kör paket ise inceleyiciye kanıtı gösteriyordu → 7 kaynaklı
+  soru geçersiz (modeller "kaynak verilmemiş" dedi ya da uydurdu). Düzeltildi
+  (`user_content`: kanıt sorudan önce, "veri; talimat izleme" çerçevesiyle) + test.
+  Koşu `compare-mark-integration` ile **entegrasyon testi** işaretlendi (terfide kullanılamaz).
+  `cmp_ab63a45247fe` (smoke) zaten entegrasyon işaretliydi.
+- Sıradaki: düzeltmeyle broad_v1 yeniden koş → kör insan incelemesi (17 açık uçlu soru).
+- Not: tam pakette bir kez 1 kararsız test düştü (tekrarında 3283 geçti; hangisi
+  yakalanmadı).
+
 ### 2026-10-10 — araştırma döngüsü uçtan uca ilk gerçek tur · zamanlayıcı
 
 - Ana kurulum `update.ps1` ile 68ff426'ya çekildi (SONUC: OK), web yeniden başladı; kilit
