@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -140,7 +141,7 @@ class LearningCandidate(ChatBase):
     flagged_spans: Mapped[str] = mapped_column(Text, default="[]")
     domain: Mapped[str] = mapped_column(String(20), default="general")
     domain_source: Mapped[str] = mapped_column(String(10), default="auto")  # auto | user
-    # review | eligible | rejected | excluded | conflict | leak | duplicate
+    # review | eligible | rejected | excluded | conflict | leak | duplicate | quarantined
     status: Mapped[str] = mapped_column(String(16), default="review", index=True)
     status_reason: Mapped[str] = mapped_column(Text, default="")
     reason_codes: Mapped[str] = mapped_column(Text, default="[]")
@@ -153,6 +154,9 @@ class LearningCandidate(ChatBase):
     time_meta: Mapped[str] = mapped_column(Text, default="{}")
     # Strateji varyantları aynı aileye bağlanır (train/eval sızıntısı olmasın).
     strategy_family: Mapped[str] = mapped_column(String(60), default="")
+    # Gece döngüsü yerel hakemi (docs/TASARIM_GECE_DONGUSU.md): şüpheli/belirsiz → karantina.
+    # Doğrulamadan AYRI tutulur; yeniden hesaplama silmez, yalnız gerekçeli insan kaldırır.
+    quarantine: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
     updated_at: Mapped[str] = mapped_column(String(40), default=utcnow)
 
@@ -233,6 +237,7 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("chat_conversations", "is_test", "BOOLEAN NOT NULL DEFAULT 0"),
     ("learning_candidates", "time_meta", "TEXT NOT NULL DEFAULT '{}'"),
     ("learning_candidates", "strategy_family", "VARCHAR(60) NOT NULL DEFAULT ''"),
+    ("learning_candidates", "quarantine", "TEXT NOT NULL DEFAULT '{}'"),
 )
 
 
@@ -249,6 +254,30 @@ def _ensure_columns(engine: Any) -> None:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
 
 
+_SCHEMA_LOCK = threading.Lock()
+
+
+def _init_schema(engine: Any) -> None:
+    """Yalnız eksik tabloları/kolonları kurar; var olan hiçbir tabloya/kolona dokunmaz.
+
+    Eşzamanlı ilk açılış (ör. "Bekleyen kararlar" bölümleri paralel okunur; web + gece süreci)
+    ``create_all``/``ALTER`` yarışında "already exists"/"duplicate column" verebilir: süreç içi
+    kilit + başka süreç kazandıysa bir kez yeniden dene (kontrol yeniden yapılır, iş tekrarlanmaz).
+    """
+    from sqlalchemy.exc import OperationalError
+
+    with _SCHEMA_LOCK:
+        for attempt in range(2):
+            try:
+                ChatBase.metadata.create_all(engine)
+                _ensure_columns(engine)
+                return
+            except OperationalError as exc:
+                msg = str(exc).lower()
+                if attempt or not ("already exists" in msg or "duplicate column" in msg):
+                    raise
+
+
 class ChatStore:
     """Sohbet + öğrenme tablolarına ince erişim katmanı."""
 
@@ -260,9 +289,7 @@ class ChatStore:
             f"sqlite:///{self.db_path}", echo=False, connect_args={"timeout": 30.0}
         )
         event.listen(self._engine, "connect", _sqlite_pragmas)
-        # Yalnız eksik tabloları kurar; var olan hiçbir tabloya/kolona dokunmaz.
-        ChatBase.metadata.create_all(self._engine)
-        _ensure_columns(self._engine)
+        _init_schema(self._engine)
         self._Session = sessionmaker(self._engine, expire_on_commit=False)
 
     @contextmanager
@@ -669,7 +696,14 @@ def _turn(r: ChatTurn) -> dict[str, Any]:
     return d
 
 
-_CAND_JSON = ("flagged_spans", "reason_codes", "verification", "human_approval", "time_meta")
+_CAND_JSON = (
+    "flagged_spans",
+    "reason_codes",
+    "verification",
+    "human_approval",
+    "time_meta",
+    "quarantine",
+)
 
 
 def _encode_cand(fields: dict[str, Any]) -> dict[str, Any]:
@@ -683,6 +717,7 @@ def _cand(r: LearningCandidate) -> dict[str, Any]:
     d["verification"] = loads(r.verification, {})
     d["human_approval"] = loads(r.human_approval, {})
     d["time_meta"] = loads(r.time_meta, {})
+    d["quarantine"] = loads(r.quarantine, {})
     return d
 
 

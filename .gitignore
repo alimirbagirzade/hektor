@@ -111,6 +111,10 @@ storage/mcp/
 
 # Haftalık bug-avı raporları makineye özgüdür (dizin .gitkeep ile korunur).
 reports/bug-scan/*
+# Gece döngüsü + CSV laboratuvarı çıktıları (docs/TASARIM_GECE_DONGUSU.md)
+reports/nightly/
+reports/csv_lab/
+storage/nightly/
 !reports/bug-scan/.gitkeep
 
 # OS / editor

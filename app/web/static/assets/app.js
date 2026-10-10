@@ -5572,6 +5572,7 @@
     conflict: "Çatışma",
     leak: "Eval sızıntısı",
     duplicate: "Yinelenen",
+    quarantined: "Karantina (gece hakemi)",
   };
   var LP_STATUS_CLS = {
     review: "badge-warning",
@@ -5581,6 +5582,7 @@
     conflict: "badge-danger",
     leak: "badge-danger",
     duplicate: "badge-info",
+    quarantined: "badge-danger",
   };
   var CHECK_KIND = {
     hesap: "Hesap",
@@ -6849,6 +6851,10 @@
       (c.cloud_check ? '<div class="small"><span class="badge badge-llm" title="Bulut kontrolü doğrulama değildir; adayın durumunu değiştirmez.">bulut: ' +
         esc(c.cloud_check.status === "done" ? (c.cloud_check.verdict || "belirsiz") : c.cloud_check.status) + "</span>" +
         (c.cloud_check.target_sha && c.cloud_check.target_sha !== c.target_sha ? ' <span class="muted small">(hedef metin sonradan değişti)</span>' : "") + "</div>" : "") +
+      ((c.quarantine || {}).verdict ? '<div class="small"><span class="badge ' + (c.status === "quarantined" ? "badge-danger" : "badge-info") +
+        '" title="Yerel gece hakemi — doğrulama değildir; yalnız şüpheyi karantinaya alır.">gece hakemi: ' + esc(c.quarantine.verdict) + "</span> " +
+        esc((c.quarantine.reason || "").slice(0, 400)) +
+        ((c.quarantine.lifted || {}).reason ? ' <span class="muted">· kaldırıldı: “' + esc(c.quarantine.lifted.reason) + "”</span>" : "") + "</div>" : "") +
       ((c.time_meta || {}).run_id ? '<div class="small muted">Bağlı koşu ' + esc(c.time_meta.run_id) + " (" + esc(c.time_meta.stage || "") +
         ") · veri " + esc(c.time_meta.data_start || "") + " → " + esc(c.time_meta.data_end || "") + " · strateji " + esc(c.time_meta.strategy_created_at || "") +
         " · koşu " + esc(c.time_meta.backtest_run_at || "") + " · bilgi zamanı " + esc(c.time_meta.knowledge_available_at || "") + "</div>" : "") +
@@ -6856,6 +6862,7 @@
       '<button type="button" class="btn btn-sm" data-lp="edit">Düzenle / eksik kısmı çıkar</button>' +
       '<button type="button" class="btn btn-sm" data-lp="cloud" title="Bu TEK adayı buluta kontrol ettir (önce gönderilecek metin gösterilir).">Bulut kontrolü (K2)</button>' +
       '<button type="button" class="btn btn-sm" data-lp="linkrun" title="Bu turdan yapılmış strateji test koşusunu bağla: performans iddiası kayıtlı hesapla karşılaştırılır.">Test koşusu bağla</button>' +
+      (c.status === "quarantined" ? '<button type="button" class="btn btn-sm" data-lp="unquarantine" title="Karantinayı gerekçeyle kaldır; aday doğrulama kurallarına döner (eğitim onayı değildir).">Karantinayı kaldır</button>' : "") +
       (c.status === "review" ? '<button type="button" class="btn btn-sm" data-lp="approve" title="Çürütülmüş ifadeleri ve backtest’siz performans iddiasını onay geçerli kılamaz.">Gerekçeyle onayla</button>' : "") +
       "</div></div>"
     );
@@ -7002,6 +7009,22 @@
     var path = "/learn/candidates/" + encodeURIComponent(id);
     var cand = (lpState.items || []).filter(function (x) { return x.candidate_id === id; })[0] || {};
     if (act === "cloud") { openK2Dialog(id); return; }
+    if (act === "unquarantine") {
+      inlineEditor(card, {
+        title: "Karantinayı neden kaldırıyorsunuz? (en az 10 karakter)",
+        help: "Hakem gerekçesini ve kaynakları okuyun. Kaldırmak eğitim onayı DEĞİLDİR; aday doğrulama kurallarına döner.",
+        minLen: 10,
+        rows: 3,
+        submit: "Karantinayı kaldır",
+        onSubmit: function (reason) {
+          return postJson(path + "/lift-quarantine", { reason: reason }).then(function () {
+            toast("Karantina kaldırıldı.");
+            loadLearnPool();
+          });
+        },
+      });
+      return;
+    }
     if (act === "approve") {
       inlineEditor(card, {
         title: "Gerekçeyle onayla (en az 10 karakter)",

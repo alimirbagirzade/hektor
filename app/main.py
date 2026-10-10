@@ -35,6 +35,11 @@ from app.lora.mix_cli import mix_app  # noqa: E402
 
 app.add_typer(mix_app, name="mix")
 
+# Gece döngüsü (hektor gece · csv-lab · karantina · karantina-kaldir) — ayrı modül.
+from app.orchestration.nightly_cli import register as _register_nightly  # noqa: E402
+
+_register_nightly(app)
+
 
 @app.callback()
 def _root(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:

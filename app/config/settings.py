@@ -272,6 +272,16 @@ class Settings(BaseSettings):
     # her parça ayrı önizleme + ayrı insan tıklaması + ayrı kota.
     cloud_judge_max_chars: int = 30000
 
+    # --- Gece döngüsü (docs/TASARIM_GECE_DONGUSU.md) ---
+    # Yerel hakem modeli (boş → llm_model). Ollama Cloud etiketi REDDEDİLİR (uzakta çalışır).
+    nightly_judge_model: str = ""
+    nightly_judge_max: int = 40  # gece başına YENİ yargılanacak en fazla aday (kalan ertesi gece)
+    # CSV laboratuvarı: profil/saat dilimi yan dosyada ya da dosya adında yoksa kullanılır.
+    # Boş saat dilimi + ofsetsiz damga → dosya ATLANIR (sessizce UTC varsayılmaz).
+    csv_lab_default_tz: str = ""
+    csv_lab_max_files: int = 5  # gece başına işlenecek en fazla YENİ CSV
+    csv_lab_top_k: int = 3  # geliştirmede seçilip doğrulama dönemine bakılacak aday sayısı
+
     # --- Trading ---
     default_market: str = "XAUUSD"
     default_timeframe: str = "15m"
