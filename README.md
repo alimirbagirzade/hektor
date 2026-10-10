@@ -1136,6 +1136,11 @@ uv run hektor approval-reject <id>     # onayı reddet
 uv run hektor approval-status <id>     # bir onayın durumunu READ-ONLY göster (tüketmez)
 uv run hektor train-doctor             # koşan eğitimin sağlığı + yetkisi (salt-okuma; DİKKAT/OK/BOŞTA)
 uv run hektor kademe2-kayit --findings f.json --recipe-sha <sha> --evidence "..."  # kapanmış Kademe 2 kaydı (kolay eğitim akışı ister)
+uv run hektor gece                     # gün sonu döngüsü: yerel hakem → karantina → CSV lab → eğitim hazırlık RAPORU (eğitim başlatmaz)
+uv run hektor gece -a csv              #   yalnız seçili adım(lar): hakem · csv · egitim
+uv run hektor csv-lab [--dosya X.csv]  # data/market/raw CSV'lerinden gösterge/strateji ADAYI (geliştirmede seç, OOS bir kez; final dokunulmaz)
+uv run hektor karantina                # gece hakeminin karantinaya aldığı öğrenme adayları (eğitime girmez)
+uv run hektor karantina-kaldir <aday> --gerekce "..."  # (insan) karantinayı gerekçeyle kaldır — eğitim onayı değildir
 uv run hektor candidate-verify <adapter> --ollama-tag <etiket>  # tamamlanma + dönüşüm doğrulaması (salt-okuma)
 uv run hektor compare-run --set s.jsonl --active A --candidate C --base B --adapter <ad>  # kilitli ölçütle karşılaştırma + kör paket (etkinleştirmez)
 uv run hektor compare-lock-criteria --preset boyutlu  # ölçütü cevaplar görülmeden kilitle (broad_v1 boyutlu ölçütü)

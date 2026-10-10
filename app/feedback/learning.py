@@ -9,8 +9,13 @@ Kullanıcı eylemleri → etki:
 - Hariç tut: tur ve adayları eğitimden çıkar. Eski veri sürümlerini DEĞİŞTİRMEZ; yeni bir
              eğitim başlatılırken seçili sürümdeki geçersiz kayıtlar tespit edilip durdurulur.
 
-Durum önceliği: hariç > sızıntı > aile köprüsü çatışması > doğrulama kararı > aile denetimi
-(yinelenen / farklı sayısal sonuç). Hiçbir adım eğitim başlatmaz (Kural 8).
+Durum önceliği: hariç > sızıntı > aile köprüsü çatışması > karantina > doğrulama kararı > aile
+denetimi (yinelenen / farklı sayısal sonuç). Hiçbir adım eğitim başlatmaz (Kural 8).
+
+Karantina (gece döngüsü yerel hakemi, ``docs/TASARIM_GECE_DONGUSU.md``): hakem "şüpheli" ya da
+"belirsiz" derse aday ``quarantined`` olur ve eğitime girmez (yalnız ``eligible`` girer). Kayıt
+doğrulamadan AYRIDIR; yeniden hesaplama silmez. Yalnız gerekçeli insan kararı kaldırır; aynı
+hedef metin için kaldırılmış karantina hakem tarafından yeniden konmaz.
 """
 
 from __future__ import annotations
@@ -25,6 +30,26 @@ from app.feedback.chat_store import ChatStore, utcnow
 from app.feedback.verify import DOMAINS, decide, detect_domain, sha256_text, verify_target
 
 LABELS = ("useful", "wrong", "")
+
+
+QUARANTINE_STATUSES = ("eligible", "review")
+
+
+def quarantine_active(cand: dict[str, Any]) -> bool:
+    q = cand.get("quarantine") or {}
+    return bool(q.get("active")) and not q.get("lifted")
+
+
+def _apply_quarantine(
+    cand: dict[str, Any], decided: tuple[str, str, list[str], str]
+) -> tuple[str, str, list[str], str]:
+    """Karantina doğrulama kararını (uygun/inceleme) bastırır; ret daha güçlü kalır."""
+    status, _reason, _codes, vclass = decided
+    if quarantine_active(cand) and status in QUARANTINE_STATUSES:
+        q = cand["quarantine"]
+        why = f"Karantina (yerel hakem: {q.get('verdict', '?')}): {q.get('reason', '')}".strip()
+        return "quarantined", why[:2000], ["karantina"], vclass
+    return decided
 
 
 class LearningError(ValueError):
@@ -213,6 +238,48 @@ class LearningService:
         )
         return self.recompute(candidate_id)
 
+    # ── karantina (gece döngüsü yerel hakemi) ────────────────────────────────
+
+    def set_quarantine(
+        self, candidate_id: str, *, verdict: str, reason: str, judge_id: str, model: str
+    ) -> dict[str, Any]:
+        """Hakem şüpheli/belirsiz dedi → karantina. Aynı hedef için insanın kaldırdığı karantina
+        YENİDEN konmaz (insan kararı geçerli kalır); hedef değiştiyse yeni karar uygulanır."""
+        cand = self._cand(candidate_id)
+        q = cand.get("quarantine") or {}
+        lifted = q.get("lifted") or {}
+        if lifted and lifted.get("target_sha") == cand["target_sha"]:
+            return cand
+        self.store.update_candidate(
+            candidate_id,
+            quarantine={
+                "active": True,
+                "verdict": verdict,
+                "reason": (reason or "")[:2000],
+                "judge_id": judge_id,
+                "model": model,
+                "target_sha": cand["target_sha"],
+                "at": utcnow(),
+                "lifted": {},
+            },
+        )
+        return self.recompute(candidate_id)
+
+    def lift_quarantine(self, candidate_id: str, reason: str) -> dict[str, Any]:
+        """Gerekçeli İNSAN kararı karantinayı kaldırır (aday yeniden doğrulama kararına döner;
+        bu bir eğitim onayı DEĞİLDİR — uygunluk yine doğrulama/insan onayı kurallarıyla)."""
+        reason = (reason or "").strip()
+        if len(reason) < 10:
+            raise LearningError("Karantina kaldırma gerekçesi en az 10 karakter olmalı.")
+        cand = self._cand(candidate_id)
+        if not quarantine_active(cand):
+            raise LearningError("Bu aday karantinada değil.")
+        q = dict(cand["quarantine"])
+        q["active"] = False
+        q["lifted"] = {"reason": reason, "at": utcnow(), "target_sha": cand["target_sha"]}
+        self.store.update_candidate(candidate_id, quarantine=q)
+        return self.recompute(candidate_id)
+
     # ── test koşusu bağlantısı (zaman alanları ayrı) ─────────────────────────
 
     def link_run(self, candidate_id: str, run_id: str) -> dict[str, Any]:
@@ -295,7 +362,9 @@ class LearningService:
             domain=cand["domain"],
             run_link=self._run_link(cand),
         )
-        status, reason, codes, vclass = decide(verification, cand["human_approval"])
+        status, reason, codes, vclass = _apply_quarantine(
+            cand, decide(verification, cand["human_approval"])
+        )
         verification["class"] = vclass
         fields: dict[str, Any] = {"verification": verification}
 
@@ -432,7 +501,9 @@ class LearningService:
         base: list[dict[str, Any]] = []
         for c in members:
             if c["status"] in ("duplicate", "conflict"):
-                st, reason, codes, _vclass = decide(c["verification"], c["human_approval"])
+                st, reason, codes, _vclass = _apply_quarantine(
+                    c, decide(c["verification"], c["human_approval"])
+                )
                 c = (
                     self.store.update_candidate(
                         c["candidate_id"], status=st, status_reason=reason, reason_codes=codes

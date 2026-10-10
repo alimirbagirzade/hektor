@@ -203,6 +203,68 @@ def _k2_items(cloud_on: bool) -> list[dict[str, Any]]:
     ]
 
 
+def _nightly_items() -> list[dict[str, Any]]:
+    """Gece döngüsü (docs/TASARIM_GECE_DONGUSU.md): karantina kararları + CSV adayları."""
+    from datetime import UTC, datetime
+
+    from app.feedback.chat_store import ChatStore
+    from app.orchestration import nightly
+
+    items: list[dict[str, Any]] = []
+    q = ChatStore().list_candidates(status="quarantined")
+    if q:
+        items.append(
+            {
+                "key": "karantina",
+                "stage": "ogrenme",
+                "who": "insan",
+                "title": f"{len(q)} öğrenme adayı karantinada (yerel hakem şüphelendi)",
+                "detail": "Eğitime girmezler. İnceleyin; gerekçeyle karantinayı kaldırabilirsiniz.",
+                "where": "ogrenme_havuzu",
+            }
+        )
+    last = nightly.latest()
+    if last is None:
+        return items
+    try:
+        age_h = (
+            datetime.now(UTC) - datetime.fromisoformat(str(last.get("started_at")))
+        ).total_seconds() / 3600
+    except (TypeError, ValueError):
+        age_h = 0.0
+    if age_h > 36:
+        items.append(
+            {
+                "key": "gece_gecikti",
+                "stage": "gece",
+                "who": "sistem",
+                "title": f"Gece döngüsü {age_h:.0f} saattir koşmadı",
+                "detail": "Görev zamanlayıcıyı kontrol edin (scripts/install-nightly-task.ps1).",
+                "where": "ogrenme_havuzu",
+            }
+        )
+    csv = (last.get("steps") or {}).get("csv") or {}
+    fresh = [
+        e
+        for f in csv.get("files", [])
+        for e in (f.get("report") or {}).get("selected", [])
+        if e.get("verdict") == "aday_oos_tutarli"
+    ]
+    if fresh:
+        items.append(
+            {
+                "key": "csv_aday",
+                "stage": "gece",
+                "who": "insan",
+                "title": f"{len(fresh)} CSV adayı örneklem dışında tutarlı — denetim bekliyor",
+                "detail": "ADAYDIR, hazır değil: /backtest-auditor + final dönem (bir kez) sizde. "
+                + (last.get("report_md") or ""),
+                "where": "ogrenme_havuzu",
+            }
+        )
+    return items
+
+
 def pending_decisions(section_timeout_s: float = 10.0) -> dict[str, Any]:
     """Döngünün bekleyen insan kararları (salt-okuma). Bir bölüm hata verirse diğerleri sürer."""
     from app.cloud.second_opinion import status as cloud_status
@@ -217,6 +279,7 @@ def pending_decisions(section_timeout_s: float = 10.0) -> dict[str, Any]:
         ("isler", _job_items),
         ("degerlendirme", lambda: _comparison_items(cloud_on)),
         ("ogrenme", lambda: _k2_items(cloud_on)),
+        ("gece", _nightly_items),
     ]
     # Bölümler paralel ve SÜRE SINIRLI okunur: biri takılırsa (git/SQLite/dosya kilidi) kutu yine
     # döner, takılan bölüm "zaman aşımı" diye görünür (2026-10-10: arka plan döngüleri açık web
