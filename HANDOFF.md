@@ -33,6 +33,15 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-10 — Tek tıklamalı döngü + bulut hakem (Seçenek A)
+
+Tasarım ve sapmalar: `docs/TASARIM_SUREKLI_DONGU.md`. Öğrenme Havuzu'nda "Bekleyen kararlar"
+kutusu (salt-okuma), aday hattında "hazırla → doğrulanınca karşılaştır" zinciri, K1 bulut
+hakem (kör paket, parça başına tık → ayrı AI incelemesi) ve K2 (aday başına tık, rapor).
+Eğitim onayı/Kademe 2 değişmedi. **Gerçek `claude -p` ile henüz denenmedi** (sıradaki adım:
+tek K1 parçası + tek K2). Açık: arka plan döngüleri açıkken `/api/loop/pending` bir kez
+takıldı — süre sınırı eklendi, kök neden bulunamadı (tasarım §6).
+
 ### 2026-10-10 — Kademe 2 (798c4ca..ae73710 + pilot yolu) · aday veri denetimi
 
 Kanıt: `docs/evidence/kademe2_2026-10-10.json` (bulgu-bazında karar).

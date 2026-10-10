@@ -5907,6 +5907,127 @@
       .catch(function (e) { body.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
   }
 
+  // --- Tek tıklamalı döngü (docs/TASARIM_SUREKLI_DONGU.md): K1/K2 bulut hakem + bekleyen kararlar ---
+  // Her gönderim ayrı önizleme + ayrı tık; bulut sonucu ayrı kayıtta durur, karara/eğitime girmez.
+  function judgeHead(p) {
+    var pol = p.policy || {};
+    return '<div class="small"><strong>Sağlayıcı:</strong> ' + esc(p.provider || "(seçilmedi)") + " · " + esc(p.provider_detail || "") + "</div>" +
+      (pol.reason ? '<div class="small"><strong>Kullanım şartı:</strong> ' + esc(pol.reason) + "</div>" : "") +
+      '<div class="small"><strong>Kota (ikinci görüşle ortak):</strong> bugün ' + esc(String((p.quota || {}).used_today)) + " / " + esc(String((p.quota || {}).daily_max)) +
+      " · <strong>Maliyet:</strong> " + esc(p.cost_note || "") + "</div>" +
+      '<div class="small"><strong>İptal:</strong> ' + esc(p.cancel_note || "") + "</div>" +
+      '<div class="small"><strong>Gönderilmeyenler:</strong> ' + esc((p.not_sent || []).join(" · ")) + "</div>" +
+      ((p.blockers || []).length ? '<div class="chat-blocked">Kapalı: ' + p.blockers.map(esc).join("<br>") + "</div>" : "") +
+      '<div class="small"><strong>' + esc(p.note || "") + "</strong></div>";
+  }
+  function judgeRecHtml(r) {
+    var st = r.status || "";
+    var body = st === "pending" ? '<span class="spinner"></span> bekleniyor…'
+      : st === "done" && r.kind === "k2" ? "<strong>bulut: " + esc(r.verdict || "belirsiz") + "</strong><div>" + nl2br(r.text || "") + "</div>"
+      : st === "done" ? "Parça puanlandı (" + esc(String((r.question_ids || []).length)) + " soru)." + (r.error ? ' <span class="chat-blocked small">' + esc(r.error) + "</span>" : "")
+      : esc(r.error || st) + (r.text ? '<details><summary>Ham cevap</summary><pre class="chat-pre">' + esc(r.text) + "</pre></details>" : "");
+    return '<div class="lp-box"><div class="lp-lbl">' + esc(r.id) + " · " + esc(r.provider || "") + " · " + esc(st) + '</div><div class="small">' + body + "</div></div>";
+  }
+  function pollJudge(id, box, onDone) {
+    api("/cloud/judge/" + encodeURIComponent(id), { method: "GET" })
+      .then(function (r) {
+        box.innerHTML = judgeRecHtml(r) + (r.status === "pending" ? '<button type="button" class="btn btn-sm" id="judgeCancel">İptal</button>' : "");
+        var c = document.getElementById("judgeCancel");
+        if (c) c.addEventListener("click", function () {
+          postJson("/cloud/judge/" + encodeURIComponent(id) + "/cancel", {}).then(function () { pollJudge(id, box, onDone); });
+        });
+        if (r.status === "pending") setTimeout(function () { pollJudge(id, box, onDone); }, 2500);
+        else if (onDone) onDone(r);
+      })
+      .catch(function (e) { box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  function judgeDialog(title) {
+    var d = cloudDialog();
+    d.innerHTML = "<h3>" + esc(title) + '</h3><div id="judgeBody"><span class="spinner"></span> önizleme…</div>' +
+      '<div class="dlg-actions"><button type="button" class="btn" id="judgeClose">Kapat</button></div>';
+    if (!d.open) d.showModal();
+    document.getElementById("judgeClose").addEventListener("click", function () { d.close(); });
+    return document.getElementById("judgeBody");
+  }
+  function openK1Dialog(cmpId) {
+    var body = judgeDialog("Bulut hakem (K1) — kör paket · " + cmpId);
+    api("/cloud/judge/k1/" + encodeURIComponent(cmpId) + "/preview", { method: "GET" })
+      .then(function (p) {
+        var nx = p.next;
+        body.innerHTML = judgeHead(p) +
+          '<table class="lp-table"><thead><tr><th>Parça</th><th>Soru</th><th>Boyut</th><th>Durum</th></tr></thead><tbody>' +
+          (p.parts || []).map(function (r) {
+            return "<tr><td>" + esc(String(r.index + 1)) + " / " + esc(String(p.n_parts)) + "</td><td>" + esc(String(r.question_ids.length)) +
+              "</td><td>" + esc(String(r.chars)) + " kr</td><td>" + esc(r.status) + (r.error ? ' <span class="muted small">' + esc(r.error) + "</span>" : "") + "</td></tr>";
+          }).join("") + "</tbody></table>" +
+          (p.ai_review_written ? '<div class="small"><strong>Tüm parçalar bitti; puanlar AI incelemesi olarak AYRI kaydedildi (insan puanı değil).</strong></div>' : "") +
+          (nx ? '<details open><summary>Gönderilecek parça ' + esc(String(nx.index + 1)) + " — metnin TAMAMI (sha256 " + esc(String(nx.payload_sha256).slice(0, 12)) +
+            "…, ~" + esc(String(nx.est_input_tokens)) + ' token)</summary><pre class="chat-pre">' + esc(nx.payload) + "</pre></details>" +
+            '<button type="button" class="btn btn-primary" id="k1Send"' + (p.enabled ? "" : " disabled") + ">Bu parçayı gönder</button>" : "") +
+          '<div id="k1Result"></div>';
+        var send = document.getElementById("k1Send");
+        if (send) send.addEventListener("click", function () {
+          send.disabled = true;
+          postJson("/cloud/judge/k1/" + encodeURIComponent(cmpId), { part_index: nx.index, payload_sha256: nx.payload_sha256 })
+            .then(function (r) {
+              pollJudge(r.id, document.getElementById("k1Result"), function (done) {
+                loadLoopPending();
+                if (done.status === "done") { toast("Parça bitti — önizleme yenilendi."); openK1Dialog(cmpId); }
+              });
+            })
+            .catch(function (e) { toast(e.message, true); send.disabled = false; });
+        });
+      })
+      .catch(function (e) { body.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  function openK2Dialog(candId) {
+    var body = judgeDialog("Bulut kontrolü (K2) — tek aday");
+    api("/cloud/judge/k2/" + encodeURIComponent(candId) + "/preview", { method: "GET" })
+      .then(function (p) {
+        body.innerHTML = judgeHead(p) +
+          '<details open><summary>Gönderilecek metnin TAMAMI (sha256 ' + esc(String(p.payload_sha256).slice(0, 12)) + "…, ~" + esc(String(p.est_input_tokens)) +
+          ' token)</summary><pre class="chat-pre">' + esc(p.payload) + "</pre></details>" +
+          '<button type="button" class="btn btn-primary" id="k2Send"' + (p.enabled ? "" : " disabled") + ">Bu adayı gönder</button>" +
+          '<div id="k2Result">' + (p.history || []).slice(-1).map(judgeRecHtml).join("") + "</div>";
+        var send = document.getElementById("k2Send");
+        send.addEventListener("click", function () {
+          send.disabled = true;
+          postJson("/cloud/judge/k2/" + encodeURIComponent(candId), { payload_sha256: p.payload_sha256 })
+            .then(function (r) { pollJudge(r.id, document.getElementById("k2Result"), function () { loadLearnPool(); }); })
+            .catch(function (e) { toast(e.message, true); send.disabled = false; });
+        });
+      })
+      .catch(function (e) { body.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  var LOOP_WHO = { insan: "badge-warning", sistem: "badge-info" };
+  function loadLoopPending() {
+    var box = document.getElementById("loopBox");
+    if (!box) return;
+    api("/loop/pending", { method: "GET" })
+      .then(function (d) {
+        var items = d.items || [];
+        box.innerHTML = (items.length ? items.map(function (it) {
+          var btn = it.k1_available ? ' <button type="button" class="btn btn-sm" data-loop="k1" data-id="' + esc(it.comparison_id) + '">Bulut hakem (K1)</button>'
+            : it.where === "karsilastirma" ? ' <button type="button" class="btn btn-sm" data-loop="goto" data-target="cmpCard">Kör incelemeye git</button>'
+            : it.where === "aday_hatti" ? ' <button type="button" class="btn btn-sm" data-loop="goto" data-target="pipeCard">Aday hattına git</button>'
+            : it.where === "ogrenme_havuzu" ? ' <button type="button" class="btn btn-sm" data-loop="goto" data-target="lpList">Adaylara git</button>'
+            : "";
+          return '<div class="lp-card"><span class="badge ' + (LOOP_WHO[it.who] || "badge-info") + '">' + esc(it.who) + "</span> <strong>" + esc(it.title) + "</strong>" + btn +
+            (it.detail ? '<div class="muted small">' + esc(it.detail) + "</div>" : "") + "</div>";
+        }).join("") : '<p class="muted small">Bekleyen karar yok.</p>') +
+          ((d.errors || []).length ? '<div class="chat-blocked small">Okunamayan bölüm: ' + d.errors.map(esc).join(" | ") + "</div>" : "") +
+          '<div class="muted small">' + esc(d.note || "") + (d.cloud_enabled ? "" : " Bulut hakem kapalı (HEKTOR_CLOUD_SECOND_OPINION).") + "</div>";
+      })
+      .catch(function (e) { box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  function onLoopAction(ev) {
+    var b = ev.target.closest("button[data-loop]");
+    if (!b) return;
+    if (b.getAttribute("data-loop") === "k1") { openK1Dialog(b.getAttribute("data-id")); return; }
+    var el = document.getElementById(b.getAttribute("data-target"));
+    if (el) el.scrollIntoView();
+  }
+
   function newConversation(isTest) {
     return postJson("/chat/conversations", { slot: chatState.slot, is_test: !!isTest }).then(function (c) {
       chatState.conv = c;
@@ -6725,11 +6846,15 @@
       (unc.length ? ' <details class="inline-details"><summary>kontrol edilemeyen ' + unc.length + "</summary><ul>" + unc.map(function (u) { return "<li>" + esc(u) + "</li>"; }).join("") + "</ul></details>" : "") + "</div>" +
       (c.status_reason ? '<div class="small">' + esc(c.status_reason) + "</div>" : "") +
       (ha.reason ? '<div class="small">İnsan onayı: “' + esc(ha.reason) + "” (" + esc(ha.at || "") + ")</div>" : "") +
+      (c.cloud_check ? '<div class="small"><span class="badge badge-llm" title="Bulut kontrolü doğrulama değildir; adayın durumunu değiştirmez.">bulut: ' +
+        esc(c.cloud_check.status === "done" ? (c.cloud_check.verdict || "belirsiz") : c.cloud_check.status) + "</span>" +
+        (c.cloud_check.target_sha && c.cloud_check.target_sha !== c.target_sha ? ' <span class="muted small">(hedef metin sonradan değişti)</span>' : "") + "</div>" : "") +
       ((c.time_meta || {}).run_id ? '<div class="small muted">Bağlı koşu ' + esc(c.time_meta.run_id) + " (" + esc(c.time_meta.stage || "") +
         ") · veri " + esc(c.time_meta.data_start || "") + " → " + esc(c.time_meta.data_end || "") + " · strateji " + esc(c.time_meta.strategy_created_at || "") +
         " · koşu " + esc(c.time_meta.backtest_run_at || "") + " · bilgi zamanı " + esc(c.time_meta.knowledge_available_at || "") + "</div>" : "") +
       '<div class="lp-actions">' +
       '<button type="button" class="btn btn-sm" data-lp="edit">Düzenle / eksik kısmı çıkar</button>' +
+      '<button type="button" class="btn btn-sm" data-lp="cloud" title="Bu TEK adayı buluta kontrol ettir (önce gönderilecek metin gösterilir).">Bulut kontrolü (K2)</button>' +
       '<button type="button" class="btn btn-sm" data-lp="linkrun" title="Bu turdan yapılmış strateji test koşusunu bağla: performans iddiası kayıtlı hesapla karşılaştırılır.">Test koşusu bağla</button>' +
       (c.status === "review" ? '<button type="button" class="btn btn-sm" data-lp="approve" title="Çürütülmüş ifadeleri ve backtest’siz performans iddiasını onay geçerli kılamaz.">Gerekçeyle onayla</button>' : "") +
       "</div></div>"
@@ -6876,6 +7001,7 @@
     var act = b.getAttribute("data-lp");
     var path = "/learn/candidates/" + encodeURIComponent(id);
     var cand = (lpState.items || []).filter(function (x) { return x.candidate_id === id; })[0] || {};
+    if (act === "cloud") { openK2Dialog(id); return; }
     if (act === "approve") {
       inlineEditor(card, {
         title: "Gerekçeyle onayla (en az 10 karakter)",
@@ -7049,6 +7175,9 @@
                 : c.status === "reviewed"
                 ? '<button type="button" class="btn btn-sm" data-cmp="finalize" data-id="' + esc(c.comparison_id) + '">Kararı hesapla</button>'
                 : '<button type="button" class="btn btn-sm" data-cmp="result" data-id="' + esc(c.comparison_id) + '">Sonuç</button>';
+              if (c.status === "generated" || c.status === "reviewed" || c.status === "decided") {
+                act += ' <button type="button" class="btn btn-sm" data-cmp="k1" data-id="' + esc(c.comparison_id) + '" title="Kör paketi buluta puanlat (her parça ayrı tık); insan puanı değildir, karara girmez.">Bulut hakem (K1)</button>';
+              }
               return "<tr><td>" + esc(c.comparison_id) + '<div class="muted small">' + esc(c.created_at || "") + "</div>" +
                 (c.purpose === "entegrasyon_testi" ? '<span class="badge badge-warning" title="Kalite üstünlüğü / terfi için kullanılamaz">YALNIZ ENTEGRASYON TESTİ</span>' : "") +
                 "</td><td>" + esc(c.role) +
@@ -7159,6 +7288,7 @@
     if (!b) return;
     var id = b.getAttribute("data-id");
     var act = b.getAttribute("data-cmp");
+    if (act === "k1") { openK1Dialog(id); return; }
     if (act === "review") {
       api("/compare/" + encodeURIComponent(id) + "/blind", { method: "GET" })
         .then(function (d) { renderBlind(id, d.items || []); })
@@ -7191,6 +7321,8 @@
       (j.error ? '<div class="chat-blocked small">' + esc(j.error) + "</div>" : "") +
       (j.status === "done" && j.kind === "conversion" ? '<div class="small">Dönüşüm doğrulandı · digest ' +
         esc(((j.verification || {}).digest || "").slice(0, 12)) + "…</div>" : "") +
+      ((j.chain || {}).job_id ? '<div class="small">Karşılaştırma kendiliğinden başlatıldı: ' + esc(j.chain.job_id) + "</div>" : "") +
+      ((j.chain || {}).error ? '<div class="chat-blocked small">Karşılaştırma başlatılamadı (elle başlatın): ' + esc(j.chain.error) + "</div>" : "") +
       (j.status === "done" && j.kind === "comparison" ? '<div class="small">Üretim tamam: ' + esc((j.verification || {}).comparison_id || "") +
         " — kör incelemeye geçin.</div>" : "") +
       (active ? ' <button type="button" class="btn btn-sm" data-pipe="stop" data-job="' + esc(j.job_id) + '">Güvenle durdur</button>' : "") +
@@ -7237,7 +7369,7 @@
         "<details" + (comp.ok ? "" : " open") + "><summary>1 · Adayı doğrula</summary>" + pipeChecks(comp) +
         ((comp.evidence || []).length ? '<div class="small muted">' + comp.evidence.map(esc).join("<br>") + "</div>" : "") + "</details>" +
         '<div class="st-step"><strong>2 · Ollama\'ya hazırla</strong> etiket <input data-f="tag" value="' + esc(tag) + '" size="26"/> şablon <input data-f="tpl" value="' +
-        esc(df.template_from || "") + '" size="22"/> <button type="button" class="btn btn-sm" data-pipe="prepare"' +
+        esc(df.template_from || "") + '" size="22"/> <label class="small" title="Dönüşüm doğrulanınca karşılaştırma aşağıdaki setle kendiliğinden başlar."><input type="checkbox" data-f="chain" checked/> sonra karşılaştır</label> <button type="button" class="btn btn-sm" data-pipe="prepare"' +
         (busy || !(caps.conversion || {}).supported || !comp.ok ? " disabled" : "") + ">" + (conv && ["failed", "stopped", "lost"].indexOf(conv.status) >= 0 ? "Tekrar dene" : "Başlat") + "</button>" +
         (!comp.ok ? ' <span class="muted small">(tamamlanma doğrulanmadan hazırlanmaz)</span>' : "") + "</div>" +
         capNote("conversion") + pipeJobHtml(conv) +
@@ -7308,7 +7440,8 @@
     pipeState.req[key] = pipeState.req[key] || newRequestId();
     b.disabled = true;
     var body = act === "prepare"
-      ? { ollama_tag: f("tag"), template_from: f("tpl"), request_id: pipeState.req[key] }
+      ? { ollama_tag: f("tag"), template_from: f("tpl"), request_id: pipeState.req[key],
+          then_compare: !!(card && (card.querySelector('[data-f="chain"]') || {}).checked), question_set: f("set") }
       : { ollama_tag: f("tag"), active: f("active"), base: f("base"), question_set: f("set"), request_id: pipeState.req[key] };
     postJson("/candidates/" + encodeURIComponent(adapter) + "/" + act, body)
       .then(function (j) {
@@ -7320,7 +7453,16 @@
       .finally(loadPipeline);
   }
 
+  var loopWired = false;
   function loadLearnPool() {
+    if (!loopWired) {
+      loopWired = true;
+      var lbx = document.getElementById("loopBox");
+      if (lbx) lbx.addEventListener("click", onLoopAction);
+      var lrb = document.getElementById("loopRefreshBtn");
+      if (lrb) lrb.addEventListener("click", loadLoopPending);
+    }
+    loadLoopPending();
     if (!pipeState.wired) {
       pipeState.wired = true;
       var pbx = document.getElementById("pipeBox");

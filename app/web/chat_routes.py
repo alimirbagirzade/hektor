@@ -217,7 +217,12 @@ def learn_summary() -> dict[str, Any]:
 
 @learn_router.get("/candidates")
 def learn_candidates(status: str = "", limit: int = 200) -> dict[str, Any]:
-    return {"items": _svc().list_candidates(status or None, limit=max(1, min(limit, 1000)))}
+    items = _svc().list_candidates(status or None, limit=max(1, min(limit, 1000)))
+    # K2 bulut kontrolü YALNIZ görüntü için eklenir (ayrı kayıttan); adayın kendisine yazılmaz.
+    from app.cloud.judge import k2_latest
+
+    k2 = k2_latest([c["candidate_id"] for c in items])
+    return {"items": [{**c, "cloud_check": k2.get(c["candidate_id"])} for c in items]}
 
 
 @learn_router.get("/errors")

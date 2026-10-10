@@ -44,6 +44,10 @@ sağlayıcı şartı kayda bağlanır; insan onayı olmadan politika açılmaz.
   `HEKTOR_CLOUD_PROVIDER=claude_code_cli`, `HEKTOR_CLOUD_TERMS_ACK=<YYYY-MM-DD>` (şartları
   okuduğunuz tarih), `HEKTOR_CLOUD_DAILY_MAX=<n>`.
 
+**Genişleme (2026-10-10):** aynı kurallarla bulut hakem — K1 (eğitim sonrası kör paket, parça
+başına tık) ve K2 (öğrenme adayı, aday başına tık); ortak günlük kota. Ayrıntı:
+`docs/TASARIM_SUREKLI_DONGU.md`.
+
 ## 3 · B · Öğretmen çıktısından eğitim adayı (UYGULANMADI — kapı)
 
 Kod yalnız **politika kapısı** içerir: `cloud_teacher` kökenli satır eğitim verisine giremez;
