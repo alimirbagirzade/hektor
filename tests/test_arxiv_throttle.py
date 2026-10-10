@@ -59,3 +59,13 @@ def test_persistent_429_raises_after_bounded_retries(fake_net):
         af.search_arxiv("q")
     assert len(statuses) == 5 - (af._MAX_RETRIES + 1)
     assert max(sleeps) <= af._MAX_RETRY_WAIT_S
+
+
+def test_pdf_downloads_share_throttle_and_retry(fake_net, tmp_path):
+    """Kademe 2 E-5: PDF indirmeleri de kısılır ve 429'da yeniden denenir."""
+    sleeps, statuses = fake_net
+    statuses.extend([429])
+    with af.httpx.Client() as client:
+        assert af.polite_get(client, "https://arxiv.org/pdf/1.pdf").status_code == 200
+        af.polite_get(client, "https://arxiv.org/pdf/2.pdf")
+    assert sleeps[0] >= 5.0 and sleeps[-1] == pytest.approx(af._MIN_INTERVAL_S)

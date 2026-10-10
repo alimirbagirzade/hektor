@@ -43,7 +43,9 @@ from app.config import DEFAULT_TRAIN_PROFILE, get_settings
 from app.feedback.chat_store import utcnow
 from app.procutil import NO_WINDOW
 
-CODE_PATHS = ("app", "scripts", "configs", "pyproject.toml")
+# Kademe 2 P-5 (2026-10-10): uv.lock da özete girer — torch/transformers/peft sürümü
+# değişince eğitim davranışı değişir, eski denetim kaydı geçerli kalmamalı.
+CODE_PATHS = ("app", "scripts", "configs", "pyproject.toml", "uv.lock")
 CLOSED_FINDING = frozenset({"duzeltildi", "reddedildi", "risk_kabul"})
 # risk_kabul kapsamı: yalnız kaydın reçetesi (pilot) ya da kaydın tüm kapsamı (veri/reçete).
 RISK_SCOPES = frozenset({"yalniz_recete", "kayit"})
@@ -252,6 +254,20 @@ def readiness() -> dict[str, Any]:
         else f"doğrulanamadı: {code.get('note') or ', '.join(code.get('dirty') or [])}",
     )
     k2 = kademe2_check(data_sha=data_sha)
+    if k2:
+        # Kademe 2 P-7: yalnız reçeteye bağlı (pilot) kayıt "yok" diye görünmesin; o
+        # reçeteyle başlatmada geçerlidir (gerçek kapı precheck'te reçeteyle sorulur).
+        bound = sorted(
+            {
+                str((r.get("scope") or {}).get("recipe_sha") or "")[:12]
+                for r in list_kademe2()
+                if r.get("code_sha") == code.get("code_sha")
+                and (r.get("closure") or {}).get("status") == "kapandi"
+                and (r.get("scope") or {}).get("recipe_sha")
+            }
+        )
+        if bound:
+            k2 += f" (yalnız şu reçete(ler)e bağlı kayıt var: {', '.join(bound)})"
     add("kademe2", k2 is None, k2 or "bu kod durumu + eğitim verisi için kapanmış kayıt var")
     return {
         "items": items,
@@ -475,6 +491,13 @@ def record_kademe2(
             + ", ".join(f"{f.get('id')}={f.get('status')}" for f in open_[:10])
             + " — kayıt kapatılamaz."
         )
+    unbounded = [str(f["id"]) for f in findings if _unbounded_risk(f)]
+    if unbounded:
+        raise EasyTrainError(
+            f"Sınırsız risk kabulü ({', '.join(unbounded)}): 'kayit' kapsamlı kabul kodla "
+            f"doğrulanan bir 'kosul' ({sorted(CONDITIONS)}) ister; pilot için "
+            "'yalniz_recete' + 'sinir' kullanın, aksi halde bulguyu düzeltin."
+        )
     if len((closure_evidence or "").strip()) < 20:
         raise EasyTrainError("Kapanış kanıtı (testler, commit'ler) en az 20 karakter olmalı.")
     rec = {
@@ -510,6 +533,21 @@ def _cloud_off() -> bool:
 # Koşul bozulursa (ör. bulut ikinci görüş açıldı) kayıt artık eğitimi kapsamaz → yeniden
 # değerlendirme zorunlu (inceleme kararı, C-1/C-5/C-6).
 CONDITIONS: dict[str, Callable[[], bool]] = {"bulut_kapali": _cloud_off}
+
+
+def _unbounded_risk(finding: dict[str, Any]) -> bool:
+    """Kaydın tüm kapsamına (``kayit``) verilmiş, kodla doğrulanan koşulu OLMAYAN kabul.
+
+    Kademe 2 P-2 (2026-10-10): kullanıcı kuralı — toplu/sınırsız risk kabulü yok; kabul ya
+    reçete + sayısal sınıra (``yalniz_recete`` + ``sinir``) ya da kodla doğrulanan bir
+    koşula (``kosul``, ör. ``bulut_kapali``) bağlıdır. Koşulsuz ``kayit`` kabulü aynı veriyle
+    tam eğitime de taşınırdı.
+    """
+    return (
+        finding.get("status") == "risk_kabul"
+        and finding.get("kapsam") == "kayit"
+        and not _conditions(finding)
+    )
 
 
 def _conditions(finding: dict[str, Any]) -> list[str]:
@@ -629,6 +667,8 @@ def latest_kademe2(code_sha: str, recipe_sha: str = "", data_sha: str = "") -> d
             continue
         if _failed_conditions(r.get("findings", [])):
             continue  # kapsam dışı kararının koşulu bozuldu → yeniden değerlendirme gerekir
+        if any(_unbounded_risk(f) for f in r.get("findings", [])):
+            continue  # P-2: koşulsuz 'kayit' kabulü (elle yazılmış/eski kayıt) kapsamaz
         if any(_recipe_limited(f) for f in r.get("findings", [])):
             # Kademe 2 P-6: sayısal sınır her kontrolde yeniden denetlenir (elle düzenlenmiş
             # kayıtta sınır silinmiş/büyütülmüş olabilir).
@@ -839,6 +879,17 @@ def precheck(recipe: dict[str, Any]) -> list[str]:
     k2 = kademe2_check(recipe_sha=recipe["recipe_sha"], data_sha=recipe["data_sha256"])
     if k2:
         problems.append(k2)
+    if not problems:
+        # Kademe 2 P-4: GPU/LLM yük doktoru onay TÜKETİLMEDEN önce (eskiden yalnız
+        # launch→preflight içinde, onaydan sonra çalışıyordu → NO-GO'da onay boşa yanıyordu).
+        from app.training.train_load_doctor import run_train_doctor
+
+        doctor = run_train_doctor()
+        if doctor.verdict == "NO-GO":
+            problems.append(
+                "train-load-doctor NO-GO — "
+                + (" ".join(doctor.reasons) or "rakip GPU/LLM yükü, boş VRAM eşiğin altında.")
+            )
     return problems
 
 

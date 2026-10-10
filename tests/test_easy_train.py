@@ -179,3 +179,21 @@ def test_web_endpoints_human_only(env) -> None:
     for rt in client.app.routes:
         if getattr(rt, "path", "") in ("/api/train-flow/snapshot", "/api/train-flow/launch"):
             assert require_human in {d.call for d in rt.dependant.dependencies}
+
+
+def test_load_doctor_no_go_blocks_before_approval_is_consumed(env, monkeypatch) -> None:
+    """Kademe 2 P-4: yük doktoru NO-GO → onay isteği açılmaz/tüketilmez, başlatma yok."""
+    from app.agents.runtime import approvals
+    from app.training import train_load_doctor
+
+    monkeypatch.setattr(
+        train_load_doctor,
+        "run_train_doctor",
+        lambda **kw: train_load_doctor.TrainDoctorReport(verdict="NO-GO", reasons=["GPU dolu"]),
+    )
+    snap = et.prepare_snapshot(_settings())
+    _k2({"recipe_sha": snap["recipe_sha"]})
+    r = et.launch(snap["snapshot_id"], "req-0009-aaaa")
+    assert r["status"] == "blocked" and any("NO-GO" in p for p in r["problems"])
+    assert approvals.list_approvals() == []
+    assert env["calls"] == []

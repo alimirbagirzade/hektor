@@ -126,33 +126,54 @@ def _job_lock(job_id: str) -> Iterator[None]:
     """
     p = _path(job_id).with_suffix(".lock")
     p.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + 15
-    acquired = False
+    # Kademe 2 T-5 (2026-10-10): bekleme süresi bayat eşiğinden (30 sn) uzun — ölen sahibin
+    # yetim kilidi kırılabilsin; alınamazsa KİLİTSİZ yazılmaz, hata yükselir (fail-closed).
+    deadline = time.monotonic() + 45
     while True:
         try:
             os.close(os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-            acquired = True
             break
         except (FileExistsError, PermissionError):
             with contextlib.suppress(OSError):
-                if time.time() - p.stat().st_mtime > 30:
-                    p.unlink()
+                if time.time() - p.stat().st_mtime > 30 and _break_stale_lock(p):
                     continue
             if time.monotonic() > deadline:
-                break  # kilit sahibi takıldı: yine de yaz (iş dosyası atomik değiştirilir)
+                raise TimeoutError(f"iş kaydı kilidi alınamadı: {p.name}") from None
             time.sleep(0.02)
     try:
         yield
     finally:
-        if acquired:  # alınmamış kilidi silmek gerçek sahibinin kilidini düşürür
+        with contextlib.suppress(OSError):
+            p.unlink()
+
+
+def _break_stale_lock(p: Path) -> bool:
+    """Bayat kilidi ATOMİK sahiplenip sil (T-5 TOCTOU): yalnız tek bekleyen yeniden
+    adlandırabilir; taşınan dosya o arada tazelenmişse (yeni sahip) geri konur."""
+    tmp = p.with_name(f"{p.name}.break{os.getpid()}_{time.monotonic_ns()}")
+    try:
+        os.rename(p, tmp)
+    except OSError:
+        return False
+    try:
+        if time.time() - tmp.stat().st_mtime <= 30:
             with contextlib.suppress(OSError):
-                p.unlink()
+                os.link(tmp, p)  # taze kilit yanlışlıkla alındı → sahibine iade (varsa dokunma)
+            return False
+        return True
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
 
 
 def _update(job_id: str, **fields: Any) -> dict[str, Any]:
     p = _path(job_id)
     with _job_lock(job_id):
-        job = _read(p) or {}
+        job = _read(p)
+        if job is None:
+            # Kademe 2 T-3: okunamayan kaydı yalnız yeni alanlarla EZME (iş kimliği/durum/
+            # komut kaybolurdu) — hata yükselir; çalıştırıcı düşerse iş "kesildi" görünür.
+            raise RuntimeError(f"iş kaydı okunamadı, güncellenmedi: {job_id}")
         job.update(fields)
         _write(p, job)
     return job
@@ -209,7 +230,12 @@ def _kill_tree(pid: int) -> list[int]:
 
         from app.training.resource_lock import process_tree
 
-        procs = process_tree(pid)  # yalnız gerçek alt süreçler (bayat ppid'li yetim değil)
+        try:
+            procs = process_tree(pid)  # yalnız gerçek alt süreçler (bayat ppid'li yetim değil)
+        except psutil.NoSuchProcess:
+            # Kademe 2 T-6: kök o arada bitti → pid başka sürece geçmiş olabilir; taskkill
+            # /T /F ile körlemesine ağaç öldürme YOK.
+            return killed
         for p in procs:
             with contextlib.suppress(psutil.Error):
                 p.terminate()
@@ -218,7 +244,7 @@ def _kill_tree(pid: int) -> list[int]:
         for p in alive:
             with contextlib.suppress(psutil.Error):
                 p.kill()
-    except Exception:  # psutil yoksa ya da süreç bitti
+    except Exception:  # psutil yoksa ya da ağaç okunamadı
         if os.name == "nt":
             subprocess.run(
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
@@ -555,11 +581,13 @@ def start_job(
         _write(_path(job_id), job)
         pid, ctime = (spawn or _spawn_runner)(job_id)
         with _job_lock(job_id):
-            cur = _read(_path(job_id)) or job
-            if cur.get("runner_pid") is None:  # çalıştırıcı kendini zaten yazmadıysa
+            cur = _read(_path(job_id))
+            # T-3: okunamadıysa bayat 'starting' görüntüsünü YAZMA (çalıştırıcının yazdığı
+            # sonuç ezilirdi); çalıştırıcı kendi pid'ini zaten kaydeder.
+            if cur is not None and cur.get("runner_pid") is None:
                 cur.update(runner_pid=pid, runner_create_time=ctime)
                 _write(_path(job_id), cur)
-        job = cur
+        job = cur if cur is not None else job
     return reconcile(job)
 
 
@@ -740,7 +768,13 @@ def run(job_id: str) -> int:
             return 1
         _update(job_id, child_pid=proc.pid, child_create_time=process_create_time(proc.pid))
         rc = proc.wait()
-    cur = _read(_path(job_id)) or job
+    cur = _read(_path(job_id))
+    if cur is None:
+        # T-3: eski 'starting' görüntüsüyle karar verme (durdurma görünmez, iş 'failed' olurdu).
+        time.sleep(1.0)
+        cur = _read(_path(job_id))
+    if cur is None:
+        raise RuntimeError(f"iş kaydı okunamadı, sonuç yazılmadı: {job_id}")
     if cur.get("status") in ("stopping", "stopped"):
         _update(job_id, status="stopped", exit_code=rc, finished_at=utcnow())
         return rc

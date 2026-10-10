@@ -504,3 +504,45 @@ def test_web_routes_and_human_scope(env, monkeypatch) -> None:
             assert require_human in {x.call for x in rt.dependant.dependencies}
             seen.add(rt.path)
     assert seen == human
+
+
+def test_t3_unreadable_record_is_not_overwritten_by_update(iso, monkeypatch) -> None:  # noqa: F811
+    """Kademe 2 T-3: okunamayan kayıt yalnız yeni alanlarla EZİLMEZ (kimlik/durum kaybolurdu)."""
+    job_id = "job_" + "7" * 12
+    cj._write(cj._path(job_id), {"job_id": job_id, "status": "running", "kind": "compare"})
+    monkeypatch.setattr(cj, "_read", lambda p: None)
+    with pytest.raises(RuntimeError, match="okunamadı"):
+        cj._update(job_id, child_pid=1)
+    monkeypatch.undo()
+    assert cj._read(cj._path(job_id)) == {"job_id": job_id, "status": "running", "kind": "compare"}
+
+
+def test_t5_stale_lock_broken_once_fresh_lock_restored(iso) -> None:  # noqa: F811
+    """Kademe 2 T-5: bayat kilit atomik kırılır; taze kilit kırılmaz (sahibine iade)."""
+    import os
+
+    p = cj.jobs_dir() / "job_888888888888.lock"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("", "utf-8")
+    old = time.time() - 120
+    os.utime(p, (old, old))
+    assert cj._break_stale_lock(p) and not p.exists()
+    p.write_text("", "utf-8")  # taze
+    assert not cj._break_stale_lock(p) and p.exists()
+    assert not list(p.parent.glob("*.break*"))
+
+
+def test_t6_kill_tree_does_not_taskkill_vanished_root(monkeypatch) -> None:
+    """Kademe 2 T-6: kök o arada bittiyse pid'e körlemesine taskkill /T /F yapılmaz."""
+    import psutil
+
+    from app.training import resource_lock
+
+    def gone(pid):
+        raise psutil.NoSuchProcess(pid)
+
+    monkeypatch.setattr(resource_lock, "process_tree", gone)
+    calls = []
+    monkeypatch.setattr(cj.subprocess, "run", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(cj.os, "kill", lambda *a: calls.append(a), raising=False)
+    assert cj._kill_tree(999999) == [] and calls == []

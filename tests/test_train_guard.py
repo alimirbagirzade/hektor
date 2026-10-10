@@ -337,3 +337,31 @@ def test_read_run_markers(tmp_path) -> None:
     assert read_run_markers(tmp_path)["completed"] is True
     (tmp_path / "run_plan.json").write_text("bozuk", encoding="utf-8")
     assert read_run_markers(tmp_path)["max_steps"] is None
+
+
+def test_t1_running_trainer_not_bound_to_finished_or_foreign_record() -> None:
+    """Kademe 2 T-1: koşan trainer, bitmiş eski koşunun onayıyla 'OK' görünmez."""
+    old = {**_status(_NOW - dt.timedelta(days=3)), "finished_at": _NOW.isoformat()}
+    d = diagnose(status=old, running=True, now=_NOW, log_mtime=_NOW, cpu_percent=200.0)
+    assert d.verdict == "DIKKAT" and any("SONUÇLANMIŞ" in p for p in d.problems)
+    live = _status(_NOW - dt.timedelta(hours=1))
+    d2 = diagnose(
+        status=live, running=True, now=_NOW, log_mtime=_NOW, cpu_percent=200.0, trainer_pids={7}
+    )
+    assert any("pid 4242" in p for p in d2.problems)
+    d3 = diagnose(
+        status=live,
+        running=True,
+        now=_NOW,
+        log_mtime=_NOW,
+        cpu_percent=200.0,
+        trainer_pids={4242, 7},
+    )
+    assert not any("pid" in p for p in d3.problems)
+
+
+def test_t2_dead_record_message_follows_recovery_decision() -> None:
+    """Kademe 2 T-2: nöbetçinin diriltmeyeceği kayıt 'diriltmeye çalışır' denmez."""
+    st = {**_status(_NOW - dt.timedelta(hours=1)), "stop_requested_at": _NOW.isoformat()}
+    d = diagnose(status=st, running=False, now=_NOW, approvals=[])
+    assert d.verdict == "DIKKAT" and any("DİRİLTMEZ" in p for p in d.problems)

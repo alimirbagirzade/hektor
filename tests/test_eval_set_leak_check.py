@@ -51,3 +51,40 @@ def test_broad_v1_is_clean_against_repo_dev_sets() -> None:
     assert {r["dimension"] for r in rows} == {"matematik", "kaynak", "talimat", "strateji"}
     assert all(r["answer_key"] is not None for r in rows if r["type"] == "math")
     assert all(r.get("evidence") for r in rows if r["dimension"] == "kaynak")
+
+
+def test_evidence_chunk_overlap_is_reported_not_gating(tmp_path) -> None:
+    """Kademe 2 P-6/E-9: kanıt parçası eğitimde → raporlanır; makale düzeyi ayrı sayılır."""
+    target = tmp_path / "evals" / "candidate_compare" / "s.jsonl"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        json.dumps(
+            {
+                "id": "k1",
+                "family": "f",
+                "question": "Verilen kaynağa göre nedir?",
+                "evidence_ids": ["paper_aa_c0003"],
+            }
+        )
+        + "\n",
+        "utf-8",
+    )
+    train = tmp_path / "data" / "lora_sft" / "lora_sft.jsonl"
+    train.parent.mkdir(parents=True)
+
+    def row(chunk: str) -> str:
+        return json.dumps(
+            {
+                "messages": [
+                    {"role": "user", "content": "başka bir soru metni burada"},
+                    {"role": "assistant", "content": "cevap"},
+                ],
+                "metadata": {"source_id": "paper_aa", "chunk_id": chunk},
+            }
+        )
+
+    train.write_text(row("paper_aa_c0003") + "\n" + row("paper_aa_c0009") + "\n", "utf-8")
+    rep = _mod().run(target, tmp_path)
+    ov = rep["kanit_ortusmesi"]["k1"]
+    assert len(ov["ayni_parca"]) == 1 and ov["ayni_makale"] == 1
+    assert rep["clean"]  # karar kapısı değişmedi

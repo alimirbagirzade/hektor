@@ -1070,6 +1070,8 @@ def launch(
         # Reçetenin tamamı yazılır — nöbetçi yeniden başlatırken profil/örnek tavanını
         # unutmasın (bkz. _status_payload).
         status_file = root / "storage" / "train_status.json"
+        # Önceki bitmiş koşunun kaydı ezilmeden önce adapter klasörüne arşivlenir (P-1).
+        archive_final_status(read_detached_training_status(root), root)
         status_file.write_text(
             json.dumps(
                 _status_payload(
@@ -1237,6 +1239,47 @@ def _stop_event(detail: str, terminated: bool) -> None:
         log.debug("stop event yazılamadı", exc_info=True)
 
 
+FINAL_STATUS_NAME = "train_status.final.json"
+
+
+def final_status_path(adapter_name: str, root: Path | None = None) -> Path:
+    """Bitmiş koşunun KALICI durum kopyası (adapter klasöründe)."""
+    r = root or get_settings().root
+    return r / "models" / "adapters" / Path(adapter_name).name / FINAL_STATUS_NAME
+
+
+def archive_final_status(info: dict, root: Path | None = None) -> bool:
+    """Sonuçlanmış (finished/failed) koşu kaydını adapter klasörüne kopyala.
+
+    Kademe 2 P-1 (2026-10-10): ``storage/train_status.json`` TEK dosya; her yeni başlatma
+    onu ezip erken çıkışta siliyordu → bitmiş v14'ün onay/veri/bitiş kanıtı kayboluyor,
+    ``verify_run_completion`` kalıcı başarısız oluyordu. Var olan arşiv ezilmez.
+    """
+    name = str(info.get("adapter") or "")
+    if not _ADAPTER_RE.match(name) or not (info.get("finished_at") or info.get("failed_at")):
+        return False
+    dest = final_status_path(name, root)
+    if not dest.parent.is_dir() or dest.exists():
+        return False
+    try:
+        tmp = dest.with_suffix(".tmp")
+        tmp.write_text(json.dumps(info), encoding="utf-8")
+        tmp.replace(dest)
+    except OSError:
+        log.warning("Bitmiş koşu kaydı arşivlenemedi: %s", dest)
+        return False
+    return True
+
+
+def read_final_status(adapter_name: str, root: Path | None = None) -> dict:
+    """Adapter'ın arşivlenmiş bitiş kaydı (yoksa/bozuksa {})."""
+    try:
+        data = json.loads(final_status_path(adapter_name, root).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) and data.get("adapter") == adapter_name else {}
+
+
 def mark_detached_status(adapter_name: str, root: Path | None = None, **fields: object) -> bool:
     """Durum dosyasına sonuç alanları işle (``finished_at`` / ``failed_at`` + ``error``).
 
@@ -1255,6 +1298,7 @@ def mark_detached_status(adapter_name: str, root: Path | None = None, **fields: 
     except OSError:
         log.warning("Durum dosyasına sonuç işlenemedi: %s", st)
         return False
+    archive_final_status(info, r)
     return True
 
 

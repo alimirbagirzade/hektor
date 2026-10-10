@@ -256,6 +256,59 @@ def test_run_complete_alone_is_not_completion(iso) -> None:  # noqa: F811
     assert {c["key"]: c["ok"] for c in fake["checks"]}["onay_kaydi"] is False
 
 
+def test_finished_run_record_survives_next_launch(iso) -> None:  # noqa: F811
+    """Kademe 2 P-1: sonraki başlatma ortak durum dosyasını ezse de bitmiş koşu doğrulanır."""
+    from app.agents.runtime import approvals
+    from app.config import get_settings
+    from app.training import detached_launch as dl
+    from app.training.candidate_checks import verify_run_completion
+
+    root = get_settings().root
+    _adapter_files(root)
+    req = approvals.require_fresh_approval("lora-trainer", "train_run", "critical", "test")
+    approvals.approve(req.approval_id)
+    assert approvals.require_fresh_approval("lora-trainer", "train_run", "critical", "t").authorized
+    (root / "storage").mkdir(exist_ok=True)
+    status = root / "storage" / "train_status.json"
+    status.write_text(
+        json.dumps(
+            {
+                "adapter": "hektor_lora_t",
+                "pid": 0,
+                "data_sha256": "d" * 64,
+                "approval_id": req.approval_id,
+            }
+        ),
+        "utf-8",
+    )
+    # Bitiş işlenince kalıcı kopya adapter klasörüne yazılır.
+    assert dl.mark_detached_status("hektor_lora_t", root, finished_at="2026-10-03T17:35:22")
+    assert dl.final_status_path("hektor_lora_t", root).is_file()
+    recipe = {
+        "base_model": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+        "data_sha256": "d" * 64,
+        "approval_id": req.approval_id,
+    }
+    # Pilot ortak dosyayı ezer → doğrulama arşivden geçer.
+    status.write_text(json.dumps({"adapter": "pilot", "pid": 1}), "utf-8")
+    assert verify_run_completion("hektor_lora_t", recipe)["ok"]
+    # Arşiv var olan kaydı ezmez; başka adapter'ın arşivi kullanılmaz.
+    assert not dl.archive_final_status({"adapter": "hektor_lora_t", "finished_at": "y"}, root)
+    assert dl.read_final_status("baska", root) == {}
+
+
+def test_launch_archives_previous_finished_status(tmp_path) -> None:
+    """Başlatıcı ortak dosyayı ezmeden önce önceki bitmiş koşuyu arşivler (P-1)."""
+    from app.training import detached_launch as dl
+
+    (tmp_path / "models/adapters/v14").mkdir(parents=True)
+    info = {"adapter": "v14", "finished_at": "x", "approval_id": "apr_9"}
+    assert dl.archive_final_status(info, tmp_path)
+    assert dl.read_final_status("v14", tmp_path)["approval_id"] == "apr_9"
+    assert not dl.archive_final_status({"adapter": "v14"}, tmp_path)  # sonuçsuz kayıt yok
+    assert not dl.archive_final_status({"adapter": "../x", "finished_at": "x"}, tmp_path)
+
+
 def test_partial_conversion_is_not_success(iso) -> None:  # noqa: F811
     from app.config import get_settings
     from app.training.candidate_checks import sha256_file, verify_conversion
@@ -554,3 +607,12 @@ def test_sourced_question_sends_evidence_to_every_model(iso, tmp_path) -> None: 
     assert sourced and all("KAYNAK:" in c and "kanıt metni" in c for c in sourced)
     assert {mdl for mdl, c in sent if "Kavram" in c} == {"aktif", "aday", "temel"}
     assert all("KAYNAK:" not in c for _, c in sent if "kaç eder" in c)
+
+
+def test_evidence_must_be_list_of_strings(tmp_path) -> None:
+    """Kademe 2 E-7: düz metin kanıt reddedilir (karakter başına blok üretmesin)."""
+    p = tmp_path / "s.jsonl"
+    row = {"id": "k", "family": "f", "type": "open", "question": "q", "evidence": "düz metin"}
+    p.write_text(json.dumps(row, ensure_ascii=False) + "\n", "utf-8")
+    with pytest.raises(cc.CompareError, match="metin listesi"):
+        cc.load_set(p)

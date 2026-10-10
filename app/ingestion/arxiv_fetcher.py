@@ -51,6 +51,25 @@ def _throttle() -> None:
         _last_request = _clock()
 
 
+def polite_get(client: httpx.Client, url: str) -> httpx.Response:
+    """arXiv'e kısmalı GET: istekler arası ≥3 sn, 429/503'te sınırlı yeniden deneme.
+
+    Kademe 2 E-5 (2026-10-10): yalnız API araması kısılıyordu; PDF indirmeleri art arda
+    gidiyordu. Arama ve indirme aynı yoldan geçer (çağıran ``raise_for_status`` yapar).
+    """
+    for attempt in range(1, _MAX_RETRIES + 2):
+        _throttle()
+        resp = client.get(url)
+        if resp.status_code not in _RETRY_STATUSES or attempt > _MAX_RETRIES:
+            return resp
+        wait = _retry_wait(resp, attempt)
+        logging.getLogger(__name__).warning(
+            "arXiv %s döndü; %.0f sn sonra yeniden denenecek", resp.status_code, wait
+        )
+        _sleep(wait)
+    return resp
+
+
 def _retry_wait(resp: httpx.Response, attempt: int) -> float:
     try:
         hinted = float(resp.headers.get("Retry-After", ""))
@@ -90,16 +109,7 @@ def search_arxiv(query: str, max_results: int = 10) -> list[ArxivEntry]:
     )
     url = f"{_SEARCH_URL}?{params}"
     with httpx.Client(headers=_HEADERS, timeout=30) as client:
-        for attempt in range(1, _MAX_RETRIES + 2):
-            _throttle()
-            resp = client.get(url)
-            if resp.status_code not in _RETRY_STATUSES or attempt > _MAX_RETRIES:
-                break
-            wait = _retry_wait(resp, attempt)
-            logging.getLogger(__name__).warning(
-                "arXiv %s döndü; %.0f sn sonra yeniden denenecek", resp.status_code, wait
-            )
-            _sleep(wait)
+        resp = polite_get(client, url)
     resp.raise_for_status()
 
     root = ET.fromstring(resp.text)
@@ -172,7 +182,7 @@ def fetch_arxiv_papers(
                 continue
 
             try:
-                resp = client.get(entry.pdf_url)
+                resp = polite_get(client, entry.pdf_url)
                 resp.raise_for_status()
                 pdf_bytes = resp.content
             except Exception as exc:

@@ -54,7 +54,11 @@ def _result(checks: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
 
 
 def verify_run_completion(adapter: str, recipe: dict[str, Any] | None = None) -> dict[str, Any]:
-    from app.training.detached_launch import _pid_alive, read_detached_training_status
+    from app.training.detached_launch import (
+        _pid_alive,
+        read_detached_training_status,
+        read_final_status,
+    )
 
     s = get_settings()
     d = s.adapters_dir / Path(adapter).name
@@ -64,6 +68,12 @@ def verify_run_completion(adapter: str, recipe: dict[str, Any] | None = None) ->
         checks.append({"key": key, "ok": bool(ok), "detail": detail})
 
     st = read_detached_training_status(s.root)
+    archived = False
+    if st.get("adapter") != adapter:
+        # Sonraki bir başlatma ortak durum dosyasını ezdiyse adapter'ın arşivi (P-1).
+        final = read_final_status(adapter, s.root)
+        if final:
+            st, archived = final, True
     mine = st.get("adapter") == adapter
     add(
         "surec_sonucu",
@@ -72,8 +82,9 @@ def verify_run_completion(adapter: str, recipe: dict[str, Any] | None = None) ->
         f"failed={st.get('failed_at')}",
     )
     pid = st.get("pid")
-    alive = isinstance(pid, int) and _pid_alive(pid)
-    add("surec_bitti", mine and not alive, f"pid {pid}")
+    # Arşiv yalnız sonuçlanmış koşudan yazılır; eski pid başka sürece verilmiş olabilir.
+    alive = not archived and isinstance(pid, int) and _pid_alive(pid)
+    add("surec_bitti", mine and not alive, f"pid {pid}" + (" (arşiv)" if archived else ""))
     done = _read(d / "run_complete.json") or {}
     plan = _read(d / "run_plan.json") or {}
     target = plan.get("max_steps") or plan.get("target_steps") or done.get("max_steps")

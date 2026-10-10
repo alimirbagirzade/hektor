@@ -908,3 +908,33 @@ def test_p6_p8_hand_edited_limited_record_and_bad_condition(repo) -> None:
                 closure_evidence="bulut kapalı doğrulandı; make ci yeşil",
                 reviewer="insan",
             )
+
+
+def test_p2_unconditional_record_scope_risk_is_rejected(repo) -> None:
+    """Kademe 2 P-2 (2026-10-10): koşulsuz 'kayit' kabulü yazılamaz, elle yazılmışsa kapsamaz."""
+    finding = {
+        "id": "X-1",
+        "status": "risk_kabul",
+        "kapsam": "kayit",
+        "gerekce": "düşük önemli, güvenli tarafta olduğu düşünülüyor",
+    }
+    data_sha = _data_sha()
+    with pytest.raises(et.EasyTrainError, match="Sınırsız risk kabulü"):
+        et.record_kademe2(
+            scope={"data_sha256": data_sha},
+            findings=[finding],
+            closure_evidence="make ci yeşil; regresyon testleri geçti",
+            reviewer="insan",
+        )
+    ok = et.record_kademe2(
+        scope={"data_sha256": data_sha},
+        findings=[{"id": "X-1", "status": "duzeltildi"}],
+        closure_evidence="make ci yeşil; regresyon testleri geçti",
+        reviewer="insan",
+    )
+    assert et.kademe2_blocker() is None
+    path = et.kademe2_dir() / f"{ok['record_id']}.json"
+    data = json.loads(path.read_text("utf-8"))
+    data["findings"] = [finding]
+    path.write_text(json.dumps(data), "utf-8")
+    assert et.kademe2_blocker() is not None

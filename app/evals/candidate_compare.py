@@ -208,6 +208,10 @@ def load_set(path: Path) -> tuple[list[dict[str, Any]], str]:
     for r in rows:
         if not r.get("id") or not r.get("family") or not r.get("question"):
             raise CompareError("Her soruda id, family, question olmalı.")
+        ev = r.get("evidence")
+        if ev is not None and not (isinstance(ev, list) and all(isinstance(x, str) for x in ev)):
+            # Kademe 2 E-7: düz metin kanıt karakter karakter "[Kaynak i]" bloklarına bölünürdü.
+            raise CompareError(f"Soru {r['id']}: 'evidence' metin listesi olmalı.")
         if r.get("type") == "math":
             # Kademe 2 (2026-10-06) F4-9: anahtar SAYISAL olmalı — yoksa üretimden sonra kör
             # paket kurulamaz, boş paketle kanıtsız karar kaydı yazılabilirdi.
