@@ -280,7 +280,11 @@ class Settings(BaseSettings):
     # Boş saat dilimi + ofsetsiz damga → dosya ATLANIR (sessizce UTC varsayılmaz).
     csv_lab_default_tz: str = ""
     csv_lab_max_files: int = 5  # gece başına işlenecek en fazla YENİ CSV
-    csv_lab_top_k: int = 3  # geliştirmede seçilip doğrulama dönemine bakılacak aday sayısı
+    csv_lab_top_k: int = 3
+    # LLM-30 gece ölçümü: model özeti değişmediyse en fazla bu kadar günde bir (0 = yalnız
+    # değişince). RAG açık ölçüm retrieval indeksi ister (varsayılan kapalı).
+    nightly_llm30_every_days: int = 7
+    nightly_llm30_rag: bool = False  # geliştirmede seçilip doğrulama dönemine bakılacak aday sayısı
 
     # --- Trading ---
     default_market: str = "XAUUSD"

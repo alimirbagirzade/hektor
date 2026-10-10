@@ -439,3 +439,93 @@ def test_web_lists_quarantine_and_lifts_with_reason(cand) -> None:
     assert client.post(path, json={"reason": "kısa"}).status_code >= 400
     r = client.post(path, json={"reason": "Kaynağı okudum; ifade kaynakla tutarlı."})
     assert r.status_code == 200 and r.json()["status"] != "quarantined"
+
+
+# ── LLM-30 gece ölçümü ───────────────────────────────────────────────────────
+
+from app.evals import llm30_nightly as l30  # noqa: E402
+
+
+def _chat(answer: str = "Cevap 101 ve 105.", reason: str = "stop"):
+    calls: list[str] = []
+
+    def chat(model: str, prompt: str, options: dict) -> dict:
+        calls.append(prompt)
+        assert options["seed"] == 42 and options["temperature"] == 0.0
+        return {"content": answer, "done_reason": reason, "prompt_eval_count": 50, "eval_count": 20}
+
+    chat.calls = calls  # type: ignore[attr-defined]
+    return chat
+
+
+def _info(digest: str = "sha256:aaa"):
+    return lambda model: {"name": model, "digest": digest}
+
+
+def test_key_hits_numeric_trace_not_score() -> None:
+    keys = {
+        "s12_ema_alpha_0_1": 101.0,
+        "s12_ema_alpha_0_5": 105.0,
+        "s03_utc": "2026-01-15T07:00:00+00:00",
+    }
+    assert l30.key_hits("alpha=0,1 → 101; alpha=0,5 → 105,0", keys, "llm30-s12") == {
+        "s12_ema_alpha_0_1": True,
+        "s12_ema_alpha_0_5": True,
+    }
+    assert l30.key_hits("sonuç 102", keys, "llm30-s12")["s12_ema_alpha_0_1"] is False
+    assert l30.key_hits("UTC 07:00", keys, "llm30-s03") == {"s03_utc": True}
+    assert l30.key_hits("liste [[0, 1, 1]]", {"s22_x": [[0, 1, 1]]}, "llm30-s22") == {"s22_x": True}
+
+
+def test_llm30_measures_once_per_digest_and_detects_regression(iso) -> None:  # noqa: F811
+    good = _chat("Cevap: 101 ve 105 ve 0,6667.")
+    out = l30.run_measurement(chat=good, info=_info("d1"), hold_lock=False)
+    assert out["ran"] and out["n"] == 30 and out["regression"] == []
+    assert out["key_total"] == 20 and len(good.calls) == 30
+    assert Path(out["report"]).is_file()
+    # aynı özet → yeniden ölçülmez
+    again = l30.run_measurement(chat=good, info=_info("d1"), hold_lock=False)
+    assert not again["ran"] and "değişmedi" in again["skipped"] and len(good.calls) == 30
+    # yeni özet + kötüleşen cevaplar → gerileme
+    bad = _chat("", reason="length")
+    out2 = l30.run_measurement(chat=bad, info=_info("d2"), hold_lock=False)
+    assert out2["ran"] and out2["n_flagged"] == 30
+    assert any("Bayraklı" in r for r in out2["regression"])
+    assert any("Sayısal" in r for r in out2["regression"])
+    assert len(l30.history()) == 2
+
+
+def test_llm30_skips_when_ollama_unreadable_or_busy(iso, monkeypatch) -> None:  # noqa: F811
+    def boom(model: str) -> dict:
+        raise RuntimeError("bağlantı yok")
+
+    out = l30.run_measurement(chat=_chat(), info=boom)
+    assert not out["ran"] and "Ollama" in out["skipped"]
+    from app.training import resource_lock
+
+    with resource_lock.hold("training", "test", check_chat=False):
+        busy = l30.run_measurement(chat=_chat(), info=_info())
+    assert not busy["ran"] and "Ağır iş" in busy["skipped"]
+
+
+def test_llm30_stops_after_repeated_errors(iso) -> None:  # noqa: F811
+    def dead(model: str, prompt: str, options: dict) -> dict:
+        raise RuntimeError("Ollama düştü")
+
+    out = l30.run_measurement(chat=dead, info=_info(), hold_lock=False)
+    assert out["ran"] and out["n_errors"] == 3 and out["n"] == 3
+
+
+def test_nightly_includes_measurement_and_pending_shows_regression(iso, monkeypatch) -> None:  # noqa: F811
+    from app.orchestration.loop_state import _nightly_items
+
+    assert nightly.STEPS == ("hakem", "olcum", "csv", "egitim")
+    monkeypatch.setattr(
+        nightly,
+        "STEP_FNS",
+        {"olcum": lambda: {"ran": True, "model": "m", "regression": ["Bayraklı 0 → 3"]}},
+    )
+    rep = nightly.run_nightly(("olcum",))
+    assert "GERİLEME" in Path(rep["report_md"]).read_text(encoding="utf-8")
+    keys = {i["key"] for i in _nightly_items()}
+    assert "llm30_gerileme" in keys

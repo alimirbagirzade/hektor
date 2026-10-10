@@ -1137,7 +1137,8 @@ uv run hektor approval-status <id>     # bir onayın durumunu READ-ONLY göster 
 uv run hektor train-doctor             # koşan eğitimin sağlığı + yetkisi (salt-okuma; DİKKAT/OK/BOŞTA)
 uv run hektor kademe2-kayit --findings f.json --recipe-sha <sha> --evidence "..."  # kapanmış Kademe 2 kaydı (kolay eğitim akışı ister)
 uv run hektor gece                     # gün sonu döngüsü: yerel hakem → karantina → CSV lab → eğitim hazırlık RAPORU (eğitim başlatmaz)
-uv run hektor gece -a csv              #   yalnız seçili adım(lar): hakem · csv · egitim
+uv run hektor gece -a csv              #   yalnız seçili adım(lar): hakem · olcum · csv · egitim
+uv run hektor llm30-gece [--zorla]     # etkin modelin LLM-30 gece ölçümü (bayrak + sayısal anahtar izi; puan değil)
 uv run hektor csv-lab [--dosya X.csv]  # data/market/raw CSV'lerinden gösterge/strateji ADAYI (geliştirmede seç, OOS bir kez; final dokunulmaz)
 uv run hektor karantina                # gece hakeminin karantinaya aldığı öğrenme adayları (eğitime girmez)
 uv run hektor karantina-kaldir <aday> --gerekce "..."  # (insan) karantinayı gerekçeyle kaldır — eğitim onayı değildir

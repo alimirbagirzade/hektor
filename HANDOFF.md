@@ -33,6 +33,14 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-10 — Gece LLM-30 ölçümü (Faz 2 yerine, kullanıcı kararı)
+
+`hektor gece` artık `olcum` adımını da koşar (`app/evals/llm30_nightly.py`): etkin model 30
+geliştirme sorusunda, `llm30_run` ile aynı istem/çözme ayarıyla; yalnız deterministik sinyal
+(bayrak + sayısal anahtar izi) — rubrik puanı değil. Model değişmediyse haftada bir; gerileme
+"Bekleyen kararlar"da. Gece eğitimi (Faz 2) açılmadı; Kural 8 aynen. Gerçek Ollama ile henüz
+denenmedi (30B'de gece ~30 uzun üretim — süre ilk koşuda ölçülecek).
+
 ### 2026-10-10 — Gece döngüsü Faz 1: yerel hakem + karantina + CSV laboratuvarı
 
 Tasarım: `docs/TASARIM_GECE_DONGUSU.md`. `hektor gece` (Görev Zamanlayıcı:

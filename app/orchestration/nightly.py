@@ -5,11 +5,13 @@ Tasarım: ``docs/TASARIM_GECE_DONGUSU.md`` (Faz 1). Gözetimsiz koşar (Windows 
 
 1. **hakem**   — öğrenme adaylarını YEREL Ollama hakemiyle oku; şüpheli/belirsiz → karantina
                  (``app.orchestration.local_judge``). Bulut KULLANILMAZ.
-2. **csv**     — ``data/market/raw`` altındaki YENİ CSV'lerden gösterge/strateji adayı
+2. **olcum**   — etkin modelin LLM-30 ölçümü (``app.evals.llm30_nightly``): bayrak + sayısal
+                 anahtar izi; puan/terfi DEĞİL. Model değişmediyse haftada bir koşar.
+3. **csv**     — ``data/market/raw`` altındaki YENİ CSV'lerden gösterge/strateji adayı
                  (``app.trading.csv_lab``); final dönemine dokunulmaz.
-3. **egitim**  — YALNIZ hazırlık raporu (``easy_train.readiness``). Faz 1'de eğitim BAŞLATILMAZ
+4. **egitim**  — YALNIZ hazırlık raporu (``easy_train.readiness``). Faz 1'de eğitim BAŞLATILMAZ
                  (Kural 8 + Kademe 2 değişmedi); hazırsa "Bekleyen kararlar" tek tık önerir.
-4. **rapor**   — ``reports/nightly/<tarih>/gece.{json,md}`` + ``storage/nightly/latest.json``.
+5. **rapor**   — ``reports/nightly/<tarih>/gece.{json,md}`` + ``storage/nightly/latest.json``.
 
 Güvenlik: ``storage/STOP_ALL`` (ya da ``STOP_LEARNING``) varsa hiçbir adım koşmaz. Ağır iş
 (eğitim/dönüşüm/karşılaştırma) sürerken hakem adımı atlanır (Ollama/GPU yarışı). Aynı anda iki
@@ -30,7 +32,7 @@ from typing import Any
 from app.config import get_settings
 from app.feedback.chat_store import utcnow
 
-STEPS = ("hakem", "csv", "egitim")
+STEPS = ("hakem", "olcum", "csv", "egitim")
 STALE_LOCK_S = 6 * 3600
 NOTE = (
     "Gece döngüsü (Faz 1): yerel hakem şüpheyi karantinaya alır, CSV'den ADAY üretir, eğitim "
@@ -93,6 +95,12 @@ def _step_hakem() -> dict[str, Any]:
     return run_judging()
 
 
+def _step_olcum() -> dict[str, Any]:
+    from app.evals.llm30_nightly import run_measurement
+
+    return run_measurement()
+
+
 def _step_csv() -> dict[str, Any]:
     from app.trading.csv_lab import run_inbox
 
@@ -116,6 +124,7 @@ def _step_egitim() -> dict[str, Any]:
 
 STEP_FNS: dict[str, Callable[[], dict[str, Any]]] = {
     "hakem": _step_hakem,
+    "olcum": _step_olcum,
     "csv": _step_csv,
     "egitim": _step_egitim,
 }
@@ -208,9 +217,25 @@ def render_markdown(rep: dict[str, Any]) -> str:
             for q in h.get("quarantined", []):
                 lines.append(f"  - KARANTİNA `{q['candidate_id']}` ({q['verdict']}): {q['reason']}")
         lines.append("")
+    o = st.get("olcum")
+    if o is not None:
+        lines.append("## 2 · LLM-30 ölçümü (etkin model; puan değil)")
+        if not o.get("ran"):
+            lines.append(f"- Koşmadı: {o.get('skipped') or o.get('error')}")
+        else:
+            lines.append(
+                f"- `{o.get('model')}` ({o.get('reason')}) · {o.get('n')}/{o.get('n_questions')} "
+                f"soru · bayraklı {o.get('n_flagged')} {o.get('flag_counts') or ''} · sayısal "
+                f"anahtar izi {o.get('key_hits')}/{o.get('key_total')} · {o.get('seconds')} sn"
+            )
+            for r in o.get("regression") or []:
+                lines.append(f"  - ⚠ GERİLEME: {r}")
+            if o.get("report"):
+                lines.append(f"  - Rapor: `{o['report']}`")
+        lines.append("")
     c = st.get("csv")
     if c is not None:
-        lines.append("## 2 · CSV laboratuvarı")
+        lines.append("## 3 · CSV laboratuvarı")
         if c.get("error"):
             lines.append(f"- Hata: {c['error']}")
         for f in c.get("files", []):
@@ -229,7 +254,7 @@ def render_markdown(rep: dict[str, Any]) -> str:
         lines.append("")
     e = st.get("egitim")
     if e is not None:
-        lines.append("## 3 · Eğitim hazırlığı (yalnız rapor)")
+        lines.append("## 4 · Eğitim hazırlığı (yalnız rapor)")
         if e.get("error"):
             lines.append(f"- Hata: {e['error']}")
         elif e.get("ready"):
