@@ -458,6 +458,10 @@ def diagnose(
                 "eğitim verisi koşu başladıktan sonra değişti — eğitilen set diskteki "
                 "set değil (sonucu yorumlarken yanıltır)"
             )
+    elif status and status.get("finished_at") and not status.get("failed_at"):
+        # Tamamlanmış koşunun kaydı ölü koşu DEĞİLDİR (nöbetçinin kurtarma kapısı da
+        # "koşu TAMAMLANMIŞ" der). v14 bittikten sonra burada yanlış DİKKAT veriliyordu.
+        return TrainingDiagnosis("BOSTA", [], info)
     elif status:
         problems.append(
             "durum dosyası var ama eğitim süreci YOK — ölü koşu kaydı; nöbetçi bunu "
