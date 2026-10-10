@@ -6017,10 +6017,20 @@
           return '<div class="lp-card"><span class="badge ' + (LOOP_WHO[it.who] || "badge-info") + '">' + esc(it.who) + "</span> <strong>" + esc(it.title) + "</strong>" + btn +
             (it.detail ? '<div class="muted small">' + esc(it.detail) + "</div>" : "") + "</div>";
         }).join("") : '<p class="muted small">Bekleyen karar yok.</p>') +
+          nightlyLine(d.nightly) +
           ((d.errors || []).length ? '<div class="chat-blocked small">Okunamayan bölüm: ' + d.errors.map(esc).join(" | ") + "</div>" : "") +
           '<div class="muted small">' + esc(d.note || "") + (d.cloud_enabled ? "" : " Bulut hakem kapalı (HEKTOR_CLOUD_SECOND_OPINION).") + "</div>";
       })
       .catch(function (e) { box.innerHTML = '<span class="muted">Hata: ' + esc(e.message) + "</span>"; });
+  }
+  function nightlyLine(n) {
+    if (!n) return "";
+    if (!n.ran) return '<div class="muted small">🌙 ' + esc(n.note || "") + "</div>";
+    return '<div class="muted small">🌙 Son gece koşusu: <strong>' + esc(n.status) + "</strong> · " + esc(n.started_at || "") +
+      " · karantinaya alınan " + esc(String(n.quarantined || 0)) +
+      (n.llm30 ? " · LLM-30: " + esc(n.llm30) : "") +
+      " · işlenen CSV " + esc(String(n.csv_done || 0)) +
+      (n.report_md ? ' · rapor <code>' + esc(n.report_md) + "</code>" : "") + "</div>";
   }
   function onLoopAction(ev) {
     var b = ev.target.closest("button[data-loop]");

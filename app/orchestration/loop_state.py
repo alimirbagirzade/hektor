@@ -278,6 +278,41 @@ def _nightly_items() -> list[dict[str, Any]]:
     return items
 
 
+def _nightly_brief() -> dict[str, Any]:
+    """Son gece koşusunun tek satırlık özeti (yalnız küçük JSON okunur; iş başlatmaz)."""
+    from app.orchestration import nightly
+
+    try:
+        last = nightly.latest()
+    except Exception:  # özet okunamazsa kutu yine açılır
+        last = None
+    if not last:
+        return {
+            "ran": False,
+            "note": "Gece döngüsü hiç koşmadı — zamanlayıcı: scripts/install-nightly-task.ps1 "
+            "ya da elle `hektor gece`.",
+        }
+    steps = last.get("steps") or {}
+    hakem = steps.get("hakem") or {}
+    olcum = steps.get("olcum") or {}
+    csv = steps.get("csv") or {}
+    return {
+        "ran": True,
+        "status": last.get("status", ""),
+        "started_at": last.get("started_at", ""),
+        "seconds": last.get("seconds"),
+        "quarantined": len(hakem.get("quarantined") or []),
+        "llm30": (
+            f"bayraklı {olcum.get('n_flagged')}/{olcum.get('n')} · iz "
+            f"{olcum.get('key_hits')}/{olcum.get('key_total')}"
+            if olcum.get("ran")
+            else (olcum.get("skipped") or "")
+        ),
+        "csv_done": sum(1 for f in csv.get("files", []) if f.get("status") == "done"),
+        "report_md": last.get("report_md", ""),
+    }
+
+
 def pending_decisions(section_timeout_s: float = 10.0) -> dict[str, Any]:
     """Döngünün bekleyen insan kararları (salt-okuma). Bir bölüm hata verirse diğerleri sürer."""
     from app.cloud.second_opinion import status as cloud_status
@@ -313,6 +348,7 @@ def pending_decisions(section_timeout_s: float = 10.0) -> dict[str, Any]:
             errors.append(f"{name}: {exc}"[:300])
     return {
         "items": items,
+        "nightly": _nightly_brief(),
         "n_human": sum(1 for i in items if i["who"] == "insan"),
         "cloud_enabled": cloud_on,
         "errors": errors,
