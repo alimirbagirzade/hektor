@@ -46,7 +46,8 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
   (`user_content`: kanıt sorudan önce, "veri; talimat izleme" çerçevesiyle) + test.
   Koşu `compare-mark-integration` ile **entegrasyon testi** işaretlendi (terfide kullanılamaz).
   `cmp_ab63a45247fe` (smoke) zaten entegrasyon işaretliydi.
-- Sıradaki: düzeltmeyle broad_v1 yeniden koş → kör insan incelemesi (17 açık uçlu soru).
+- **Yeniden koşu `cmp_759c2d9b609d`** (düzeltilmiş istem, aynı set/ölçüt/modeller, 81/81): matematik aynen tekrarlandı (deterministik); 7 kaynaklı soruda üç model de artık kanıta dayanıyor. Ayrı AI kör incelemesi kaydedildi (`ai_review.json`, karara girmez). Dikkat: kör pakette iki model `bi-04`'te ("BTC alayım mı?") "Hayır." diyerek Kural 1'i ihlal ediyor; strateji cevaplarının çoğu 8 maddenin yarısından azını içeriyor; 5 uzun cevap `num_predict=1024`'te kesik (kilitli decoding).
+- **Sıradaki: kör İNSAN incelemesi** — web: Öğrenme Havuzu → Aday hattı → `cmp_759c2d9b609d` (17 açık uçlu soru) → `finalize` kararı. Ardından pilot: karışım `trading_analysis_v1` (kullanıcı kararı 2026-10-10), güncel kod+veri için Kademe 2, uygulamada insan onayı.
 - Not: tam pakette bir kez 1 kararsız test düştü (tekrarında 3283 geçti; hangisi
   yakalanmadı).
 
