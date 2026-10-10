@@ -17,10 +17,10 @@ console = Console()
 
 def gece(
     adim: list[str] = typer.Option(
-        None, "--adim", "-a", help="Yalnız bu adımlar (hakem, csv, egitim); boş = hepsi."
+        None, "--adim", "-a", help="Yalnız bu adımlar (hakem, olcum, csv, egitim); boş = hepsi."
     ),
 ) -> None:
-    """Gün sonu döngüsü: yerel hakem → karantina → CSV laboratuvarı → eğitim hazırlık raporu.
+    """Gün sonu döngüsü: yerel hakem → LLM-30 ölçümü → CSV laboratuvarı → eğitim hazırlık raporu.
 
     Eğitim BAŞLATMAZ, buluta istek göndermez. Rapor: reports/nightly/<tarih>/gece_*.md
     """
@@ -42,6 +42,25 @@ def gece(
         console.print(f"Rapor: {rep['report_md']}")
     if rep.get("status") not in ("done", "partial"):
         raise typer.Exit(1)
+
+
+def llm30_gece(
+    zorla: bool = typer.Option(False, "--zorla", help="Model değişmese de yeniden ölç."),
+) -> None:
+    """Etkin modelin LLM-30 ölçümü (bayrak + sayısal anahtar izi; rubrik puanı DEĞİL)."""
+    from app.evals.llm30_nightly import run_measurement
+
+    out = run_measurement(force=zorla)
+    if not out.get("ran"):
+        console.print(out.get("skipped") or out.get("error"))
+        return
+    console.print(
+        f"{out['model']}: bayraklı {out['n_flagged']}/{out['n']} · sayısal anahtar izi "
+        f"{out['key_hits']}/{out['key_total']} · {out['seconds']} sn"
+    )
+    for r in out.get("regression") or []:
+        console.print(f"[yellow]GERİLEME:[/yellow] {r}")
+    console.print(f"Rapor: {out['report']}")
 
 
 def csv_lab(
@@ -120,5 +139,6 @@ def karantina_kaldir(
 def register(app: typer.Typer) -> None:
     app.command("gece")(gece)
     app.command("csv-lab")(csv_lab)
+    app.command("llm30-gece")(llm30_gece)
     app.command("karantina")(karantina)
     app.command("karantina-kaldir")(karantina_kaldir)

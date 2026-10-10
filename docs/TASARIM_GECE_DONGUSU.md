@@ -33,10 +33,12 @@ kilit (tek koşu; 6 sa ya da ölü pid → bayat)
  1 hakem   ağır iş sürüyorsa atla · Ollama yoksa atla (aday dokunulmaz)
            eligible/review adaylar (test sohbeti hariç) → yerel hakem (temperature 0, seed 42)
            şüpheli/belirsiz → quarantined   · gece başına en fazla N yeni yargı (kalan ertesi gece)
- 2 csv     data/market/raw/*.csv (dosya+yan dosya özeti başına BİR kez; defter)
- 3 egitim  easy_train.readiness() → yalnız rapor (started_training=false)
+ 2 olcum   etkin modelin LLM-30 ölçümü (§5b) — model özeti değişince ya da haftada bir
+ 3 csv     data/market/raw/*.csv (dosya+yan dosya özeti başına BİR kez; defter)
+ 4 egitim  easy_train.readiness() → yalnız rapor (started_training=false)
 rapor      reports/nightly/<gün>/gece_*.{json,md} + storage/nightly/latest.json
-           "Bekleyen kararlar" kutusu: karantina sayısı · OOS'ta tutarlı CSV adayları · 36 sa+ koşmadı
+           "Bekleyen kararlar" kutusu: karantina sayısı · LLM-30 gerilemesi · OOS'ta tutarlı CSV
+           adayları · 36 sa+ koşmadı
 ```
 
 Bir adımın hatası diğerlerini durdurmaz (`partial`). Zamanlayıcı:
@@ -82,10 +84,29 @@ Maliyet profilleri (bp; kaba, temkinli perakende varsayımı — gerçek hesabı
 | bist | 10 | 5 | 5 | 0 (spot hisse) | yok |
 | ihtiyatli | 10 | 5 | 5 | 3 | var |
 
+## 5b · LLM-30 gece ölçümü (`app/evals/llm30_nightly.py`) — 2026-10-10 eklendi
+
+Amaç: "model sorulara gerçekçi cevap veriyor mu?" sorusunu günden güne izlenebilir yapmak.
+Kullanıcı kararı (2026-10-10): gece eğitimi (Faz 2) yerine önce **ölçüm**; Kural 8 aynen.
+
+- Etkin sohbet modeli, 30 geliştirme sorusu, `llm30_run` ile AYNI sistem istemi ve çözme ayarı
+  (temperature 0, seed 42, num_predict 4096, num_ctx 16384). RAG varsayılan kapalı
+  (`HEKTOR_NIGHTLY_LLM30_RAG=1` ile `llm30_run.freeze_contexts` ile aynı retrieval).
+- **Puan YOK** (protokol: rubrik insan/hakemindir). Kaydedilen yalnız deterministik sinyaller:
+  `answer_flags` bayrakları (kesilme, bağlam taşması, tekrar döngüsü, boş, CJK) ve 20 sayısal
+  alt maddenin (`numeric_keys`) değerinin cevapta geçip geçmediği — *iz*, puan değil.
+- Model özeti (digest) değişmediyse ve son ölçüm `HEKTOR_NIGHTLY_LLM30_EVERY_DAYS` (7) günden
+  yeni ise koşmaz. Ağır iş kilidi (`comparison`) altında; eğitim/dönüşüm sürerken atlanır. 3
+  ardışık Ollama hatasında durur.
+- Gerileme: önceki ölçüme göre bayraklı cevap artarsa ya da anahtar izi düşerse →
+  "Bekleyen kararlar". Rapor `reports/evals/llm30_nightly/<zaman>.json`, geçmiş
+  `storage/nightly/llm30_history.jsonl`. Elle: `hektor llm30-gece [--zorla]`.
+
 ## 6 · Ayarlar
 
 `HEKTOR_NIGHTLY_JUDGE_MODEL` · `HEKTOR_NIGHTLY_JUDGE_MAX` (40) · `HEKTOR_CSV_LAB_DEFAULT_TZ` ·
-`HEKTOR_CSV_LAB_MAX_FILES` (5) · `HEKTOR_CSV_LAB_TOP_K` (3).
+`HEKTOR_CSV_LAB_MAX_FILES` (5) · `HEKTOR_CSV_LAB_TOP_K` (3) · `HEKTOR_NIGHTLY_LLM30_EVERY_DAYS` (7) ·
+`HEKTOR_NIGHTLY_LLM30_RAG` (kapalı).
 
 ## 7 · Test
 
@@ -96,7 +117,9 @@ değişince yeniden yargılar · gece sınırı · web kaldırma ucu `require_hu
 eğitim başlatma modüllerini içe aktarmaz · profil/zaman dilimi tespiti · DSR deneme sayısıyla
 düşer · Pine yalnız gösterge · uçtan uca CSV: final dokunulmaz, OOS erişimi kayıtlı, ikinci koşu
 yeniden işlemez · saat dilimsiz gün-içi atlanır · yan dosya profili ezer · STOP_ALL no-op · adım
-hatası izole · eşzamanlı koşu reddi + bayat kilit · eğitim adımı yalnız rapor.
+hatası izole · eşzamanlı koşu reddi + bayat kilit · eğitim adımı yalnız rapor · LLM-30: sayısal
+iz eşleşmesi, model özeti başına bir ölçüm, gerileme tespiti, Ollama yok/ağır iş → atla, ardışık
+hatada dur, gerileme "Bekleyen kararlar"da.
 
 **Sıradaki elle deneme:** gerçek Ollama ile `hektor gece -a hakem` (birkaç aday) ve gerçek bir
 CSV ile `hektor csv-lab --dosya <ad>.csv`; raporları okuyup eşikleri birlikte ayarlamak.

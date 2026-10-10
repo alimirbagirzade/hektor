@@ -5,9 +5,11 @@
 #
 # WHAT IT DOES (uv run hektor gece):
 #   1. local Ollama judge reads learning candidates; suspicious/unclear -> quarantine
-#   2. CSV lab: new CSV files in data\market\raw -> indicator/strategy CANDIDATES
+#   2. LLM-30 measurement of the active model (flags + numeric key trace; no score),
+#      only when the model digest changed or weekly
+#   3. CSV lab: new CSV files in data\market\raw -> indicator/strategy CANDIDATES
 #      (selected on the development period, validated out-of-sample once; final untouched)
-#   3. training readiness REPORT only
+#   4. training readiness REPORT only
 #
 # WHAT IT DOES NOT DO: it never starts training, never promotes a model and never
 # sends anything to a cloud service (CLAUDE.md Rule 8; docs/TASARIM_GECE_DONGUSU.md).

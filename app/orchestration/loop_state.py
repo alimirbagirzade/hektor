@@ -243,6 +243,18 @@ def _nightly_items() -> list[dict[str, Any]]:
                 "where": "ogrenme_havuzu",
             }
         )
+    olc = (last.get("steps") or {}).get("olcum") or {}
+    if olc.get("regression"):
+        items.append(
+            {
+                "key": "llm30_gerileme",
+                "stage": "gece",
+                "who": "insan",
+                "title": f"LLM-30 gece ölçümünde gerileme: {olc.get('model', '')}",
+                "detail": " · ".join(olc["regression"]) + f" — {olc.get('report', '')}",
+                "where": "ogrenme_havuzu",
+            }
+        )
     csv = (last.get("steps") or {}).get("csv") or {}
     fresh = [
         e
