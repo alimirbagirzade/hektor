@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -26,6 +28,35 @@ _NS = {
     "arxiv": "http://arxiv.org/schemas/atom",
 }
 _HEADERS = {"User-Agent": "Hektor/1.0 (academic-research; contact: noreply@hektor)"}
+# arXiv API kullanım şartı: ardışık istekler arasında ≥3 sn. Araştırma paketi keşfi 8
+# sorguyu art arda atıyordu → hepsi 429 aldı (2026-10-10). Süreç içi kısma + 429/503'te
+# sınırlı yeniden deneme (Retry-After'a uyar, üst sınırlı).
+_MIN_INTERVAL_S = 3.0
+_RETRY_STATUSES = (429, 503)
+_MAX_RETRIES = 2
+_MAX_RETRY_WAIT_S = 30.0
+_throttle_lock = threading.Lock()
+_last_request = 0.0
+_sleep = time.sleep
+_clock = time.monotonic
+
+
+def _throttle() -> None:
+    """Son arXiv API isteğinden bu yana ≥ _MIN_INTERVAL_S geçmesini bekle."""
+    global _last_request
+    with _throttle_lock:
+        wait = _MIN_INTERVAL_S - (_clock() - _last_request)
+        if _last_request and wait > 0:
+            _sleep(wait)
+        _last_request = _clock()
+
+
+def _retry_wait(resp: httpx.Response, attempt: int) -> float:
+    try:
+        hinted = float(resp.headers.get("Retry-After", ""))
+    except ValueError:
+        hinted = 0.0
+    return min(max(hinted, 5.0 * attempt), _MAX_RETRY_WAIT_S)
 
 
 @dataclass
@@ -59,7 +90,16 @@ def search_arxiv(query: str, max_results: int = 10) -> list[ArxivEntry]:
     )
     url = f"{_SEARCH_URL}?{params}"
     with httpx.Client(headers=_HEADERS, timeout=30) as client:
-        resp = client.get(url)
+        for attempt in range(1, _MAX_RETRIES + 2):
+            _throttle()
+            resp = client.get(url)
+            if resp.status_code not in _RETRY_STATUSES or attempt > _MAX_RETRIES:
+                break
+            wait = _retry_wait(resp, attempt)
+            logging.getLogger(__name__).warning(
+                "arXiv %s döndü; %.0f sn sonra yeniden denenecek", resp.status_code, wait
+            )
+            _sleep(wait)
     resp.raise_for_status()
 
     root = ET.fromstring(resp.text)
