@@ -235,6 +235,12 @@ def learn_approve(candidate_id: str, req: ApproveRequest) -> dict[str, Any]:
     return _call(_svc().approve, candidate_id, req.reason)
 
 
+@learn_router.post("/candidates/{candidate_id}/lift-quarantine", dependencies=[_human])
+def learn_lift_quarantine(candidate_id: str, req: ApproveRequest) -> dict[str, Any]:
+    """(İnsan) Gece hakeminin karantinasını gerekçeyle kaldır — eğitim onayı DEĞİLDİR."""
+    return _call(_svc().lift_quarantine, candidate_id, req.reason)
+
+
 @learn_router.post("/candidates/{candidate_id}/link-run", dependencies=[_human])
 def learn_link_run(candidate_id: str, req: LinkRunRequest) -> dict[str, Any]:
     """Adayı kayıtlı strateji test koşusuna bağla (zaman alanları + strateji ailesi)."""

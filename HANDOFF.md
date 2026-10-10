@@ -33,6 +33,17 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-10 — Gece döngüsü Faz 1: yerel hakem + karantina + CSV laboratuvarı
+
+Tasarım: `docs/TASARIM_GECE_DONGUSU.md`. `hektor gece` (Görev Zamanlayıcı:
+`scripts/install-nightly-task.ps1`, varsayılan 23:30) → yerel Ollama hakemi öğrenme adaylarını
+okur, şüpheli/belirsiz → `quarantined` (eğitime girmez, yalnız gerekçeli insan kaldırır) →
+`data/market/raw` altındaki YENİ CSV'lerden gösterge/strateji adayı (zaman dilimi veriden,
+maliyet profili dosya adı/yan dosyadan; geliştirmede seçim + Deflated Sharpe, OOS bir kez,
+final dokunulmaz, Pine v5 gösterge taslağı) → eğitim hazırlığı yalnız RAPOR. **Eğitim
+başlatmaz** (Faz 2: gözetimsiz gece eğitimi Kural 8 değişikliği ister, açık). Gerçek Ollama ve
+gerçek kullanıcı CSV'siyle henüz denenmedi. #52'nin üstüne kurulu.
+
 ### 2026-10-10 — Tek tıklamalı döngü + bulut hakem (Seçenek A)
 
 Tasarım ve sapmalar: `docs/TASARIM_SUREKLI_DONGU.md`. Öğrenme Havuzu'nda "Bekleyen kararlar"
