@@ -33,6 +33,26 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-10 — araştırma döngüsü uçtan uca ilk gerçek tur · zamanlayıcı
+
+- Ana kurulum `update.ps1` ile 68ff426'ya çekildi (SONUC: OK), web yeniden başladı; kilit
+  kalkınca yönetici (Codex incelemeli) turu kendiliğinden yürüttü:
+  - **Keşif — BAŞARISIZ:** 8 arXiv sorgusunun hepsi 429 (istekler arka arkaya gidiyordu);
+    önceki indirmelerden 3 aday korundu. **Düzeltme:** `search_arxiv` istekler arası ≥3 sn
+    kısma + 429/503'te en çok 2 sınırlı yeniden deneme (`tests/test_arxiv_throttle.py`).
+  - **RAG işleme — kısmi (0 alındı, 2 hata):** iki makale de model değerlendirme kapısında
+    düştü (alıntı kaynakta birebir yok / `hypothesis` alanı eksik). Kapı fail-closed doğru
+    çalıştı; makaleler `pending`, deneme 1. Üçüncü aday (Late Chunking) tur sınırı (2) yüzünden
+    denenmedi.
+  - **Kartlar:** yeni kaynak olmadığı için 0. **Aday veri:** 6 soru seçildi, 3 denendi,
+    2 kabul / 1 ret → yalnız `data/research_package/staging/distill_qa.jsonl` (kanonik
+    eğitim verisine dokunulmadı). Sıradaki aşama: `methods`.
+- **Zamanlayıcı:** `start-server.ps1 -Repair` → Registry Run (oturum açılışında web) ve
+  `HektorTrainingWatchdog` kaydedildi. Watchdog'un bitmiş v14'ü diriltmediği doğrulandı
+  (`train-recovery-check` → allowed=false, "koşu TAMAMLANMIŞ"). `HektorWeb` / `HektorUpdate`
+  **Yönetici PowerShell gerektiriyor** (RunLevel Highest) — kullanıcı yükseltilmiş oturumda
+  `.\scripts\start-server.ps1 -Repair` çalıştırmalı.
+
 ### 2026-10-09 — araştırma otomasyonunu bekleten kilit giderildi · durum kaydı düzeltildi
 
 - **Kilit teşhisi:** araştırma paketi `storage/.training_launching` dosyasını engel sayıyordu.
