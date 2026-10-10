@@ -269,8 +269,9 @@ def _nightly_items() -> list[dict[str, Any]]:
                 "stage": "gece",
                 "who": "insan",
                 "title": f"{len(fresh)} CSV adayı örneklem dışında tutarlı — denetim bekliyor",
-                "detail": "ADAYDIR, hazır değil: /backtest-auditor + final dönem (bir kez) sizde. "
-                + (last.get("report_md") or ""),
+                "detail": "ADAYDIR, hazır değil: /backtest-auditor + final dönem (veri başına "
+                "BİR aday, bir kez) sizde — `hektor csv-lab-final <strategy_id> --dosya <ad>.csv "
+                '--gerekce "..."`. ' + (last.get("report_md") or ""),
                 "where": "ogrenme_havuzu",
             }
         )

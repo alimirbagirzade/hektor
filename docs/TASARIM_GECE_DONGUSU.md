@@ -73,6 +73,13 @@ yalnız `eligible` okuduğundan karantinadaki aday hiçbir veri sürümüne girm
 8. **Çıktı:** `reports/csv_lab/<gün>/<ad>_<özet>.{json,md}` + Pine v5 **gösterge** taslağı
    (yalnız EMA/SMA/RSI/ATR; permütasyon entropisinin Pine karşılığı yok).
 
+9. **Final (insan, veri başına BİR aday, bir kez):** doğrulama dönemine bakılan adaylar strateji
+   deposuna `csvlab` ailesiyle kaydedilir. `hektor csv-lab-final <strategy_id> --dosya <ad>.csv
+   --gerekce "..."` (≥10 kr) adayı mevcut `strategy_testing.run_stage(stage="final")` ile koşar.
+   Final aile+veri başına tek kullanımlık olduğundan aynı veride ikinci bir CSV adayı finale
+   giremez. Doğrulamaya bakılmamış (seçilmemiş) varyant ve sohbet stratejisi bu yoldan geçemez.
+   Gece hakemi kullanıcı sohbet ederken (sohbet kirası) atlanır.
+
 Maliyet profilleri (bp; kaba, temkinli perakende varsayımı — gerçek hesabınız için yan dosyada
 `costs` ile ezin):
 

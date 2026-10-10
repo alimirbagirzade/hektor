@@ -92,6 +92,11 @@ def _step_hakem() -> dict[str, Any]:
     busy = resource_lock.blocker()
     if busy:
         return {"ran": False, "skipped": f"Ağır iş sürüyor — hakem atlandı: {busy}"}
+    from app.feedback.resource_guard import chat_lease_blocker
+
+    chatting = chat_lease_blocker()
+    if chatting:  # kullanıcı o an sohbet ediyor: Ollama'yı onunla paylaşma, ertesi gece dene
+        return {"ran": False, "skipped": f"Sohbet sürüyor — hakem atlandı: {chatting}"}
     return run_judging()
 
 

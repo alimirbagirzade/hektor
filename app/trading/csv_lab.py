@@ -511,6 +511,27 @@ def analyze_file(
             and float(val.metrics["total_return_pct"]) > 0
         )
         entry["verdict"] = "aday_oos_tutarli" if good else "aday_zayif"
+        # Final dönemine giden TEK yol: strateji deposuna ``csvlab`` ailesiyle kaydedilir; final
+        # aile+veri başına bir kez çalışır (``run_final`` → ``strategy_testing.run_stage``).
+        saved, _created = store.save_strategy(
+            t["strategy_id"],
+            family_id=FAMILY,
+            parent_id="",
+            name=v.spec.name,
+            spec=v.spec.model_dump(mode="json"),
+            source={
+                "csvlab": {
+                    "file": path.name,
+                    "clean_sha256": report.clean_sha256,
+                    "tz": tz or "",
+                    "verdict": entry["verdict"],
+                    "dsr_dev": entry["dsr_dev"],
+                    "lab_version": LAB_VERSION,
+                }
+            },
+            origin="csvlab",
+        )
+        entry["store_family"] = saved["family_id"]
         if v.pine_ok:
             pine = out_dir / f"{path.stem}_{t['strategy_id']}.pine"
             pine.write_text(to_pine(v.spec), encoding="utf-8")
@@ -527,6 +548,7 @@ def analyze_file(
         "clean_sha256": report.clean_sha256,
         "data": report.to_dict(),
         "timeframe": tf,
+        "tz": tz or "",
         "timeframe_source": "yan dosya" if meta.get("timeframe") else f"veri adımı {med_step:g} sn",
         "profile": profile_key,
         "profile_label": profile["label"],
@@ -591,7 +613,7 @@ def render_markdown(rep: dict[str, Any]) -> str:
     for e in rep["selected"]:
         d, v = e["dev"], e.get("val") or {}
         lines += [
-            f"### {e['name']} — `{e['verdict']}`",
+            f"### {e['name']} — `{e['verdict']}` · `{e['strategy_id']}`",
             f"- Kurallar: giriş `{' VE '.join(e['rules']['giris'])}` · çıkış "
             f"`{' VE '.join(e['rules']['cikis']) or '-'}`",
             f"- Geliştirme: Sharpe {d['sharpe']} · getiri %{d['total_return_pct']} · DD "
@@ -620,11 +642,65 @@ def render_markdown(rep: dict[str, Any]) -> str:
         "## Test noktası",
         "",
         "Bu bir hipotez listesidir. Sıradaki adım: /backtest-auditor ile denetim, gerçek maliyet "
-        "ve (bir kez) final dönem testi. Yatırım tavsiyesi değildir.",
+        "ve final dönem testi: `hektor csv-lab-final <strategy_id> --dosya <ad>.csv --gerekce "
+        '"..."` — bu veride YALNIZ BİR aday için, bir kez. Yatırım tavsiyesi değildir.',
         "",
         f"_{rep['disclaimer']}_",
     ]
     return "\n".join(lines) + "\n"
+
+
+def run_final(
+    strategy_id: str, *, data_file: str, reason: str, tz: str | None = None
+) -> dict[str, Any]:
+    """(İnsan) CSV adayını dokunulmamış FİNAL döneminde BİR KEZ test et.
+
+    Önkoşullar: aday bu veride csv_lab tarafından doğrulama dönemine bakılmış olmalı (seçim
+    disiplini — geliştirmede seçilmemiş bir varyant finale gidemez) · gerekçe ≥10 karakter.
+    Final ``csvlab`` ailesi + veri başına tek kullanımdır (``run_stage`` zorlar): aynı veride
+    ikinci bir CSV adayı finale giremez. Sonuç "kayıtlı hesap"tır, tavsiye değildir.
+    """
+    from app.trading.chat_strategy import approve, review
+    from app.trading.strategy_testing import resolve_data_file, run_stage
+
+    reason = (reason or "").strip()
+    if len(reason) < 10:
+        raise StrategyTestError("Final testi gerekçesi en az 10 karakter olmalı.")
+    store = StrategyStore()
+    rec = store.get_strategy(strategy_id)
+    if rec is None:
+        raise StrategyTestError(f"Strateji yok: {strategy_id}")
+    lab = (rec.get("source") or {}).get("csvlab") or {}
+    if rec.get("origin") != "csvlab" or not lab:
+        raise StrategyTestError("Bu komut yalnız CSV laboratuvarı adayları içindir.")
+    spec = TestableStrategy.model_validate(rec["spec"])
+    _df, report = load_checked_csv(
+        resolve_data_file(data_file), timeframe=spec.timeframe, tz=tz or lab.get("tz") or None
+    )
+    looked = {
+        a["strategy_id"] for a in store.accesses(rec["family_id"], report.clean_sha256, "dogrulama")
+    }
+    if strategy_id not in looked:
+        raise StrategyTestError(
+            "Bu aday bu veride doğrulama dönemine bakılarak seçilmedi — finale gidemez "
+            "(önce `hektor csv-lab` bu veriyi işlemeli)."
+        )
+    rv = review(strategy_id, store=store)
+    if not rv["approved"]:
+        approve(
+            strategy_id,
+            review_sha=rv["review_sha"],
+            acknowledged=[i["key"] for i in rv["items"]],
+            note=f"csv_lab final (insan): {reason}"[:1000],
+            store=store,
+        )
+    return run_stage(
+        strategy_id,
+        data_file=data_file,
+        tz=tz or lab.get("tz") or None,
+        stage="final",
+        store=store,
+    )
 
 
 def run_inbox(*, max_files: int | None = None, top_k: int | None = None) -> dict[str, Any]:
