@@ -589,3 +589,27 @@ def test_judge_step_skips_while_user_chats(iso, monkeypatch) -> None:  # noqa: F
     monkeypatch.setattr(resource_guard, "chat_lease_blocker", lambda root=None: "sohbet cevabı")
     out = nightly._step_hakem()
     assert not out["ran"] and "Sohbet" in out["skipped"]
+
+
+def test_pending_decisions_carry_nightly_brief(iso, monkeypatch) -> None:  # noqa: F811
+    from app.orchestration.loop_state import _nightly_brief
+
+    assert _nightly_brief()["ran"] is False
+    monkeypatch.setattr(
+        nightly,
+        "STEP_FNS",
+        {
+            "hakem": lambda: {
+                "ran": True,
+                "quarantined": [{"candidate_id": "x", "verdict": "supheli", "reason": "r"}],
+            },
+            "olcum": lambda: {"ran": True, "n": 30, "n_flagged": 2, "key_hits": 9, "key_total": 20},
+            "csv": lambda: {
+                "files": [{"file": "a.csv", "status": "done"}, {"file": "b.csv", "status": "seen"}]
+            },
+        },
+    )
+    nightly.run_nightly(("hakem", "olcum", "csv"))
+    b = _nightly_brief()
+    assert b["ran"] and b["status"] == "done" and b["quarantined"] == 1 and b["csv_done"] == 1
+    assert b["llm30"] == "bayraklı 2/30 · iz 9/20" and b["report_md"].endswith(".md")
