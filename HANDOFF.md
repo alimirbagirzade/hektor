@@ -33,6 +33,12 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-10 — CSV adayı → final dönemi yolu
+
+CSV laboratuvarının OOS'a bakılmış adayları strateji deposuna `csvlab` ailesiyle kaydedilir;
+`hektor csv-lab-final <strategy_id> --dosya <ad>.csv --gerekce "..."` mevcut `run_stage` ile
+final dönemini koşar (veri başına tek aday, tek kez). Gece hakemi sohbet sürerken atlanır.
+
 ### 2026-10-10 — Gece LLM-30 ölçümü (Faz 2 yerine, kullanıcı kararı)
 
 `hektor gece` artık `olcum` adımını da koşar (`app/evals/llm30_nightly.py`): etkin model 30

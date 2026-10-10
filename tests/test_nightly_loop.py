@@ -529,3 +529,63 @@ def test_nightly_includes_measurement_and_pending_shows_regression(iso, monkeypa
     assert "GERİLEME" in Path(rep["report_md"]).read_text(encoding="utf-8")
     keys = {i["key"] for i in _nightly_items()}
     assert "llm30_gerileme" in keys
+
+
+# ── CSV adayı → final (insan, veri başına bir kez) ───────────────────────────
+
+
+def _lab_with_candidates(root: Path) -> dict:
+    _write(root, "BTCUSDT_perp_1h.csv", _ohlcv(3000, "1h", trend=0.0004))
+    f = lab.run_inbox()["files"][0]
+    rep = json.loads(Path(f["report"]["json"]).read_text(encoding="utf-8"))
+    assert len([e for e in rep["selected"] if "val" in e]) >= 2
+    return rep
+
+
+def test_selected_candidates_saved_under_one_csvlab_family(iso) -> None:  # noqa: F811
+    from app.trading.strategy_store import StrategyStore
+
+    rep = _lab_with_candidates(iso)
+    st = StrategyStore()
+    for e in rep["selected"]:
+        rec = st.get_strategy(e["strategy_id"])
+        assert rec is not None and rec["origin"] == "csvlab" and rec["family_id"] == lab.FAMILY
+        assert rec["source"]["csvlab"]["clean_sha256"] == rep["clean_sha256"]
+    # seçilmeyen denemeler depoya girmez
+    unselected = {t["strategy_id"] for t in rep["trials"] if "strategy_id" in t} - {
+        e["strategy_id"] for e in rep["selected"]
+    }
+    assert unselected and all(st.get_strategy(s) is None for s in unselected)
+
+
+def test_final_once_per_data_for_csvlab_family(iso) -> None:  # noqa: F811
+    from app.trading.strategy_testing import StrategyTestError
+
+    rep = _lab_with_candidates(iso)
+    first, second = rep["selected"][0]["strategy_id"], rep["selected"][1]["strategy_id"]
+    with pytest.raises(StrategyTestError, match="10 karakter"):
+        lab.run_final(first, data_file=rep["file"], reason="kısa")
+    run = lab.run_final(first, data_file=rep["file"], reason="Geliştirme+OOS en tutarlı aday.")
+    assert run["stage"] == "final" and run["family_id"] == lab.FAMILY
+    assert run["period_start"] >= rep["periods"]["dogrulama"][1]
+    with pytest.raises(StrategyTestError, match="ZATEN"):
+        lab.run_final(second, data_file=rep["file"], reason="İkinci adayı da deneyelim.")
+
+
+def test_final_rejects_non_csvlab_strategy(iso) -> None:  # noqa: F811
+    from app.trading.chat_strategy import save_spec
+    from app.trading.strategy_testing import StrategyTestError
+
+    rep = _lab_with_candidates(iso)
+    v = lab.build_variants("X", "1h", lab.PROFILES["forex_cfd"]["costs"], True)
+    rec = save_spec(v[3].spec.model_dump(mode="json"))
+    with pytest.raises(StrategyTestError, match="yalnız CSV"):
+        lab.run_final(rec["strategy_id"], data_file=rep["file"], reason="sohbet stratejisi deneme")
+
+
+def test_judge_step_skips_while_user_chats(iso, monkeypatch) -> None:  # noqa: F811
+    from app.feedback import resource_guard
+
+    monkeypatch.setattr(resource_guard, "chat_lease_blocker", lambda root=None: "sohbet cevabı")
+    out = nightly._step_hakem()
+    assert not out["ran"] and "Sohbet" in out["skipped"]

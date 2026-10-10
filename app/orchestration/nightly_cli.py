@@ -99,6 +99,38 @@ def csv_lab(
     console.print(t)
 
 
+def csv_lab_final(
+    aday: str = typer.Argument(..., help="Strateji kimliği (csv-lab raporundaki strategy_id)"),
+    dosya: str = typer.Option(..., "--dosya", help="Aynı veri dosyası (data/market/raw altında)"),
+    gerekce: str = typer.Option(..., "--gerekce", help="Neden bu aday? (≥10 karakter)"),
+    tz: str = typer.Option("", "--tz", help="Saat dilimi (boş → csv-lab'in kullandığı)"),
+) -> None:
+    """(İnsan) CSV adayını dokunulmamış FİNAL döneminde bir kez test et.
+
+    Aynı veride csvlab ailesi için final TEK kullanımdır: başka bir CSV adayı bu veride artık
+    finale giremez. Sonuç kayıtlı hesaptır; yatırım tavsiyesi değildir.
+    """
+    from app.trading import csv_lab as lab
+    from app.trading.data_quality import DataQualityError
+    from app.trading.strategy_testing import StrategyTestError
+
+    try:
+        run = lab.run_final(aday, data_file=dosya, reason=gerekce, tz=tz or None)
+    except (StrategyTestError, DataQualityError, KeyError, ValueError) as exc:
+        console.print(f"[red]Final testi yapılmadı:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    m = (run.get("result") or {}).get("metrics") or {}
+    console.print(
+        f"Final ({run.get('period_start')} → {run.get('period_end')}): Sharpe {m.get('sharpe')} · "
+        f"getiri %{m.get('total_return_pct')} · DD %{m.get('max_drawdown_pct')} · işlem "
+        f"{m.get('n_trades')} · maliyet %{m.get('costs_pct')}"
+    )
+    for w in (run.get("result") or {}).get("warnings") or []:
+        console.print(f"[yellow]⚠[/yellow] {w}")
+    console.print(f"Rapor: {run.get('report_path')}")
+    console.print("Kayıtlı hesap — gelecekte başarı anlamına gelmez, yatırım tavsiyesi değildir.")
+
+
 def karantina() -> None:
     """Karantinadaki öğrenme adaylarını listele (gece hakemi şüphelendi; eğitime girmezler)."""
     from app.feedback.chat_store import ChatStore
@@ -140,5 +172,6 @@ def register(app: typer.Typer) -> None:
     app.command("gece")(gece)
     app.command("csv-lab")(csv_lab)
     app.command("llm30-gece")(llm30_gece)
+    app.command("csv-lab-final")(csv_lab_final)
     app.command("karantina")(karantina)
     app.command("karantina-kaldir")(karantina_kaldir)
