@@ -27,6 +27,9 @@ class PrepareRequest(BaseModel):
     ollama_tag: str = Field(..., min_length=2, max_length=61)
     template_from: str = Field(default="", max_length=80)
     request_id: str = Field(..., min_length=8, max_length=80)
+    # Tek tık: dönüşüm doğrulanınca karşılaştırma kendiliğinden başlar (aynı kurallarla).
+    then_compare: bool = False
+    question_set: str = Field(default="", max_length=300)
 
 
 class CompareRequest(BaseModel):
@@ -144,7 +147,12 @@ def candidate_prepare(adapter: str, req: PrepareRequest) -> dict[str, Any]:
         "conversion",
         adapter=adapter,
         request_id=req.request_id,
-        params={"ollama_tag": req.ollama_tag, "template_from": req.template_from},
+        params={
+            "ollama_tag": req.ollama_tag,
+            "template_from": req.template_from,
+            "then_compare": req.then_compare,
+            "question_set": req.question_set,
+        },
     )
 
 

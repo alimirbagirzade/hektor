@@ -287,6 +287,8 @@ from app.web.chat_routes import chat_router as _chat_router  # noqa: E402
 from app.web.chat_routes import learn_router as _learn_router  # noqa: E402
 from app.web.chat_routes import models_router as _models_router  # noqa: E402
 from app.web.cloud_routes import cloud_router as _cloud_router  # noqa: E402
+from app.web.cloud_routes import judge_router as _judge_router  # noqa: E402
+from app.web.cloud_routes import loop_router as _loop_router  # noqa: E402
 from app.web.compare_routes import compare_router as _compare_router  # noqa: E402
 from app.web.strategy_routes import strategy_router as _strategy_router  # noqa: E402
 from app.web.train_flow_routes import train_flow_router as _train_flow_router  # noqa: E402
@@ -299,6 +301,8 @@ app.include_router(_train_flow_router)
 app.include_router(_compare_router)
 app.include_router(_candidate_router)
 app.include_router(_cloud_router)
+app.include_router(_judge_router)
+app.include_router(_loop_router)
 
 
 @app.get("/api/status", response_model=StatusResponse, dependencies=[api_auth])

@@ -268,6 +268,9 @@ class Settings(BaseSettings):
     cloud_daily_max: int = 10  # günlük istek üst sınırı (abonelik kotası / maliyet koruması)
     cloud_timeout_s: int = 180
     cloud_max_chars: int = 12000  # gönderilecek metnin üst sınırı
+    # K1 bulut hakem (docs/TASARIM_SUREKLI_DONGU.md): kör paket bu boyutta PARÇALARA bölünür;
+    # her parça ayrı önizleme + ayrı insan tıklaması + ayrı kota.
+    cloud_judge_max_chars: int = 30000
 
     # --- Trading ---
     default_market: str = "XAUUSD"

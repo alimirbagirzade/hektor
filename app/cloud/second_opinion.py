@@ -96,8 +96,16 @@ def _records() -> list[dict[str, Any]]:
 
 
 def used_today() -> int:
+    """Bugünkü bulut istekleri — ikinci görüş + bulut hakem (K1/K2) ORTAK kota."""
     today = datetime.now(UTC).date().isoformat()
-    return sum(1 for r in _records() if str(r.get("created_at", "")).startswith(today))
+    recs = list(_records())
+    judge_dir = get_settings().root / "storage" / "cloud" / "judge"
+    for p in sorted(judge_dir.glob("jd_*.json")) if judge_dir.is_dir() else []:
+        try:
+            recs.append(json.loads(p.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return sum(1 for r in recs if str(r.get("created_at", "")).startswith(today))
 
 
 def status() -> dict[str, Any]:

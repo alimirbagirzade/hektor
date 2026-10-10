@@ -547,7 +547,12 @@ def start_job(
             if not TAG_RE.match(template.removesuffix(":latest")) and ":" not in template:
                 raise JobError("Geçersiz şablon etiketi.")
             cmd = conversion_cmd(adapter, tag, template)
-            meta = {"ollama_tag": tag, "template_from": template}
+            meta: dict[str, Any] = {"ollama_tag": tag, "template_from": template}
+            if params.get("then_compare"):
+                # Tek tıklamalı döngü (docs/TASARIM_SUREKLI_DONGU.md): dönüşüm DOĞRULANINCA
+                # karşılaştırma aynı kurallarla (kilit, kira, etiket kontrolü) başlatılır.
+                meta["then_compare"] = True
+                meta["question_set"] = str(params.get("question_set") or DEFAULT_SET)
         else:
             active = str(params.get("active") or _chat_tag("main"))
             base = str(params.get("base") or DEFAULT_TEMPLATE)
@@ -799,7 +804,30 @@ def run(job_id: str) -> int:
         verification=detail,
         error="" if ok else why,
     )
+    if ok and cur.get("kind") == "conversion" and (cur.get("params") or {}).get("then_compare"):
+        _chain_compare(cur)
     return 0 if ok else 1
+
+
+def _chain_compare(job: dict[str, Any]) -> None:
+    """Doğrulanmış dönüşümün ardından karşılaştırmayı başlat (``start_job`` kurallarıyla).
+
+    Başlatılamazsa (kira, kilit, etiket) sebep iş kaydına yazılır; karşılaştırma elle başlatılır.
+    Aynı dönüşüm için istek kimliği sabit → yeniden çalıştırma ikinci iş açmaz."""
+    params = job.get("params") or {}
+    try:
+        nxt = start_job(
+            "comparison",
+            adapter=job["adapter"],
+            request_id=f"chain-{job['job_id']}",
+            params={
+                "ollama_tag": params.get("ollama_tag"),
+                "question_set": params.get("question_set") or DEFAULT_SET,
+            },
+        )
+        _update(job["job_id"], chain={"job_id": nxt["job_id"], "error": ""})
+    except Exception as exc:  # zincir hatası dönüşümü başarısız yapmaz
+        _update(job["job_id"], chain={"job_id": "", "error": str(exc)[:300]})
 
 
 def _cli(argv: list[str] | None = None) -> int:
