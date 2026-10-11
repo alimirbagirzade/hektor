@@ -26,7 +26,9 @@ $log = Join-Path $logDir ("nightly-" + $stamp + ".log")
 
 Write-Output ("[" + (Get-Date -Format "HH:mm:ss") + "] nightly loop starting...")
 try {
-    & uv run --no-sync hektor gece 2>&1 | Tee-Object -FilePath $log
+    # --yayinla: sanitized summary (numbers/ids/metrics only) is pushed to the
+    # gece-raporlari branch so the cloud morning routine can read it - no copy/paste.
+    & uv run --no-sync hektor gece --yayinla 2>&1 | Tee-Object -FilePath $log
     Write-Output ("Done. Log: " + $log)
 }
 catch {

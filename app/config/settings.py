@@ -284,7 +284,10 @@ class Settings(BaseSettings):
     # LLM-30 gece ölçümü: model özeti değişmediyse en fazla bu kadar günde bir (0 = yalnız
     # değişince). RAG açık ölçüm retrieval indeksi ister (varsayılan kapalı).
     nightly_llm30_every_days: int = 7
-    nightly_llm30_rag: bool = False  # geliştirmede seçilip doğrulama dönemine bakılacak aday sayısı
+    nightly_llm30_rag: bool = False
+    # Temizlenmiş gece özetini `gece-raporlari` dalına push et (bulut sabah rutini okur).
+    # Depo herkese açık olabilir: yalnız sayı/kimlik/metrik gider (nightly_publish.sanitize).
+    nightly_publish: bool = False  # geliştirmede seçilip doğrulama dönemine bakılacak aday sayısı
 
     # --- Trading ---
     default_market: str = "XAUUSD"

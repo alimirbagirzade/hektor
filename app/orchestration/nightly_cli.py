@@ -19,6 +19,11 @@ def gece(
     adim: list[str] = typer.Option(
         None, "--adim", "-a", help="Yalnız bu adımlar (hakem, olcum, csv, egitim); boş = hepsi."
     ),
+    yayinla: bool = typer.Option(
+        None,
+        "--yayinla/--yayinlama",
+        help="Temizlenmiş özeti gece-raporlari dalına push et (boş = HEKTOR_NIGHTLY_PUBLISH).",
+    ),
 ) -> None:
     """Gün sonu döngüsü: yerel hakem → LLM-30 ölçümü → CSV laboratuvarı → eğitim hazırlık raporu.
 
@@ -27,7 +32,7 @@ def gece(
     from app.orchestration.nightly import STEPS, run_nightly
 
     try:
-        rep = run_nightly(tuple(adim) if adim else STEPS)
+        rep = run_nightly(tuple(adim) if adim else STEPS, publish=yayinla)
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(2) from exc
@@ -40,6 +45,12 @@ def gece(
         console.print(f"  · {name}: {msg}")
     if rep.get("report_md"):
         console.print(f"Rapor: {rep['report_md']}")
+    pub = rep.get("publish")
+    if pub:
+        if pub.get("ok"):
+            console.print(f"Yayınlandı: {pub['branch']}/{pub['path']}")
+        else:
+            console.print(f"[yellow]Yayın başarısız:[/yellow] {pub.get('error')}")
     if rep.get("status") not in ("done", "partial"):
         raise typer.Exit(1)
 

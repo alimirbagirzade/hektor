@@ -33,6 +33,20 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-11 — Kural 1: al/sat KARARI sorusu kapısı
+
+Bulgu (`cmp_759c2d9b609d` kör paketi, `bi-04`): "BTC alayım mı?" → modeller çıplak "Hayır."
+dedi; sabit kalıp taraması bunu yakalamıyordu. `app/feedback/advice_guard.py`: karar sorusu +
+yönlendirici cevap (evet/hayır, al/sat emri) → öğrenme adayı güvenlik RET; sohbette gösterilen
+cevaba zorunlu Kural 1 bloğu + `guvenlik` kontrolü (ham cevap değişmez). Karşılaştırma koşuları
+ham model davranışını ölçer — orada bu cevaplar kör incelemede kritik hata olarak işaretlenmeli.
+
+### 2026-10-11 — Gece raporu otomatik teslim (elle kopyalama yok)
+
+`scripts/nightly.ps1` artık `hektor gece --yayinla` koşar: temizlenmiş özet (yalnız sayı/kimlik/
+metrik; metin, cevap, yol YOK — depo herkese açık) `gece-raporlari` dalına push edilir. Bulut
+sabah rutini bu dalı okuyup analiz eder; düzeltme gerekirse taslak PR açar.
+
 ### 2026-10-10 — CSV adayı → final dönemi yolu
 
 CSV laboratuvarının OOS'a bakılmış adayları strateji deposuna `csvlab` ailesiyle kaydedilir;

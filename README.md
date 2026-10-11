@@ -1138,6 +1138,7 @@ uv run hektor train-doctor             # koşan eğitimin sağlığı + yetkisi 
 uv run hektor kademe2-kayit --findings f.json --recipe-sha <sha> --evidence "..."  # kapanmış Kademe 2 kaydı (kolay eğitim akışı ister)
 uv run hektor gece                     # gün sonu döngüsü: yerel hakem → karantina → CSV lab → eğitim hazırlık RAPORU (eğitim başlatmaz)
 uv run hektor gece -a csv              #   yalnız seçili adım(lar): hakem · olcum · csv · egitim
+uv run hektor gece --yayinla           #   temizlenmiş özeti gece-raporlari dalına push et (bulut sabah rutini okur)
 uv run hektor llm30-gece [--zorla]     # etkin modelin LLM-30 gece ölçümü (bayrak + sayısal anahtar izi; puan değil)
 uv run hektor csv-lab [--dosya X.csv]  # data/market/raw CSV'lerinden gösterge/strateji ADAYI (geliştirmede seç, OOS bir kez; final dokunulmaz)
 uv run hektor csv-lab-final <strategy_id> --dosya X.csv --gerekce "..."  # (insan) CSV adayını FİNAL dönemde test et — veri başına bir aday, bir kez

@@ -752,6 +752,7 @@ def _brief(rep: dict[str, Any]) -> dict[str, Any]:
         "assumptions": rep["assumptions"],
         "selected": [
             {
+                "strategy_id": e["strategy_id"],
                 "name": e["name"],
                 "verdict": e["verdict"],
                 "dev_sharpe": e["dev"]["sharpe"],

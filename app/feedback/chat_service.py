@@ -183,6 +183,15 @@ def send(
                 "detail": "Önceki model cevapları bağlamdır; doğrulanmış kaynak sayılmaz.",
             }
         ]
+        # Kural 1: al/sat KARARI sorusunda gösterilen cevaba zorunlu uyarı + tur kontrolü
+        # (ham cevap ``raw_answer`` değişmez; aday doğrulaması aynı kuralla RET verir).
+        shown = ans.answer
+        if ans.llm_used:
+            from app.feedback.advice_guard import guard_chat_answer
+
+            shown, advice_check = guard_chat_answer(question, ans.answer)
+            if advice_check:
+                checks.append(advice_check)
         cc = ans.citation_check
         if cc is not None and cc.n_unique:
             checks.append(
@@ -234,7 +243,7 @@ def send(
                 },
                 sources=[_source_dict(c) for c in ans.sources],
                 checks=checks,
-                answer=ans.answer,
+                answer=shown,
                 raw_answer=ans.raw_answer,
                 llm_used=ans.llm_used,
             ),
