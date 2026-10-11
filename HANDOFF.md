@@ -33,6 +33,20 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-11 — dönüşüm → karşılaştırma testindeki bekleme yarışı
+
+`test_conversion_chains_comparison_with_same_rules`: çalıştırıcı dönüşümü `done` yazar,
+sonra `_chain_compare` karşılaştırmayı başlatıp `chain` sonucunu yazar. `_wait` ilk yazımda
+dönünce test `chain` alanını henüz yokken okuyabiliyordu; erken fixture sökümü de çalışan
+zincirin yamalarını kaldırabiliyordu. Test yardımcısı artık istenen zincirin başarı/hata
+sonucu yazılana kadar mevcut 60 sn sınırı içinde bekler. Üretimde `done` anlamı değişmedi.
+Kontrollü iki anlık görüntüyle eski yardımcı hem başarı hem hata sonucunda `KeyError: chain`
+üretiyor; regresyon testleri her iki sırayı kapsar. Test atlama veya zaman aşımı artırma yok.
+Doğrulama: iki seri dosya-grubu koşusu 42/42 geçti (~80 sn toplam); format/lint/mypy temiz;
+tam paket 3446 geçti, 13 mevcut koşullu atlama, 4 seçim dışı (408 sn). Windows'ta `make`
+kurulu olmadığından Makefile'daki aynı `uv run ruff format .`, `ruff check .`, `mypy app`,
+`pytest -q` komutları sırayla çalıştırıldı. Aday işi alt süreci artık kalmadı.
+
 ### 2026-10-11 — Pilot eğitim engelleri: RAM yanlış alarmı + Kademe 2 (ae73710..0ee35b0)
 
 Kanıt: `docs/evidence/kademe2_2026-10-11.json` (bulgu bazında karar + kapanış).
