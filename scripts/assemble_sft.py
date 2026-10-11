@@ -2,7 +2,7 @@
 
 Kanonik `app.training.sft_assembly.assemble_sft_lines` yolunu kullanır — `lora-cloud-prep`
 ve `pretrain-gate` ile AYNI birleştirme mantığı (drift yok). `lora-dataset` (sadece kart)
-yerine train-loop'un çağırdığı adım: CPU eğitiminin de disiplin örnekleri + sentetik QA ile
+yerine eğitimden önce çalıştırılan adım: CPU eğitiminin de disiplin örnekleri + sentetik QA ile
 eğitilmesini sağlar (v5 regresyon dersi; bkz. docs + memory v5-adapter-regression).
 
 EĞİTİM BAŞLATMAZ (CLAUDE.md kural 8). Determinizm: seed=0 (kural 6).

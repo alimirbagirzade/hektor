@@ -688,6 +688,24 @@ def _train_impl(
     settings = get_settings()
 
     resolved = detect_lora_backend() if backend == "auto" else backend
+    # MLX yolu profil/assistant-only maskeleme/held-out eval/seed UYGULAMAZ (vanilya reçete =
+    # v5 tuzağı). Profil istenmişse sessizce yok saymak yerine onay/kapılardan ÖNCE reddet.
+    if resolved == "mlx" and (profile or max_examples > 0):
+        console.print(
+            Panel.fit(
+                "MLX backend'i --profile / --max-examples UYGULAMAZ (maskeleme, NEFTune, held-out "
+                "eval ve en iyi checkpoint yok). Profilli eğitim için [cyan]--backend peft[/cyan] "
+                "kullan.",
+                title="⛔ MLX'te profil desteklenmiyor",
+                border_style="red",
+            )
+        )
+        raise typer.Exit(1)
+    if resolved == "mlx" and run:
+        console.print(
+            "[yellow]Uyarı: MLX yolu vanilya reçetedir (assistant-only maskeleme ve held-out "
+            "eval yok); sonuç PEFT koşularıyla karşılaştırılabilir değildir.[/yellow]"
+        )
     # Denetimli (web buton/nöbetçi/auto_pipeline) koşular `launch()`/start-train üzerinden BU
     # AYNI komutu subprocess olarak çağırır. Kayıt: yalnız auto_pipeline KENDİ girişini açar
     # (launch skip_register=True → HEKTOR_TRAIN_SKIP_REGISTER=1); web ve nöbetçi koşuları
@@ -3667,31 +3685,33 @@ def lora_split(
 ) -> None:
     """Birleşik dataset'i (lora_sft.jsonl) train/valid'e böl → jsonl_dir.
 
-    Lokal/uzak PEFT eğitimi `data/training/jsonl/{train,valid}.jsonl` okur. Bu komut
-    1266-örneklik birleşik dataset'i (synth-qa + kart) o yola yazar. Eğitim BAŞLATMAZ.
+    `train --run` / `start-train.ps1` ile AYNI bölücü (`split_lines_by_source`): KAYNAK-GRUPLU
+    (aynı makale/parça/disiplin iskeleti tek tarafta). Eskiden satır-düzeyi karıştırma yapıyordu
+    → aynı makalenin satırları train ve valid'e dağılıyor, valid kaybı iyimser çıkıyordu
+    (denetim 2026-10-11). Varsayılanlarla çıktı eğitimin kendi bölmesiyle bayt-aynıdır.
+    Eğitim BAŞLATMAZ.
     """
-    import random
+    from app.training.detached_launch import _write_if_changed, split_lines_by_source
 
     settings = get_settings()
     src = source if source.is_absolute() else (settings.root / source)
     if not src.exists():
-        console.print(f"[red]Kaynak yok:[/red] {src} — önce 'lora-cloud-prep' çalıştır.")
+        console.print(f"[red]Kaynak yok:[/red] {src} — önce 'assemble_sft.py' çalıştır.")
         raise typer.Exit(code=1)
 
     lines = [ln for ln in src.read_text(encoding="utf-8").splitlines() if ln.strip()]
     if not lines:
         console.print("[yellow]Kaynak boş.[/yellow]")
         return
-    random.Random(seed).shuffle(lines)
-    n_valid = max(1, int(len(lines) * valid_ratio)) if len(lines) > 1 else 0
-    valid, train = lines[:n_valid], lines[n_valid:]
+    train, valid = split_lines_by_source(lines, seed=seed, valid_ratio=valid_ratio)
 
     jd = settings.jsonl_dir
     jd.mkdir(parents=True, exist_ok=True)
-    (jd / "train.jsonl").write_text("\n".join(train) + ("\n" if train else ""), encoding="utf-8")
-    (jd / "valid.jsonl").write_text("\n".join(valid) + ("\n" if valid else ""), encoding="utf-8")
+    _write_if_changed(jd / "train.jsonl", "\n".join(train) + ("\n" if train else ""))
+    _write_if_changed(jd / "valid.jsonl", "\n".join(valid) + ("\n" if valid else ""))
     console.print(
-        f"[green]✓[/green] train=[bold]{len(train)}[/bold] valid=[bold]{len(valid)}[/bold] → {jd}"
+        f"[green]✓[/green] train=[bold]{len(train)}[/bold] valid=[bold]{len(valid)}[/bold] → {jd} "
+        "(kaynak-gruplu)"
     )
 
 
