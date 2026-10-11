@@ -1228,7 +1228,7 @@ macOS: `launchctl` `com.hektor.web.plist`; Linux: systemd kullanıcı servisi `h
 | `start-server.ps1` | `-Install/-Restart/-Repair/-Uninstall/-Stop/-Status`; pid `.web.pid`; loglar `logs/hektor-web*.log` |
 | `run-web-service.ps1` | `.venv\Scripts\python.exe -c "from app.web.server import run; run()"` + `UV_NO_SYNC`, thread=1, `ISOLATE_CHROMA=1` |
 | `start-train.ps1` | Detached eğitim: `-Adapter -Iterations -Dtype -Profile discipline_safe_local -Stop -Status`; `lora-split` önce; `HEKTOR_TRAIN_SUPERVISED=1`; `train_status.json` (pid'siz) |
-| `train-loop.ps1` | assemble_sft → lora-split → train --run döngüsü (STOP_TRAINING ile durur; `--profile` GEÇMEZ — kusur) |
+| ~~`train-loop.ps1`~~ | **Silindi (2026-10-11):** her turda taze insan onayı (Kural 8) + 1024 token profili güncel veriyi reddediyordu → döngü çalışamazdı |
 | `training-watchdog.ps1` | Mutex + log-tazeliği (10 dk) → ölmüşse `start-train.ps1 … -Profile discipline_safe_local` |
 | `assemble_sft.py` | `assemble_sft_lines` → `lora_sft.jsonl`; eğitim başlatmaz |
 | `start-loop.ps1` / `continuous-learning.sh` / `auto-chain.sh` / `mac-loop.sh` | Sürekli öğrenme döngüsü (kart → skor → sentez → synth-qa; eğitim değil; eğitim sürerken ertelenir; `STOP_LEARNING`) |

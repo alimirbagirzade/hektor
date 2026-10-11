@@ -642,6 +642,15 @@
               : ' <span class="muted small">kaynaksız — cevap doğrulanmamış</span>') +
             (data.degenerate
               ? ' <span class="badge badge-warning">tekrar döngüsü — cevaba dayanma</span>'
+              : "") +
+            (data.prompt_format
+              ? ' <span class="muted small">istem: ' +
+                esc(data.prompt_format === "live_rag" ? "canlı RAG" : "sentetik QA") +
+                (data.context_budget ? " · bütçe " + esc(data.context_budget) : "") +
+                "</span>"
+              : "") +
+            (data.recipe_warning
+              ? '<div class="badge badge-warning">' + esc(data.recipe_warning) + "</div>"
               : "");
           var srcHtml = (data.sources || [])
             .map(function (s) {

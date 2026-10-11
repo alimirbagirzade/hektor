@@ -771,7 +771,7 @@ def api_lora_chat(req: LoraChatRequest) -> LoraChatResponse:
     FastAPI bunu threadpool'da koşturur, event loop bloklanmaz.
     """
     from app.training.detached_launch import is_running
-    from app.web.lora_chat_service import chat
+    from app.web.lora_chat_service import ContextBudgetError, chat
 
     if is_running():
         raise HTTPException(
@@ -788,6 +788,8 @@ def api_lora_chat(req: LoraChatRequest) -> LoraChatResponse:
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ContextBudgetError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ImportError as exc:
         # İki ayrı arıza aynı ImportError'la gelir: paket HİÇ yok, ya da kurulu ama sürüm
         # çatışıyor (2026-09-12: tokenizers 0.22.2 ↔ transformers 5.16.1). Eski mesaj yalnız
