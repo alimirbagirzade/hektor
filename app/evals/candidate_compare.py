@@ -136,12 +136,50 @@ DIMENSION_CRITERIA: dict[str, Any] = {
 }
 
 
+def _final_criteria() -> dict[str, Any]:
+    """Final takımı ölçütü (denetim 2026-10-11 E2): rubrik boyutları + kritik kod listesi +
+    soru başına 3 tekrar + "adayda HERHANGİ kritik hata → kritik_ret (NO-GO)"."""
+    from app.evals.final_set import CATEGORIES, all_critical_codes
+    from app.evals.llm30 import RUBRIC
+    from app.lora.dataset_builder import SYSTEM_PROMPT
+
+    return {
+        **DEFAULT_CRITERIA,
+        "name": "final_rubrik_v1",
+        "critical_policy": "any_candidate",
+        # Ollama temp 0'da deterministik değil → soru başına bağımsız tekrar (tohum seed+r).
+        "repeats": 3,
+        "rubric": dict(RUBRIC),
+        "rubric_note": "kaynak_destegi yalnız kanıtlı (evidence) soruda puanlanır; soru puanı = "
+        "4 × toplam / azami; tekrarlar soru içinde ortalanır",
+        "critical_codes": all_critical_codes(),
+        "dimensions": {k: {"how": v["title"]} for k, v in CATEGORIES.items()},
+        "decision_rules": [
+            "adayın HERHANGİ bir cevabında (her tekrar) kritik hata → kritik_ret (NO-GO)",
+            "aile sayısı < min_families → yetersiz_kanit",
+            "GA üst sınırı < −margin → ret",
+            "GA alt sınırı > −margin VE nokta tahmini ≥ 0 → kabul (etkinleştirme ayrı insan "
+            "eylemi)",
+            "aksi → yetersiz_kanit",
+            "adayın tamamlanma/dönüşüm doğrulaması geçmediyse en fazla yetersiz_kanit",
+        ],
+        # Servis edilen sohbetle aynı sistem istemi; uzun kaynaklı cevap kesilmesin.
+        "decoding": {"temperature": 0.0, "seed": 42, "num_ctx": 16384, "num_predict": 4096},
+        "system_prompt": SYSTEM_PROMPT,
+    }
+
+
+FINAL_CRITERIA: dict[str, Any] = _final_criteria()
+
+
 def criteria_for_set(set_path: Path) -> dict[str, Any]:
-    """Setteki sorular ``dimension`` taşıyorsa boyutlu ölçüt, yoksa v1 (ölçüt seçimi cevaplardan
-    bağımsızdır: yalnız soru setinin biçimine bakar)."""
+    """Final takımı satırları (``final_lock_sha``) → final ölçütü; ``dimension`` taşıyorsa boyutlu
+    ölçüt, yoksa v1 (ölçüt seçimi cevaplardan bağımsızdır: yalnız soru setinin biçimine bakar)."""
     rows = [
         json.loads(x) for x in Path(set_path).read_text(encoding="utf-8").splitlines() if x.strip()
     ]
+    if any(r.get("final_lock_sha") for r in rows):
+        return FINAL_CRITERIA
     return DIMENSION_CRITERIA if any(r.get("dimension") for r in rows) else DEFAULT_CRITERIA
 
 
@@ -189,7 +227,7 @@ def lock_criteria(criteria: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def preset_criteria_shas() -> frozenset[str]:
     """Onaylı ön ayar ölçütlerinin özetleri (final kararı yalnız bunlarla)."""
-    return frozenset({_sha(DEFAULT_CRITERIA), _sha(DIMENSION_CRITERIA)})
+    return frozenset({_sha(DEFAULT_CRITERIA), _sha(DIMENSION_CRITERIA), _sha(FINAL_CRITERIA)})
 
 
 def _criteria(sha: str) -> dict[str, Any]:
@@ -308,6 +346,19 @@ def create(
             raise CompareError(f"Final seti pilot adaya kullanılamaz: {blocked}")
     crit = _criteria(criteria_sha)
     questions, set_sha = load_set(set_path)
+    lock_shas = {str(q.get("final_lock_sha") or "") for q in questions}
+    if lock_shas - {""}:
+        # Final takımından dışa aktarılmış set: yalnız GÜNCEL kilitle eşleşirse kullanılır
+        # (kilitten sonra değişen ya da eski sürüm set sessizce final sayılmasın).
+        from app.evals.final_set import current_lock_sha
+
+        if len(lock_shas) != 1 or lock_shas != {current_lock_sha()}:
+            raise CompareError(
+                "Final takımı seti güncel kilitle eşleşmiyor (hektor final-set export ile "
+                "yeniden dışa aktar)."
+            )
+        if crit["criteria"].get("name") != FINAL_CRITERIA["name"]:
+            raise CompareError("Final takımı yalnız final ölçütüyle (final_rubrik_v1) koşulur.")
     cmp_id = "cmp_" + secrets.token_hex(6)
     now = utcnow()
     if crit["locked_at"] >= now:
@@ -358,6 +409,7 @@ def create(
         "set_sha": set_sha,
         "n_questions": len(questions),
         "n_families": len({q["family"] for q in questions}),
+        "repeats": int(crit["criteria"].get("repeats", 1)),
         "criteria_sha": criteria_sha,
         "criteria_locked_at": crit["locked_at"],
         "models": {"active": active_tag, "candidate": candidate_tag, "base": base_tag},
@@ -429,45 +481,54 @@ def generate(
     roles = ["active", "candidate", "base"]
     dec = crit["decoding"]
     options = {k: dec[k] for k in ("temperature", "seed", "num_ctx", "num_predict") if k in dec}
+    repeats = max(1, int(crit.get("repeats", 1)))
     host = get_settings().ollama_host.rstrip("/")
     rows: list[dict[str, Any]] = []
-    total = len(questions) * len(roles)
+    total = len(questions) * len(roles) * repeats
     with (
         hold("comparison", f"candidate_compare:{cmp_id}"),
         httpx.Client(base_url=host, timeout=1800, transport=transport) as client,
     ):
         before = {r: _digest(client, m["models"][r]) for r in roles}
         for i, q in enumerate(questions):
-            order = roles[i % 3 :] + roles[: i % 3]  # dönüşümlü sıra
-            for role in order:
-                messages = [
-                    {"role": "system", "content": crit["system_prompt"]},
-                    {"role": "user", "content": user_content(q)},
-                ]
-                t0 = time.monotonic()
-                resp = client.post(
-                    "/api/chat",
-                    json={
-                        "model": m["models"][role],
-                        "messages": messages,
-                        "stream": False,
-                        "options": options,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                rows.append(
-                    {
-                        "question_id": q["id"],
-                        "role": role,
-                        "answer": str((data.get("message") or {}).get("content") or ""),
-                        "latency_s": round(time.monotonic() - t0, 3),
-                        "prompt_sha": _sha(messages),
-                        "done_reason": data.get("done_reason", ""),
-                    }
-                )
-                if progress is not None:
-                    progress(len(rows), total, role)
+            for rep in range(repeats):
+                # Tekrar: tohum seed+rep (Kural 6 — yeniden üretilebilir, ama Ollama temp 0'da
+                # bile birebir determinizm garanti etmez; tekrar bu yüzden ölçülür).
+                opts = {**options, "seed": int(options.get("seed", 42)) + rep}
+                k = i + rep
+                order = roles[k % 3 :] + roles[: k % 3]  # dönüşümlü sıra
+                for role in order:
+                    messages = [
+                        {"role": "system", "content": crit["system_prompt"]},
+                        {"role": "user", "content": user_content(q)},
+                    ]
+                    t0 = time.monotonic()
+                    resp = client.post(
+                        "/api/chat",
+                        json={
+                            "model": m["models"][role],
+                            "messages": messages,
+                            "stream": False,
+                            "options": opts,
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    rows.append(
+                        {
+                            "question_id": q["id"],
+                            "role": role,
+                            # Tekrarsız (eski) ölçütte alan YOK → mühürlü eşleme yalnız rol.
+                            **({"repeat": rep} if repeats > 1 else {}),
+                            "seed": opts["seed"],
+                            "answer": str((data.get("message") or {}).get("content") or ""),
+                            "latency_s": round(time.monotonic() - t0, 3),
+                            "prompt_sha": _sha(messages),
+                            "done_reason": data.get("done_reason", ""),
+                        }
+                    )
+                    if progress is not None:
+                        progress(len(rows), total, role)
         after = {r: _digest(client, m["models"][r]) for r in roles}
     if before != after:
         m["status"] = "invalid"
@@ -475,7 +536,13 @@ def generate(
         _write(_root() / cmp_id / "manifest.json", m)
         raise CompareError(m["invalid_reason"])
     _write(_root() / cmp_id / "raw.json", rows)
-    m.update(status="generated", digests=before, options=options, generated_at=utcnow())
+    m.update(
+        status="generated",
+        digests=before,
+        options=options,
+        repeats=repeats,
+        generated_at=utcnow(),
+    )
     _write(_root() / cmp_id / "manifest.json", m)
     _build_blind_packet(cmp_id, questions, rows)
     return m
@@ -528,23 +595,63 @@ def auto_score(q: dict[str, Any], answer: str) -> dict[str, Any] | None:
     # F4-4: yalnız CEVAP taranır — soru metnindeki bir sözcük üç modeli birden kritik yapmasın.
     rule1 = correction_safety_reason(answer)
     if rule1:
-        return {"score": 0, "critical": True, "why": f"Kural 1: {rule1}", "by": "otomatik"}
+        return {
+            "score": 0,
+            "critical": True,
+            "codes": ["kural1_tavsiye_dili"],
+            "why": f"Kural 1: {rule1}",
+            "by": "otomatik",
+        }
     if q.get("type") == "math":
         readings = final_number_readings(answer)
         if not readings:
-            return {"score": 0, "critical": True, "why": "sonuç yok", "by": "anahtar"}
+            return {
+                "score": 0,
+                "critical": True,
+                "codes": ["anahtara_aykiri_hesap"],
+                "why": "sonuç yok",
+                "by": "anahtar",
+            }
         key = float(q["answer_key"])
         tol = float(q.get("tolerance", 1e-6 * max(1.0, abs(key))))
+        if q.get("sign_insensitive"):
+            readings = [abs(v) for v in readings]
+            key = abs(key)
         match = next((v for v in readings if abs(v - key) <= tol), None)
         ok = match is not None
         got = match if ok else readings[0]
         return {
             "score": 4 if ok else 0,
             "critical": not ok,
+            "codes": [] if ok else ["anahtara_aykiri_hesap"],
             "why": f"anahtar {key}, cevap {got}",
             "by": "anahtar",
         }
     return None
+
+
+def answer_key(row: dict[str, Any]) -> str:
+    """Cevabın mühürlü kimliği: tekrarsız eski koşularda yalnız rol, tekrarlıda ``rol#r``."""
+    rep = row.get("repeat")
+    return str(row["role"]) if rep is None else f"{row['role']}#{int(rep)}"
+
+
+def role_of(key: str) -> str:
+    return key.split("#", 1)[0]
+
+
+def _labels(n: int) -> list[str]:
+    """A, B, …, Z, AA, AB … (tekrarlı koşuda soru başına 3 rol × tekrar sayısı kadar)."""
+    out = []
+    for i in range(n):
+        s, k = "", i
+        while True:
+            s = chr(ord("A") + k % 26) + s
+            k = k // 26 - 1
+            if k < 0:
+                break
+        out.append(s)
+    return out
 
 
 def _build_blind_packet(cmp_id: str, questions: list[dict], rows: list[dict]) -> None:
@@ -558,14 +665,14 @@ def _build_blind_packet(cmp_id: str, questions: list[dict], rows: list[dict]) ->
         by_q.setdefault(r["question_id"], []).append(r)
     for q in questions:
         answers = by_q.get(q["id"], [])
-        auto_rows = {r["role"]: auto_score(q, r["answer"]) for r in answers}
+        auto_rows = {answer_key(r): auto_score(q, r["answer"]) for r in answers}
         auto[q["id"]] = {k: v for k, v in auto_rows.items() if v is not None}
-        pending = [r for r in answers if auto_rows[r["role"]] is None]
+        pending = [r for r in answers if auto_rows[answer_key(r)] is None]
         if not pending:
             continue
-        labels = ["A", "B", "C"][: len(pending)]
+        labels = _labels(len(pending))
         rng.shuffle(pending)
-        sealed[q["id"]] = {lab: r["role"] for lab, r in zip(labels, pending, strict=True)}
+        sealed[q["id"]] = {lab: answer_key(r) for lab, r in zip(labels, pending, strict=True)}
         packet.append(
             {
                 "question_id": q["id"],
@@ -591,10 +698,19 @@ def blind_packet(cmp_id: str) -> list[dict[str, Any]]:
     if m["status"] not in ("generated", "reviewed", "decided"):
         raise CompareError("Kör paket henüz yok.")
     questions = {q["id"]: q for q in (_read(_root() / cmp_id / "questions.json") or [])}
+    crit = _criteria(m["criteria_sha"])["criteria"]
     out = []
     for p in _read(_root() / cmp_id / "blind_packet.json") or []:
         q = questions.get(p["question_id"], {})
-        out.append({**p, "dimension": dimension_of(q), "rubric": list(q.get("rubric") or [])})
+        item = {**p, "dimension": dimension_of(q), "rubric": list(q.get("rubric") or [])}
+        if crit.get("rubric"):
+            from app.evals.rubric_gate import rubric_dims
+
+            # Rubrikli ölçüt: inceleyici boyut boyut puanlar + kritik hata KODU seçer.
+            item["rubric_dims"] = rubric_dims(requires_source=bool(q.get("evidence")))
+            item["critical_codes"] = dict(crit.get("critical_codes") or {})
+            item["critical_checks"] = list(q.get("critical_checks") or [])
+        out.append(item)
     return out
 
 
@@ -636,8 +752,46 @@ def key_summary(cmp_id: str) -> list[dict[str, Any]]:
     return out
 
 
+def _clean_one(
+    qid: str, lab: str, v: dict[str, Any], item: dict[str, Any], *, require_rubric: bool
+) -> dict[str, Any]:
+    """Tek cevabın puanı. Rubrikli ölçütte insan boyut puanı + kritik KOD verir; soru puanı
+    rubrikten hesaplanır (0–4). Kod seçilmeden "kritik" işareti kabul edilmez."""
+    from app.evals.rubric_gate import RubricError, check_codes, score_rubric
+
+    note = str(v.get("note", ""))[:500]
+    if item.get("rubric_dims") and (require_rubric or "rubric" in v):
+        rubric = v.get("rubric")
+        if not isinstance(rubric, dict):
+            raise CompareError(f"{qid}/{lab}: rubrik boyut puanları gerekli.")
+        try:
+            score = score_rubric(rubric, requires_source=bool(item.get("evidence")))
+            codes = check_codes(v.get("critical_codes") or [])
+        except RubricError as exc:
+            raise CompareError(f"{qid}/{lab}: {exc}") from exc
+        if v.get("critical") and not codes:
+            raise CompareError(f"{qid}/{lab}: kritik hata için kod seçilmeli.")
+        return {
+            "score": round(score, 4),
+            "rubric": {k: int(x) for k, x in rubric.items()},
+            "critical": bool(codes),
+            "critical_codes": codes,
+            "note": note,
+        }
+    try:
+        plain = int(v.get("score", -1))
+    except (TypeError, ValueError) as exc:
+        raise CompareError(f"{qid}/{lab}: puan 0–4 olmalı.") from exc
+    if not 0 <= plain <= 4:
+        raise CompareError(f"{qid}/{lab}: puan 0–4 olmalı.")
+    return {"score": plain, "critical": bool(v.get("critical")), "note": note}
+
+
 def _clean_reviews(
-    cmp_id: str, reviews: dict[str, dict[str, dict[str, Any]]]
+    cmp_id: str,
+    reviews: dict[str, dict[str, dict[str, Any]]],
+    *,
+    require_rubric: bool = True,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     packet = {p["question_id"]: p for p in blind_packet(cmp_id)}
     clean: dict[str, dict[str, dict[str, Any]]] = {}
@@ -647,16 +801,10 @@ def _clean_reviews(
         valid = {a["label"] for a in packet[qid]["answers"]}
         if set(labs) != valid:
             raise CompareError(f"{qid}: tüm cevaplar puanlanmalı ({sorted(valid)}).")
-        clean[qid] = {}
-        for lab, v in labs.items():
-            score = int(v.get("score", -1))
-            if not 0 <= score <= 4:
-                raise CompareError(f"{qid}/{lab}: puan 0–4 olmalı.")
-            clean[qid][lab] = {
-                "score": score,
-                "critical": bool(v.get("critical")),
-                "note": str(v.get("note", ""))[:500],
-            }
+        clean[qid] = {
+            lab: _clean_one(qid, lab, v, packet[qid], require_rubric=require_rubric)
+            for lab, v in labs.items()
+        }
     if set(clean) != set(packet):
         raise CompareError(f"Eksik inceleme: {sorted(set(packet) - set(clean))[:5]}")
     return clean
@@ -694,7 +842,8 @@ def submit_ai_review(
     _manifest(cmp_id)
     if not reviewer_model.strip():
         raise CompareError("AI incelemesi için model kimliği zorunlu.")
-    clean = _clean_reviews(cmp_id, reviews)
+    # AI incelemesi karara girmez; rubriksiz düz puan da kabul edilir (bulut hakem biçimi).
+    clean = _clean_reviews(cmp_id, reviews, require_rubric=False)
     rec = {
         "kind": "ai_review",
         "reviewer_model": reviewer_model[:120],
@@ -767,6 +916,32 @@ def _dimension_report(
     return out
 
 
+def _measurement(m: dict[str, Any], scores: dict[str, dict[str, dict[str, Any]]]) -> dict:
+    """n (soru) ve tekrar sayısı her raporda AÇIK: tek koşu Ollama'da karar kanıtı değildir."""
+    out: dict[str, Any] = {
+        "n_questions": m.get("n_questions"),
+        "n_families": m.get("n_families"),
+        "repeats": int(m.get("repeats") or 1),
+        "roles": {},
+    }
+    for role, per_q in scores.items():
+        reps = [int(v.get("n_repeats", 1)) for v in per_q.values()]
+        spreads = [float(v.get("spread", 0.0)) for v in per_q.values()]
+        out["roles"][role] = {
+            "n_questions": len(per_q),
+            "n_answers": sum(reps),
+            "repeats_min": min(reps) if reps else 0,
+            "questions_with_repeat_disagreement": sum(1 for x in spreads if x > 0),
+            "critical_questions": sum(1 for v in per_q.values() if v.get("critical")),
+        }
+    if out["repeats"] < 2:
+        out["note"] = (
+            "Soru başına tek koşu: Ollama temp 0'da deterministik değildir; fark gürültü "
+            "olabilir (final ölçütü 3 tekrar kullanır)."
+        )
+    return out
+
+
 # ── karar ────────────────────────────────────────────────────────────────────
 
 
@@ -799,12 +974,26 @@ def finalize(cmp_id: str) -> dict[str, Any]:
     auto = _read(_root() / cmp_id / "auto_scores.json") or {}
     sealed = _read(_root() / cmp_id / "sealed_mapping.json") or {}
     review = (_read(_root() / cmp_id / "review.json") or {}).get("scores", {})
-    scores: dict[str, dict[str, dict[str, Any]]] = {}  # role → qid → {score, critical}
+    # rol → soru → tekrar puanları; tekrarlar soru içinde ortalanır (bağımsız örnek sayılmaz),
+    # herhangi bir tekrarda kritik hata o sorunun kritik hatasıdır.
+    per_rep: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for qid in questions:
-        for role, v in (auto.get(qid) or {}).items():
-            scores.setdefault(role, {})[qid] = v
-        for lab, role in (sealed.get(qid) or {}).items():
-            scores.setdefault(role, {})[qid] = {**review[qid][lab], "by": "kör inceleme"}
+        for key, v in (auto.get(qid) or {}).items():
+            per_rep.setdefault(role_of(key), {}).setdefault(qid, []).append(v)
+        for lab, key in (sealed.get(qid) or {}).items():
+            per_rep.setdefault(role_of(key), {}).setdefault(qid, []).append(
+                {**review[qid][lab], "by": "kör inceleme"}
+            )
+    scores: dict[str, dict[str, dict[str, Any]]] = {}  # role → qid → {score, critical}
+    for role, rep_q in per_rep.items():
+        for qid, vs in rep_q.items():
+            vals = [float(v["score"]) for v in vs]
+            scores.setdefault(role, {})[qid] = {
+                "score": float(np.mean(vals)),
+                "critical": any(v.get("critical") for v in vs),
+                "n_repeats": len(vs),
+                "spread": max(vals) - min(vals),
+            }
     fam_mean: dict[str, dict[str, float]] = {}
     for role, per_q in scores.items():
         fams: dict[str, list[float]] = {}
@@ -813,11 +1002,11 @@ def finalize(cmp_id: str) -> dict[str, Any]:
         fam_mean[role] = {f: float(np.mean(x)) for f, x in fams.items()}
     common = sorted(set(fam_mean.get("active", {})) & set(fam_mean.get("candidate", {})))
     diffs = {f: fam_mean["candidate"][f] - fam_mean["active"][f] for f in common}
+    crit_cand = sorted(q for q, v in scores.get("candidate", {}).items() if v.get("critical"))
     crit_cand_only = [
-        qid
-        for qid, v in scores.get("candidate", {}).items()
-        if v.get("critical") and not scores.get("active", {}).get(qid, {}).get("critical")
+        qid for qid in crit_cand if not scores.get("active", {}).get(qid, {}).get("critical")
     ]
+    any_policy = crit.get("critical_policy") == "any_candidate"
     reasons: list[str] = []
     bs = (
         family_bootstrap(
@@ -830,7 +1019,10 @@ def finalize(cmp_id: str) -> dict[str, Any]:
         else {"point": 0.0, "lo": 0.0, "hi": 0.0, "n_families": 0}
     )
     margin = float(crit["margin"])
-    if crit_cand_only:
+    if any_policy and crit_cand:
+        decision = "kritik_ret"
+        reasons.append(f"Adayda kritik hata (NO-GO, aktifte de olsa): {crit_cand[:5]}")
+    elif crit_cand_only:
         decision = "kritik_ret"
         reasons.append(f"Adaya özgü kritik hata: {crit_cand_only[:5]}")
     elif bs["n_families"] < int(crit["min_families"]):
@@ -855,6 +1047,11 @@ def finalize(cmp_id: str) -> dict[str, Any]:
     if verified and norm_digest(str(conv.get("digest") or "")) != compared:
         verified = False
         reasons.append("Dönüşüm doğrulamasının digest'i karşılaştırılan modelinkiyle aynı değil")
+    if decision == "kabul" and crit_cand:
+        # Eski ölçüt (aday-yalnız kuralı) kilitliyse kararı değiştirmeyiz; ama kritik hatalı aday
+        # hiçbir ölçütte "kabul" ALAMAZ (denetim 2026-10-11: kritik hata = NO-GO).
+        decision = "yetersiz_kanit"
+        reasons.append(f"Adayda aktifle ortak kritik hata var → kabul edilemez: {crit_cand[:5]}")
     if decision == "kabul" and not verified:
         decision = "yetersiz_kanit"
         reasons.append("Adayın tamamlanma/dönüşüm doğrulaması geçmedi → en fazla yetersiz kanıt")
@@ -878,6 +1075,7 @@ def finalize(cmp_id: str) -> dict[str, Any]:
         "family_diffs": diffs,
         "model_scores": {r: float(np.mean(list(v.values()))) for r, v in fam_mean.items()},
         "dimensions": _dimension_report(questions, scores),
+        "measurement": _measurement(m, scores),
         "purpose": m.get("purpose", ""),
         "base_reference": base_score,
         "role": m["role"],

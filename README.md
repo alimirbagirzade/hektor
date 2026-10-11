@@ -1148,6 +1148,9 @@ uv run hektor karantina-kaldir <aday> --gerekce "..."  # (insan) karantinayı ge
 uv run hektor candidate-verify <adapter> --ollama-tag <etiket>  # tamamlanma + dönüşüm doğrulaması (salt-okuma)
 uv run hektor compare-run --set s.jsonl --active A --candidate C --base B --adapter <ad>  # kilitli ölçütle karşılaştırma + kör paket (etkinleştirmez)
 uv run hektor compare-lock-criteria --preset boyutlu  # ölçütü cevaplar görülmeden kilitle (broad_v1 boyutlu ölçütü)
+uv run hektor final-set format|status|validate|lock|export  # final test takımı (≥60, yerel, kilitli; docs/FINAL_TEST_TAKIMI.md)
+uv run hektor rubric-gate <raw.jsonl> --candidate B --reference A  # rubrik + kritik hata kapısı (tek kritik = NO-GO; ≥2 tekrar)
+uv run hektor lora-eval <ad> --served-tag <aday> --served-base <base> --repeats 3  # servis edilen Ollama GGUF yapıtını ölç (B6)
 uv run hektor compare-ai-review <cmp_id> --scores s.json --model <ad>  # AI incelemesini AYRI kaydet (insan puanı değil; karara girmez)
 uv run hektor compare-mark-integration <cmp_id> --note "..."  # koşuyu yalnız entegrasyon testi işaretle (terfide kullanılamaz)
 uv run python scripts/eval_set_leak_check.py evals/candidate_compare/broad_v1.jsonl  # set ↔ eğitim/geliştirme aile düzeyinde sızıntı denetimi

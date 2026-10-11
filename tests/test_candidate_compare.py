@@ -616,3 +616,135 @@ def test_evidence_must_be_list_of_strings(tmp_path) -> None:
     p.write_text(json.dumps(row, ensure_ascii=False) + "\n", "utf-8")
     with pytest.raises(cc.CompareError, match="metin listesi"):
         cc.load_set(p)
+
+
+# ── final ölçütü: tekrar + rubrik + "adayda herhangi kritik hata = NO-GO" (denetim 2026-10-11) ──
+
+
+def _final_set(tmp_path, lock="L", n_fam=10):
+    rows = []
+    for f in range(n_fam):
+        if f < 3:
+            rows.append(
+                {
+                    "id": f"m{f}",
+                    "family": f"F{f}",
+                    "type": "math",
+                    "question": f"{f} + 1 kaç eder?",
+                    "answer_key": f + 1,
+                    "dimension": "hesap",
+                    "final_lock_sha": lock,
+                }
+            )
+        else:
+            row = {
+                "id": f"g{f}",
+                "family": f"F{f}",
+                "question": f"Kavram {f} nedir?",
+                "dimension": "alan_bilgisi",
+                "rubric": ["madde"],
+                "critical_checks": ["uydurma_kaynak"],
+                "final_lock_sha": lock,
+            }
+            if f == 3:
+                row["evidence"] = ["kanıt"]
+            rows.append(row)
+    p = tmp_path / "final.jsonl"
+    p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), "utf-8")
+    return p
+
+
+def _create_final(tmp_path, monkeypatch, lock="L"):
+    monkeypatch.setattr("app.evals.final_set.current_lock_sha", lambda root=None: "L")
+    path = _final_set(tmp_path, lock=lock)
+    assert cc.criteria_for_set(path) is cc.FINAL_CRITERIA
+    crit = cc.lock_criteria(cc.FINAL_CRITERIA)
+    return cc.create(
+        set_path=path,
+        role="final",
+        active_tag="aktif",
+        candidate_tag="aday",
+        base_tag="temel",
+        criteria_sha=crit["criteria_sha"],
+        candidate_meta={**VERIFIED},
+    )
+
+
+def _rubric_review(cmp_id, crit_for=()):
+    """Tam rubrik puanı; ``crit_for`` = {(soru, mühürlü anahtar)} için kritik kod."""
+    sealed = json.loads((cc._root() / cmp_id / "sealed_mapping.json").read_text("utf-8"))
+    reviews = {}
+    for p in cc.blind_packet(cmp_id):
+        dims = p["rubric_dims"]
+        reviews[p["question_id"]] = {
+            a["label"]: {
+                "rubric": dict(dims),
+                "critical_codes": (
+                    ["uydurma_kaynak"]
+                    if (p["question_id"], sealed[p["question_id"]][a["label"]]) in crit_for
+                    else []
+                ),
+            }
+            for a in p["answers"]
+        }
+    return cc.submit_review(cmp_id, reviews, reviewer="insan")
+
+
+def test_final_criteria_generates_repeats_and_requires_rubric(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    m = _create_final(tmp_path, monkeypatch)
+    assert m["role"] == "final" and m["repeats"] == 3
+    cmp_id = m["comparison_id"]
+    cc.generate(cmp_id, transport=_ollama())
+    raw = json.loads((cc._root() / cmp_id / "raw.json").read_text("utf-8"))
+    assert len(raw) == 10 * 3 * 3 and {r["seed"] for r in raw} == {42, 43, 44}
+    packet = cc.blind_packet(cmp_id)
+    assert all(len(p["answers"]) == 9 for p in packet)  # 3 rol × 3 tekrar, etiketler kör
+    src = next(p for p in packet if p["question_id"] == "g3")
+    assert "kaynak_destegi" in src["rubric_dims"]
+    assert (
+        "kaynak_destegi" not in next(p for p in packet if p["question_id"] == "g4")["rubric_dims"]
+    )
+    plain = {p["question_id"]: {a["label"]: {"score": 4} for a in p["answers"]} for p in packet}
+    with pytest.raises(cc.CompareError, match="rubrik"):
+        cc.submit_review(cmp_id, plain, reviewer="insan")
+    _rubric_review(cmp_id)
+    res = cc.finalize(cmp_id)
+    assert res["decision"] == "kabul"
+    meas = res["measurement"]
+    assert meas["repeats"] == 3 and meas["roles"]["candidate"]["n_answers"] == 30
+    assert meas["roles"]["candidate"]["repeats_min"] == 3
+
+
+def test_final_any_critical_is_no_go(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    """Adayın tek tekrarında kritik hata, aktifte de olsa → kritik_ret (NO-GO)."""
+    m = _create_final(tmp_path, monkeypatch)
+    cmp_id = m["comparison_id"]
+    cc.generate(cmp_id, transport=_ollama())
+    # Tek soruda, adayın YALNIZ bir tekrarında ve aktifte de aynı kritik hata.
+    _rubric_review(cmp_id, crit_for={("g5", "candidate#2"), ("g5", "active#0")})
+    res = cc.finalize(cmp_id)
+    assert res["decision"] == "kritik_ret"
+    assert any("NO-GO" in r for r in res["reasons"])
+
+
+def test_final_set_must_match_current_lock(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    with pytest.raises(cc.CompareError, match="kilit"):
+        _create_final(tmp_path, monkeypatch, lock="ESKI")
+
+
+def test_legacy_criteria_shared_critical_blocks_accept(iso, tmp_path) -> None:  # noqa: F811
+    m = _create(tmp_path)
+    cmp_id = m["comparison_id"]
+    cc.generate(cmp_id, transport=_ollama())
+    packet = cc.blind_packet(cmp_id)
+    reviews = {
+        p["question_id"]: {a["label"]: {"score": 3, "critical": True} for a in p["answers"]}
+        if i == 0
+        else {a["label"]: {"score": 3} for a in p["answers"]}
+        for i, p in enumerate(packet)
+    }
+    cc.submit_review(cmp_id, reviews, reviewer="insan")
+    res = cc.finalize(cmp_id)
+    # Eski ölçütte aday-yalnız kuralı kilitli → kritik_ret değil, ama kabul de ALAMAZ.
+    assert res["decision"] == "yetersiz_kanit"
+    assert any("ortak kritik" in r for r in res["reasons"])

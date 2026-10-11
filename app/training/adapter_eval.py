@@ -256,6 +256,34 @@ class AdapterEvalResult:
     vetoes: list[str] = field(default_factory=list)
     # Kesilen cevap sayıları + üretim sınırı (B1): rapor kendi üretim koşulunu taşır.
     truncation: dict = field(default_factory=dict)
+    # Ölçülen yapıt: "peft" (HF bf16 + adapter) ya da "ollama" (servis edilen GGUF; B6).
+    artifact: str = "peft"
+    # Soru başına bağımsız tekrar (Ollama temp 0'da deterministik değildir).
+    repeats: int = 1
+    per_repeat: list[dict] = field(default_factory=list)
+    models: dict = field(default_factory=dict)
+
+    @property
+    def gate(self) -> str:
+        """Rubrik kapısıyla aynı dil: kritik/veto/gerileme → NO-GO; otomatik GO YOK."""
+        from app.evals.rubric_gate import AWAITING_HUMAN, INSUFFICIENT, NO_GO
+
+        if self.verdict == "reject":
+            return NO_GO
+        if self.verdict == "accept" and (self.artifact != "peft" and self.repeats >= 2):
+            return AWAITING_HUMAN
+        return INSUFFICIENT
+
+    def gate_notes(self) -> list[str]:
+        notes = []
+        if self.artifact == "peft":
+            notes.append(
+                "Ölçülen PEFT (bf16); servis edilen GGUF ölçülmedi (B6) → --served-tag ile "
+                "Ollama yapıtını da ölç"
+            )
+        if self.repeats < 2:
+            notes.append("Soru başına tek koşu — tekrar yok; karar kanıtı değildir")
+        return notes
 
     def to_dict(self) -> dict:
         return {
@@ -271,6 +299,12 @@ class AdapterEvalResult:
             "verdict": self.verdict,
             "vetoes": self.vetoes,
             "truncation": self.truncation,
+            "gate": self.gate,
+            "gate_notes": self.gate_notes(),
+            "artifact": self.artifact,
+            "repeats": self.repeats,
+            "per_repeat": self.per_repeat,
+            "models": self.models,
             "generation": {
                 "do_sample": False,
                 "max_new_tokens": EVAL_MAX_NEW_TOKENS,
@@ -465,12 +499,23 @@ def _score_answers(
     )
     adapter_collapsed = _answers_collapsed(adapt_ans)
     adapter_guaranteed_profit = any("guaranteed_profit" in r["adapter_flags"] for r in rows)
+    # Kritik hata kapısı (denetim 2026-10-11): Kural 1 dili (tavsiye/garanti/kesinlik/canlı
+    # sinyal) HERHANGİ bir adapter cevabında → NO-GO; skorla takas edilmez.
+    from app.feedback.echo import correction_safety_reason
+
+    for r in rows:
+        reason = correction_safety_reason(r["adapter"])
+        r["adapter_critical"] = ["kural1_tavsiye_dili"] if reason else []
+        if reason:
+            r["adapter_critical_why"] = reason
+    adapter_critical = any(r["adapter_critical"] for r in rows)
     vetoes = [
         name
         for name, hit in (
             ("degenerate", adapter_degenerate),
             ("collapse", adapter_collapsed),
             ("guaranteed_profit", adapter_guaranteed_profit),
+            ("kritik_hata", adapter_critical),
         )
         if hit
     ]
@@ -481,7 +526,7 @@ def _score_answers(
         min_n=min_n,
         adapter_degenerate=adapter_degenerate,
         adapter_collapsed=adapter_collapsed,
-        adapter_guaranteed_profit=adapter_guaranteed_profit,
+        adapter_guaranteed_profit=adapter_guaranteed_profit or adapter_critical,
     )
     # B1: kesik cevaplar eşit koşulda puanlanamaz → 'accept' için kanıt sayılmaz.
     denom_n = max(1, len(items))
@@ -552,7 +597,165 @@ def evaluate_adapter(
         adapter=str(adapter_dir),
         min_n=min_n,
     )
-    out = s.reports_dir / "evals" / f"adapter_eval_{Path(adapter_dir).name}_{result.eval_set}.json"
+    write_report(result)
+    return result
+
+
+#: Servis edilen yapıt değerlendirmesinde varsayılan tekrar (Ollama temp 0'da deterministik değil).
+SERVED_DEFAULT_REPEATS = 3
+SERVED_NUM_CTX = 8192
+
+
+def _ollama_digest(client: Any, tag: str) -> str:
+    from app.feedback.model_identity import match_entry
+
+    show = client.post("/api/show", json={"model": tag})
+    show.raise_for_status()
+    tags = client.get("/api/tags").json().get("models", [])
+    entry = match_entry(tags, tag) or {}
+    return str(entry.get("digest") or show.json().get("digest") or "").removeprefix("sha256:")
+
+
+def _ollama_answer(client: Any, tag: str, prompt: str, seed: int) -> tuple[str, bool]:
+    """PEFT yoluyla AYNI istem (sistem istemi yok) ve aynı üretim sınırı; kesildi = length."""
+    resp = client.post(
+        "/api/chat",
+        json={
+            "model": tag,
+            "messages": _build_messages(prompt),
+            "stream": False,
+            "options": {
+                "temperature": 0.0,
+                "seed": seed,
+                "num_predict": EVAL_MAX_NEW_TOKENS,
+                "num_ctx": SERVED_NUM_CTX,
+            },
+        },
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    text = str((data.get("message") or {}).get("content") or "").strip()
+    return text, data.get("done_reason") == "length"
+
+
+def evaluate_served(
+    eval_set: str | Path,
+    *,
+    candidate_tag: str,
+    base_tag: str,
+    adapter: str = "",
+    repeats: int = SERVED_DEFAULT_REPEATS,
+    n: int | None = None,
+    min_n: int = _MIN_EVAL_N,
+    seed: int = 42,
+    transport: Any = None,
+) -> AdapterEvalResult:
+    """SERVİS EDİLEN yapıtı (Ollama GGUF) ölç: base etiketi vs aday etiketi, soru başına
+    ``repeats`` tekrar (tohum seed+r). B6: PEFT ölçümü kullanılan Q4 GGUF'u temsil etmez.
+
+    Toplama (tekrarlar bağımsız soru SAYILMAZ): her tekrar ayrı puanlanır; herhangi bir
+    tekrarda veto/kritik hata ya da gerileme → reject (NO-GO); hepsi accept → accept; aksi
+    inconclusive. Koşu boyunca model digest'i değişirse sonuç geçersiz (hata).
+    """
+    import httpx
+
+    from app.training.resource_lock import hold
+
+    if repeats < 1:
+        raise ValueError("repeats ≥ 1 olmalı")
+    s = get_settings()
+    items = _load_items(eval_set)
+    if n:
+        items = items[:n]
+    prompts = [_prompt_for(it) for it in items]
+    tags = {"base": base_tag, "adapter": candidate_tag}
+    per_repeat: list[AdapterEvalResult] = []
+    with (
+        hold("comparison", f"lora_eval_served:{candidate_tag}"),
+        httpx.Client(
+            base_url=s.ollama_host.rstrip("/"), timeout=1800, transport=transport
+        ) as client,
+    ):
+        before = {k: _ollama_digest(client, t) for k, t in tags.items()}
+        for rep in range(repeats):
+            out: dict[str, list[tuple[str, bool]]] = {"base": [], "adapter": []}
+            for i, p in enumerate(prompts):
+                # Model sırası soru+tekrar başına dönüşümlü (servis koşulları dengelensin).
+                order = ("base", "adapter") if (i + rep) % 2 == 0 else ("adapter", "base")
+                for role in order:
+                    out[role].append(_ollama_answer(client, tags[role], p, seed + rep))
+            per_repeat.append(
+                _score_answers(
+                    items,
+                    [a for a, _ in out["base"]],
+                    [a for a, _ in out["adapter"]],
+                    base_truncated=[c for _, c in out["base"]],
+                    adapter_truncated=[c for _, c in out["adapter"]],
+                    eval_set=Path(eval_set).stem,
+                    base_model=base_tag,
+                    adapter=adapter or candidate_tag,
+                    min_n=min_n,
+                )
+            )
+        after = {k: _ollama_digest(client, t) for k, t in tags.items()}
+    if before != after:
+        raise RuntimeError(f"Koşu sırasında model digest'i değişti: {before} → {after}")
+    return _aggregate_repeats(per_repeat, artifact="ollama", models={**tags, "digests": before})
+
+
+def _aggregate_repeats(
+    per_repeat: list[AdapterEvalResult], *, artifact: str, models: dict
+) -> AdapterEvalResult:
+    verdicts = [r.verdict for r in per_repeat]
+    if any(r.vetoes for r in per_repeat) or "reject" in verdicts:
+        verdict = "reject"
+    elif all(v == "accept" for v in verdicts):
+        verdict = "accept"
+    else:
+        verdict = "inconclusive"
+    k = len(per_repeat)
+    first = per_repeat[0]
+    vetoes = sorted({v for r in per_repeat for v in r.vetoes})
+    rows = [{**row, "repeat": i} for i, r in enumerate(per_repeat) for row in r.rows]
+    return AdapterEvalResult(
+        eval_set=first.eval_set,
+        base_model=first.base_model,
+        adapter=first.adapter,
+        n=first.n,
+        base_score=round(sum(r.base_score for r in per_repeat) / k, 4),
+        adapter_score=round(sum(r.adapter_score for r in per_repeat) / k, 4),
+        base_flags=sum(r.base_flags for r in per_repeat),
+        adapter_flags=sum(r.adapter_flags for r in per_repeat),
+        regression=any(r.regression for r in per_repeat),
+        verdict=verdict,
+        rows=rows,
+        vetoes=vetoes,
+        truncation={
+            "base": sum(r.truncation.get("base", 0) for r in per_repeat),
+            "adapter": sum(r.truncation.get("adapter", 0) for r in per_repeat),
+            "max_new_tokens": EVAL_MAX_NEW_TOKENS,
+        },
+        artifact=artifact,
+        repeats=k,
+        per_repeat=[
+            {
+                "repeat": i,
+                "verdict": r.verdict,
+                "base_score": r.base_score,
+                "adapter_score": r.adapter_score,
+                "vetoes": r.vetoes,
+            }
+            for i, r in enumerate(per_repeat)
+        ],
+        models=models,
+    )
+
+
+def write_report(result: AdapterEvalResult) -> Path:
+    s = get_settings()
+    suffix = "" if result.artifact == "peft" else f"_{result.artifact}"
+    name = Path(result.adapter).name.replace(":", "_")
+    out = s.reports_dir / "evals" / f"adapter_eval_{name}_{result.eval_set}{suffix}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-    return result
+    return out

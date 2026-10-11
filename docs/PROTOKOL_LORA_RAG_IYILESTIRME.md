@@ -184,5 +184,12 @@ pilot adapter kartı, indikatör araştırma raporu. Aynı bilgi birden çok dos
 `evals/` tümüyle eğitim-girdisi yasağı · rubrik + kritik hata tanımları · sayısal anahtar
 hesaplayıcısı + testler.
 
-**Yapılmadı (sıradaki):** Aşama 1 kanıtlı denetim raporu · llm30 ile 2×2 koşusu · teşhis varyantları · final test takımı ·
-rubrik puanlama aracı + kritik hata kapısının eval'e bağlanması · RAG relevance seti.
+**Yapılmadı (sıradaki):** Aşama 1 kanıtlı denetim raporu · llm30 ile 2×2 koşusu · teşhis varyantları · RAG relevance seti.
+
+**2026-10-11 (denetim E1/E2 kararı — yeni LoRA eğitimi ölçüm hazır olana kadar durduruldu):**
+final test takımı ALTYAPISI + rubrik/kritik hata kapısı koda bağlandı — ayrıntı
+`docs/FINAL_TEST_TAKIMI.md`. Biçim, deterministik sayısal anahtar, kilit, sızıntı kapısı +
+öz-damıtma filtresi kapsamı, `candidate-compare` final ölçütü (3 tekrar, rubrik boyutları,
+adayda herhangi kritik hata = NO-GO), `lora-eval --served-tag` (Ollama GGUF, B6),
+`hektor rubric-gate`. **Açık:** final takımının SORU İÇERİĞİ ve anahtarları kullanıcıdan
+bekleniyor (≥60, yerel); kilitlenmeden final karar verilemez.

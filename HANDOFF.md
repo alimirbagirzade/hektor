@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-10-11 (pilot engelleri + Kademe 2 2026-10-11 · v14 eğitimi 2026-10-03'te 187/187 BİTTİ, aday — karşılaştırmalı değerlendirme bekliyor · araştırma otomasyonunu bekleten bayat kilit giderildi · #34–#45 main'de · aktif model hâlâ `hektor-v12-30b` · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-10-11 (final test takımı altyapısı + rubrik kapısı; eğitim durduruldu · pilot engelleri + Kademe 2 2026-10-11 · v14 eğitimi 2026-10-03'te 187/187 BİTTİ, aday — karşılaştırmalı değerlendirme bekliyor · araştırma otomasyonunu bekleten bayat kilit giderildi · #34–#45 main'de · aktif model hâlâ `hektor-v12-30b` · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
 
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
@@ -32,6 +32,28 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 ---
 
 ## Durum
+
+### 2026-10-11 — Ölçüm altyapısı: final test takımı + rubrik/kritik hata kapısı (eğitim DURDURULDU)
+
+Karar (denetim §3 E1/E2): **yeni LoRA eğitimi ölçüm hazır olana kadar durduruldu**; terfi =
+kilitli final takımı + rubrik kapısı → son adım insan. Ayrıntı: `docs/FINAL_TEST_TAKIMI.md`.
+
+- **Final takımı altyapısı** (`app/evals/final_set.py`, CLI `hektor final-set …`): ≥60 soru,
+  3 kategori (biçim/disiplin · hesap · alan bilgisi), kategori ≥20 soru / ≥5 aile; sayısal
+  anahtar `calc+inputs`'tan HESAPLANIR (Sharpe, Sortino, oynaklık, max DD, maliyet sonrası net
+  getiri, CAGR, PF, beklenti); kilit manifesti bir kez yazılır; `selection` amacı yasak.
+  Dosyalar `evals/final/` altında **yerel** (`.gitignore`); `reports/comparisons/` ve
+  `storage/final_set_access.jsonl` da artık ignore'da (final anahtarlı kopyalar sızmasın).
+- **Sızıntı:** `leakage_eval_items` final soru + anahtar metnini ekler (taslak dahil; kilit
+  sonrası değişiklik → HATA); öz-damıtma filtresi aynı listeyi kullanır; `mix leakage` final
+  durumunu yazar. Final seti LLM-30/profil/adapter setleriyle çakışırsa kilitlenmez.
+- **Kapı:** `candidate-compare` final ölçütü `final_rubrik_v1` (3 tekrar, rubrik boyutları +
+  kritik KOD, adayda herhangi kritik = `kritik_ret`); eski ölçütlerde kritik hatalı aday artık
+  `kabul` alamaz. Web kör inceleme rubrik boyutlarını + kod seçimini destekler.
+  `lora-eval` Kural-1 kritik vetosu + `--served-tag/--served-base/--repeats` (Ollama GGUF, B6);
+  `hektor rubric-gate` LLM-30 raw.jsonl'den aynı kapı. Her rapor n + tekrar taşır.
+- **Açık (kullanıcı):** kategori önerisini onayla + 60+ soru/anahtarı yaz → `final-set validate`
+  → `lock`. Soru içeriği Claude tarafından yazılmadı. **Eğitim başlatılmadı.**
 
 ### 2026-10-11 — dönüşüm → karşılaştırma testindeki bekleme yarışı
 

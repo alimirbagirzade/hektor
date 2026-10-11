@@ -35,6 +35,12 @@ from app.lora.mix_cli import mix_app  # noqa: E402
 
 app.add_typer(mix_app, name="mix")
 
+# Final test takımı + rubrik/kritik hata kapısı (hektor final-set … · rubric-gate).
+from app.evals.final_cli import final_app, rubric_gate_cmd  # noqa: E402
+
+app.add_typer(final_app, name="final-set")
+app.command("rubric-gate")(rubric_gate_cmd)
+
 # Gece döngüsü (hektor gece · csv-lab · karantina · karantina-kaldir) — ayrı modül.
 from app.orchestration.nightly_cli import register as _register_nightly  # noqa: E402
 
@@ -1539,34 +1545,67 @@ def lora_eval(
     base_model: str = typer.Option(
         "", "--base-model", help="Base model override (boş=adapter_config'ten, yoksa settings)."
     ),
+    served_tag: str = typer.Option(
+        "",
+        "--served-tag",
+        help="Servis edilen aday (Ollama GGUF etiketi). Verilirse PEFT yerine Ollama ölçülür.",
+    ),
+    served_base: str = typer.Option(
+        "", "--served-base", help="Aynı tarifle çevrilmiş base Ollama etiketi (--served-tag ile)"
+    ),
+    repeats: int = typer.Option(
+        3,
+        "--repeats",
+        help="Servis yolunda soru başına tekrar (Ollama temp 0'da determinist değil)",
+    ),
 ) -> None:
-    """Eğitilen PEFT adapter'ı GERÇEKTEN değerlendir: base vs adapter (Kural 2 dürüst gate).
+    """Eğitilen adapter'ı GERÇEKTEN değerlendir: base vs adapter (Kural 2 dürüst gate).
 
-    `evaluate`/ModelEvaluator base Ollama'yı ölçer, adapter'ı yüklemez. Bu komut adapter'ı
-    transformers/PEFT ile yükleyip base ile kıyaslar. AĞIR (CPU'da 4B inference). Base, boş
-    bırakılırsa adapter'ın kendi config'inden alınır (küçük-model adapter'ı için ŞART).
+    Varsayılan: adapter transformers/PEFT ile yüklenir (AĞIR, CPU). ``--served-tag`` +
+    ``--served-base``: kullanıcıya SERVİS EDİLEN Ollama GGUF yapıtı ölçülür (B6), soru başına
+    ``--repeats`` tekrar. Her iki yolda kritik hata (Kural 1 dili) ya da veto → NO-GO.
+    Kapı otomatik GO vermez; terfi için final takımı + kör insan incelemesi gerekir.
     """
     from app.config import get_settings
-    from app.training.adapter_eval import evaluate_adapter
+    from app.training.adapter_eval import evaluate_adapter, evaluate_served, write_report
 
     s = get_settings()
-    adir = adapter if Path(adapter).exists() else str(s.adapters_dir / adapter)
-    if not Path(adir).exists():
-        console.print(f"[red]Adapter bulunamadı:[/red] {adir}")
-        raise typer.Exit(code=1)
-
-    console.print(f"[cyan]Değerlendiriliyor (ağır, CPU):[/cyan] {adir} ← {eval_set}")
-    res = evaluate_adapter(adir, eval_set, n=(n or None), base_model=base_model or None)
+    if served_tag or served_base:
+        if not (served_tag and served_base):
+            console.print("[red]--served-tag ve --served-base birlikte verilmeli.[/red]")
+            raise typer.Exit(code=2)
+        console.print(
+            f"[cyan]Servis edilen yapıt (Ollama):[/cyan] {served_base} vs {served_tag} ← "
+            f"{eval_set} · tekrar {repeats}"
+        )
+        res = evaluate_served(
+            eval_set,
+            candidate_tag=served_tag,
+            base_tag=served_base,
+            adapter=adapter,
+            repeats=repeats,
+            n=(n or None),
+        )
+        write_report(res)
+    else:
+        adir = adapter if Path(adapter).exists() else str(s.adapters_dir / adapter)
+        if not Path(adir).exists():
+            console.print(f"[red]Adapter bulunamadı:[/red] {adir}")
+            raise typer.Exit(code=1)
+        console.print(f"[cyan]Değerlendiriliyor (ağır, CPU):[/cyan] {adir} ← {eval_set}")
+        res = evaluate_adapter(adir, eval_set, n=(n or None), base_model=base_model or None)
     color = {"accept": "green", "reject": "red", "inconclusive": "yellow"}.get(res.verdict, "white")
     console.print(
         Panel.fit(
-            f"adapter: {res.adapter}\neval: {res.eval_set} (n={res.n})\n"
+            f"adapter: {res.adapter}  (yapıt: {res.artifact})\n"
+            f"eval: {res.eval_set} (n={res.n} soru · tekrar {res.repeats})\n"
             f"base    skor: {res.base_score}  (flags {res.base_flags})\n"
             f"adapter skor: {res.adapter_score}  (flags {res.adapter_flags})\n"
             f"[{color}]VERDICT: {res.verdict.upper()}"
             + ("  — GERİLEME (terfi etme)" if res.regression else "")
             + (f"  — VETO: {', '.join(res.vetoes)}" if res.vetoes else "")
-            + "[/]",
+            + f"[/]\nKAPI: {res.gate}"
+            + "".join(f"\n  · {note}" for note in res.gate_notes()),
             title="adapter eval (base vs adapter)",
         )
     )

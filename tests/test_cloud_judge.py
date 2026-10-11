@@ -135,6 +135,14 @@ def test_k1_never_overwrites_existing_ai_review_and_never_sends_final_set(cmp_id
     cc._write(cc._root() / cmp_id / "manifest.json", m)
     pv = judge.k1_preview(cmp_id)
     assert not pv["enabled"] and any("final" in b for b in pv["blockers"])
+    # Final takımından dışa aktarılmış set GELİŞTİRME rolüyle koşulsa da buluta gitmez.
+    m["role_requested"] = "development"
+    cc._write(cc._root() / cmp_id / "manifest.json", m)
+    qs = cc._read(cc._root() / cmp_id / "questions.json")
+    qs[0]["final_lock_sha"] = "L"
+    cc._write(cc._root() / cmp_id / "questions.json", qs)
+    pv = judge.k1_preview(cmp_id)
+    assert not pv["enabled"] and any("final" in b for b in pv["blockers"])
 
 
 def test_k1_unparseable_reply_fails_keeps_raw_text_and_allows_retry(cmp_id, monkeypatch) -> None:
