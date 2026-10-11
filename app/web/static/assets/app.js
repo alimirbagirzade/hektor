@@ -609,8 +609,9 @@
         return;
       }
       var adapter = document.getElementById("loraChatAdapter").value || null;
+      // Boş → null: sunucu adapter'ın reçetesinden seçer (v14: uzun cevap).
       var maxTokens =
-        parseInt(document.getElementById("loraChatMaxTokens").value, 10) || 256;
+        parseInt(document.getElementById("loraChatMaxTokens").value, 10) || null;
       var ctxBox = document.getElementById("loraChatUseContext");
       var useContext = !!(ctxBox && ctxBox.checked);
       var btn = document.getElementById("loraChatBtn");
@@ -647,6 +648,7 @@
               ? ' <span class="muted small">istem: ' +
                 esc(data.prompt_format === "live_rag" ? "canlı RAG" : "sentetik QA") +
                 (data.context_budget ? " · bütçe " + esc(data.context_budget) : "") +
+                (data.max_new_tokens ? " · cevap ≤" + esc(String(data.max_new_tokens)) + " token" : "") +
                 "</span>"
               : "") +
             (data.recipe_warning

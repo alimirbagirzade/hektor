@@ -261,7 +261,8 @@ def test_api_kaynakli_parametreleri_servise_iletir(
         json={"question": "soru?", "adapter": None, "use_context": True, "top_k": 3},
     )
     assert r.status_code == 200, r.text
-    assert seen == {"max_tokens": 256, "use_context": True, "top_k": 3}
+    # max_tokens verilmezse None → servis adapter'ın reçetesinden seçer.
+    assert seen == {"max_tokens": None, "use_context": True, "top_k": 3}
     body = r.json()
     assert body["used_context"] is True
     assert body["sources"][0]["chunk_id"] == "c1"

@@ -494,8 +494,8 @@
                 </select>
               </label>
               <label class="topk">
-                <span class="jargon" title="Modelin üreteceği en fazla parça (token) sayısı — yaklaşık cevap uzunluğu. Yüksek = daha uzun ama daha yavaş.">maks. token</span>
-                <input type="number" id="loraChatMaxTokens" min="16" max="1024" value="256" />
+                <span class="jargon" title="Modelin üreteceği en fazla parça (token) sayısı — yaklaşık cevap uzunluğu. Yüksek = daha uzun ama daha yavaş. Boş = adapter'ın eğitim reçetesinden (sentetik QA 256; v14 gibi uzun-cevap adapter'ları ≤3072).">maks. token</span>
+                <input type="number" id="loraChatMaxTokens" min="16" max="3072" placeholder="otomatik" />
               </label>
               <label class="topk">
                 <input type="checkbox" id="loraChatUseContext" checked />

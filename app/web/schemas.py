@@ -94,7 +94,8 @@ class AskResponse(BaseModel):
 class LoraChatRequest(BaseModel):
     question: str = Field(min_length=2, max_length=4000)
     adapter: str | None = None  # boş/None → yalnız base model
-    max_tokens: int = Field(default=256, ge=16, le=1024)
+    # None → adapter'ın reçetesinden (sentetik QA 256; canlı RAG/v14 kalan bağlama göre ≤3072).
+    max_tokens: int | None = Field(default=None, ge=16, le=3072)
     # True → korpustan retrieval, parçalar eğitim verisindeki "BAĞLAM: … SORU: …" biçimiyle gömülür
     use_context: bool = False
     top_k: int | None = Field(default=None, ge=1, le=20)
@@ -125,6 +126,7 @@ class LoraChatResponse(BaseModel):
     )
     recipe_warning: str | None = None  # dolu → reçete bulunamadı, eski biçime düşüldü
     context_budget: str | None = None  # uygulanan bağlam bütçesi ("2400 karakter", "5888 token")
+    max_new_tokens: int | None = None  # üretimde FİİLEN kullanılan cevap sınırı
 
 
 # ---------- Model değerlendirme ----------

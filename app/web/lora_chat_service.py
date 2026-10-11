@@ -37,6 +37,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, Any
 
 from app.training.adapter_recipe import LIVE_RAG, AdapterRecipe, unknown_recipe
+from app.training.self_distill import MAX_ANSWER_TOKENS
 
 if TYPE_CHECKING:
     from app.brain.hybrid_answer import CardLookup
@@ -59,6 +60,13 @@ _SYNTHETIC_RESERVED_TOKENS = 424
 _CHARS_PER_TOKEN = 4
 
 # Reçetesiz base model sohbeti: eski davranış (uyarısız — adapter yok, eşleşecek reçete yok).
+#: Sentetik QA reçetesinin (ve base'in) varsayılan cevap uzunluğu — eski davranış.
+DEFAULT_MAX_TOKENS = 256
+#: Canlı RAG reçetesi (v14 öz-damıtma) uzun cevapla eğitildi: cevap ≤ MAX_ANSWER_TOKENS (3072)
+#: ve istem + cevap ≤ max_seq_length. max_tokens verilmezse bağlam sığdırılırken cevaba en az
+#: bu kadar yer ayrılır; üretim sınırı sonra kalan yere (en çok 3072) genişletilir.
+LIVE_RAG_MIN_ANSWER_TOKENS = 2048
+
 BASE_RECIPE = AdapterRecipe(
     prompt_format="synthetic_qa", max_seq_length=None, profile=None, source="base"
 )
@@ -207,7 +215,7 @@ def chat(
     question: str,
     adapter: str | None,
     *,
-    max_tokens: int = 256,
+    max_tokens: int | None = None,
     use_context: bool = False,
     top_k: int | None = None,
     retriever: Any = None,
@@ -215,8 +223,12 @@ def chat(
 ) -> dict:
     """Adapter (veya base) ile cevap üret. adapter=None/"" → yalnız base model.
 
+    ``max_tokens=None`` → reçeteden: sentetik QA/base için DEFAULT_MAX_TOKENS; canlı RAG için
+    istem ölçüldükten sonra ``min(MAX_ANSWER_TOKENS, max_seq_length − istem)`` (eğitimdeki
+    uzun cevap dağılımı). Açık değer her zaman kazanır.
+
     Dönüş: {answer, adapter, base_model, used_context, llm_used, sources, sections,
-    prompt_format, recipe_source, recipe_warning, context_budget}.
+    prompt_format, recipe_source, recipe_warning, context_budget, max_new_tokens}.
     Adapter yoksa FileNotFoundError. `use_context=True` ve retrieval boşsa model
     yüklenmez; `llm_used=False` ile açık "kaynak bulunamadı" döner. Kaynaklı modda
     `sections` 8 bölümlü hibrit cevaptır; kaynaksız modda boştur (şablon sahte güven vermesin).
@@ -260,6 +272,7 @@ def chat(
         "recipe_source": recipe.source,
         "recipe_warning": recipe.warning,
         "context_budget": None,
+        "max_new_tokens": None,
     }
 
     user_content = question
@@ -303,10 +316,12 @@ def chat(
             gc.collect()
             tok, model = _load_model(base, adapter_dir)
             _CACHE.update(key=key, tok=tok, model=model)
+        new_tokens = max_tokens or DEFAULT_MAX_TOKENS
         if live_rag and use_context and recipe.max_seq_length:
             # Bütçe gerçek tokenizer'la ölçülür → model (tokenizer) yüklendikten sonra kurulur.
             # Eğitimde istem + cevap ≤ max_seq_length idi; cevap payı max_tokens kadar ayrılır.
-            prompt_budget = recipe.max_seq_length - max_tokens
+            reserve = max_tokens or LIVE_RAG_MIN_ANSWER_TOKENS
+            prompt_budget = recipe.max_seq_length - reserve
             system, user_content, chunks = fit_live_rag_prompt(
                 question,
                 chunks,
@@ -318,11 +333,17 @@ def chat(
             result["sources"] = _source_dicts(chunks)
             kept = {c.paper_id for c in chunks}  # düşülen parçaların kartı bölümlere girmesin
             cards = {pid: card for pid, card in cards.items() if pid in kept}
+        if live_rag and max_tokens is None and recipe.max_seq_length:
+            used = count_prompt_tokens(_CACHE["tok"], system, user_content)
+            new_tokens = max(
+                DEFAULT_MAX_TOKENS, min(MAX_ANSWER_TOKENS, recipe.max_seq_length - used)
+            )
+        result["max_new_tokens"] = new_tokens
         answer = _generate(
             _CACHE["tok"],
             _CACHE["model"],
             user_content,
-            max_new_tokens=max_tokens,
+            max_new_tokens=new_tokens,
             system=system,
         )
 
