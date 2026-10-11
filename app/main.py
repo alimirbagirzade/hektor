@@ -1101,6 +1101,7 @@ def _train_impl(
             valid_jsonl=settings.jsonl_dir / "valid.jsonl",
             adapter_output_path=settings.adapters_dir / adapter_name,
             iterations=iterations,
+            profile_name=profile or "",
             **prof,
             **_expect,
         )

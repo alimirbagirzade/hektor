@@ -33,6 +33,22 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-11 — LoRA sohbeti: istem biçimi + bağlam bütçesi adapter başına
+
+`app/web/lora_chat_service.py` her adapter'a v11–v13 reçetesini uyguluyordu (sentetik QA
+"BAĞLAM: … SORU: …", 2400 karakter ≈ 1024 token). v14 ise `moe30b_attn_long` (6144) ile canlı
+RAG istemiyle (`build_rag_prompt`) eğitildi → sohbette eğitim dağılımı dışındaydı. Yeni
+`app/training/adapter_recipe.py` reçeteyi SALT-OKUMA bulur: `run_plan.json` (yeni koşular artık
+`profile`, `max_seq_length` ve FİİLİ satırlardan ölçülen `prompt_formats` yazar) →
+`train_status.final.json` → kayıt defteri notu (`profile=…`); profil → `lora_profiles.yaml`
+(`moe30b_attn_long` için `chat_prompt_format: live_rag` ipucu, eğitime etkisiz).
+`live_rag`: bayt-aynı canlı istem, parçalar gerçek tokenizer'la ölçülüp `max_seq_length −
+max_tokens`'a sığana dek en düşük sıralıdan bütün düşülür; kaynaksız modda öz-damıtma "plain"
+sistem istemi. Reçete bulunamazsa eski davranış + cevapta/arayüzde `recipe_warning`.
+Testler: `tests/test_adapter_recipe_chat.py` (sahte tokenizer). Eğitim başlatılmadı.
+**Not:** `peft_lora_train.py` değişti → sonraki eğitimden önce Kademe 2 kaydı bu kod özeti için
+yenilenmeli. v14 sohbette `max_tokens` (varsayılan 256) uzun cevaplar için düşük kalabilir.
+
 ### 2026-10-11 — dönüşüm → karşılaştırma testindeki bekleme yarışı
 
 `test_conversion_chains_comparison_with_same_rules`: çalıştırıcı dönüşümü `done` yazar,

@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.training.adapter_recipe import count_prompt_formats
+
 logger = logging.getLogger(__name__)
 
 # NOT: HF 'datasets' kütüphanesi kullanılmaz — proje kökündeki yerel 'datasets/'
@@ -189,6 +191,9 @@ class PeftTrainConfig:
     # arasında dosya değişirse eğitim DURUR (DataIntegrityError → deterministik hata).
     expect_train_sha256: str = ""
     expect_valid_sha256: str = ""
+    # Uygulanan LoRA profilinin ADI (yalnız kayıt): run_plan.json'a yazılır → web sohbeti
+    # adapter'ın reçetesini (istem biçimi + bağlam bütçesi) bulur (app/training/adapter_recipe).
+    profile_name: str = ""
     # CPU base dtype tercihi ("" | "fp32" | "bf16"). Profil verebilir (MoE 30B: bf16 ZORUNLU —
     # fp32 ≈ 137 GB tahmin). Açık HEKTOR_TRAIN_DTYPE her zaman kazanır; ikisi de yoksa fp32.
     # Eskiden yalnız ortam değişkenine bakılıyordu: web/start-train bf16 verirken doğrudan
@@ -1497,6 +1502,11 @@ def train(cfg: PeftTrainConfig) -> dict:
             "micro_steps": micro_steps,
             "gradient_accumulation_steps": ga,
             "started_at": started_at,
+            # Reçete (çıkarım eşleşmesi): sohbet istem biçimini/bağlam bütçesini buradan seçer.
+            # prompt_formats FİİLİ eğitim satırlarından ölçülür (profil adından tahmin değil).
+            "profile": cfg.profile_name,
+            "max_seq_length": cfg.max_seq_length,
+            "prompt_formats": count_prompt_formats(train_rows),
         },
     )
     with _keep_awake():

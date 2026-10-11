@@ -211,4 +211,8 @@ moe30b_attn_long:
   # v13 ile aynı). v14'ün hedefi uzun/atıflı cevap; bedeli disiplin satırlarının kayıp
   # sinyalindeki payının ~%2-4'e düşmesi → lora-eval disiplin setiyle ölçülecek.
   loss_weighting: token
+  # Sohbet/çıkarım ipucu (eğitime ETKİSİZ; `load_lora_profile` yok sayar): bu profille eğitilen
+  # adapter canlı RAG istemini (`build_rag_prompt`) gördü → web LoRA sohbeti onu kullanır
+  # (app/training/adapter_recipe.py). Yeni koşular biçimi run_plan.json'a ölçerek yazar.
+  chat_prompt_format: live_rag
   note: "YEREL CPU, Qwen3-30B-A3B MoE — moe30b_attn_local + max_seq_length 6144 (v14 uzun RAG öz-damıtma örnekleri), tüm havuz, checkpoint/eval her 96 örnekte. Süre/RAM ölçülmedi; önce kısa ölçüm."
