@@ -207,13 +207,20 @@ def records_from_llm30_raw(path: Path) -> list[dict[str, Any]]:
             else None
         )
         crit = r.get("critical_errors")
+        # Kademe 2 2026-10-11 F2-2: liste dışı biçim ("look_ahead" metni, sözlük) sessizce
+        # "kritik yok" sayılıyordu (açık kapı). None = henüz işaretlenmedi; başka biçim = hata.
+        if crit is not None and not isinstance(crit, list):
+            raise RubricError(
+                f"{r.get('question_id')}/{r.get('condition')}: critical_errors kod LİSTESİ "
+                f'olmalı (ör. ["look_ahead"]), {type(crit).__name__} verildi: {crit!r}'
+            )
         out.append(
             {
                 "model": r["condition"],
                 "question_id": r["question_id"],
                 "repeat": r.get("seed"),
                 "score": score,
-                "critical_errors": check_codes(crit) if isinstance(crit, list) else [],
+                "critical_errors": check_codes(crit) if crit else [],
             }
         )
     return out

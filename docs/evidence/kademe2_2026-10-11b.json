@@ -1,0 +1,123 @@
+{
+  "kademe": 2,
+  "tarih": "2026-10-11 (ikinci tur)",
+  "denetlenen_fark": "1c99fed..4955e7a (#61 test bekleme yarışı, #62 denetim raporu, #63 lora-split kaynak-gruplu + uzunluk ön-kontrolü + MLX profil reddi, #64 LoRA sohbeti adapter-başına istem/bağlam, #65 final test takımı + rubrik/kritik hata kapısı, #66 LoRA sohbeti max_tokens reçeteden)",
+  "yontem": "3 paralel bulucu (F1 eğitim yolu/kapıları · F2 eval/terfi kapıları · F3 LoRA sohbet çıkarım yolu) → 14 bulgu (11 düzeltildi, 3 reddedildi) → her grup 2 bağımsız şüpheci doğrulayıcı (varsayılan çürütülmüş, çoğu betikle yeniden üretildi). Bölünen oylarda (F2-3, F2-7, F3-2, F3-3) karar kod yolu yeniden izlenerek verildi. Onaylananlar (ve bölünen oyda F2-7) düzeltildi + regresyon testi (tests/test_kademe2_2026_10_11b.py; F2 testleri düzeltme öncesi düşüyor, sonrası geçiyor).",
+  "sorunsuz": "run_plan.json yeni anahtarları (profile/max_seq_length/prompt_formats) okuyucuları bozmuyor (train_guard, candidate_checks, research_package yalnız max_steps okur); lora-split ile eğiticinin bölmesi bayt-aynı ve kaynak-gruplu; MLX reddi onay/kilit öncesinde; CODE_PATHS yeni dosyaları kapsar; canlı RAG sohbet istemi öz-damıtmayla bayt-aynı (aynı build_rag_prompt + rag_reorder_context); bütçe aritmetiği istem+cevap ≤ max_seq_length; app.js rozetlerinde esc() her alanda; final set kilidi tek yazım + düzenleme sonrası load_final her amaçta düşer; sızıntı kapısı final soruları/anahtarlarını kapsar.",
+  "kapi": "ruff check ✓ · ruff format ✓ · mypy app 323 dosya ✓ · pytest 3512 passed / 17 skipped.",
+  "kayit_notu": "Kayıt birleşmiş main + update.ps1 sonrası ANA kurulumda yazılmalı (kod özeti ve güncel eğitim verisi orada): uv run hektor kademe2-kayit --findings docs/evidence/kademe2_2026-10-11b.json --data-sha <güncel lora_sft.jsonl sha256> --evidence \"...\". Eğitim verisi bu denetimde görülmedi (bulut kopyasında yok).",
+  "bulgular": [
+    {
+      "id": "F1-1",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Uzunluk kaybı kapısı yalnız train() içindeydi: tek kullanımlık onay ve karışım kararı tüketilip 'başladı' işareti yazıldıktan sonra varsayılan 1024 profili + uzun öz-damıtma verisi 7 ile çıkıyordu.",
+      "evidence": "peft_lora_train.length_loss_preflight (yalnız yerel tokenizer) + detached_launch._length_blocker; CLI (_train_impl, kilit/onay öncesi), preflight_launch (web + Auto-LoRA, profilsizde DEFAULT_TRAIN_PROFILE), easy_train (anlık görüntü train'i). train() içi kapı yedek. test_f1_1_*."
+    },
+    {
+      "id": "F1-2",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY (biri LOW)",
+      "ozet": "Kapısız doğrudan eğitim girişleri: peft_lora_train.py __main__ --run, scripts/train_v15_*.py --run (Kademe 2/onay/STOP_ALL/kilit yok) ve web dry-run'ın önerdiği profilsiz `peft_lora_train.py … --run` komutu.",
+      "evidence": "__main__ --run kapatıldı (exit 2, kapılı yola yönlendirir); web dry-run `uv run hektor train --run --backend peft --profile …` önerir; v15 betikleri direct_run_guard.direct_run_blocker (STOP_ALL → kilit → Kademe 2 (verinin özeti) → taze onay en son). test_f1_2_*. MLX (mlx_lora_train --run, yalnız macOS) kapsam dışı bırakıldı — risk notu."
+    },
+    {
+      "id": "F1-3",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Bozuk evals/final dosyası CLI eğitim yolunda sızıntı kapısını traceback'le çökertiyordu (kapalı kapı ama temiz hata/durum yok).",
+      "evidence": "_train_impl run_leakage_check try/except → panel + exit 6 (web/kolay akışla aynı). test_f1_3_bozuk_eval_seti_temiz_cikis."
+    },
+    {
+      "id": "F1-4",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "docs/MIMARI_REFERANS.md silinen train-loop.ps1'i canlı kullanıcı olarak listeliyordu.",
+      "evidence": "316/411/419. satırlar düzeltildi; STOP_TRAINING gerçek tüketicileri yazıldı."
+    },
+    {
+      "id": "F2-1",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Yeni Kural 1 kritik vetosu olumsuzlamayı görmüyordu: doğru ret ('Garantili kazanç yoktur', 'Şimdi al diyemem') lora-eval'de NO-GO, candidate-compare'de (any_candidate) kritik_ret; otomatik puanlı cevap kör pakete girmediği için insan düzeltemiyordu.",
+      "evidence": "app/evals/rule1.rule1_level: eşleşen cümlelerden biri olumsuzlamasızsa 'kesin' (eskisi gibi kritik), hepsi olumsuzsa 'şüphe' (accept yine engellenir; lora-eval kural1_suphe, candidate-compare cevabı uyarıyla kör pakete koyar, insan kod seçer). Vaat kalıpları ('asla kaybetmezsin') olumsuzlama sayılmaz. test_f2_1_*."
+    },
+    {
+      "id": "F2-2",
+      "severity": "LOW-MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "rubric-gate liste olmayan critical_errors değerini (\"look_ahead\" metni) sessizce 'kritik yok' sayıyordu (açık kapı).",
+      "evidence": "records_from_llm30_raw: None = işaretlenmedi, liste = kod denetimi, başka biçim = RubricError. test_f2_2_metin_kritik_kod_hata_verir."
+    },
+    {
+      "id": "F2-3",
+      "severity": "LOW",
+      "status": "reddedildi",
+      "dogrulama": "ONAY/RET",
+      "ozet": "rubric-gate tekrar sayısını satırdan sayıyor; aynı tohum iki kez verilirse ≥2 tekrar şartı sağlanır.",
+      "evidence": "Yalnız operatörün uyarıya rağmen `--seeds 42 42` yazmasıyla oluşur; aynı tohumla iki koşu bu çalışma zamanında gerçek iki ölçümdür. Karar: düzeltme kodu getirisinden pahalı; ileride ayrık tekrar kimliği sayımı sertleştirme olarak yapılabilir."
+    },
+    {
+      "id": "F2-4",
+      "severity": "LOW-MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Servis edilen lora-eval tekrar birleştirmesi herhangi bir 'truncated' işaretini (base'in kesilmesi dahil) reject/NO-GO yapıyordu; PEFT yolu aynı durumda inconclusive.",
+      "evidence": "adapter_eval.SOFT_VETOES = {truncated, kural1_suphe}: birleştirmede reject sebebi değil, accept'i yine engeller. test_f2_4_kesik_tekrar_reject_degil."
+    },
+    {
+      "id": "F2-5",
+      "severity": "LOW-MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Final setin hesap soruları yalnız sayısal anahtarla puanlanıyor, hiç kör incelenmiyordu (docstring tersini söylüyordu): gerekçedeki look-ahead/maliyet hatası ve sorunun critical_checks kodları yakalanamazdı.",
+      "evidence": "Rubrikli ölçütte anahtarlı cevap da kör pakete girer; finalize anahtar+insanı TEK girdide birleştirir (puan = küçük olan, kritik = herhangi biri). Eski koşularda kümeler ayrık → sonuç değişmez. test_f2_5_*."
+    },
+    {
+      "id": "F2-6",
+      "severity": "LOW",
+      "status": "reddedildi",
+      "dogrulama": "RET/RET",
+      "ozet": "Dışa aktarılan final set kopyası yeniden doğrulanmıyor / final_lock_sha alanı silinebilir.",
+      "evidence": "Yerel rapor dosyasının bilinçli tahrifini gerektirir (operatör güvenilir); alan silinince #65 öncesi final akışına (erişim kaydı + preset ölçüt) düşer, bypass değil."
+    },
+    {
+      "id": "F2-7",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/RET",
+      "ozet": "Servis edilen eval repeat_penalty/SYSTEM/şablon eşitliğini sabitlemiyor (her etiketin Modelfile değeri geçerli).",
+      "evidence": "Servis edilen eval istekte repeat_penalty=1.0 sabitler (Modelfile farkı ezilir); iki etiketin /api/show şablon + SYSTEM özeti kayda (models.serving) girer, farklıysa ölçüm geçersiz (RuntimeError). Sıcaklık 0'da top_p etkisiz. test_f2_7_repeat_penalty_sabit_ve_farkli_sablon_gecersiz."
+    },
+    {
+      "id": "F3-1",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "LoRA sohbeti sentetik yolda bağlamı 2400 karakterle kırparken kaynak listesi ve hibrit bölümler (kartlar dahil) tüm retrieval parçalarından kuruluyordu (varsayılan 6×1200'de ~4 görülmemiş kaynak; Kural 7).",
+      "evidence": "chunks_in_budget: yalnız bütçeye giren parçalar ve onların kartları. test_sentetik_yolda_kaynaklar_yalniz_modelin_gordugu_parcalar (düzeltme öncesi düşüyor)."
+    },
+    {
+      "id": "F3-2",
+      "severity": "LOW",
+      "status": "reddedildi",
+      "dogrulama": "ONAY/RET",
+      "ozet": "Kayıt defterinde son kayıt profile=- ise eski kaydın profili dönüyor.",
+      "evidence": "Aynı ada ikinci başarılı koşu _adapter_dir_blocker ile tüm kapılı yollarda engelli (run_complete.json/checkpoint-*); #64 sonrası her koşu reçeteyi run_plan.json'a yazar → registry yedeğine ulaşılmaz."
+    },
+    {
+      "id": "F3-3",
+      "severity": "LOW",
+      "status": "reddedildi",
+      "dogrulama": "ONAY/RET",
+      "ozet": "Aynı adla başarısız yeniden koşu eski ağırlıkların üstüne yeni run_plan.json reçetesi yazar.",
+      "evidence": "Bitmiş klasöre sıfırdan koşu _adapter_dir_blocker ile CLI/web/kolay akışta reddedilir; kapısız yollar F1-2 ile kapandı, v15 betikleri ayrı klasör ister (FileExistsError)."
+    }
+  ]
+}

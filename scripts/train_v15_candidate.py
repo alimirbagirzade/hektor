@@ -299,6 +299,17 @@ def main() -> int:
         random.seed(42)
         np.random.seed(42)
         torch.manual_seed(42)
+    if args.run:
+        # Kademe 2 2026-10-11 F1-2: doğrudan train() çağrısı da Kademe 2 + taze onay ister.
+        from app.training.direct_run_guard import direct_run_blocker
+
+        blocker = direct_run_blocker(
+            f"Gerçek LoRA eğitimi (v15 aday eğitimi): {cfg.adapter_output_path.name}",
+            data_path=cfg.train_jsonl,
+        )
+        if blocker:
+            print(blocker, file=sys.stderr)
+            return 3
     result = train(cfg) if args.run else dry_run(cfg)
     target = report / ("training_result.json" if args.run else "dry_run.json")
     target.write_text(

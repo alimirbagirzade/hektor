@@ -499,16 +499,23 @@ def _score_answers(
     )
     adapter_collapsed = _answers_collapsed(adapt_ans)
     adapter_guaranteed_profit = any("guaranteed_profit" in r["adapter_flags"] for r in rows)
-    # Kritik hata kapısı (denetim 2026-10-11): Kural 1 dili (tavsiye/garanti/kesinlik/canlı
-    # sinyal) HERHANGİ bir adapter cevabında → NO-GO; skorla takas edilmez.
-    from app.feedback.echo import correction_safety_reason
+    # Kritik hata kapısı (denetim 2026-10-11): Kural 1 dili HERHANGİ bir adapter cevabında →
+    # NO-GO. Kademe 2 2026-10-11 F2-1: eşleşen tüm cümleler olumsuzsa (doğru ret: "Garantili
+    # kazanç yoktur") kesin değil ŞÜPHE — 'accept' yine engellenir, satır insana işaretlenir.
+    from app.evals.rule1 import rule1_level
 
     for r in rows:
-        reason = correction_safety_reason(r["adapter"])
-        r["adapter_critical"] = ["kural1_tavsiye_dili"] if reason else []
-        if reason:
-            r["adapter_critical_why"] = reason
-    adapter_critical = any(r["adapter_critical"] for r in rows)
+        level = rule1_level(r["adapter"])
+        if level is None:
+            r["adapter_critical"] = []
+            continue
+        kesin = level[0] == "kesin"
+        r["adapter_critical"] = ["kural1_tavsiye_dili" if kesin else "kural1_suphe"]
+        r["adapter_critical_why"] = level[1] + (
+            "" if kesin else " — olumsuz cümlede; insan incelemesi gerekli"
+        )
+    adapter_critical = any("kural1_tavsiye_dili" in r["adapter_critical"] for r in rows)
+    adapter_rule1_suspect = any("kural1_suphe" in r["adapter_critical"] for r in rows)
     vetoes = [
         name
         for name, hit in (
@@ -528,6 +535,10 @@ def _score_answers(
         adapter_collapsed=adapter_collapsed,
         adapter_guaranteed_profit=adapter_guaranteed_profit or adapter_critical,
     )
+    if adapter_rule1_suspect:
+        if verdict == "accept":
+            verdict = "inconclusive"
+        vetoes = [*vetoes, "kural1_suphe"]
     # B1: kesik cevaplar eşit koşulda puanlanamaz → 'accept' için kanıt sayılmaz.
     denom_n = max(1, len(items))
     truncation = {"base": sum(bt), "adapter": sum(at), "max_new_tokens": EVAL_MAX_NEW_TOKENS}
@@ -616,6 +627,25 @@ def _ollama_digest(client: Any, tag: str) -> str:
     return str(entry.get("digest") or show.json().get("digest") or "").removeprefix("sha256:")
 
 
+def _ollama_serving(client: Any, tag: str) -> dict[str, str]:
+    """Etiketin servis koşulu özeti (şablon + SYSTEM) — iki tarafın eşit koşulda ölçüldüğü
+    denetlensin (Kademe 2 2026-10-11 F2-7)."""
+    import hashlib
+
+    show = client.post("/api/show", json={"model": tag})
+    show.raise_for_status()
+    data = show.json()
+
+    def _h(v: object) -> str:
+        return hashlib.sha256(str(v or "").encode("utf-8")).hexdigest()[:16]
+
+    return {
+        "template_sha256": _h(data.get("template")),
+        "system_sha256": _h(data.get("system")),
+        "parameters": str(data.get("parameters") or ""),
+    }
+
+
 def _ollama_answer(client: Any, tag: str, prompt: str, seed: int) -> tuple[str, bool]:
     """PEFT yoluyla AYNI istem (sistem istemi yok) ve aynı üretim sınırı; kesildi = length."""
     resp = client.post(
@@ -629,6 +659,9 @@ def _ollama_answer(client: Any, tag: str, prompt: str, seed: int) -> tuple[str, 
                 "seed": seed,
                 "num_predict": EVAL_MAX_NEW_TOKENS,
                 "num_ctx": SERVED_NUM_CTX,
+                # F2-7: Modelfile'daki repeat_penalty (ör. -RepeatPenalty 1.1 ile dönüştürülmüş
+                # aday) iki tarafı farklı koşulda ölçmesin — istekte sabitlenir.
+                "repeat_penalty": 1.0,
             },
         },
     )
@@ -677,6 +710,14 @@ def evaluate_served(
         ) as client,
     ):
         before = {k: _ollama_digest(client, t) for k, t in tags.items()}
+        serving = {k: _ollama_serving(client, t) for k, t in tags.items()}
+        for field_ in ("template_sha256", "system_sha256"):
+            if serving["base"][field_] != serving["adapter"][field_]:
+                raise RuntimeError(
+                    f"Base ve aday farklı {field_.split('_')[0]} ile servis ediliyor "
+                    f"({base_tag} ↔ {candidate_tag}) — eşit koşul yok, ölçüm geçersiz. "
+                    "Adayı `adapter_to_ollama.ps1 -TemplateFrom <base>` ile dönüştürün."
+                )
         for rep in range(repeats):
             out: dict[str, list[tuple[str, bool]]] = {"base": [], "adapter": []}
             for i, p in enumerate(prompts):
@@ -700,14 +741,23 @@ def evaluate_served(
         after = {k: _ollama_digest(client, t) for k, t in tags.items()}
     if before != after:
         raise RuntimeError(f"Koşu sırasında model digest'i değişti: {before} → {after}")
-    return _aggregate_repeats(per_repeat, artifact="ollama", models={**tags, "digests": before})
+    return _aggregate_repeats(
+        per_repeat, artifact="ollama", models={**tags, "digests": before, "serving": serving}
+    )
+
+
+#: 'accept'i engelleyen ama tek başına 'reject' sebebi olmayan işaretler.
+SOFT_VETOES = frozenset({"truncated", "kural1_suphe"})
 
 
 def _aggregate_repeats(
     per_repeat: list[AdapterEvalResult], *, artifact: str, models: dict
 ) -> AdapterEvalResult:
     verdicts = [r.verdict for r in per_repeat]
-    if any(r.vetoes for r in per_repeat) or "reject" in verdicts:
+    # Kademe 2 2026-10-11 F2-4: ölçüm-geçerliliği/insan-inceleme işaretleri (kesik cevap — base'in
+    # kesilmesi dahil —, Kural 1 şüphesi) kategorik reddetmez; zaten 'accept'i engellerler.
+    hard = [set(r.vetoes) - SOFT_VETOES for r in per_repeat]
+    if any(hard) or "reject" in verdicts:
         verdict = "reject"
     elif all(v == "accept" for v in verdicts):
         verdict = "accept"

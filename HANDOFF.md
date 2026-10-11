@@ -55,6 +55,27 @@ kilitli final takımı + rubrik kapısı → son adım insan. Ayrıntı: `docs/F
 - **Açık (kullanıcı):** kategori önerisini onayla + 60+ soru/anahtarı yaz → `final-set validate`
   → `lock`. Soru içeriği Claude tarafından yazılmadı. **Eğitim başlatılmadı.**
 
+### 2026-10-11 — Kademe 2 ikinci tur (1c99fed..4955e7a): 14 bulgu → 11 düzeltildi
+
+3 paralel bulucu (eğitim yolu · eval/terfi kapıları · LoRA sohbet) + bulgu başına 2 şüpheci
+doğrulayıcı. Kanıt: `docs/evidence/kademe2_2026-10-11b.json`, testler
+`tests/test_kademe2_2026_10_11b.py` (+ F3-1 `tests/test_adapter_recipe_chat.py`).
+- **F1-1** uzunluk kapısı artık onay/karışım kararı TÜKETİLMEDEN (CLI, web/Auto-LoRA, kolay
+  akış; yalnız yerel tokenizer). Varsayılan 1024 profili + uzun veri onayı yakmaz.
+- **F1-2** kapısız girişler kapandı: `peft_lora_train.py --run` → exit 2; web dry-run kapılı
+  komut önerir; `scripts/train_v15_*.py --run` STOP_ALL + kilit + Kademe 2 + taze onay ister.
+- **F1-3** bozuk final set → temiz panel + exit 6. **F1-4** MIMARI_REFERANS train-loop.
+- **F2-1** Kural 1 vetosu: olumsuz cümledeki eşleşme ("Garantili kazanç yoktur") artık
+  kesin değil şüphe → accept yine engellenir, insan karar verir (`app/evals/rule1.py`).
+- **F2-2** rubric-gate'te metin `critical_errors` hata verir (açık kapıydı). **F2-4** kesilme
+  tekrar birleştirmede reject sebebi değil. **F2-5** final hesap cevapları da kör incelenir.
+- **F3-1** LoRA sohbeti sentetik yolda yalnız modelin gördüğü parçaları kaynak gösterir.
+- **F2-7** served eval `repeat_penalty=1.0` sabitler; base/aday şablon ya da SYSTEM farklıysa
+  ölçüm geçersiz (hata). Reddedilen: F2-3, F2-6, F3-2, F3-3 (gerekçeler kanıt dosyasında).
+- **Kayıt (kullanıcı, ana kurulumda):** birleşmiş main + `update.ps1` sonrası
+  `uv run hektor kademe2-kayit --findings docs/evidence/kademe2_2026-10-11b.json --data-sha
+  <güncel lora_sft sha> --evidence "..."`. Eğitim verisi bu denetimde görülmedi.
+
 ### 2026-10-11 — LoRA sohbeti: istem biçimi + bağlam bütçesi adapter başına
 
 `app/web/lora_chat_service.py` her adapter'a v11–v13 reçetesini uyguluyordu (sentetik QA

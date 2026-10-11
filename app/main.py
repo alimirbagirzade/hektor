@@ -846,7 +846,18 @@ def _train_impl(
         # Sızıntı kapısı: eval (validation/golden) soruları/cevapları eğitim verisinde olamaz.
         from app.lora.mix_cli import run_leakage_check
 
-        leak = run_leakage_check(settings.jsonl_dir / "train.jsonl")
+        try:
+            leak = run_leakage_check(settings.jsonl_dir / "train.jsonl")
+        except Exception as exc:  # bozuk eval/final seti → traceback değil, kapalı kapı
+            # Kademe 2 2026-10-11 F1-3: web/kolay akış zaten böyle düşüyordu; CLI çöküyordu.
+            console.print(
+                Panel.fit(
+                    f"Sızıntı kapısı çalıştırılamadı — eğitim başlamaz (Kural 2): {exc}",
+                    title="⛔ Sızıntı kapısı",
+                    border_style="red",
+                )
+            )
+            raise typer.Exit(6) from exc
         if not leak["clean"]:
             console.print(
                 Panel.fit(
@@ -945,6 +956,18 @@ def _train_impl(
                 "expect_train_sha256": _norm_sha(settings.jsonl_dir / "train.jsonl"),
                 "expect_valid_sha256": _norm_sha(settings.jsonl_dir / "valid.jsonl"),
             }
+
+        # Kademe 2 2026-10-11 F1-1: profilin max_seq_length'i veriye yetmiyorsa onay ve karışım
+        # kararı TÜKETİLMEDEN dur (eğitim içindeki aynı kapı yedek kalır).
+        if resolved == "peft":
+            from app.training.detached_launch import _length_blocker
+
+            _length = _length_blocker(
+                base_model, profile, settings.jsonl_dir / "train.jsonl", max_examples
+            )
+            if _length:
+                console.print(Panel.fit(_length, title="⛔ Uzunluk kapısı", border_style="red"))
+                raise typer.Exit(7)
 
         # Ortak ağır iş kilidi: onaydan ÖNCE (ucuz), sohbet kirasıyla yarışsız.
         _acquire_train_lock(adapter_name, lock_holder)

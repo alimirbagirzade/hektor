@@ -750,6 +750,38 @@ def _recipe_blockers(base_model: str | None, profile: str | None) -> list[str]:
     return out
 
 
+def _length_blocker(
+    base_model: str | None,
+    profile: str | None,
+    train_jsonl: Path,
+    max_examples: int = 0,
+    tokenizer: object = None,
+) -> str | None:
+    """Profilin max_seq_length'i veriye yetiyor mu — onay TÜKETİLMEDEN önce (Kademe 2
+    2026-10-11 F1-1). Profil okunamazsa None (o hatayı reçete/profil kapıları söyler)."""
+    from app.training.peft_lora_train import (
+        PeftTrainConfig,
+        length_loss_preflight,
+        load_lora_profile,
+    )
+
+    try:
+        prof = load_lora_profile(profile) if profile else {}
+    except (KeyError, FileNotFoundError, ValueError):
+        return None
+    prof.pop("epochs", None)
+    if max_examples > 0:
+        prof["max_examples"] = max_examples
+    cfg = PeftTrainConfig(
+        base_model=base_model or get_settings().peft_base_model,
+        train_jsonl=train_jsonl,
+        valid_jsonl=train_jsonl,
+        adapter_output_path=train_jsonl.parent,
+        **prof,
+    )
+    return length_loss_preflight(cfg, tokenizer)
+
+
 def preflight_launch(
     adapter_name: str = "hektor_lora",
     *,
@@ -837,6 +869,16 @@ def preflight_launch(
         blockers = _recipe_blockers(base_model, profile)
         if blockers:
             return _fail("Reçete ön-kontrolü başarısız — " + " | ".join(blockers))
+
+    # Uzunluk kapısı (Kademe 2 2026-10-11 F1-1) her yolda: profil verilmezse launch()'ın
+    # varsayılanı (Auto-LoRA preflight'ı profilsiz çağırır, launch DEFAULT_TRAIN_PROFILE kullanır).
+    length = _length_blocker(
+        base_model,
+        profile if profile is not None else DEFAULT_TRAIN_PROFILE,
+        s.jsonl_dir / "train.jsonl",
+    )
+    if length:
+        return _fail("Uzunluk kapısı — eğitim başlatılmadı: " + length)
 
     if run_load_doctor:
         from app.training.train_load_doctor import run_train_doctor

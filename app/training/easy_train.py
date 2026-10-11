@@ -881,6 +881,17 @@ def precheck(recipe: dict[str, Any]) -> list[str]:
     if dir_blocker:
         problems.append(dir_blocker)
     problems += _recipe_blockers(recipe.get("base_model"), recipe.get("profile"))
+    # Kademe 2 2026-10-11 F1-1: uzunluk kapısı da onaydan önce (anlık görüntünün train'i).
+    from app.training.detached_launch import _length_blocker
+
+    length = _length_blocker(
+        recipe.get("base_model"),
+        recipe.get("profile"),
+        snapshots_dir() / f"snap_{recipe['recipe_sha'][:16]}" / "train.jsonl",
+        int(recipe.get("max_examples") or 0),
+    )
+    if length:
+        problems.append(length)
     k2 = kademe2_check(recipe_sha=recipe["recipe_sha"], data_sha=recipe["data_sha256"])
     if k2:
         problems.append(k2)
