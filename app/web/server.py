@@ -1473,17 +1473,27 @@ def api_training_dry_run(req: TrainDryRunRequest) -> TrainDryRunResponse:
             num_layers=req.num_layers,
         )
     else:
-        from app.training.peft_lora_train import (  # type: ignore[assignment]
-            PeftTrainConfig as TrainConfig,
-        )
-        from app.training.peft_lora_train import build_command  # type: ignore[assignment]
+        # Kademe 2 2026-10-11 F1-2: eskiden `peft_lora_train.py … --run` (profilsiz, kapısız —
+        # Kademe 2 / taze onay / sızıntı / kilit yok) öneriliyordu. Artık kapılı CLI.
+        from app.config import DEFAULT_TRAIN_PROFILE
 
-        cfg = TrainConfig(
-            base_model=req.base_model or s.peft_base_model,
-            train_jsonl=r.train_path,
-            valid_jsonl=r.valid_path,
-            adapter_output_path=s.adapters_dir / f"adapter_{ts}",
-            iterations=req.iterations,
+        gated = [
+            "uv run hektor train --run --backend peft",
+            f"--adapter-name adapter_{ts}",
+            f"--base-model {req.base_model or s.peft_base_model}",
+            f"--profile {DEFAULT_TRAIN_PROFILE}",
+        ]
+        if req.iterations:
+            gated.append(f"--iterations {req.iterations}")
+        return TrainDryRunResponse(
+            command=" ".join(gated),
+            n_train=r.n_train,
+            n_valid=r.n_valid,
+            content_hash=r.content_hash,
+            message=(
+                f"Backend: {backend} — kapılı komut (Kademe 2 kaydı + taze onay + sızıntı/kalite "
+                "kapıları). --iterations 0 = plandan (önerilir)."
+            ),
         )
 
     return TrainDryRunResponse(

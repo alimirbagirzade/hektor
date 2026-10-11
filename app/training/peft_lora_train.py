@@ -970,6 +970,79 @@ def _chat_input_ids(tokenizer: Any, msgs: list[dict], *, add_generation_prompt: 
     return [int(t) for t in enc]
 
 
+def measure_length_loss(tokenizer: Any, rows: list[dict], max_seq_length: int) -> Counter[str]:
+    """Maskeli eğitimde ``max_seq_length``'e sığmayan örnekleri say (yalnız tokenizer).
+
+    ``kırpılan``: prompt sığar, cevap EOS'suz kırpılır · ``atılan``: prompt bile sığmaz.
+    `train()` içindeki `_tokenize_masked` ile AYNI ölçüm (``_chat_input_ids``).
+    """
+    loss: Counter[str] = Counter()
+    for r in rows:
+        msgs = _row_to_messages(r)
+        if not msgs or msgs[-1].get("role") != "assistant":
+            continue
+        try:
+            prompt_ids = _chat_input_ids(tokenizer, msgs[:-1], add_generation_prompt=True)
+            full_all = _chat_input_ids(tokenizer, msgs, add_generation_prompt=False)
+        except Exception:
+            continue
+        if len(full_all) > max_seq_length:
+            loss["kırpılan" if len(prompt_ids) < max_seq_length else "atılan"] += 1
+    return loss
+
+
+def length_loss_error(loss: Counter[str], n_rows: int, max_seq_length: int) -> str | None:
+    """Uzunluk kaybı ``MAX_LENGTH_LOSS_FRAC``'ı aşıyorsa eğitimi reddeden mesaj (yoksa None)."""
+    lost = sum(loss.values())
+    if not n_rows or lost / n_rows <= MAX_LENGTH_LOSS_FRAC:
+        return None
+    return (
+        f"Uzunluk kaybı %{100 * lost / n_rows:.1f} > "
+        f"%{100 * MAX_LENGTH_LOSS_FRAC:.0f}: max_seq_length={max_seq_length} "
+        f"ile {loss['kırpılan']} örnek kırpılır, {loss['atılan']} "
+        "örnek atılır. Uzun örnekli veri için `--profile moe30b_attn_long` kullan."
+    )
+
+
+def _preflight_tokenizer(base_model: str) -> Any:
+    """Ön-kontrol tokenizer'ı — YALNIZ yerel önbellekten (ağ yok). Yoksa None (yedek kapı)."""
+    try:
+        from transformers import AutoTokenizer
+
+        return AutoTokenizer.from_pretrained(
+            base_model, trust_remote_code=True, local_files_only=True
+        )
+    except Exception as exc:  # paket/önbellek yok — eğitim içi kapı yedek
+        logger.warning("Uzunluk ön-kontrolü atlandı (tokenizer yüklenemedi): %s", exc)
+        return None
+
+
+def length_loss_preflight(cfg: PeftTrainConfig, tokenizer: Any = None) -> str | None:
+    """Uzunluk kapısı ONAY TÜKETİLMEDEN önce (Kademe 2 2026-10-11 F1-1).
+
+    `train()` aynı kapıyı model yüklemeden önce uygular, ama o noktada tek kullanımlık onay ve
+    karışım kararı çoktan tüketilmiştir: varsayılan 1024 profili + uzun öz-damıtma verisi her
+    başlatmada onayı yakıp 7 ile çıkıyordu. Yalnız tokenizer gerekir; yerel önbellekte yoksa
+    (ağ yok) ya da maskeleme kapalıysa None döner — `train()` içindeki kapı yedek kalır.
+    """
+    if not cfg.assistant_only_loss:
+        return None
+    tok = tokenizer if tokenizer is not None else _preflight_tokenizer(cfg.base_model)
+    if tok is None:
+        return None
+    if not getattr(tok, "chat_template", None):
+        return None  # maskesiz yola düşülür; train() de kapıyı uygulamaz
+    try:
+        rows = _load_jsonl(cfg.train_jsonl)
+    except (DataIntegrityError, OSError, ValueError) as exc:
+        logger.warning("Uzunluk ön-kontrolü atlandı (veri okunamadı): %s", exc)
+        return None
+    rows = sample_rows(rows, cfg.max_examples, cfg.seed)
+    return length_loss_error(
+        measure_length_loss(tok, rows, cfg.max_seq_length), len(rows), cfg.max_seq_length
+    )
+
+
 def build_masked_labels(prompt_ids: list[int], full_ids: list[int]) -> list[int] | None:
     """assistant_only_loss için label dizisi kur: prompt token'larını -100 ile maskele.
 
@@ -1295,16 +1368,9 @@ def train(cfg: PeftTrainConfig) -> dict:
                 lost,
                 len(train_rows),
             )
-        if train_rows and lost / len(train_rows) > MAX_LENGTH_LOSS_FRAC:
-            return {
-                "ok": False,
-                "error": (
-                    f"Uzunluk kaybı %{100 * lost / len(train_rows):.1f} > "
-                    f"%{100 * MAX_LENGTH_LOSS_FRAC:.0f}: max_seq_length={cfg.max_seq_length} "
-                    f"ile {length_loss['kırpılan']} örnek kırpılır, {length_loss['atılan']} "
-                    "örnek atılır. Uzun örnekli veri için `--profile moe30b_attn_long` kullan."
-                ),
-            }
+        length_err = length_loss_error(length_loss, len(train_rows), cfg.max_seq_length)
+        if length_err:
+            return {"ok": False, "error": length_err}
     else:
         if cfg.assistant_only_loss:
             logger.warning("assistant_only_loss istendi ama chat_template yok → maskesiz eğitim.")
@@ -1699,6 +1765,12 @@ if __name__ == "__main__":
             print(f"\nKur: {result['install_cmd']}")
         sys.exit(0)
 
-    result = train(cfg)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    sys.exit(0 if result.get("ok") else 1)
+    # Kademe 2 2026-10-11 F1-2: bu doğrudan giriş HİÇBİR eğitim kapısından geçmez (Kademe 2,
+    # taze onay, sızıntı, kalite, kilit, profil). Gerçek eğitim yalnız kapılı yoldan; denetimli
+    # alt süreçler zaten `hektor train --run` kullanır.
+    print(
+        "Doğrudan --run kapalı: gerçek eğitim kapılı yoldan başlatılır →\n"
+        "  uv run hektor train --run --backend peft --profile <profil> --adapter-name <ad>",
+        file=sys.stderr,
+    )
+    sys.exit(2)
