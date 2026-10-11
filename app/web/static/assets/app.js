@@ -7238,10 +7238,25 @@
         ((p.rubric || []).length ? '<details open><summary>Rubrik (ölçüt kilitli)</summary><ul class="small">' + p.rubric.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") + "</ul></details>" : "") +
         ((p.evidence || []).length ? '<details><summary>Kaynak kanıtı</summary><div class="lp-target">' + p.evidence.map(function (e) { return nl2br(e); }).join("<hr>") + "</div></details>" : "") +
         p.answers.map(function (a) {
+          var qa = 'data-q="' + esc(p.question_id) + '" data-l="' + esc(a.label) + '"';
+          if (p.rubric_dims) {
+            // Rubrikli (final) ölçüt: boyut boyut puan + kritik hata KODU (kod yoksa kritik değil).
+            var dims = Object.keys(p.rubric_dims).map(function (d) {
+              var opts = '<option value="">—</option>';
+              for (var i = 0; i <= p.rubric_dims[d]; i++) opts += "<option>" + i + "</option>";
+              return esc(d) + " (0–" + esc(String(p.rubric_dims[d])) + ') <select ' + qa + ' data-k="rubric" data-d="' + esc(d) + '">' + opts + "</select>";
+            }).join(" ");
+            var checks = p.critical_checks || [];
+            var codes = Object.keys(p.critical_codes || {}).map(function (c) {
+              return '<option value="' + esc(c) + '">' + (checks.indexOf(c) >= 0 ? "★ " : "") + esc(c) + " — " + esc(p.critical_codes[c]) + "</option>";
+            }).join("");
+            return '<div class="cmp-answer"><strong>' + esc(a.label) + ":</strong> " + nl2br(a.answer) +
+              '<div class="small">' + dims + '<br>Kritik hata kodları (★ bu soruda denetle; çoklu seçim): <select multiple size="3" ' + qa + ' data-k="codes">' + codes + "</select></div></div>";
+          }
           return '<div class="cmp-answer"><strong>' + esc(a.label) + ":</strong> " + nl2br(a.answer) +
-            '<div class="small">Puan <select data-q="' + esc(p.question_id) + '" data-l="' + esc(a.label) + '" data-k="score">' +
+            '<div class="small">Puan <select ' + qa + ' data-k="score">' +
             '<option value="">—</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select> ' +
-            '<label><input type="checkbox" data-q="' + esc(p.question_id) + '" data-l="' + esc(a.label) + '" data-k="critical"/> kritik hata</label></div></div>';
+            '<label><input type="checkbox" ' + qa + ' data-k="critical"/> kritik hata</label></div></div>';
         }).join("") + "</div>";
     }).join("") + '<button type="submit" class="btn btn-primary">Puanları gönder</button></form>' +
       '<div id="cmpKeys"></div><div id="cmpAi"></div>';
@@ -7257,6 +7272,19 @@
         if (s.value === "") missing++;
         var crit = box.querySelector('input[data-q="' + q + '"][data-l="' + l + '"]');
         scores[q][l] = { score: parseInt(s.value, 10), critical: !!(crit && crit.checked) };
+      });
+      box.querySelectorAll("select[data-k=rubric]").forEach(function (s) {
+        var q = s.getAttribute("data-q"), l = s.getAttribute("data-l");
+        scores[q] = scores[q] || {};
+        scores[q][l] = scores[q][l] || { rubric: {}, critical_codes: [] };
+        if (s.value === "") missing++;
+        scores[q][l].rubric[s.getAttribute("data-d")] = parseInt(s.value, 10);
+      });
+      box.querySelectorAll("select[data-k=codes]").forEach(function (s) {
+        var q = s.getAttribute("data-q"), l = s.getAttribute("data-l");
+        scores[q] = scores[q] || {};
+        scores[q][l] = scores[q][l] || { rubric: {}, critical_codes: [] };
+        scores[q][l].critical_codes = Array.prototype.filter.call(s.options, function (o) { return o.selected; }).map(function (o) { return o.value; });
       });
       if (missing) { toast(missing + " cevap puanlanmadı.", true); return; }
       postJson("/compare/" + encodeURIComponent(id) + "/review", { scores: scores })

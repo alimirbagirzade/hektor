@@ -175,6 +175,12 @@ def main() -> None:
     ap.add_argument("--top-k", type=int, default=None, help="retrieval top_k (varsayılan ayar)")
     ap.add_argument("--run-id", default=None, help="Sürdürmek için mevcut koşu kimliği")
     args = ap.parse_args()
+    if len(set(args.seeds)) < 2:
+        print(
+            "UYARI: tek tohum — Ollama temp 0'da deterministik değil; karşılaştırma için "
+            "--seeds 42 43 44 önerilir (rubrik kapısı ≥2 tekrar ister).",
+            flush=True,
+        )
 
     settings = get_settings()
     host = settings.ollama_host.rstrip("/")
@@ -372,8 +378,16 @@ def main() -> None:
             )
             for f in current:
                 flag_counts[f] = flag_counts.get(f, 0) + 1
+        per_q: dict[str, int] = {}
+        for r in rs:
+            per_q[r["question_id"]] = per_q.get(r["question_id"], 0) + 1
         summary[cond] = {
             "n": len(rs),
+            # n (soru) ve tekrar AÇIK: Ollama temp 0'da deterministik değil → tek tohum karar
+            # kanıtı değildir (rubrik kapısı soru başına ≥2 tekrar ister: hektor rubric-gate).
+            "n_questions": len(per_q),
+            "repeats_min": min(per_q.values()),
+            "repeats_max": max(per_q.values()),
             "model": rs[0]["model"],
             "rag_enabled": rs[0]["rag_enabled"],
             "ort_cikti_token": round(sum(r["output_tokens"] for r in rs) / len(rs)),

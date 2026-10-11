@@ -286,7 +286,9 @@ def k1_preview(cmp_id: str) -> dict[str, Any]:
         m = cc._manifest(cmp_id)
     except cc.CompareError as exc:
         raise JudgeError(str(exc)) from exc
-    if m.get("role_requested") == "final":
+    questions = cc._read(cc._root() / cmp_id / "questions.json") or []
+    if m.get("role_requested") == "final" or any(q.get("final_lock_sha") for q in questions):
+        # Final takımı (yerel, kilitli) hangi rolle koşulursa koşulsun soru/rubrik buluta gitmez.
         blockers.append(
             "Gizli final setinin cevapları buluta gönderilmez (set bağımsızlığını yitirir)."
         )

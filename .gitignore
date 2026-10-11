@@ -167,3 +167,11 @@ registry/lora/*.jsonl
 # Profil eval koşu çıktıları + denetim sayfaları (runtime)
 reports/eval/*
 !reports/eval/.gitkeep
+
+# Final test takımı — YEREL (soru + anahtar açık depoya girmez; v15 deseni, denetim 2026-10-11).
+# Biçim: docs/FINAL_TEST_TAKIMI.md · CLI: hektor final-set format|status|validate|lock|export
+evals/final/*
+!evals/final/.gitkeep
+# Karşılaştırma çıktıları: final anahtarlı soru kopyaları + ham cevaplar (makineye özgü)
+reports/comparisons/
+storage/final_set_access.jsonl

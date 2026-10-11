@@ -280,6 +280,12 @@ def leakage_cmd(
             f"— eğitim={report['n_train']} valid={report['n_valid']} eval={report['n_eval']} "
             f"{report['counts']}"
         )
+        fs = report.get("final_set") or {}
+        console.print(
+            f"  final takımı: {fs.get('state', '?')}"
+            + (f" (n={fs['n_questions']})" if "n_questions" in fs else "")
+            + (" — taranamadı" if fs.get("state") == "yok" else "")
+        )
         for h in report["hits"][:20]:
             console.print(
                 f"  {h['kind']:<15} {h['eval_id']:<12} {h['split']}#{h['train_index']} "
@@ -322,23 +328,35 @@ def adapter_eval_items(eval_dir: Path | None = None) -> list[Any]:
     return out
 
 
-def leakage_eval_items() -> list[Any]:
-    """Sızıntı denetiminin TÜM eval kalemleri (validation + golden + llm30 + adapter-eval).
+def leakage_eval_items(*, include_final: bool = True) -> list[Any]:
+    """Sızıntı denetiminin TÜM eval kalemleri (validation + golden + llm30 + adapter-eval +
+    yerel final takımı).
 
     Tek kaynak: `run_leakage_check` (eğitim kapısı) ve öz-damıtma soru filtresi
     (`app.training.self_distill.eval_leak_filter`) aynı listeyi kullanır. Eğitim kodu eval
     setlerini doğrudan okumaz (statik koruma: tests/profile_mix/test_dataset_leakage.py).
+
+    Final takımı (``evals/final/``, yerel) varsa soru + anahtar metinleri eklenir — kilitsiz
+    taslak dahil. Dosya kilitli manifest ile uyuşmuyorsa HATA yükselir (kapı kapalı kalır).
+    ``include_final=False`` yalnız final setinin geliştirme setlerinden ayrılık denetimi içindir.
     """
     from app.evals.llm30 import load_llm30
     from app.evals.profile.dataset_loader import load_split
     from app.evals.profile.schema import Split
 
-    return [
+    items = [
         *load_split(Split.VALIDATION, purpose="leakage_check"),
         *load_split(Split.GOLDEN_TEST, purpose="leakage_check"),
         *load_llm30(purpose="leakage_check"),
         *adapter_eval_items(),
     ]
+    if include_final:
+        from app.evals.final_set import leakage_items, load_final
+
+        fs = load_final(purpose="leakage_check")
+        if fs is not None:
+            items.extend(leakage_items(fs))
+    return items
 
 
 def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
@@ -364,6 +382,10 @@ def run_leakage_check(train_jsonl: Path | None = None) -> dict[str, Any]:
             h.split = "valid"
         rep.hits.extend(vrep.hits)
     report = rep.to_dict()
+    from app.evals.final_set import final_status
+
+    # Final takımı yoksa kapı onu tarayamaz → raporda görünür (sessiz eksik kapsam yok).
+    report["final_set"] = final_status()
     report["train_path"] = str(path)
     report["valid_path"] = str(valid_path) if n_valid else ""
     report["n_valid"] = n_valid
