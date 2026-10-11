@@ -118,6 +118,13 @@ class LoraChatResponse(BaseModel):
     sources: list[SourceOut] = Field(default_factory=list)
     sections: list[AnswerSectionOut] = Field(default_factory=list)  # yalnız kaynaklı modda dolu
     degenerate: bool = False  # model çıktısında tekrar döngüsü (adapter_eval._is_degenerate)
+    # Adapter'ın eğitim reçetesine göre seçilen istem biçimi (app/training/adapter_recipe.py).
+    prompt_format: str = "synthetic_qa"  # "synthetic_qa" | "live_rag"
+    recipe_source: str = (
+        ""  # run_plan.json | train_status.final.json | registry | base | bilinmiyor
+    )
+    recipe_warning: str | None = None  # dolu → reçete bulunamadı, eski biçime düşüldü
+    context_budget: str | None = None  # uygulanan bağlam bütçesi ("2400 karakter", "5888 token")
 
 
 # ---------- Model değerlendirme ----------
