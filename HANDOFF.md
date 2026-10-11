@@ -69,7 +69,8 @@ max_tokens`'a sığana dek en düşük sıralıdan bütün düşülür; kaynaks�
 sistem istemi. Reçete bulunamazsa eski davranış + cevapta/arayüzde `recipe_warning`.
 Testler: `tests/test_adapter_recipe_chat.py` (sahte tokenizer). Eğitim başlatılmadı.
 **Not:** `peft_lora_train.py` değişti → sonraki eğitimden önce Kademe 2 kaydı bu kod özeti için
-yenilenmeli. v14 sohbette `max_tokens` (varsayılan 256) uzun cevaplar için düşük kalabilir.
+yenilenmeli. Takip (aynı gün): `max_tokens` boşsa reçeteden — sentetik/base 256; canlı RAG
+(v14) bağlam ≥2048 token cevap payıyla sığdırılır, üretim sınırı `min(3072, 6144 − istem)`.
 
 ### 2026-10-11 — dönüşüm → karşılaştırma testindeki bekleme yarışı
 

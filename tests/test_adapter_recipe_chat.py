@@ -252,6 +252,41 @@ def test_v14_kaynaksiz_sohbet_plain_sistem_istemi(env: dict[str, Any]) -> None:
     assert out["prompt_format"] == "live_rag" and out["context_budget"] is None
 
 
+def test_v14_max_tokens_verilmezse_uzun_cevap_payi(env: dict[str, Any]) -> None:
+    _v14(env["adapters"])
+    chunks = [_chunk("c1", 1500), _chunk("c2", 1500), _chunk("c3", 1500)]
+    out = svc.chat(
+        "soru?",
+        "hektor_lora_v14_30b",
+        use_context=True,
+        retriever=_Retriever(chunks),
+        card_lookup=lambda pid: None,
+    )
+    (call,) = env["generate"]
+    # Bağlam en az 2048 token cevap payı bırakacak şekilde sığdırıldı (3. parça düştü) ...
+    assert out["context_budget"] == f"{6144 - svc.LIVE_RAG_MIN_ANSWER_TOKENS} token"
+    assert [s["chunk_id"] for s in out["sources"]] == ["c1", "c2"]
+    # ... ve üretim sınırı kalan yere genişletildi (eğitimdeki ≤3072 cevap, toplam ≤6144).
+    used = _tokens(call["system"], call["question"])
+    expected = min(3072, 6144 - used)
+    assert expected >= svc.LIVE_RAG_MIN_ANSWER_TOKENS
+    assert call["max_new_tokens"] == out["max_new_tokens"] == expected
+    assert used + call["max_new_tokens"] <= 6144
+
+
+def test_v14_kisa_baglamda_cevap_siniri_3072(env: dict[str, Any]) -> None:
+    _v14(env["adapters"])
+    out = svc.chat("EMA nedir?", "hektor_lora_v14_30b")
+    assert env["generate"][0]["max_new_tokens"] == out["max_new_tokens"] == 3072
+
+
+def test_acik_max_tokens_her_zaman_kazanir(env: dict[str, Any]) -> None:
+    _v14(env["adapters"])
+    svc.chat("EMA nedir?", "hektor_lora_v14_30b", max_tokens=128)
+    svc.chat("EMA nedir?", None)  # base / sentetik varsayılan: eski 256
+    assert [c["max_new_tokens"] for c in env["generate"]] == [128, svc.DEFAULT_MAX_TOKENS]
+
+
 def test_receteli_eski_adapter_sentetik_bicimde_kalir(env: dict[str, Any]) -> None:
     d = _adapter(env["adapters"], "hektor_lora_v13_30b")
     _write(
