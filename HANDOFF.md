@@ -33,6 +33,12 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-11 — Gece raporu otomatik teslim (elle kopyalama yok)
+
+`scripts/nightly.ps1` artık `hektor gece --yayinla` koşar: temizlenmiş özet (yalnız sayı/kimlik/
+metrik; metin, cevap, yol YOK — depo herkese açık) `gece-raporlari` dalına push edilir. Bulut
+sabah rutini bu dalı okuyup analiz eder; düzeltme gerekirse taslak PR açar.
+
 ### 2026-10-10 — CSV adayı → final dönemi yolu
 
 CSV laboratuvarının OOS'a bakılmış adayları strateji deposuna `csvlab` ailesiyle kaydedilir;

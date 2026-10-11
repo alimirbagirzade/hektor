@@ -109,11 +109,25 @@ Kullanıcı kararı (2026-10-10): gece eğitimi (Faz 2) yerine önce **ölçüm*
   "Bekleyen kararlar". Rapor `reports/evals/llm30_nightly/<zaman>.json`, geçmiş
   `storage/nightly/llm30_history.jsonl`. Elle: `hektor llm30-gece [--zorla]`.
 
+## 5c · Otomatik rapor teslimi (`app/orchestration/nightly_publish.py`) — 2026-10-11
+
+Kullanıcı isteği: raporlar elle kopyalanmasın. Gece koşusu bitince (`hektor gece --yayinla`;
+`scripts/nightly.ps1` bunu kullanır) TEMİZLENMİŞ özet `gece-raporlari` dalına push edilir
+(`son.json` + `raporlar/<gün>/gece_<saat>.json`); bulut tarafındaki sabah rutini (Claude Code)
+bu dalı okuyup analiz eder ve gerekirse taslak PR açar.
+
+**Depo herkese açık** → izin listesi: sayılar, kimlikler, model adları, CSV dosya ADLARI,
+metrikler, bu kodun ürettiği kısa durum metinleri (mutlak yol ve e-posta silinir). GİTMEZ: sohbet
+soru/cevapları, aday hedef metinleri, hakem gerekçeleri, LLM-30 ham cevapları, kaynak metinleri,
+makine yolları, kullanıcı kimliği (commit yazarı sabit `Hektor gece`). main'e dokunulmaz. Yayın
+hatası gece koşusunu bozmaz (`publish.error`). Kapatmak: `--yayinlama` ya da betikten bayrağı
+kaldırmak.
+
 ## 6 · Ayarlar
 
 `HEKTOR_NIGHTLY_JUDGE_MODEL` · `HEKTOR_NIGHTLY_JUDGE_MAX` (40) · `HEKTOR_CSV_LAB_DEFAULT_TZ` ·
 `HEKTOR_CSV_LAB_MAX_FILES` (5) · `HEKTOR_CSV_LAB_TOP_K` (3) · `HEKTOR_NIGHTLY_LLM30_EVERY_DAYS` (7) ·
-`HEKTOR_NIGHTLY_LLM30_RAG` (kapalı).
+`HEKTOR_NIGHTLY_LLM30_RAG` (kapalı) · `HEKTOR_NIGHTLY_PUBLISH` (kapalı; betik `--yayinla` verir).
 
 ## 7 · Test
 

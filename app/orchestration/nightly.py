@@ -135,8 +135,30 @@ STEP_FNS: dict[str, Callable[[], dict[str, Any]]] = {
 }
 
 
-def run_nightly(steps: tuple[str, ...] | list[str] = STEPS) -> dict[str, Any]:
-    """Gece döngüsünü bir kez koş; raporu yazar ve döndürür."""
+def run_nightly(
+    steps: tuple[str, ...] | list[str] = STEPS, *, publish: bool | None = None
+) -> dict[str, Any]:
+    """Gece döngüsünü bir kez koş; raporu yazar ve döndürür.
+
+    ``publish`` (varsayılan ``HEKTOR_NIGHTLY_PUBLISH``): temizlenmiş özet ``gece-raporlari``
+    dalına push edilir (``nightly_publish``) — bulut sabah rutini oradan okur.
+    """
+    rep = _run(steps)
+    if rep.get("status") == "busy":
+        return rep
+    do_publish = get_settings().nightly_publish if publish is None else publish
+    if do_publish:
+        from app.orchestration import nightly_publish as npub
+
+        summary = npub.sanitize(rep, commit=npub.code_commit())
+        rep["publish"] = npub.publish(summary)
+        (_dir() / "latest.json").write_text(
+            json.dumps(rep, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+        )
+    return rep
+
+
+def _run(steps: tuple[str, ...] | list[str]) -> dict[str, Any]:
     unknown = [s for s in steps if s not in STEP_FNS]
     if unknown:
         raise ValueError(f"Bilinmeyen adım: {', '.join(unknown)} (izinli: {', '.join(STEPS)})")

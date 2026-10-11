@@ -613,3 +613,135 @@ def test_pending_decisions_carry_nightly_brief(iso, monkeypatch) -> None:  # noq
     b = _nightly_brief()
     assert b["ran"] and b["status"] == "done" and b["quarantined"] == 1 and b["csv_done"] == 1
     assert b["llm30"] == "bayraklı 2/30 · iz 9/20" and b["report_md"].endswith(".md")
+
+
+# ── gece özeti yayını (gece-raporlari dalı; depo herkese açık olabilir) ──────
+
+import subprocess  # noqa: E402
+
+from app.orchestration import nightly_publish as npub  # noqa: E402
+
+SECRET_Q = "GIZLI_SOHBET_SORUSU volatilite"
+SECRET_ANS = "GIZLI_MODEL_CEVABI 101"
+
+
+def _fake_rep(tmp: Path) -> dict:
+    llm_report = tmp / "llm30.json"
+    llm_report.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "question_id": "llm30-s12",
+                        "flags": ["kisa_tekrar"],
+                        "keys": {"s12_a": True, "s12_b": False},
+                        "output_tokens": 40,
+                        "latency_s": 2.0,
+                        "raw_answer": SECRET_ANS,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "status": "done",
+        "started_at": "2026-10-11T20:30:05+00:00",
+        "finished_at": "2026-10-11T21:00:00+00:00",
+        "seconds": 1795.0,
+        "steps": {
+            "hakem": {
+                "ran": True,
+                "model": "qwen3:30b",
+                "counts": {"tutarli": 3, "supheli": 1},
+                "quarantined": [
+                    {"candidate_id": "cand_1", "verdict": "supheli", "reason": SECRET_Q}
+                ],
+            },
+            "olcum": {
+                "ran": True,
+                "model": "hektor-v12-30b",
+                "n": 30,
+                "n_flagged": 1,
+                "key_hits": 1,
+                "key_total": 20,
+                "report": str(llm_report),
+                "regression": ["Bayraklı 0 → 1"],
+            },
+            "csv": {
+                "files": [
+                    {
+                        "file": "BTCUSDT_perp_1h.csv",
+                        "status": "skipped",
+                        "reason": r"Dosya yok: C:\Users\ali\hektor\data\x.csv mail ali@ornek.com",
+                        "report": {},
+                    }
+                ]
+            },
+            "egitim": {"ran": True, "ready": False, "blockers": [r"kademe2: C:\Users\ali\k2.json"]},
+        },
+        "report_md": r"C:\Users\ali\hektor\reports\nightly\x.md",
+    }
+
+
+def test_sanitize_never_leaks_text_answers_or_paths(tmp_path: Path) -> None:
+    out = npub.sanitize(_fake_rep(tmp_path), commit="abc123")
+    blob = json.dumps(out, ensure_ascii=False)
+    for bad in (SECRET_Q, SECRET_ANS, "C:\\\\Users", "ali@ornek.com", "\\\\ali\\\\", "x.md"):
+        assert bad not in blob, bad
+    st = out["steps"]
+    assert st["hakem"]["quarantined"] == [{"candidate_id": "cand_1", "verdict": "supheli"}]
+    assert st["olcum"]["per_question"][0]["keys_hit"] == 1
+    assert st["egitim"]["blocker_keys"] == ["kademe2"] and st["egitim"]["started_training"] is False
+    assert "<yol>" in st["csv"]["files"][0]["reason"]
+
+
+def _git(*args: str, cwd: Path) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def test_publish_pushes_only_to_report_branch(iso, tmp_path: Path) -> None:  # noqa: F811
+    bare = tmp_path / "origin.git"
+    _git("init", "-q", "--bare", str(bare), cwd=tmp_path)
+    src = tmp_path / "src"
+    src.mkdir()
+    _git("init", "-q", cwd=src)
+    _git("remote", "add", "origin", str(bare), cwd=src)
+    s1 = npub.sanitize(_fake_rep(tmp_path))
+    r1 = npub.publish(s1, source_root=src)
+    assert r1["ok"], r1
+    s2 = {**s1, "started_at": "2026-10-12T20:30:05+00:00"}
+    assert npub.publish(s2, source_root=src)["ok"]
+    branches = _git("branch", "--list", cwd=bare)
+    assert "gece-raporlari" in branches and "main" not in branches and "master" not in branches
+    files = _git("ls-tree", "-r", "--name-only", "gece-raporlari", cwd=bare).splitlines()
+    assert "son.json" in files
+    assert {f for f in files if f.startswith("raporlar/")} == {
+        "raporlar/2026-10-11/gece_203005.json",
+        "raporlar/2026-10-12/gece_203005.json",
+    }
+    son = json.loads(_git("show", "gece-raporlari:son.json", cwd=bare))
+    assert son["started_at"].startswith("2026-10-12")
+    author = _git("log", "-1", "--format=%an <%ae>", "gece-raporlari", cwd=bare)
+    assert author == "Hektor gece <hektor-gece@noreply.local>"
+
+
+def test_publish_without_origin_fails_softly(iso, tmp_path: Path) -> None:  # noqa: F811
+    src = tmp_path / "src"
+    src.mkdir()
+    _git("init", "-q", cwd=src)
+    out = npub.publish({"status": "done"}, source_root=src)
+    assert out["ok"] is False and out["error"]
+
+
+def test_run_nightly_publishes_sanitized_summary(iso, monkeypatch) -> None:  # noqa: F811
+    sent: list[dict] = []
+    monkeypatch.setattr(npub, "publish", lambda summary, **kw: sent.append(summary) or {"ok": True})
+    monkeypatch.setattr(npub, "code_commit", lambda *a, **k: "deadbeef")
+    monkeypatch.setattr(nightly, "STEP_FNS", {"egitim": lambda: {"ready": True, "blockers": []}})
+    rep = nightly.run_nightly(("egitim",), publish=True)
+    assert rep["publish"] == {"ok": True} and nightly.latest()["publish"] == {"ok": True}
+    assert sent[0]["schema"] == npub.SCHEMA and sent[0]["code_commit"] == "deadbeef"
+    assert nightly.run_nightly(("egitim",), publish=False).get("publish") is None
