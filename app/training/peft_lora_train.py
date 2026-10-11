@@ -202,12 +202,18 @@ CPU_DTYPES = ("fp32", "bf16")
 def resolve_cpu_dtype(cfg: PeftTrainConfig) -> tuple[str, str]:
     """CPU eğitiminin base dtype'ı ve kaynağı: (``"bf16"|"fp32"``, kaynak).
 
-    Öncelik: ``HEKTOR_TRAIN_DTYPE`` (boş değilse; ``bf16`` dışı her değer fp32 — eski
-    davranış) → profil ``cpu_dtype`` → fp32. dry-run ve train() AYNI kararı kullanır.
+    Öncelik: geçerli ``HEKTOR_TRAIN_DTYPE`` (büyük/küçük harf duyarsız) → profil
+    ``cpu_dtype`` → fp32. dry-run ve train() AYNI kararı kullanır. Kademe 2 G-3: geçersiz
+    değer ("BF16" dışı yazım hataları, "fp16") eskiden sessizce fp32 olup profilin bf16'sını
+    eziyordu (30B'de RAM iki katı) → artık uyarı loglanır ve yok sayılır.
     """
-    env = os.environ.get("HEKTOR_TRAIN_DTYPE", "").strip()
+    env = os.environ.get("HEKTOR_TRAIN_DTYPE", "").strip().lower()
+    if env in CPU_DTYPES:
+        return env, "HEKTOR_TRAIN_DTYPE"
     if env:
-        return ("bf16" if env == "bf16" else "fp32"), "HEKTOR_TRAIN_DTYPE"
+        logger.warning(
+            "HEKTOR_TRAIN_DTYPE=%r geçersiz (%s olmalı) — yok sayıldı.", env, "/".join(CPU_DTYPES)
+        )
     if cfg.cpu_dtype in CPU_DTYPES:
         return cfg.cpu_dtype, "profil"
     return "fp32", "varsayılan"

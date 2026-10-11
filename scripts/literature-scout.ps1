@@ -31,7 +31,14 @@ if ($NoDownload) { $scoutArgs += "--no-download" }
 
 Write-Output ("[" + (Get-Date -Format "HH:mm:ss") + "] literature scout starting...")
 try {
-    & uv @scoutArgs 2>&1 | Tee-Object -FilePath $log
+    # PS 5.1: under "Stop" the first native stderr line (INFO logs, uv warnings) becomes a
+    # terminating NativeCommandError and the run is cut off. Run the native call under
+    # "Continue" and judge success by $LASTEXITCODE (same as open-pr.ps1).
+    $ErrorActionPreference = "Continue"
+    & uv @scoutArgs 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($code -ne 0) { throw ("exit code " + $code) }
     Write-Output ("Done. Log: " + $log)
 }
 catch {

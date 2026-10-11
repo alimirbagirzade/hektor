@@ -938,3 +938,22 @@ def test_p2_unconditional_record_scope_risk_is_rejected(repo) -> None:
     data["findings"] = [finding]
     path.write_text(json.dumps(data), "utf-8")
     assert et.kademe2_blocker() is not None
+
+
+def test_g5_hand_edited_undefined_risk_scope_covers_nothing(repo) -> None:
+    """Kademe 2 G-5 (2026-10-11): kapsamı tanımsız risk_kabul (ör. 'yalnız_reçete' yazımı)
+    elle yazılmış kayıtta veri kapsamlı SINIRSIZ kabul gibi her reçeteyi kapsıyordu."""
+    rec = _record(data_sha256=_data_sha())
+    assert et.kademe2_blocker() is None
+    path = et.kademe2_dir() / f"{rec['record_id']}.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["findings"] = [
+        {
+            "id": "F1",
+            "status": "risk_kabul",
+            "kapsam": "yalnız_reçete",
+            "gerekce": "elle yazılmış, yazımı tanımsız kapsam",
+        }
+    ]
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    assert et.kademe2_blocker() is not None

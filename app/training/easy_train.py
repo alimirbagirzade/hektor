@@ -669,6 +669,11 @@ def latest_kademe2(code_sha: str, recipe_sha: str = "", data_sha: str = "") -> d
             continue  # kapsam dışı kararının koşulu bozuldu → yeniden değerlendirme gerekir
         if any(_unbounded_risk(f) for f in r.get("findings", [])):
             continue  # P-2: koşulsuz 'kayit' kabulü (elle yazılmış/eski kayıt) kapsamaz
+        if any(
+            f.get("status") == "risk_kabul" and f.get("kapsam") not in RISK_SCOPES
+            for f in r.get("findings", [])
+        ):
+            continue  # G-5: kapsamı tanımsız kabul (elle yazılmış kayıt) hiçbir şeyi kapsamaz
         if any(_recipe_limited(f) for f in r.get("findings", [])):
             # Kademe 2 P-6: sayısal sınır her kontrolde yeniden denetlenir (elle düzenlenmiş
             # kayıtta sınır silinmiş/büyütülmüş olabilir).

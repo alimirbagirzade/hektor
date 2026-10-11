@@ -21,6 +21,7 @@ hatası diğerlerini durdurmaz; rapor her durumda yazılır.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import time
@@ -57,13 +58,39 @@ def _acquire_lock() -> str:
     p = _lock_path()
     if p.exists():
         try:
-            info = json.loads(p.read_text(encoding="utf-8"))
+            raw = p.read_text(encoding="utf-8")
+            info = json.loads(raw)
         except (OSError, ValueError):
-            info = {}
+            raw, info = "", {}
+        try:
+            mtime_age = time.time() - p.stat().st_mtime
+        except OSError:
+            mtime_age = 0.0
+        if not info and mtime_age < 30:
+            # O_EXCL ile yeni yaratılmış, henüz yazılmamış kilit — canlı say (N-8).
+            return "Başka bir gece koşusu az önce başladı."
         age = time.time() - float(info.get("t") or 0)
         if age < STALE_LOCK_S and pid_alive(info.get("pid")):
             return f"Başka bir gece koşusu sürüyor (pid {info.get('pid')}, {int(age)} sn)."
-        p.unlink(missing_ok=True)  # bayat kilit
+        # Kademe 2 N-8: bayat kilit ATOMİK sahiplenilir (rename). Arada başka bir süreç kilidi
+        # tazelediyse taşınan içerik okunanla aynı değildir → sahibine iade edilir.
+        tmp = p.with_name(f"{p.name}.break{os.getpid()}_{time.monotonic_ns()}")
+        try:
+            os.rename(p, tmp)
+        except OSError:
+            return "Başka bir gece koşusu az önce başladı."
+        try:
+            stolen = tmp.read_text(encoding="utf-8")
+        except OSError:
+            stolen = ""
+        if stolen != raw:
+            with contextlib.suppress(OSError):
+                os.link(tmp, p)
+            with contextlib.suppress(OSError):
+                tmp.unlink()
+            return "Başka bir gece koşusu az önce başladı."
+        with contextlib.suppress(OSError):
+            tmp.unlink()
     try:
         fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
@@ -74,7 +101,14 @@ def _acquire_lock() -> str:
 
 
 def _release_lock() -> None:
-    _lock_path().unlink(missing_ok=True)
+    """Yalnız KENDİ kilidimizi sil (N-8: başka koşunun kilidini silme)."""
+    p = _lock_path()
+    try:
+        info = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if info.get("pid") == os.getpid():
+        p.unlink(missing_ok=True)
 
 
 def stop_marker() -> str:

@@ -164,10 +164,18 @@ def _approval_record(approval_id: str) -> dict[str, Any] | None:
 
 def recipe_from_records(adapter: str) -> dict[str, Any] | None:
     """Kolay akış kaydı olmayan (start-train/CLI) koşu için bağımsız kayıtlardan reçete."""
-    from app.training.detached_launch import _combined_source, read_detached_training_status
+    from app.training.detached_launch import (
+        _combined_source,
+        read_detached_training_status,
+        read_final_status,
+    )
 
     s = get_settings()
     st = read_detached_training_status(s.root)
+    if st.get("adapter") != adapter:
+        # Kademe 2 G-1: ortak durum dosyası sonraki başlatmayla ezildiyse adapter'ın arşivi
+        # (P-1) kullanılır — verify_run_completion ile aynı kaynak.
+        st = read_final_status(adapter, s.root)
     if st.get("adapter") != adapter:
         return None
     evidence: list[str] = []

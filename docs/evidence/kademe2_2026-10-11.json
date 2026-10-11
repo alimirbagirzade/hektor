@@ -1,0 +1,163 @@
+{
+  "kademe": 2,
+  "tarih": "2026-10-11",
+  "denetlenen_fark": "ae73710..0ee35b0 (#51 Kademe 2 düzeltmeleri, #52 tek tıklamalı döngü + bulut hakem, #54-#58 gece döngüsü/LLM-30/CSV lab/rapor teslimi/Kural 1 karar kapısı, #59 MoE bf16 profil + pretrain-gate --flagged-out)",
+  "yontem": "3 paralel bulucu (F1 eğitim kapıları · F2 veri/öğrenme hattı · F3 gece/bulut döngüsü) → 19 bulgu → her grup 2 bağımsız şüpheci doğrulayıcı (varsayılan çürütülmüş, kod yolu izlendi, çoğu betikle yeniden üretildi). Hiçbiri çürütülmedi; 19'u da düzeltildi + regresyon testi (düzeltme öncesi 43 test düşüyor, sonrası geçiyor). risk_kabul YOK.",
+  "sorunsuz": "Gece döngüsü eğitim başlatmaz (yalnız readiness); bulut K1/K2 tam önizleme + tur başına insan POST + günlük kota, toplu gönderim yok, bulut çıktısı adaya/eğitime yazılmaz; csv_lab seçim yalnız geliştirme döneminde, final yalnız insan run_final, maliyetler düşülür, sinyal bar kapanışı → sonraki açılış; train --run kapı sırası (ağırlık → yük doktoru → bölme → sızıntı → plan → pretrain-gate → Kademe 2 → reçete → kilit → onay); CODE_PATHS uv.lock dahil; yeni subprocess'lerde NO_WINDOW, DETACHED_PROCESS yok; learn() hedefi raw_answer'dan (uyarı bloğu eğitime girmez); dry_run ve train() aynı resolve_cpu_dtype.",
+  "kapi": "ruff check ✓ · ruff format ✓ · mypy app 317 dosya ✓ · pytest 3440 passed / 17 skipped (2. tam koşu). 1. tam koşuda tests/test_cloud_judge.py::test_conversion_chains_comparison_with_same_rules bir kez düştü (alt süreçli, dokunulmayan candidate_jobs yolu; tek başına ve 2. tam koşuda geçti) — kök neden bulunmadı, kararsız test notu.",
+  "kayit_notu": "Kayıt birleşmiş main + update.ps1 sonrası ana kurulumda yazılmalı (kod özeti ancak orada alınır): uv run hektor kademe2-kayit --findings docs/evidence/kademe2_2026-10-11.json --data-sha <güncel lora_sft sha> --evidence \"...\". Eğitim verisi bu denetimde görülmedi (bulut kopyasında yok) — veri uyarıları yerelde pretrain-gate --flagged-out ile satır satır incelenmeli; veri değişirse yeni sha ile kayıt.",
+  "bulgular": [
+    {
+      "id": "G-1",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "recipe_from_records arşive bakmıyordu: start-train/CLI ile biten koşunun tamamlanma doğrulaması sonraki başlatmadan sonra kalıcı başarısız (P-1 eksik).",
+      "evidence": "candidate_checks.recipe_from_records → canlı durum başka adapter'a aitse read_final_status. test_g1_recipe_from_archive_after_status_overwritten."
+    },
+    {
+      "id": "G-2",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "KISMEN/KISMEN",
+      "ozet": "archive_final_status var olan arşivi hiç ezmiyordu: başarısız → aynı adla başarılı koşuda arşiv 'başarısız' kalıyordu.",
+      "evidence": "Aynı koşunun (started_at) tamamlanma kaydı düşürülmez, daha eski koşu yeni arşivi ezmez, aksi halde güncellenir; start-train.ps1 Save-FinalStatus aynı kural. test_g2_archive_updated_by_newer_run_but_not_downgraded."
+    },
+    {
+      "id": "G-3",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "KISMEN/KISMEN",
+      "ozet": "resolve_cpu_dtype büyük/küçük harf duyarlıydı; geçersiz env profil bf16'yı sessizce fp32 ile eziyordu; start-train -Dtype doğrulanmıyordu.",
+      "evidence": "env .strip().lower(); geçersiz değer uyarı + yok sayılır; start-train [ValidateSet(bf16,fp32)]. test_g3_*."
+    },
+    {
+      "id": "G-4",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "train-doctor ölü kayıt mesajı checkpoint/run_complete işaretleri olmadan hesaplanıyor, nöbetçinin gerçek kararıyla çelişebiliyordu (T-2 eksik).",
+      "evidence": "diagnose last_checkpoint/run_markers alır; collect_diagnosis adapter klasöründen verir. test_g4_doctor_uses_run_markers_like_watchdog."
+    },
+    {
+      "id": "G-5",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/KISMEN",
+      "ozet": "latest_kademe2 okuma tarafı kapsamı tanımsız risk_kabul'ü (elle yazılmış kayıt) veri kapsamlı sınırsız kabul gibi geçiriyordu.",
+      "evidence": "risk_kabul kapsamı RISK_SCOPES dışındaysa kayıt hiçbir şeyi kapsamaz. test_g5_hand_edited_undefined_risk_scope_covers_nothing."
+    },
+    {
+      "id": "V-1",
+      "severity": "HIGH",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Takip sorusunda al/sat yönlendirmesi Kural 1'den kaçıyor; kısa 'Evet, alın.' kapsamdan düştüğü için insan onayı olmadan eligible/auto oluyordu; sohbet uyarısı geçmişe bakmıyordu.",
+      "evidence": "verify_target prompt=turn.user_prompt ile karar sorusunu geçmişte de arar; yönlendirme ya da kontrol dışı kısa sözel parça varken 'auto' yok (review); chat guard geçmiş sorularını görür. test_v1_*."
+    },
+    {
+      "id": "V-2",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Yanlış pozitif: 'dikkate alın', 'not alın', 'satın alma', 'Hayır, evet/hayır veremem…', 'eklesem mi?' Kural 1 ihlali sayılıp uygun cevap kalıcı reddediliyordu.",
+      "evidence": "_DIRECTIVE negatif geri bakışlar + 'satın al' ayrımı; çıplak evet/hayır yalnız ilk cümlede ret/hipotez dili yoksa; 'ekle' kökü çıkarıldı. test_v2_*."
+    },
+    {
+      "id": "V-3",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/KISMEN",
+      "ozet": "Yaygın karar soruları/emirler kaçıyordu ('almak mantıklı mı', 'alınır mı', 'would you buy', 'Al.', 'Bence al.', 'Long pozisyon açın').",
+      "evidence": "Kalıplar genişletildi (mastar+mantıklı mı, edilgen, al mı sat mı, alım yapayım mı, sen olsan, long'a geç, would you/good time to buy; bence al, pozisyon açın, tek kelime emir). test_v3_*."
+    },
+    {
+      "id": "V-4",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Yerel hakem 'KARAR: tutarlı değil' çıktısını 'tutarli' okuyordu (karantina fail-open, karar önbellekte).",
+      "evidence": "parse_karar: ilk KARAR satırı TAM eşleşmeli, aksi halde belirsiz (karantina). test_v4_n7_verdict_line_must_be_exact."
+    },
+    {
+      "id": "V-5",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "KISMEN/KISMEN",
+      "ozet": "Eğitim kapısı seçili sohbet sürümünü saklı duruma göre denetliyordu; kural sıkılaşmadan önce eligible olmuş al/sat çifti eğitime girebiliyordu.",
+      "evidence": "version_invalid_members her üyeyi güncel Kural 1 kurallarıyla salt-okuma yeniden denetler. test_v5_selected_version_rechecked_with_current_rule1."
+    },
+    {
+      "id": "V-6",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "KISMEN/KISMEN",
+      "ozet": "recompute ile set_quarantine yarışında karantina etkinken durum 'eligible' kalabiliyor; build_payload/sürüm kapısı karantinaya bakmıyordu.",
+      "evidence": "build_payload ve version_invalid_members quarantine_active adayları dışlar. test_v6_payload_and_version_gate_skip_active_quarantine."
+    },
+    {
+      "id": "N-1",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Hakem A'yı karantinaya alınca aynı soru+hedefli 'duplicate' ikizi B 'eligible'a dönüyor, o gece yargılanmadan veri sürümüne girebiliyordu.",
+      "evidence": "audit_family karantinadaki üyelerin soru+hedef anahtarını 'görülmüş' sayar. test_n1_quarantined_twin_does_not_revive_duplicate."
+    },
+    {
+      "id": "N-2",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Ollama hatasıyla kesilen LLM-30 ölçümü tam ölçüm gibi geçmişe yazılıp 7 gün yeniden ölçmeyi engelliyor ve bozuk taban oluyordu.",
+      "evidence": "_complete: yarım ölçüm geçmişte kalır ama _due/taban seçiminde sayılmaz; özet 'complete' taşır. test_n2_partial_llm30_measurement_not_a_baseline."
+    },
+    {
+      "id": "N-3",
+      "severity": "MEDIUM",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/KISMEN",
+      "ozet": "PS 5.1'de $ErrorActionPreference=Stop + 2>&1: ilk stderr satırı NativeCommandError → gece koşusu kesiliyordu (literature-scout.ps1 aynı desen).",
+      "evidence": "Native çağrı Continue altında, başarı $LASTEXITCODE ile (open-pr.ps1 deseni); iki betik. test_n3_nightly_scripts_do_not_stop_on_native_stderr. Windows'ta canlı denenmedi."
+    },
+    {
+      "id": "N-4",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Herkese açık gece raporu ham str(exc) taşıyordu; SQLAlchemy [parameters] hakem gerekçesini sızdırabiliyordu.",
+      "evidence": "scrub_error: hata alanlarında yalnız istisna tür adı yayınlanır. test_n4_published_errors_carry_only_exception_type."
+    },
+    {
+      "id": "N-5",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Yan dosyada geçersiz maliyet (pydantic ValidationError) / OutOfBoundsDatetime kalıcı hata sayılmıyor, her gece yeniden deneniyordu.",
+      "evidence": "run_inbox kalıcı-hata demetine ValidationError ve OutOfBoundsDatetime eklendi. test_n5_invalid_sidecar_cost_is_permanent_skip."
+    },
+    {
+      "id": "N-6",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "KISMEN/KISMEN",
+      "ozet": "Gece git fetch/push etkileşimsiz değildi; GCM masaüstüne giriş penceresi açıp 300 sn bekleyebiliyordu.",
+      "evidence": "_git env GIT_TERMINAL_PROMPT=0, GCM_INTERACTIVE=never. test_n6_git_runs_non_interactive."
+    },
+    {
+      "id": "N-7",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "ONAY/ONAY",
+      "ozet": "Bulut K2 karar ayrıştırıcısı 'KARAR: **supheli**' biçimini tanımıyordu (yalnız görüntü).",
+      "evidence": "Yerel hakemle ortak parse_karar. test_v4_n7_verdict_line_must_be_exact."
+    },
+    {
+      "id": "N-8",
+      "severity": "LOW",
+      "status": "duzeltildi",
+      "dogrulama": "KISMEN/KISMEN",
+      "ozet": "Gece kilidi bayat kilidi atomik olmayan şekilde kırıyor; boş (yeni yaratılmış) kilit bayat sayılıyor; release başkasının kilidini silebiliyordu.",
+      "evidence": "rename ile atomik sahiplenme + içerik karşılaştırması; boş taze kilit canlı; release yalnız kendi pid'i. test_n8_fresh_lock_not_stolen_and_release_only_own."
+    }
+  ]
+}

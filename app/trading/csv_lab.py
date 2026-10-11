@@ -40,6 +40,8 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from pandas.errors import OutOfBoundsDatetime
+from pydantic import ValidationError
 
 from app.config import get_settings
 from app.feedback.chat_store import new_id, utcnow
@@ -729,7 +731,9 @@ def run_inbox(*, max_files: int | None = None, top_k: int | None = None) -> dict
             paths = _write_report(rep, p.stem)
             led[key] = {"status": "done", "at": utcnow(), **paths}
             results.append(FileResult(p.name, "done", "", {**_brief(rep), **paths}))
-        except (DataQualityError, StrategyTestError) as exc:
+        except (DataQualityError, StrategyTestError, ValidationError, OutOfBoundsDatetime) as exc:
+            # Kademe 2 N-5: yan dosyadaki geçersiz maliyet (pydantic) / taşan zaman damgası da
+            # kullanıcı düzeltmeli kalıcı hatadır — her gece yeniden denenip kotayı yemesin.
             # Kalıcı kullanıcı-düzeltmeli hata: dosya/yan dosya değişene kadar tekrar denenmez.
             led[key] = {"status": "skipped", "reason": str(exc)[:500], "at": utcnow()}
             results.append(FileResult(p.name, "skipped", str(exc)[:500]))

@@ -16,6 +16,7 @@ Yayın hatası gece koşusunu bozmaz (raporda ``publish.error`` görünür).
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -44,6 +45,22 @@ def scrub(text: Any, limit: int = 300) -> str:
     return s[:limit]
 
 
+_ERR_TYPE = re.compile(r"^\s*([A-Za-z_][\w.]{0,60})\s*:")
+
+
+def scrub_error(text: Any) -> str:
+    """Ham istisna metni YAYINLANMAZ — yalnız tür adı (Kademe 2 N-4).
+
+    ``str(exc)`` SQLAlchemy'de ``[parameters: (...)]`` ile hakem gerekçesini / aday metnini
+    taşıyabiliyordu; ``scrub`` yalnız yol/e-posta siler. Tür adı yoksa sabit "hata".
+    """
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    m = _ERR_TYPE.match(s)
+    return m.group(1) if m else "hata"
+
+
 def _num(v: Any) -> Any:
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
@@ -59,7 +76,7 @@ def _hakem(h: dict[str, Any]) -> dict[str, Any]:
         return {}
     return {
         "ran": bool(h.get("ran")),
-        "skipped": scrub(h.get("skipped") or h.get("error") or ""),
+        "skipped": scrub(h.get("skipped")) if h.get("skipped") else scrub_error(h.get("error")),
         "model": scrub(h.get("model") or "", 80),
         "pending_total": _num(h.get("pending_total")),
         "judged_fresh": _num(h.get("judged_fresh")),
@@ -82,7 +99,7 @@ def _olcum(o: dict[str, Any]) -> dict[str, Any]:
         return {}
     out: dict[str, Any] = {
         "ran": bool(o.get("ran")),
-        "skipped": scrub(o.get("skipped") or o.get("error") or ""),
+        "skipped": scrub(o.get("skipped")) if o.get("skipped") else scrub_error(o.get("error")),
         "model": scrub(o.get("model") or "", 80),
         "digest": scrub(o.get("digest") or "", 80)[:19],
         "rag": bool(o.get("rag")),
@@ -135,7 +152,10 @@ def _csv(c: dict[str, Any]) -> dict[str, Any]:
             {
                 "file": scrub(Path(str(f.get("file") or "")).name, 80),
                 "status": scrub(f.get("status"), 12),
-                "reason": scrub(f.get("reason") or ""),
+                # Beklenmeyen hata (failed) ham istisna metni taşır → yalnız tür adı (N-4).
+                "reason": scrub_error(f.get("reason"))
+                if f.get("status") == "failed"
+                else scrub(f.get("reason") or ""),
                 "timeframe": scrub(rep.get("timeframe") or "", 6),
                 "profile": scrub(rep.get("profile") or "", 20),
                 "n_trials": _num(rep.get("n_trials")),
@@ -154,7 +174,7 @@ def _csv(c: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
         )
-    return {"error": scrub(c.get("error") or ""), "files": files}
+    return {"error": scrub_error(c.get("error")), "files": files}
 
 
 def _egitim(e: dict[str, Any]) -> dict[str, Any]:
@@ -166,7 +186,7 @@ def _egitim(e: dict[str, Any]) -> dict[str, Any]:
         # Yalnız kapı ANAHTARLARI (ör. "kademe2"); ayrıntı metni yol içerebilir.
         "blocker_keys": [scrub(str(b).split(":", 1)[0], 30) for b in e.get("blockers") or []],
         "started_training": False,
-        "error": scrub(e.get("error") or ""),
+        "error": scrub_error(e.get("error")),
     }
 
 
@@ -202,6 +222,9 @@ def _git(args: list[str], cwd: Path, timeout: int = 120) -> subprocess.Completed
         text=True,
         timeout=timeout,
         creationflags=NO_WINDOW,
+        # Kademe 2 N-6: zamanlanmış görevde kimlik eksikse GCM gece masaüstüne giriş penceresi
+        # açıp 300 sn bekleyebiliyordu → etkileşimsiz: hızlı ve sessiz başarısız olsun.
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"},
     )
 
 

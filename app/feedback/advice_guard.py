@@ -25,24 +25,56 @@ from typing import Any
 from app.lora.safety_scanner import tr_fold
 
 # tr_fold çıktısı ASCII'dir (ı→i, ş→s, ğ→g …) → kalıplar ASCII yazılır.
+# Kademe 2 (2026-10-11) V-2: "ekle" kökü çıkarıldı — "ATR filtresi eklesem mi?" araştırma
+# sorusudur, al/sat kararı değil. V-3: mastar + "mantıklı mı", edilgen "alınır mı", "al mı sat
+# mı", "alım/giriş yapayım mı", "would you buy" gibi yaygın karar biçimleri eklendi.
 _TR_REQUEST = re.compile(
-    r"\b(al|sat|tut|gir|cik|kapat|ekle|bas)"
+    r"\b(al|sat|tut|gir|cik|kapat|bas)"
     r"(ayim|eyim|sam|sem|sak|sek|mali|meli|malim|melim)\s*m[iu]\w*\b"
+    r"|\b(almak|satmak|girmek|cikmak|tutmak)\s+(mantikli|dogru|iyi|akillica|uygun)\s+m[iu]\b"
+    r"|\b(alinir|satilir|alinmali|satilmali)\s+m[iu]\b"
+    r"|\bal\s*m[iu]\s*,?\s*sat\s*m[iu]\b"
+    r"|\b(alim|satim|giris|cikis|yatirim)\s+yap(ayim|sam|sak|mali|malim)\s*m[iu]\w*\b"
+    r"|\bsen\s+olsan\s+(alir|satar|girer)\s+m[iu]\w*\b"
 )
-_TR_SIDE = re.compile(r"\b(long|short)\s+m[iu]\b|\bpozisyon\s+ac(ayim|sam|mali)\b")
+_TR_SIDE = re.compile(
+    r"\b(long|short)\s+m[iu]\b|\bpozisyon\s+ac(ayim|sam|mali)\b"
+    r"|\b(long|short)\s*'?\s*[ae]\s+(mi\s+)?gec(eyim|sem|meli)\w*\b"
+)
 _EN_REQUEST = re.compile(
     r"\bshould\s+(i|we)\s+(buy|sell|short|hold|go\s+long|go\s+short|enter|exit)\b"
-    r"|\b(buy|sell)\s+or\s+(sell|buy|hold)\b"
+    r"|\b(buy|sell)\s+or\s+(sell|buy|hold|wait)\b"
+    r"|\bwould\s+you\s+(buy|sell|short)\b"
+    r"|\b(good|right|best)\s+time\s+to\s+(buy|sell)\b"
 )
 
-_BARE_YES_NO = re.compile(r"^\W*(evet|hayir|yes|no)\b")
+# V-2: "Hayır, evet/hayır cevabı veremem; hipoteze çevirelim" Kural 1'e UYGUN bir reddir →
+# çıplak karar sayılmaz. Çıplak karar = evet/hayır'ın ilk cümlesinde ret/hipotez dili yok.
+_BARE_YES_NO = re.compile(r"^\W*(evet|hayir|yes|no)\b(?P<rest>[^.!?\n]*)")
+_REFUSAL = re.compile(
+    r"veremem|vermem|verilmez|verilemez|diyemem|diyemeyiz|soyleyemem|cevaplayamam|"
+    r"tavsiye\w*\s+(degil|olamaz|veremem|vermem)|hipotez|"
+    r"can\s*not|can'?t|won'?t|not\s+(able|financial|advice)"
+)
+# V-2: "dikkate alın", "not alın", "göz önüne alın", "satın alma kararı" emir/öneri DEĞİL.
+_AL_LOOKBEHIND = (
+    r"(?<!dikkate )(?<!not )(?<!onune )(?<!hesaba )(?<!ornek )(?<!referans )(?<!ele )"
+    r"(?<!baz )(?<!temel )(?<!kayda )(?<!satin )"
+)
 _DIRECTIVE = re.compile(
-    r"\b(al(in|iniz|abilirsin|abilirsiniz|malisin|malisiniz)|"
-    r"sat(in|iniz|abilirsin|abilirsiniz|malisin|malisiniz)|"
+    rf"\b({_AL_LOOKBEHIND}al(in|iniz|abilirsin|abilirsiniz|malisin|malisiniz)|"
+    r"satin\s+al(in|iniz|abilirsin|abilirsiniz|malisin|malisiniz)|"
+    r"sat(in|iniz|abilirsin|abilirsiniz|malisin|malisiniz)(?!\s+al)|"
     r"(almanizi|satmanizi|girmenizi|cikmanizi)\s+(oneririm|tavsiye)\w*|"
     r"(almaniz|satmaniz)\s+(gerek|lazim|mantikli)\w*|"
-    r"you\s+should\s+(buy|sell|short)|i\s+(would|recommend)\s+(buy|sell)\w*)\b"
+    # V-3: "Bence al.", "(long|short) pozisyon açın", "you should go long", "I'd buy".
+    r"bence\s+(al|sat)|"
+    r"(long|short)\s+(pozisyon\w*\s+)?ac(in|iniz|abilirsin|malisin)|"
+    r"you\s+should\s+(buy|sell|short|go\s+long|go\s+short)|"
+    r"i\s*(would|'d|recommend)\s+(buy|sell)\w*)\b"
 )
+# V-3: tek kelimelik emir cevabı ("Al.", "Sat!", "Buy.") — ilk cümle yalnız fiil.
+_BARE_DIRECTIVE = re.compile(r"^\W*(bence\s+)?(al|sat|buy|sell)\s*[.!]*\s*(?:$|\n|[.!]\s)")
 
 NOTE_LINE = (
     "- Al/sat kararı sorularına evet/hayır verilmez: soru test edilebilir bir hipoteze "
@@ -55,9 +87,14 @@ def is_advice_request(question: str) -> bool:
     return bool(_TR_REQUEST.search(q) or _TR_SIDE.search(q) or _EN_REQUEST.search(q))
 
 
+def _bare_yes_no(a: str) -> bool:
+    m = _BARE_YES_NO.search(a)
+    return m is not None and not _REFUSAL.search(m.group("rest"))
+
+
 def directive_answer(answer: str) -> bool:
     a = tr_fold(answer or "").strip()
-    return bool(_BARE_YES_NO.search(a[:40]) or _DIRECTIVE.search(a))
+    return bool(_bare_yes_no(a) or _DIRECTIVE.search(a) or _BARE_DIRECTIVE.search(a))
 
 
 def candidate_reason(question: str, target: str) -> str | None:

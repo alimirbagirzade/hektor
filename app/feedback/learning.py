@@ -361,6 +361,7 @@ class LearningService:
             sources=turn["sources"],
             domain=cand["domain"],
             run_link=self._run_link(cand),
+            prompt=turn["user_prompt"] or "",
         )
         status, reason, codes, vclass = _apply_quarantine(
             cand, decide(verification, cand["human_approval"])
@@ -512,7 +513,17 @@ class LearningService:
                 )
             if c["status"] == "eligible":
                 base.append(c)
+        # Kademe 2 N-1: karantinadaki üyenin soru+hedefi de "görülmüş" sayılır — aksi halde
+        # hakem A'yı karantinaya alınca aynı içerikli 'duplicate' ikizi B 'eligible'a dönüp
+        # (o gece yargılanmadan) veri sürümüne girebiliyordu.
         seen: dict[str, str] = {}
+        for q in self.store.list_candidates():
+            if q["family_id"] == family_id and quarantine_active(q):
+                qturn = self.store.get_turn(q["turn_id"]) or {}
+                seen.setdefault(
+                    _norm(qturn.get("question", "")) + "\x00" + _norm(q["target_text"]),
+                    q["candidate_id"],
+                )
         results: dict[str, list[str]] = {}
         for c in base:
             turn = self.store.get_turn(c["turn_id"]) or {}

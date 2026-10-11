@@ -101,6 +101,23 @@ def split_units(text: str) -> list[str]:
     return out
 
 
+def _unchecked_short(text: str, units: list[str]) -> int:
+    """split_units'in kısa diye ATLADIĞI sözel parça sayısı (başlık/etiket satırı hariç).
+
+    Bu parçalar hiçbir kontrolden geçmez; "Evet, alın." gibi kısa bir yönlendirme saf hesap
+    birimlerinin yanında otomatik kapsama sızmasın (Kademe 2 V-1).
+    """
+    kept = set(units)
+    n = 0
+    for raw in _SENT_SPLIT.split(text or ""):
+        u = _BULLET.sub("", raw).strip()
+        if not u or u.startswith("#") or u in kept or u.endswith(":"):
+            continue
+        if re.search(r"[a-zA-ZçğıöşüÇĞİÖŞÜ]{2,}", _BRACKETS.sub("", u)):
+            n += 1
+    return n
+
+
 # ── hesap ────────────────────────────────────────────────────────────────────
 
 _EQ_RE = re.compile(
@@ -241,8 +258,14 @@ def verify_target(
     sources: list[dict[str, Any]],
     domain: str,
     run_link: tuple[dict[str, Any], dict[str, Any]] | None = None,
+    prompt: str = "",
 ) -> dict[str, Any]:
-    """Hedef metnin tüm kontrolleri + kapsam özeti (yalnız turun kendi kaynakları)."""
+    """Hedef metnin tüm kontrolleri + kapsam özeti (yalnız turun kendi kaynakları).
+
+    ``prompt``: eğitim satırına giren GERÇEK istem (geçmiş dahil, ``turn['user_prompt']``).
+    Kural 1 karar-sorusu denetimi soruyla birlikte buna da bakar (Kademe 2 V-1: takip
+    sorusunda "Peki ya 1000 dolarla?" → "Evet, alın." kaçıyordu).
+    """
     from app.brain.answer_quality import verify_citations
     from app.feedback.echo import correction_safety_reason
     from app.verification.grounding_verifier import GroundingLevel, GroundingVerifier
@@ -252,9 +275,10 @@ def verify_target(
     checks: list[Check] = []
 
     # 1) güvenlik (Kural 1)
-    from app.feedback.advice_guard import candidate_reason
+    from app.feedback.advice_guard import candidate_reason, directive_answer
 
-    reason = correction_safety_reason(target, question) or candidate_reason(question, target)
+    advice_context = f"{question}\n{prompt}" if prompt and prompt != question else question
+    reason = correction_safety_reason(target, question) or candidate_reason(advice_context, target)
     checks.append(
         Check("guvenlik", FAILED if reason else PASSED, "tüm metin", reason or "Kural 1 temiz")
     )
@@ -398,8 +422,12 @@ def verify_target(
         "domain": domain,
         "target_sha": sha256_text(target),
         "checks": [asdict(c) for c in checks],
+        # V-1: al/sat yönlendirmesi taşıyan ya da split_units'in kontrol DIŞI bıraktığı kısa
+        # sözel parçası olan hedef OTOMATİK uygun sayılmaz (insan incelemesine düşer).
+        "directive": directive_answer(target),
         "coverage": {
             "units": len(units),
+            "unchecked_short": _unchecked_short(target, units),
             "covered": sum(covered),
             "covered_by": "yalnız deterministik kontroller (hesap)",
             "uncovered": uncovered,
@@ -450,7 +478,8 @@ def decide(
         kind for kind in ("backtest", "kod_testi") if k.get(kind, {}).get("status") == UNAVAILABLE
     ]
     math_partial = k.get("hesap", {}).get("status") == PARTIAL
-    if units > 0 and uncovered == 0 and not blocking and not math_partial:
+    unchecked = bool(verification.get("directive")) or int(cov.get("unchecked_short", 0)) > 0
+    if units > 0 and uncovered == 0 and not blocking and not math_partial and not unchecked:
         return (
             "eligible",
             "Tüm ifadeler deterministik kontrollerle (hesap) kapsandı.",
