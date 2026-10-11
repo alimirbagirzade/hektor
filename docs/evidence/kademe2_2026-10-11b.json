@@ -2,7 +2,7 @@
   "kademe": 2,
   "tarih": "2026-10-11 (ikinci tur)",
   "denetlenen_fark": "1c99fed..4955e7a (#61 test bekleme yarışı, #62 denetim raporu, #63 lora-split kaynak-gruplu + uzunluk ön-kontrolü + MLX profil reddi, #64 LoRA sohbeti adapter-başına istem/bağlam, #65 final test takımı + rubrik/kritik hata kapısı, #66 LoRA sohbeti max_tokens reçeteden)",
-  "yontem": "3 paralel bulucu (F1 eğitim yolu/kapıları · F2 eval/terfi kapıları · F3 LoRA sohbet çıkarım yolu) → 14 bulgu → her grup 2 bağımsız şüpheci doğrulayıcı (varsayılan çürütülmüş, çoğu betikle yeniden üretildi). Bölünen oylarda (F2-3, F2-7, F3-2, F3-3) karar kod yolu yeniden izlenerek verildi. Onaylananlar düzeltildi + regresyon testi (tests/test_kademe2_2026_10_11b.py; F2 testleri düzeltme öncesi düşüyor, sonrası geçiyor).",
+  "yontem": "3 paralel bulucu (F1 eğitim yolu/kapıları · F2 eval/terfi kapıları · F3 LoRA sohbet çıkarım yolu) → 14 bulgu (11 düzeltildi, 3 reddedildi) → her grup 2 bağımsız şüpheci doğrulayıcı (varsayılan çürütülmüş, çoğu betikle yeniden üretildi). Bölünen oylarda (F2-3, F2-7, F3-2, F3-3) karar kod yolu yeniden izlenerek verildi. Onaylananlar (ve bölünen oyda F2-7) düzeltildi + regresyon testi (tests/test_kademe2_2026_10_11b.py; F2 testleri düzeltme öncesi düşüyor, sonrası geçiyor).",
   "sorunsuz": "run_plan.json yeni anahtarları (profile/max_seq_length/prompt_formats) okuyucuları bozmuyor (train_guard, candidate_checks, research_package yalnız max_steps okur); lora-split ile eğiticinin bölmesi bayt-aynı ve kaynak-gruplu; MLX reddi onay/kilit öncesinde; CODE_PATHS yeni dosyaları kapsar; canlı RAG sohbet istemi öz-damıtmayla bayt-aynı (aynı build_rag_prompt + rag_reorder_context); bütçe aritmetiği istem+cevap ≤ max_seq_length; app.js rozetlerinde esc() her alanda; final set kilidi tek yazım + düzenleme sonrası load_final her amaçta düşer; sızıntı kapısı final soruları/anahtarlarını kapsar.",
   "kapi": "ruff check ✓ · ruff format ✓ · mypy app 323 dosya ✓ · pytest 3512 passed / 17 skipped.",
   "kayit_notu": "Kayıt birleşmiş main + update.ps1 sonrası ANA kurulumda yazılmalı (kod özeti ve güncel eğitim verisi orada): uv run hektor kademe2-kayit --findings docs/evidence/kademe2_2026-10-11b.json --data-sha <güncel lora_sft.jsonl sha256> --evidence \"...\". Eğitim verisi bu denetimde görülmedi (bulut kopyasında yok).",
@@ -90,10 +90,10 @@
     {
       "id": "F2-7",
       "severity": "LOW",
-      "status": "risk_kabul",
+      "status": "duzeltildi",
       "dogrulama": "ONAY/RET",
       "ozet": "Servis edilen eval repeat_penalty/SYSTEM/şablon eşitliğini sabitlemiyor (her etiketin Modelfile değeri geçerli).",
-      "evidence": "Sıcaklık 0'da top_p etkisiz; adapter_to_ollama.ps1 TEMPLATE/SYSTEM'i şablon etiketinden kopyalar. Kalan risk: -RepeatPenalty farklı dönüştürülmüş aday. Kapı atlaması değil, ölçüm karışıklığı; takip: /api/show parametrelerini kayda ekle."
+      "evidence": "Servis edilen eval istekte repeat_penalty=1.0 sabitler (Modelfile farkı ezilir); iki etiketin /api/show şablon + SYSTEM özeti kayda (models.serving) girer, farklıysa ölçüm geçersiz (RuntimeError). Sıcaklık 0'da top_p etkisiz. test_f2_7_repeat_penalty_sabit_ve_farkli_sablon_gecersiz."
     },
     {
       "id": "F3-1",

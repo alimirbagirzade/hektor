@@ -361,3 +361,35 @@ def test_f2_5_final_hesap_cevabi_insan_kritigiyle_reddedilir(iso, tmp_path, monk
     _rubric_review(cmp_id, crit_for={("m1", "candidate#0")})
     res = cc.finalize(cmp_id)
     assert res["decision"] == "kritik_ret"
+
+
+# ---------- F2-7: servis koşulu eşitliği ----------
+
+
+def test_f2_7_repeat_penalty_sabit_ve_farkli_sablon_gecersiz(iso, tmp_path) -> None:  # noqa: F811
+    import httpx
+    from tests.test_adapter_eval_served import _good, _ollama, _set
+
+    from app.training import adapter_eval as ae
+
+    transport, seen = _ollama(_good)
+    res = ae.evaluate_served(
+        _set(tmp_path), candidate_tag="aday", base_tag="base", repeats=1, transport=transport
+    )
+    assert all(b["options"]["repeat_penalty"] == 1.0 for b in seen)
+    assert res.models["serving"]["base"]["template_sha256"]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/api/show":
+            model = json.loads(req.content)["model"]
+            return httpx.Response(200, json={"template": "t", "system": f"SYSTEM {model}"})
+        return transport.handle_request(req)
+
+    with pytest.raises(RuntimeError, match="farklı system"):
+        ae.evaluate_served(
+            _set(tmp_path),
+            candidate_tag="aday",
+            base_tag="base",
+            repeats=1,
+            transport=httpx.MockTransport(handler),
+        )

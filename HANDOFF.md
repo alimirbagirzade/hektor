@@ -55,7 +55,7 @@ kilitli final takımı + rubrik kapısı → son adım insan. Ayrıntı: `docs/F
 - **Açık (kullanıcı):** kategori önerisini onayla + 60+ soru/anahtarı yaz → `final-set validate`
   → `lock`. Soru içeriği Claude tarafından yazılmadı. **Eğitim başlatılmadı.**
 
-### 2026-10-11 — Kademe 2 ikinci tur (1c99fed..4955e7a): 14 bulgu → 10 düzeltildi
+### 2026-10-11 — Kademe 2 ikinci tur (1c99fed..4955e7a): 14 bulgu → 11 düzeltildi
 
 3 paralel bulucu (eğitim yolu · eval/terfi kapıları · LoRA sohbet) + bulgu başına 2 şüpheci
 doğrulayıcı. Kanıt: `docs/evidence/kademe2_2026-10-11b.json`, testler
@@ -70,8 +70,8 @@ doğrulayıcı. Kanıt: `docs/evidence/kademe2_2026-10-11b.json`, testler
 - **F2-2** rubric-gate'te metin `critical_errors` hata verir (açık kapıydı). **F2-4** kesilme
   tekrar birleştirmede reject sebebi değil. **F2-5** final hesap cevapları da kör incelenir.
 - **F3-1** LoRA sohbeti sentetik yolda yalnız modelin gördüğü parçaları kaynak gösterir.
-- Reddedilen/risk: F2-3, F2-6, F3-2, F3-3 reddedildi; F2-7 (Modelfile repeat_penalty farkı)
-  risk kabulü — takip: served eval'de `/api/show` parametrelerini kayda ekle.
+- **F2-7** served eval `repeat_penalty=1.0` sabitler; base/aday şablon ya da SYSTEM farklıysa
+  ölçüm geçersiz (hata). Reddedilen: F2-3, F2-6, F3-2, F3-3 (gerekçeler kanıt dosyasında).
 - **Kayıt (kullanıcı, ana kurulumda):** birleşmiş main + `update.ps1` sonrası
   `uv run hektor kademe2-kayit --findings docs/evidence/kademe2_2026-10-11b.json --data-sha
   <güncel lora_sft sha> --evidence "..."`. Eğitim verisi bu denetimde görülmedi.

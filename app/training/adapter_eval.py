@@ -627,6 +627,25 @@ def _ollama_digest(client: Any, tag: str) -> str:
     return str(entry.get("digest") or show.json().get("digest") or "").removeprefix("sha256:")
 
 
+def _ollama_serving(client: Any, tag: str) -> dict[str, str]:
+    """Etiketin servis koşulu özeti (şablon + SYSTEM) — iki tarafın eşit koşulda ölçüldüğü
+    denetlensin (Kademe 2 2026-10-11 F2-7)."""
+    import hashlib
+
+    show = client.post("/api/show", json={"model": tag})
+    show.raise_for_status()
+    data = show.json()
+
+    def _h(v: object) -> str:
+        return hashlib.sha256(str(v or "").encode("utf-8")).hexdigest()[:16]
+
+    return {
+        "template_sha256": _h(data.get("template")),
+        "system_sha256": _h(data.get("system")),
+        "parameters": str(data.get("parameters") or ""),
+    }
+
+
 def _ollama_answer(client: Any, tag: str, prompt: str, seed: int) -> tuple[str, bool]:
     """PEFT yoluyla AYNI istem (sistem istemi yok) ve aynı üretim sınırı; kesildi = length."""
     resp = client.post(
@@ -640,6 +659,9 @@ def _ollama_answer(client: Any, tag: str, prompt: str, seed: int) -> tuple[str, 
                 "seed": seed,
                 "num_predict": EVAL_MAX_NEW_TOKENS,
                 "num_ctx": SERVED_NUM_CTX,
+                # F2-7: Modelfile'daki repeat_penalty (ör. -RepeatPenalty 1.1 ile dönüştürülmüş
+                # aday) iki tarafı farklı koşulda ölçmesin — istekte sabitlenir.
+                "repeat_penalty": 1.0,
             },
         },
     )
@@ -688,6 +710,14 @@ def evaluate_served(
         ) as client,
     ):
         before = {k: _ollama_digest(client, t) for k, t in tags.items()}
+        serving = {k: _ollama_serving(client, t) for k, t in tags.items()}
+        for field_ in ("template_sha256", "system_sha256"):
+            if serving["base"][field_] != serving["adapter"][field_]:
+                raise RuntimeError(
+                    f"Base ve aday farklı {field_.split('_')[0]} ile servis ediliyor "
+                    f"({base_tag} ↔ {candidate_tag}) — eşit koşul yok, ölçüm geçersiz. "
+                    "Adayı `adapter_to_ollama.ps1 -TemplateFrom <base>` ile dönüştürün."
+                )
         for rep in range(repeats):
             out: dict[str, list[tuple[str, bool]]] = {"base": [], "adapter": []}
             for i, p in enumerate(prompts):
@@ -711,7 +741,9 @@ def evaluate_served(
         after = {k: _ollama_digest(client, t) for k, t in tags.items()}
     if before != after:
         raise RuntimeError(f"Koşu sırasında model digest'i değişti: {before} → {after}")
-    return _aggregate_repeats(per_repeat, artifact="ollama", models={**tags, "digests": before})
+    return _aggregate_repeats(
+        per_repeat, artifact="ollama", models={**tags, "digests": before, "serving": serving}
+    )
 
 
 #: 'accept'i engelleyen ama tek başına 'reject' sebebi olmayan işaretler.
