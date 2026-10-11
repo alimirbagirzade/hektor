@@ -12,6 +12,7 @@
 #   loraplus_lr_ratio    : LoRA+; B matrisine lr*ratio (0=kapalı).
 #   neftune_noise_alpha  : NEFTune embedding gürültüsü (0=kapalı, tipik 5) — overfit azaltır.
 #   weight_decay/warmup_ratio/lr_scheduler_type/max_grad_norm — regularizasyon.
+#   cpu_dtype            : fp32|bf16 — CPU base dtype (HEKTOR_TRAIN_DTYPE verilmezse geçerli).
 #   assistant_only_loss  : kaybı yalnız asistan yanıt token'larından hesapla (TRL SFTConfig).
 #                          v5 disiplin-regresyon adayı. OPT-IN. NOT: bulut notebook (Hücre 10)
 #                          bunu ZATEN unsloth train_on_responses_only ile uyguluyor → bayrak
@@ -160,6 +161,9 @@ moe30b_attn_local:
   max_grad_norm: 1.0
   assistant_only_loss: true
   gradient_checkpointing: true
+  # bf16 profilde taşınır: doğrudan `hektor train` (dry-run dahil) de bf16 tahmin/yükleme yapar
+  # (eskiden env yoksa fp32 ≈ 137 GB gösteriyordu). Açık HEKTOR_TRAIN_DTYPE yine kazanır.
+  cpu_dtype: bf16
   max_examples: 600
   target_modules: [q_proj, k_proj, v_proj, o_proj]
   # v12 (batch 1, birikim yok): kayıp ~100. adımdan sonra düz + gürültülü (0.28↔1.46).
@@ -191,6 +195,7 @@ moe30b_attn_long:
   max_grad_norm: 1.0
   assistant_only_loss: true
   gradient_checkpointing: true
+  cpu_dtype: bf16
   # 0 = TÜM eğitim havuzu (Kademe 2 F2-6: 600 iken -MaxExamples verilmezse v14 havuzunun
   # ~%60'ı sessizce dışarıda kalırdı).
   max_examples: 0

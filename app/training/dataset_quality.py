@@ -106,6 +106,9 @@ class DatasetQualityReport:
     certainty_line_hits: int = 0
     gate5_review_line_hits: int = 0
     freshness: str = "kontrol edilmedi"  # "güncel" | "BAYAT" | "doğrulanamadı" | …
+    # Uyarı/engel üreten TÜM satırlar: kategori → [(satır no, etiket)]. Uyarı metni en çok 5
+    # örnek gösterir; satır satır inceleme (`pretrain-gate --flagged-out`) bunu kullanır.
+    flagged_rows: dict[str, list[tuple[int, str]]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -314,14 +317,16 @@ def audit_dataset(
     # 4) Maliyet-körü strateji cevabı (WARN; ignores_costs flag'inin veri-tarafı).
     # Araştırma özetlerindeki "Olası strateji hipotezleri" başlıkları hariç:
     # bunlar gerçek al/sat tavsiyesi değil, kart-özeti formatının bir parçası.
-    cost_hits = sum(
-        1
-        for a in answers
+    cost_lines = [
+        (no, "strateji cevabında komisyon/slippage yok")
+        for no, a in parsed
         if _STRAT_RE.search(a) and not _COST_RE.search(a) and not _HYPOTHESIS_STRAT_RE.search(a)
-    )
+    ]
+    cost_hits = len(cost_lines)
     if cost_hits:
         warnings.append(
-            f"{cost_hits} 'strateji' cevabı maliyet token'ı (komisyon/slippage) içermiyor"
+            f"{cost_hits} 'strateji' cevabı maliyet token'ı (komisyon/slippage) içermiyor "
+            f"({_examples(cost_lines)})"
         )
 
     # 5) Disiplin kapsamı (WARN — havuz verildiyse).
@@ -445,6 +450,17 @@ def audit_dataset(
         guarantee_line_hits=len(content.guarantee_lines),
         certainty_line_hits=len(content.certainty_lines),
         gate5_review_line_hits=len(content.review_lines),
+        flagged_rows={
+            k: v
+            for k, v in (
+                ("maliyet_eksik", cost_lines),
+                ("gate5_inceleme", content.review_lines),
+                ("kesinlik_dili", content.certainty_lines),
+                ("garanti_vaadi", content.guarantee_lines),
+                ("gate7_guvenlik", content.gate7_lines),
+            )
+            if v
+        },
     )
 
 
@@ -499,4 +515,48 @@ def _scan_card_gates(parsed: list[tuple[int, str]]) -> _CardGateScan:
         ]
         if review:
             out.review_lines.append((no, review[0][:60]))
+    return out
+
+
+def flagged_row_records(lines: list[str], report: DatasetQualityReport) -> list[dict[str, Any]]:
+    """Uyarılı satırları insan incelemesi için kayıt listesine çevir (salt-okuma, yazmaz).
+
+    Her kayıt: satır no (1 tabanlı, ``lines`` ile aynı), kategori, etiket, satırın kaynağı
+    (``metadata``/``source`` varsa), son kullanıcı sorusu ve asistan cevabı. Satır birden çok
+    kategoriye düşebilir → kategori başına ayrı kayıt. Sıra deterministik (satır no, kategori).
+    """
+    out: list[dict[str, Any]] = []
+    for category, hits in report.flagged_rows.items():
+        for no, label in hits:
+            line = lines[no - 1] if 0 < no <= len(lines) else ""
+            try:
+                obj = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                obj = {}
+            if not isinstance(obj, dict):
+                obj = {}
+            raw_msgs = obj.get("messages")
+            msgs: list[Any] = raw_msgs if isinstance(raw_msgs, list) else []
+            user = next(
+                (
+                    str(m.get("content") or "")
+                    for m in reversed(msgs)
+                    if isinstance(m, dict) and m.get("role") == "user"
+                ),
+                str(obj.get("prompt") or ""),
+            )
+            raw_meta = obj.get("metadata")
+            meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
+            out.append(
+                {
+                    "line": no,
+                    "category": category,
+                    "label": label,
+                    "source": meta.get("source") or obj.get("source") or "",
+                    "metadata": meta,
+                    "user": user,
+                    "answer": _assistant_answer(line) or "",
+                }
+            )
+    out.sort(key=lambda r: (r["line"], r["category"]))
     return out

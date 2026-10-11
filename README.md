@@ -1041,6 +1041,7 @@ uv run hektor synth-distill           # base öz-damıtma: canlı RAG istemiyle 
 uv run hektor discipline-dataset      # adversarial disiplin örnekleri üret/önizle (LLM-free)
 uv run hektor lora-curate             # orphan + çok-versiyon kartları eğitimden çıkar (--run uygular)
 uv run hektor pretrain-gate           # eğitim-ÖNCESİ kalite kapısı: GO/NO-GO (LLM-free, #3)
+uv run hektor pretrain-gate --flagged-out reports/training/flagged_rows.jsonl  # uyarılı TÜM satırlar (soru+cevap+kaynak), satır satır inceleme
 uv run hektor lora-readiness          # Stage 2 eşik durumu (≥1000 örnek mi?)
 bash scripts/continuous-learning.sh 72  # sürekli üretim döngüsü (eğitim DEĞİL)
 

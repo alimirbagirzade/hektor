@@ -178,3 +178,40 @@ def test_unique_answers_have_no_template_signal() -> None:
     rep = audit_dataset([_line(_unique_words(i)) for i in range(300)])
     assert rep.template_ngrams_over_block == 0
     assert rep.top_template_ngram_share < 0.01
+
+
+def test_flagged_rows_list_every_warned_line_with_question_and_source() -> None:
+    from app.training.dataset_quality import flagged_row_records
+
+    clean = _line("Komisyon ve slippage dahil test edilmeli; hipotez olarak ele alınır.")
+    cost = json.dumps(
+        {
+            "messages": [
+                {"role": "user", "content": "momentum stratejisi?"},
+                {"role": "assistant", "content": "Bu strateji iyi görünüyor, test edilmeli."},
+            ],
+            "metadata": {"source": "synthetic_qa"},
+        },
+        ensure_ascii=False,
+    )
+    lines = [clean, cost, cost.replace("momentum", "trend")]
+    rep = audit_dataset(lines)
+    # Uyarı metni artık satır numarası da gösterir (eskiden yalnız sayı).
+    assert any("satır 2" in w and "maliyet" in w for w in rep.warnings)
+    assert [no for no, _ in rep.flagged_rows["maliyet_eksik"]] == [2, 3]
+    recs = flagged_row_records(lines, rep)
+    assert [(r["line"], r["category"]) for r in recs] == [
+        (2, "maliyet_eksik"),
+        (3, "maliyet_eksik"),
+    ]
+    assert recs[0]["user"] == "momentum stratejisi?"
+    assert recs[0]["source"] == "synthetic_qa"
+    assert "strateji" in recs[0]["answer"]
+
+
+def test_clean_set_has_no_flagged_rows() -> None:
+    from app.training.dataset_quality import flagged_row_records
+
+    rep = audit_dataset(discipline_jsonl_lines())
+    assert rep.flagged_rows == {}
+    assert flagged_row_records(discipline_jsonl_lines(), rep) == []

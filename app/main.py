@@ -4490,6 +4490,12 @@ def pretrain_gate_cmd(
         "--check-freshness/--no-check-freshness",
         help="Kanonik dosyanın şu anki DB + sentetik QA birleştirmesiyle aynı olduğunu doğrula.",
     ),
+    flagged_out: Path = typer.Option(
+        None,
+        "--flagged-out",
+        help="Uyarılı/engelli TÜM satırları (soru + cevap + kaynak) bu JSONL'e yaz — satır "
+        "satır inceleme için. Eğitim verisine dokunmaz.",
+    ),
 ) -> None:
     """LLM'siz GO / NO-GO ön eğitim kalite kapısı (kural 7 doğrulama, v5 fix'i).
 
@@ -4550,6 +4556,19 @@ def pretrain_gate_cmd(
     if _k2:
         report.blockers.append(_k2)
     report.verdict = "NO-GO" if report.blockers else "GO"
+
+    if flagged_out is not None:
+        from app.training.dataset_quality import flagged_row_records
+
+        records = flagged_row_records(lines, report)
+        if not flagged_out.is_absolute():
+            flagged_out = settings.root / flagged_out
+        flagged_out.parent.mkdir(parents=True, exist_ok=True)
+        flagged_out.write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records), encoding="utf-8"
+        )
+        if not as_json:
+            console.print(f"[cyan]{len(records)} uyarılı satır kaydı yazıldı:[/cyan] {flagged_out}")
 
     if as_json:
         console.print_json(json.dumps(report.to_dict(), ensure_ascii=False))
