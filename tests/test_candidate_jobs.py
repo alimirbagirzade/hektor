@@ -48,10 +48,34 @@ def _wait(job_id: str, until=("done", "failed", "stopped", "lost"), timeout: flo
     t0 = time.monotonic()
     while time.monotonic() - t0 < timeout:
         j = cj.get_job(job_id)
-        if j["status"] in until:
+        # Dönüşüm sonucu zincir başlatılmadan önce yayımlanır. "done" yalnız dönüşümün
+        # bittiğini söyler; zincirin sonucu yazılmadan fixture'lar geri alınmamalı.
+        chain_pending = (
+            j["status"] == "done"
+            and j.get("kind") == "conversion"
+            and (j.get("params") or {}).get("then_compare")
+            and "chain" not in j
+        )
+        if j["status"] in until and not chain_pending:
             return j
         time.sleep(0.2)
     raise AssertionError(cj.get_job(job_id))
+
+
+@pytest.mark.parametrize(
+    "chain", [{"job_id": "job_next", "error": ""}, {"job_id": "", "error": "kilit"}]
+)
+def test_wait_includes_chain_outcome(monkeypatch, chain) -> None:
+    """Yoklayıcı done yazımı ile zincir sonucu arasına girer; iki sonuçta da beklemeli."""
+    pending = {
+        "status": "done",
+        "kind": "conversion",
+        "params": {"then_compare": True},
+    }
+    snapshots = iter([pending, {**pending, "chain": chain}])
+    monkeypatch.setattr(cj, "get_job", lambda job_id: next(snapshots))
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    assert _wait("job_parent")["chain"] == chain
 
 
 def _inproc(job_id: str) -> tuple[int, float | None]:
