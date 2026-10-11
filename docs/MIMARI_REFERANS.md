@@ -313,7 +313,7 @@ hektor/
 
 | Değişken | Nerede | Amaç |
 |---|---|---|
-| `UV_NO_SYNC=1` | start-train.ps1, train-loop.ps1, run-web-service.ps1, verify-install, continuous-learning.sh, systemd unit | `uv run` senkronunun çalışan web `hektor-web.exe`'yi kilitleyip `os error 32` vermesini önler |
+| `UV_NO_SYNC=1` | start-train.ps1, run-web-service.ps1, verify-install, continuous-learning.sh, systemd unit | `uv run` senkronunun çalışan web `hektor-web.exe`'yi kilitleyip `os error 32` vermesini önler |
 | `HEKTOR_TRAIN_DTYPE` | start-train.ps1 | bf16/fp32 |
 | `HEKTOR_TRAIN_SUPERVISED=1` | start-train.ps1, `launch()` alt sürecine | Üst katman onay tüketti → iç onay kapısı atlanır; STOP_ALL yine geçerli |
 | `HEKTOR_WEB_ISOLATE_CHROMA=1` | run-web-service.ps1 | Windows Chroma native crash izolasyonu; `/api/status` n_chunks=0, RAG döngüsü başlamaz |
@@ -408,7 +408,7 @@ Dizin `vector_db/chroma`; koleksiyon `paper_chunks`; `hnsw:space=cosine`; id = `
 | `reports/bug-scan/scan-*.md` | Kademe-1/2 raporları (izlenen) | weekly-bug-scan |
 | `docs/egitim/{rag,lora,rlm,math-physics}-watchlist.md` | İzleme defterleri | rag_trend_scanner, literature_scout |
 | `storage/STOP_ALL` | Küresel kill-switch | supervisor |
-| `storage/STOP_TRAINING`, `storage/STOP_LEARNING` | Graceful durdurma sinyalleri | train-loop, continuous-learning |
+| `storage/STOP_TRAINING`, `storage/STOP_LEARNING` | Graceful durdurma sinyalleri | detached_launch, web sunucusu, start-train.ps1, continuous-learning, auto-chain |
 | `storage/train_status.json` (+pid) | Detached eğitim durumu | launch() / start-train.ps1 |
 | `storage/.training_launching` | Atomik başlatma kilidi (TTL 120 s) | detached_launch |
 | `storage/auto_lora_state.json` | AutoLoRA aşaması | AutoLoRAPipeline |
@@ -416,7 +416,7 @@ Dizin `vector_db/chroma`; koleksiyon `paper_chunks`; `hnsw:space=cosine`; id = `
 | `storage/self_heal_state.json`, `storage/unattended_supervisor_state.json` | Tamir/reconciler durumu | monitoring, orchestration |
 | `storage/orchestration/regression_baseline.json` | Regresyon baseline | regression.py |
 | `storage/mcp/drive-<run_id>.json` | Sür modu MCP config (sır içermez) | driver.py |
-| `logs/{hektor-web, train-full, train-full-err, train-loop, update, synth_qa_seed*, rag-scan-*}.log` | Loglar (ignore) | scriptler |
+| `logs/{hektor-web, train-full, train-full-err, update, synth_qa_seed*, rag-scan-*}.log` | Loglar (ignore) | scriptler |
 | `.web.pid` | Web PID | start-server/update |
 
 ---
