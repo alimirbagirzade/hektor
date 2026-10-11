@@ -195,7 +195,9 @@ def _merge_groups_by_chunk(keys: list[str], refs: list[list[str]]) -> dict[str, 
     return {key: comp_name[find(key)] for key in set(keys)}
 
 
-def split_lines_by_source(lines: list[str], seed: int = _SPLIT_SEED) -> tuple[list[str], list[str]]:
+def split_lines_by_source(
+    lines: list[str], seed: int = _SPLIT_SEED, valid_ratio: float = _VALID_RATIO
+) -> tuple[list[str], list[str]]:
     """Satırları KAYNAK-GRUPLU böl: (train, valid). Saf fonksiyon → test edilebilir.
 
     Neden gruplu: satır-düzeyinde karıştırma aynı makalenin (hatta aynı chunk'ın) sentetik
@@ -223,7 +225,7 @@ def split_lines_by_source(lines: list[str], seed: int = _SPLIT_SEED) -> tuple[li
     keys = sorted(groups)
     random.Random(seed).shuffle(keys)
 
-    target_valid = max(1, int(len(lines) * _VALID_RATIO)) if len(lines) > 1 else 0
+    target_valid = max(1, int(len(lines) * valid_ratio)) if len(lines) > 1 else 0
     valid: list[str] = []
     valid_keys: set[str] = set()
     for key in keys:

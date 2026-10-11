@@ -1185,62 +1185,9 @@ def train(cfg: PeftTrainConfig) -> dict:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # model: Any → PEFT/torch yokken (CI: yalnız --extra dev) get_peft_model/
-    # print_trainable_parameters satırları "unused type: ignore" üretmesin; torch
-    # varken de gereksiz ignore kalmasın. Runtime/eğitim davranışı DEĞİŞMEZ.
-    model: Any = AutoModelForCausalLM.from_pretrained(
-        cfg.base_model,
-        trust_remote_code=True,
-        torch_dtype=dtype,
-        device_map="auto" if device == "cuda" else None,
-    )
-
-    # LoraConfig kwargs'ı saf builder'dan gelir (rsLoRA/DoRA/init dahil). target_modules
-    # TARGET_MODULES ile sınırlı (Qwen3 tied-embeddings → GGUF uyumu; bkz. modül başı).
-    if init_is_gguf_unsafe(cfg.init_lora_weights):
-        logger.warning(
-            "init_lora_weights=%s base ağırlıkları değiştirir; GGUF/merge öncesi adapter'ı "
-            "ORİJİNAL base'e karşı residual'a çevir (path_initial_model_for_weight_conversion).",
-            cfg.init_lora_weights,
-        )
-    logger.info("LoRA reçetesi: %s", recipe_summary(cfg))
-    missing_targets = unmatched_target_modules(
-        [n for n, _ in model.named_modules()], tuple(cfg.target_modules)
-    )
-    if missing_targets:
-        err = (
-            f"LoRA hedefleri modelde YOK: {missing_targets} ({cfg.base_model}). PEFT bunları "
-            "sessizce atlayıp reçeteyi değiştirirdi. MoE modelde (birleşik uzmanlar) yalnız "
-            "attention hedefleyen profil kullan (ör. moe30b_attn_local)."
-        )
-        logger.error("%s", err)
-        return {"ok": False, "error": err}
-    if cfg.gradient_checkpointing:
-        # KV-önbellek checkpointing ile uyumsuz (her adımda uyarı + boşa bellek).
-        model.config.use_cache = False
-        logger.info("Gradient checkpointing AKTİF (bellek ↓, adım ~%20-30 yavaş).")
-    peft_config = LoraConfig(**build_lora_kwargs(cfg))
-    model = get_peft_model(model, peft_config)
-    if cfg.merge_aware_bf16:
-        from app.training.merge_aware_lora import install_merge_aware
-
-        installed = install_merge_aware(model)
-        logger.info("Deneysel merge-aware bf16 LoRA: %d Linear", len(installed))
-        cfg.adapter_output_path.mkdir(parents=True, exist_ok=True)
-        (cfg.adapter_output_path / "reference_recipe.json").write_text(
-            json.dumps(
-                {
-                    "mode": "merge_aware_bf16_v1",
-                    "gradient": "cast_straight_through_approximation",
-                    "dropout": 0,
-                    "merge": "fp32_sum_then_bf16_cast_unsafe_with_finite_check",
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-    model.print_trainable_parameters()
-
+    # Veri + tokenize + uzunluk kaybı kapısı model YÜKLENMEDEN çalışır (yalnız tokenizer
+    # gerekir): uyumsuz profil (ör. 1024 token + uzun damıtma verisi) 30B'de dakikalarca
+    # bf16 yüklemeden SONRA değil, saniyeler içinde reddedilir (denetim 2026-10-11).
     try:
         train_rows = _load_jsonl(cfg.train_jsonl, cfg.expect_train_sha256)
         if cfg.expect_valid_sha256:
@@ -1423,6 +1370,62 @@ def train(cfg: PeftTrainConfig) -> dict:
                 cfg.valid_jsonl,
             )
             eval_steps = 0
+
+    # model: Any → PEFT/torch yokken (CI: yalnız --extra dev) get_peft_model/
+    # print_trainable_parameters satırları "unused type: ignore" üretmesin; torch
+    # varken de gereksiz ignore kalmasın. Runtime/eğitim davranışı DEĞİŞMEZ.
+    model: Any = AutoModelForCausalLM.from_pretrained(
+        cfg.base_model,
+        trust_remote_code=True,
+        torch_dtype=dtype,
+        device_map="auto" if device == "cuda" else None,
+    )
+
+    # LoraConfig kwargs'ı saf builder'dan gelir (rsLoRA/DoRA/init dahil). target_modules
+    # TARGET_MODULES ile sınırlı (Qwen3 tied-embeddings → GGUF uyumu; bkz. modül başı).
+    if init_is_gguf_unsafe(cfg.init_lora_weights):
+        logger.warning(
+            "init_lora_weights=%s base ağırlıkları değiştirir; GGUF/merge öncesi adapter'ı "
+            "ORİJİNAL base'e karşı residual'a çevir (path_initial_model_for_weight_conversion).",
+            cfg.init_lora_weights,
+        )
+    logger.info("LoRA reçetesi: %s", recipe_summary(cfg))
+    missing_targets = unmatched_target_modules(
+        [n for n, _ in model.named_modules()], tuple(cfg.target_modules)
+    )
+    if missing_targets:
+        err = (
+            f"LoRA hedefleri modelde YOK: {missing_targets} ({cfg.base_model}). PEFT bunları "
+            "sessizce atlayıp reçeteyi değiştirirdi. MoE modelde (birleşik uzmanlar) yalnız "
+            "attention hedefleyen profil kullan (ör. moe30b_attn_local)."
+        )
+        logger.error("%s", err)
+        return {"ok": False, "error": err}
+    if cfg.gradient_checkpointing:
+        # KV-önbellek checkpointing ile uyumsuz (her adımda uyarı + boşa bellek).
+        model.config.use_cache = False
+        logger.info("Gradient checkpointing AKTİF (bellek ↓, adım ~%20-30 yavaş).")
+    peft_config = LoraConfig(**build_lora_kwargs(cfg))
+    model = get_peft_model(model, peft_config)
+    if cfg.merge_aware_bf16:
+        from app.training.merge_aware_lora import install_merge_aware
+
+        installed = install_merge_aware(model)
+        logger.info("Deneysel merge-aware bf16 LoRA: %d Linear", len(installed))
+        cfg.adapter_output_path.mkdir(parents=True, exist_ok=True)
+        (cfg.adapter_output_path / "reference_recipe.json").write_text(
+            json.dumps(
+                {
+                    "mode": "merge_aware_bf16_v1",
+                    "gradient": "cast_straight_through_approximation",
+                    "dropout": 0,
+                    "merge": "fp32_sum_then_bf16_cast_unsafe_with_finite_check",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    model.print_trainable_parameters()
 
     output_dir = str(cfg.adapter_output_path)
     # HIZ ayarları (CPU): eval kapalı, tek checkpoint, pin_memory kapalı, dinamik padding.

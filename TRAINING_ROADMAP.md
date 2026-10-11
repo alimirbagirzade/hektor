@@ -1,3 +1,8 @@
+> ⚠ **BAYAT (denetim 2026-10-11):** Bu tablo 4B/MLX dönemine aittir (7 PDF, `hektor_lora_v2`).
+> Güncel durum `HANDOFF.md`'dedir. DPO / tool-use / reward modülleri kanonik eğitim setine
+> (`assemble_sft.py`) **bağlı değildir** ve DPO eğiticisi yoktur — "✅" yalnız veri üreticisinin
+> var olduğunu gösterir. Bkz. `reports/audit/denetim-2026-10-11.md`.
+
 # Eğitim Yol Haritası — Evrensel + Hektor Durumu
 
 > Kaynak: `İLGİLENECEĞİMİZ EĞİTİM TÜRLERİ.docx`\
