@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import secrets
 import threading
 from collections.abc import Callable
@@ -506,10 +505,11 @@ def k2_preview(candidate_id: str) -> dict[str, Any]:
 
 
 def _k2_verdict(text: str) -> str:
-    m = re.search(r"KARAR\s*:\s*(tutarl[ıi]|şüpheli|supheli)", text, re.IGNORECASE)
-    if not m:
-        return "belirsiz"
-    v = m.group(1).lower().replace("ı", "i").replace("ş", "s").replace("ü", "u")
+    # Kademe 2 N-7: yerel hakemle AYNI ayrıştırıcı ("KARAR: **supheli**" biçimi dahil).
+    from app.orchestration.local_judge import parse_karar
+
+    got = parse_karar(text or "")
+    v = got[0] if got else "belirsiz"
     return v if v in K2_VERDICTS else "belirsiz"
 
 

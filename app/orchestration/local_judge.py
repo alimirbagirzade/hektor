@@ -93,13 +93,39 @@ def build_prompt(cand: dict[str, Any], turn: dict[str, Any]) -> str:
     )
 
 
+# Kademe 2 (2026-10-11) V-4: KARAR satırı TAM eşleşmeli. Eski arama ilk eşleşmeyi alıyordu:
+# "KARAR: tutarlı değil" / "KARAR: tutarlılığı düşük, şüpheli" → "tutarli" (karantina fail-open).
+# Satırda karardan başka söz varsa (olumsuzlama, ikinci karar, talimat tekrarı) → belirsiz.
+_KARAR_LINE = re.compile(r"^[^\w\n]*KARAR\b", re.IGNORECASE | re.MULTILINE)
+_KARAR_EXACT = re.compile(
+    r"^[^\w\n]*KARAR\s*:\s*[*_`]*\s*(tutarl[ıi]|şüpheli|supheli)\s*[*_`]*\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def parse_karar(text: str) -> tuple[str, int] | None:
+    """İlk KARAR satırını oku → (``tutarli|supheli|belirsiz``, satır sonu konumu); yoksa None."""
+    m = _KARAR_LINE.search(text or "")
+    if not m:
+        return None
+    end = text.find("\n", m.start())
+    end = len(text) if end < 0 else end
+    exact = _KARAR_EXACT.match(text[m.start() : end])
+    if not exact:
+        return "belirsiz", end
+    v = exact.group(1).lower().replace("ı", "i").replace("ş", "s").replace("ü", "u")
+    return v, end
+
+
 def parse_verdict(text: str) -> tuple[str, str]:
     """(karar, gerekçe). Biçim tutmazsa ``belirsiz`` (temkinli: karantina)."""
-    m = re.search(r"KARAR\s*:\s*\**\s*(tutarl[ıi]|şüpheli|supheli)", text or "", re.IGNORECASE)
-    if not m:
+    got = parse_karar(text)
+    if got is None:
         return "belirsiz", "Hakem cevabı beklenen biçimde değil (KARAR satırı yok)."
-    v = m.group(1).lower().replace("ı", "i").replace("ş", "s").replace("ü", "u")
-    reason = (text[m.end() :] or "").strip()[:2000]
+    v, end = got
+    reason = (text[end:] or "").strip()[:2000]
+    if v == "belirsiz":
+        return v, ("KARAR satırı tek bir karar içermiyor (olumsuzlama/ek söz): " + reason)[:2000]
     return (v if v in VERDICTS else "belirsiz"), reason
 
 

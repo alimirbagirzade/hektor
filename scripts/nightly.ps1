@@ -28,7 +28,14 @@ Write-Output ("[" + (Get-Date -Format "HH:mm:ss") + "] nightly loop starting..."
 try {
     # --yayinla: sanitized summary (numbers/ids/metrics only) is pushed to the
     # gece-raporlari branch so the cloud morning routine can read it - no copy/paste.
-    & uv run --no-sync hektor gece --yayinla 2>&1 | Tee-Object -FilePath $log
+    # PS 5.1: under "Stop" the first native stderr line (INFO logs, uv warnings) becomes a
+    # terminating NativeCommandError and the run is cut off. Run the native call under
+    # "Continue" and judge success by $LASTEXITCODE (same as open-pr.ps1).
+    $ErrorActionPreference = "Continue"
+    & uv run --no-sync hektor gece --yayinla 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($code -ne 0) { throw ("exit code " + $code) }
     Write-Output ("Done. Log: " + $log)
 }
 catch {

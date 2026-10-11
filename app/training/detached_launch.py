@@ -1253,14 +1253,26 @@ def archive_final_status(info: dict, root: Path | None = None) -> bool:
 
     Kademe 2 P-1 (2026-10-10): ``storage/train_status.json`` TEK dosya; her yeni başlatma
     onu ezip erken çıkışta siliyordu → bitmiş v14'ün onay/veri/bitiş kanıtı kayboluyor,
-    ``verify_run_completion`` kalıcı başarısız oluyordu. Var olan arşiv ezilmez.
+    ``verify_run_completion`` kalıcı başarısız oluyordu.
+
+    Kademe 2 G-2 (2026-10-11): var olan arşiv eskiden HİÇ ezilmiyordu → başarısız biten
+    koşudan sonra aynı adla başarıyla biten koşunun kaydı arşive yazılmıyor, doğrulama kalıcı
+    "başarısız" kalıyordu. Kural: aynı koşunun (aynı ``started_at``) tamamlanma kaydı
+    düşürülmez; DAHA ESKİ bir koşu daha yeni arşivi ezmez; aksi halde yeni sonuç yazılır.
     """
     name = str(info.get("adapter") or "")
     if not _ADAPTER_RE.match(name) or not (info.get("finished_at") or info.get("failed_at")):
         return False
     dest = final_status_path(name, root)
-    if not dest.parent.is_dir() or dest.exists():
+    if not dest.parent.is_dir():
         return False
+    old = read_final_status(name, root)
+    if old:
+        old_start, new_start = str(old.get("started_at") or ""), str(info.get("started_at") or "")
+        if old_start == new_start and (old.get("finished_at") or old == info):
+            return False
+        if new_start < old_start:
+            return False
     try:
         tmp = dest.with_suffix(".tmp")
         tmp.write_text(json.dumps(info), encoding="utf-8")

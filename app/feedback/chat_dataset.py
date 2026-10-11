@@ -229,7 +229,13 @@ def build_payload(
     rows: list[tuple[dict, dict, dict, str]] = []  # (cand, turn, fam, class)
     skipped_human = 0
     skipped_test = 0
+    from app.feedback.learning import quarantine_active
+
     for c in store.list_candidates(status="eligible"):
+        # Kademe 2 V-6: recompute yarışında karantina etkinken durum 'eligible' kalabilir →
+        # karantina durumdan BAĞIMSIZ dışlar.
+        if quarantine_active(c):
+            continue
         vclass = (c["verification"] or {}).get("class") or "auto"
         if vclass == "human" and not include_human:
             skipped_human += 1
@@ -540,7 +546,10 @@ def load_selected_train_lines() -> tuple[list[str], dict[str, Any]] | None:
 
 
 def version_invalid_members(version_id: str, store: ChatStore) -> list[dict[str, Any]]:
-    """Sürümde artık geçerli olmayan üyeler (ret/hariç/sızıntı/çatışma/düzenlendi/silindi)."""
+    """Sürümde artık geçerli olmayan üyeler (ret/hariç/sızıntı/çatışma/düzenlendi/silindi,
+    karantina, güncel Kural 1)."""
+    from app.feedback.learning import quarantine_active
+
     bad = []
     for m in store.version_members(version_id):
         c = store.get_candidate(m["candidate_id"])
@@ -556,7 +565,30 @@ def version_invalid_members(version_id: str, store: ChatStore) -> list[dict[str,
             bad.append({**m, "why": "hedef metin sonradan düzenlendi"})
         elif c["status"] != "eligible":
             bad.append({**m, "why": f"durum artık '{c['status']}'"})
+        elif quarantine_active(c):
+            bad.append({**m, "why": "karantinada (yerel hakem)"})
+        elif why := _current_rule1_reason(c, turn):
+            bad.append({**m, "why": why})
     return bad
+
+
+def _current_rule1_reason(cand: dict[str, Any], turn: dict[str, Any]) -> str:
+    """Saklı duruma güvenmeden GÜNCEL Kural 1 kurallarıyla yeniden denetle (salt-okuma).
+
+    Kademe 2 V-5: kural sıkılaştıktan önce 'eligible' olmuş bir al/sat kararı çifti,
+    önceden seçilmiş sürümle eğitime giriyordu (recheck_all yalnız sürüm oluştururken çalışır).
+    """
+    from app.feedback.advice_guard import candidate_reason
+    from app.feedback.echo import correction_safety_reason
+
+    target = cand.get("target_text") or ""
+    question = turn.get("question") or ""
+    prompt = turn.get("user_prompt") or ""
+    if correction_safety_reason(target, question) or candidate_reason(
+        f"{question}\n{prompt}", target
+    ):
+        return "güncel Kural 1 denetimine takılıyor (al/sat yönlendirmesi)"
+    return ""
 
 
 def version_blockers(version_id: str, store: ChatStore) -> list[str]:

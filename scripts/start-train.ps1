@@ -26,6 +26,7 @@ param(
     # Egitilecek ornek TAVANI (0 = profildeki max_examples gecerli). Daha COK VERI
     # istiyorsan adim sayisini degil BUNU buyut; adim sayisi plandan turer.
     [int]$MaxExamples = 0,
+    [ValidateSet("bf16", "fp32")]
     [string]$Dtype = "bf16",
     # LoRA recete profili. VARSAYILAN moe30b_attn_local (Qwen3-30B-A3B MoE: yalniz attention +
     # assistant_only_loss maskeleme + NEFTune; app.config.DEFAULT_TRAIN_PROFILE ile ayni).
@@ -99,7 +100,17 @@ function Save-FinalStatus {
         if (-not ($old.finished_at -or $old.failed_at)) { return }
         $dir = Join-Path $ProjectDir ("models\adapters\" + $name)
         $arch = Join-Path $dir "train_status.final.json"
-        if ((Test-Path $dir) -and -not (Test-Path $arch)) { Copy-Item $StatusFile $arch }
+        if (-not (Test-Path $dir)) { return }
+        # Kademe 2 G-2: ayni kosunun bitis kaydi dusurulmez, daha eski kosu yeni arsivi ezmez;
+        # aksi halde (ornegin basarisiz sonra ayni adla basarili kosu) arsiv guncellenir.
+        if (Test-Path $arch) {
+            $prev = Get-Content $arch -Raw | ConvertFrom-Json
+            $prevStart = [string]$prev.started_at
+            $newStart = [string]$old.started_at
+            if ($prevStart -eq $newStart -and $prev.finished_at) { return }
+            if ([string]::CompareOrdinal($newStart, $prevStart) -lt 0) { return }
+        }
+        Copy-Item $StatusFile $arch -Force
     } catch { }
 }
 

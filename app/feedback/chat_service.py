@@ -189,7 +189,9 @@ def send(
         if ans.llm_used:
             from app.feedback.advice_guard import guard_chat_answer
 
-            shown, advice_check = guard_chat_answer(question, ans.answer)
+            # Kademe 2 V-1: takip sorusu ("Peki ya 1000 dolarla?") önceki karar sorusunu taşır.
+            advice_q = "\n".join([*(h[1] for h in history), question])
+            shown, advice_check = guard_chat_answer(advice_q, ans.answer)
             if advice_check:
                 checks.append(advice_check)
         cc = ans.citation_check

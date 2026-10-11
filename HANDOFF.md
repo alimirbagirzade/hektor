@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-10-09 (v14 eğitimi 2026-10-03'te 187/187 BİTTİ, aday — karşılaştırmalı değerlendirme bekliyor · araştırma otomasyonunu bekleten bayat kilit giderildi · #34–#45 main'de · aktif model hâlâ `hektor-v12-30b` · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-10-11 (pilot engelleri + Kademe 2 2026-10-11 · v14 eğitimi 2026-10-03'te 187/187 BİTTİ, aday — karşılaştırmalı değerlendirme bekliyor · araştırma otomasyonunu bekleten bayat kilit giderildi · #34–#45 main'de · aktif model hâlâ `hektor-v12-30b` · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
 
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
@@ -32,6 +32,39 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 ---
 
 ## Durum
+
+### 2026-10-11 — Pilot eğitim engelleri: RAM yanlış alarmı + Kademe 2 (ae73710..0ee35b0)
+
+Kanıt: `docs/evidence/kademe2_2026-10-11.json` (bulgu bazında karar + kapanış).
+
+- **RAM "136,8 GB" = fp32 tahmini (#59, main'de).** Doğrudan `hektor train` (dry-run dahil)
+  `HEKTOR_TRAIN_DTYPE` yoksa fp32 varsayıyordu; web/start-train/detached bf16 başlatır.
+  Qwen3-30B-A3B checkpoint ≈61 GB → bf16 tahmini **≈71,4 GB** (106 GB'a sığar).
+  `moe30b_attn_local/long` artık `cpu_dtype: bf16` taşır. Tahmin `max_seq_length`'i
+  modellemez — 6144 token aktivasyon payı ÖLÇÜLMEDİ (Kural 2).
+- **Pilot reçetesi:** kararlaştırılan pilot `moe30b_attn_long` (6144), 64 örnek, ≤8 optimizer
+  adımı. `moe30b_attn_local` (1024) uzun damıtma örneklerini (≤5911 token) ATAR.
+- **Veri uyarıları (1569 satır) bu ortamda incelenemedi** — eğitim verisi bulut kopyasında
+  yok. Kod tarafı: disiplin havuzu (576) tek başına temiz (GO); 395/576 = %25 oran hedefinin
+  tasarım sonucu (taban ≈1185 → 395), şablon %1,8 = `thin_template_rows`'un bilinçli durma
+  noktası (engel %2). 15 maliyet + 18 Gate 5 + 3 kesinlik satırı makale/sentetik/sohbet
+  kaynaklı → yerelde `uv run hektor pretrain-gate --flagged-out
+  reports/training/flagged_rows.jsonl` ile satır satır incelenmeli.
+- **Kademe 2:** 3 bulucu → 19 bulgu → her biri 2 bağımsız şüpheci doğrulayıcı; çürütülen yok,
+  **19 düzeltildi**, risk kabulü yok. Öne çıkanlar: V-1 (takip sorusunda al/sat yönlendirmesi
+  insan onaysız eligible/auto oluyordu), V-2/V-3 (Kural 1 kalıpları: yanlış pozitif + kaçan
+  biçimler), N-1 (hakem karantinasından sonra yinelenen ikiz eligible'a dönüyordu), V-5/V-6
+  (sürüm kapısı güncel Kural 1 + karantina), V-4/N-7 (KARAR satırı tam eşleşme), N-2 (yarım
+  LLM-30 ölçümü taban olmaz), N-3 (PS 5.1 NativeCommandError), N-4 (açık rapora ham istisna
+  gitmez), G-1/G-2 (arşivden tamamlanma doğrulaması), G-3 (dtype env), G-4, G-5, N-5/N-6/N-8.
+  Düzeltme öncesi 43 regresyon testi düşüyor, sonrası geçiyor.
+- **Kapı:** ruff ✓ · format ✓ · mypy 317 ✓ · pytest 3440 passed (2. tam koşu). 1. koşuda
+  `test_cloud_judge.py::test_conversion_chains_comparison_with_same_rules` bir kez düştü
+  (alt süreçli; tek başına ve tekrarında geçti) — kök neden bulunmadı.
+- **Kayıt YAZILMADI** (kod özeti birleşmiş main'den alınmalı). Sıra: PR birleş → `update.ps1`
+  → verideki uyarılı satırları incele/düzelt → `uv run hektor pretrain-gate` → güncel veri
+  sha'sıyla `uv run hektor kademe2-kayit --findings docs/evidence/kademe2_2026-10-11.json
+  --data-sha <sha> --evidence "..."` → pilot için insan onayı. Eğitim BAŞLATILMADI.
 
 ### 2026-10-11 — Kural 1: al/sat KARARI sorusu kapısı
 

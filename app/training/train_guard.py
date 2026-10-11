@@ -387,8 +387,14 @@ def diagnose(
     approvals: list[dict[str, Any]] | None = None,
     data_sha256: str | None = None,
     trainer_pids: set[int] | None = None,
+    last_checkpoint: int | None = None,
+    run_markers: dict[str, Any] | None = None,
 ) -> TrainingDiagnosis:
     """Eğitim sağlığını değerlendir (saf). Hiçbir şey başlatmaz/durdurmaz.
+
+    ``last_checkpoint`` / ``run_markers``: adapter klasörü işaretleri — ölü kayıt mesajı
+    nöbetçinin gerçek kararıyla (``main._recovery_verdict``) AYNI girdilerle hesaplanır
+    (Kademe 2 G-4: eksikken "diriltir" deyip gerçek kararın "tamamlanmış" olabildiği durum).
 
     ``data_sha256``: güncel ``lora_sft.jsonl`` hash'i; durum dosyası başlangıç hash'ini
     taşıyorsa veri kayması mtime yerine bununla ölçülür (bkz. :func:`recovery_allowed`).
@@ -484,7 +490,14 @@ def diagnose(
         # Kademe 2 T-2: mesaj nöbetçinin GERÇEK kararına göre (recovery_allowed).
         verdict = (
             recovery_allowed(
-                status, approvals, now=now, data_mtime=data_mtime, data_sha256=data_sha256
+                status,
+                approvals,
+                now=now,
+                data_mtime=data_mtime,
+                data_sha256=data_sha256,
+                last_checkpoint_step=last_checkpoint,
+                effective_max_steps=(run_markers or {}).get("max_steps"),
+                run_completed=bool((run_markers or {}).get("completed")),
             )
             if approvals is not None
             else None
@@ -593,6 +606,8 @@ def collect_diagnosis(
         except Exception:
             continue
     log_path = _newest_train_log(root)
+    adapter_dir = root / "models" / "adapters" / str(status.get("adapter") or "")
+    has_adapter = bool(status.get("adapter"))
     diagnosis = diagnose(
         status=status,
         running=running,
@@ -603,6 +618,8 @@ def collect_diagnosis(
         approvals=approvals,
         data_sha256=sha256_file(root / SOURCE_DATA_REL),
         trainer_pids=pids if running else None,
+        last_checkpoint=last_checkpoint_step(adapter_dir) if has_adapter else None,
+        run_markers=read_run_markers(adapter_dir) if has_adapter else None,
     )
     diagnosis.info["log_file"] = str(log_path) if log_path else ""
     diagnosis.info["trainer_pids"] = [p["pid"] for p in procs]

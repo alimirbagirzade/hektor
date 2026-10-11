@@ -160,9 +160,21 @@ def history() -> list[dict[str, Any]]:
     return out
 
 
+def _complete(h: dict[str, Any]) -> bool:
+    """Tam ölçüm mü? Kademe 2 N-2: Ollama hatasıyla erken kesilen ölçüm (n_errors>0 ya da
+    n < n_questions) geçmişte kalır ama taban/zamanlama için SAYILMAZ — aksi halde 7 gün
+    yeniden ölçülmüyor ve sonraki ölçüm bozuk tabanla (key_hits=0) kıyaslanıyordu."""
+    try:
+        return int(h.get("n_errors") or 0) == 0 and int(h.get("n") or 0) >= int(
+            h.get("n_questions") or 0
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _due(model: str, digest: str, rag: bool, prev: list[dict[str, Any]]) -> str:
     """Koşmak gerekiyorsa sebep; gerekmiyorsa ``""``."""
-    same = [h for h in prev if h.get("model") == model and h.get("rag") == rag]
+    same = [h for h in prev if h.get("model") == model and h.get("rag") == rag and _complete(h)]
     if not same:
         return "bu model için ilk ölçüm"
     last = same[-1]
@@ -306,8 +318,10 @@ def _measure(
         ),
         "seconds": round(time.monotonic() - t_all, 1),
     }
-    same = [h for h in prev_all if h.get("model") == model and h.get("rag") == rag]
-    prev = same[-1] if same else (prev_all[-1] if prev_all else None)
+    full = [h for h in prev_all if _complete(h)]
+    same = [h for h in full if h.get("model") == model and h.get("rag") == rag]
+    prev = same[-1] if same else (full[-1] if full else None)
+    summary["complete"] = _complete(summary)
     summary["regression"] = _regression(summary, prev)
     summary["compared_to"] = (
         {k: prev.get(k) for k in ("at", "model", "digest", "n_flagged", "key_hits")}
