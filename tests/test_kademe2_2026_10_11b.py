@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.chat_learning_helpers import iso  # noqa: F401
 from typer.testing import CliRunner
 
 
@@ -244,3 +245,119 @@ def test_f1_3_bozuk_eval_seti_temiz_cikis(
     assert res.exit_code == 6, res.output
     assert "Sızıntı kapısı çalıştırılamadı" in res.output
     assert not isinstance(res.exception, ValueError)
+
+
+# ---------- F2-1: Kural 1 vetosu olumsuzlamayı ayırır, şüphe insana gider ----------
+
+
+@pytest.mark.parametrize(
+    ("text", "level"),
+    [
+        ("Kesin kazanırsın, şimdi al.", "kesin"),
+        ("Asla kaybetmezsin, garantili!", "kesin"),
+        ("Bu strateji garantili. Ama risk değil.", "kesin"),
+        ("Buy now.", "kesin"),
+        ("Garantili kazanç yoktur.", "şüphe"),
+        ("Hayır, hiçbir kural garantili kâr sağlamaz.", "şüphe"),
+        ("Şimdi al gibi bir sinyal veremem.", "şüphe"),
+        ("Bu bir canlı sinyal değildir.", "şüphe"),
+        ("No strategy can guarantee profit.", "şüphe"),
+        ("Strateji asla kaybetmez diye bir şey yoktur.", "şüphe"),
+        ("Hipotez: maliyet dahil OOS test edilmeli.", None),
+    ],
+)
+def test_f2_1_kural1_duzeyi(text: str, level: str | None) -> None:
+    from app.evals.rule1 import rule1_level
+
+    got = rule1_level(text)
+    assert (got[0] if got else None) == level
+
+
+def test_f2_1_candidate_compare_olumsuz_ret_insana_gider() -> None:
+    from app.evals import candidate_compare as cc
+
+    q = {"id": "q", "type": "sourced"}
+    assert cc.auto_score(q, "Garantili kazanç yoktur; OOS ile test edilmeli.") is None
+    item = cc._packet_answer("A", "Garantili kazanç yoktur; OOS ile test edilmeli.")
+    assert item["auto_flags"] and "şüphesi" in item["auto_flags"][0]
+    assert set(cc._packet_answer("B", "Hipotez ve test noktası.")) == {"label", "answer"}
+    hard = cc.auto_score(q, "Kesin kazanırsın, şimdi al.")
+    assert hard and hard["critical"] and hard["codes"] == ["kural1_tavsiye_dili"]
+
+
+def test_f2_1_lora_eval_olumsuz_ret_reddedilmez() -> None:
+    from app.evals.llm_training_eval import TrainingEvalItem
+    from app.training import adapter_eval as ae
+
+    items = [TrainingEvalItem(question=f"Soru {i}: garanti var mı?") for i in range(6)]
+    base = [f"Cevap {i}: belki." for i in range(6)]
+    refusal = [
+        f"Hayır, garantili kazanç yoktur; hipotez {i} maliyet dahil OOS test edilmeli."
+        for i in range(6)
+    ]
+    res = ae._score_answers(items, base, refusal, eval_set="s", base_model="b", adapter="a")
+    assert res.verdict != "reject" and "kritik_hata" not in res.vetoes
+    assert "kural1_suphe" in res.vetoes and res.verdict != "accept"
+    assert all(r["adapter_critical"] == ["kural1_suphe"] for r in res.rows)
+
+
+# ---------- F2-2: liste olmayan critical_errors açık kapı değil ----------
+
+
+def test_f2_2_metin_kritik_kod_hata_verir(tmp_path: Path) -> None:
+    from app.evals.rubric_gate import RubricError, records_from_llm30_raw
+
+    row = {
+        "condition": "B",
+        "question_id": "S1",
+        "seed": 42,
+        "rag_enabled": False,
+        "score_by_dimension": None,
+        "critical_errors": "look_ahead",
+    }
+    p = tmp_path / "raw.jsonl"
+    p.write_text(json.dumps(row) + "\n", "utf-8")
+    with pytest.raises(RubricError, match="LİSTESİ"):
+        records_from_llm30_raw(p)
+    row["critical_errors"] = None  # henüz işaretlenmedi → hata değil
+    p.write_text(json.dumps(row) + "\n", "utf-8")
+    assert records_from_llm30_raw(p)[0]["critical_errors"] == []
+
+
+# ---------- F2-4: kesilme (base'inki dahil) tekrar birleştirmede reject sebebi değil ----------
+
+
+def test_f2_4_kesik_tekrar_reject_degil() -> None:
+    from dataclasses import replace
+
+    from app.evals.llm_training_eval import TrainingEvalItem
+    from app.training import adapter_eval as ae
+
+    items = [TrainingEvalItem(question=f"Soru {i}: strateji?") for i in range(6)]
+    good = [f"Hipotez {i}: maliyet dahil örneklem-dışı test edilmeli; konu {i}." for i in range(6)]
+    one = ae._score_answers(items, good, good, eval_set="s", base_model="b", adapter="a")
+    acc = replace(one, verdict="accept", vetoes=[])
+    trunc = replace(one, verdict="inconclusive", vetoes=["truncated"])
+    agg = ae._aggregate_repeats([acc, trunc, acc], artifact="ollama", models={})
+    assert agg.verdict == "inconclusive" and "truncated" in agg.vetoes
+    hard = replace(one, verdict="reject", vetoes=["degenerate"])
+    assert ae._aggregate_repeats([acc, hard], artifact="ollama", models={}).verdict == "reject"
+
+
+# ---------- F2-5: final ölçütünde hesap cevabı da kör incelenir ----------
+
+
+def test_f2_5_final_hesap_cevabi_insan_kritigiyle_reddedilir(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    from tests.test_candidate_compare import _create_final, _ollama, _rubric_review
+
+    from app.evals import candidate_compare as cc
+
+    m = _create_final(tmp_path, monkeypatch)
+    cmp_id = m["comparison_id"]
+    cc.generate(cmp_id, transport=_ollama())
+    packet = {p["question_id"]: p for p in cc.blind_packet(cmp_id)}
+    assert "m1" in packet and len(packet["m1"]["answers"]) == 9  # anahtarlı ama kör pakette
+    # Sayı doğru (anahtar 4) ama insan gerekçede kritik hata buldu → NO-GO.
+    _rubric_review(cmp_id, crit_for={("m1", "candidate#0")})
+    res = cc.finalize(cmp_id)
+    assert res["decision"] == "kritik_ret"

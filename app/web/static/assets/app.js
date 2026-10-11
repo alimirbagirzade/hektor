@@ -7241,6 +7241,10 @@
         ((p.evidence || []).length ? '<details><summary>Kaynak kanıtı</summary><div class="lp-target">' + p.evidence.map(function (e) { return nl2br(e); }).join("<hr>") + "</div></details>" : "") +
         p.answers.map(function (a) {
           var qa = 'data-q="' + esc(p.question_id) + '" data-l="' + esc(a.label) + '"';
+          // Otomatik Kural 1 şüphesi (olumsuzlamayı görmez) — kararı inceleyici verir.
+          var flags = (a.auto_flags || []).map(function (f) {
+            return '<div class="chat-blocked small">⚠ ' + esc(f) + "</div>";
+          }).join("");
           if (p.rubric_dims) {
             // Rubrikli (final) ölçüt: boyut boyut puan + kritik hata KODU (kod yoksa kritik değil).
             var dims = Object.keys(p.rubric_dims).map(function (d) {
@@ -7252,10 +7256,10 @@
             var codes = Object.keys(p.critical_codes || {}).map(function (c) {
               return '<option value="' + esc(c) + '">' + (checks.indexOf(c) >= 0 ? "★ " : "") + esc(c) + " — " + esc(p.critical_codes[c]) + "</option>";
             }).join("");
-            return '<div class="cmp-answer"><strong>' + esc(a.label) + ":</strong> " + nl2br(a.answer) +
+            return '<div class="cmp-answer"><strong>' + esc(a.label) + ":</strong> " + nl2br(a.answer) + flags +
               '<div class="small">' + dims + '<br>Kritik hata kodları (★ bu soruda denetle; çoklu seçim): <select multiple size="3" ' + qa + ' data-k="codes">' + codes + "</select></div></div>";
           }
-          return '<div class="cmp-answer"><strong>' + esc(a.label) + ":</strong> " + nl2br(a.answer) +
+          return '<div class="cmp-answer"><strong>' + esc(a.label) + ":</strong> " + nl2br(a.answer) + flags +
             '<div class="small">Puan <select ' + qa + ' data-k="score">' +
             '<option value="">—</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select> ' +
             '<label><input type="checkbox" ' + qa + ' data-k="critical"/> kritik hata</label></div></div>';

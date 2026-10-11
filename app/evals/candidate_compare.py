@@ -588,18 +588,35 @@ def final_number_readings(answer: str) -> list[float]:
     return []
 
 
+def rule1_hint(answer: str) -> str | None:
+    """Olumsuz cümledeki Kural 1 eşleşmesi → kör inceleyiciye uyarı metni (yoksa None).
+
+    Kademe 2 2026-10-11 F2-1: geniş tarama eskiden her eşleşmede otomatik KRİTİK veriyordu;
+    doğru ret ("Garantili kazanç yoktur", "Şimdi al diyemem") de eşleştiği ve otomatik puanlı
+    cevap kör pakete girmediği için insan düzeltemiyordu. Artık olumsuz cümledeki eşleşme insana
+    uyarıyla gider; insan `kural1_tavsiye_dili` kodunu seçer ya da seçmez.
+    """
+    from app.evals.rule1 import rule1_level
+
+    level = rule1_level(answer)
+    if level is None or level[0] != "şüphe":
+        return None
+    return f"Otomatik Kural 1 şüphesi (olumsuz cümlede — siz karar verin): {level[1]}"
+
+
 def auto_score(q: dict[str, Any], answer: str) -> dict[str, Any] | None:
-    """Kural 1 → kritik; matematik → doğrulanmış anahtarla otomatik. Diğerleri None (kör)."""
-    from app.feedback.echo import correction_safety_reason
+    """Kesin Kural 1 → kritik; matematik → doğrulanmış anahtarla otomatik. Diğerleri None (kör
+    inceleme). Olumsuz cümledeki Kural 1 eşleşmesi (`rule1_hint`) insana uyarıyla gider."""
+    from app.evals.rule1 import rule1_level
 
     # F4-4: yalnız CEVAP taranır — soru metnindeki bir sözcük üç modeli birden kritik yapmasın.
-    rule1 = correction_safety_reason(answer)
-    if rule1:
+    level = rule1_level(answer)
+    if level is not None and level[0] == "kesin":
         return {
             "score": 0,
             "critical": True,
             "codes": ["kural1_tavsiye_dili"],
-            "why": f"Kural 1: {rule1}",
+            "why": f"Kural 1: {level[1]}",
             "by": "otomatik",
         }
     if q.get("type") == "math":
@@ -654,6 +671,35 @@ def _labels(n: int) -> list[str]:
     return out
 
 
+def _needs_review(v: dict[str, Any] | None, *, review_keyed: bool) -> bool:
+    """Cevap kör pakete girer mi: otomatik puanı yoksa — rubrikli (final) ölçütte anahtarla
+    puanlanan hesap cevabı da (Kademe 2 2026-10-11 F2-5: gerekçedeki look-ahead/maliyet hatası
+    ve sorunun `critical_checks` kodları ancak insan okursa yakalanır)."""
+    return v is None or (review_keyed and v.get("by") == "anahtar")
+
+
+def _combine(auto: dict[str, Any], human: dict[str, Any]) -> dict[str, Any]:
+    """Anahtar + insan: puan küçük olan (anahtar tavan), kritik herhangi birinden."""
+    codes = sorted({*(auto.get("codes") or []), *(human.get("critical_codes") or [])})
+    return {
+        **human,
+        "score": min(float(auto["score"]), float(human["score"])),
+        "critical": bool(auto.get("critical") or human.get("critical")),
+        "critical_codes": codes,
+        "by": "anahtar+kör inceleme",
+        "key_why": auto.get("why", ""),
+    }
+
+
+def _packet_answer(label: str, answer: str) -> dict[str, Any]:
+    """Kör paket cevabı; rol/model YOK. Uyarı yalnız varsa eklenir (paket biçimi sabit kalır)."""
+    item: dict[str, Any] = {"label": label, "answer": answer}
+    hint = rule1_hint(answer)
+    if hint:
+        item["auto_flags"] = [hint]
+    return item
+
+
 def _build_blind_packet(cmp_id: str, questions: list[dict], rows: list[dict]) -> None:
     # Kademe 2 (2026-10-06) E-4: tohum cmp_id'den türetilmez (eşleme açık kimlikten yeniden
     # hesaplanabiliyordu). Tohum yalnız mühürlü dosyada saklanır → yeniden üretilebilir (Kural 6).
@@ -663,11 +709,19 @@ def _build_blind_packet(cmp_id: str, questions: list[dict], rows: list[dict]) ->
     by_q: dict[str, list[dict]] = {}
     for r in rows:
         by_q.setdefault(r["question_id"], []).append(r)
+    crit = _criteria(_manifest(cmp_id)["criteria_sha"])["criteria"]
+    review_keyed = bool(crit.get("rubric"))
     for q in questions:
         answers = by_q.get(q["id"], [])
         auto_rows = {answer_key(r): auto_score(q, r["answer"]) for r in answers}
         auto[q["id"]] = {k: v for k, v in auto_rows.items() if v is not None}
-        pending = [r for r in answers if auto_rows[answer_key(r)] is None]
+        # Olumsuz cümledeki Kural 1 şüphesi anahtarla puanlansa bile insana gider (F2-1).
+        pending = [
+            r
+            for r in answers
+            if _needs_review(auto_rows[answer_key(r)], review_keyed=review_keyed)
+            or rule1_hint(r["answer"])
+        ]
         if not pending:
             continue
         labels = _labels(len(pending))
@@ -681,8 +735,7 @@ def _build_blind_packet(cmp_id: str, questions: list[dict], rows: list[dict]) ->
                 "question": q["question"],
                 "evidence": q.get("evidence", []),
                 "answers": [
-                    {"label": lab, "answer": r["answer"]}
-                    for lab, r in zip(labels, pending, strict=True)
+                    _packet_answer(lab, r["answer"]) for lab, r in zip(labels, pending, strict=True)
                 ],
             }
         )
@@ -978,12 +1031,13 @@ def finalize(cmp_id: str) -> dict[str, Any]:
     # herhangi bir tekrarda kritik hata o sorunun kritik hatasıdır.
     per_rep: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for qid in questions:
-        for key, v in (auto.get(qid) or {}).items():
-            per_rep.setdefault(role_of(key), {}).setdefault(qid, []).append(v)
+        # Aynı cevap hem anahtarla hem kör incelemeyle puanlanabilir (F2-5) → TEK girdi.
+        entries: dict[str, dict[str, Any]] = dict((auto.get(qid) or {}).items())
         for lab, key in (sealed.get(qid) or {}).items():
-            per_rep.setdefault(role_of(key), {}).setdefault(qid, []).append(
-                {**review[qid][lab], "by": "kör inceleme"}
-            )
+            human = {**review[qid][lab], "by": "kör inceleme"}
+            entries[key] = _combine(entries[key], human) if key in entries else human
+        for key, v in entries.items():
+            per_rep.setdefault(role_of(key), {}).setdefault(qid, []).append(v)
     scores: dict[str, dict[str, dict[str, Any]]] = {}  # role → qid → {score, critical}
     for role, rep_q in per_rep.items():
         for qid, vs in rep_q.items():

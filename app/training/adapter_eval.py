@@ -499,16 +499,23 @@ def _score_answers(
     )
     adapter_collapsed = _answers_collapsed(adapt_ans)
     adapter_guaranteed_profit = any("guaranteed_profit" in r["adapter_flags"] for r in rows)
-    # Kritik hata kapısı (denetim 2026-10-11): Kural 1 dili (tavsiye/garanti/kesinlik/canlı
-    # sinyal) HERHANGİ bir adapter cevabında → NO-GO; skorla takas edilmez.
-    from app.feedback.echo import correction_safety_reason
+    # Kritik hata kapısı (denetim 2026-10-11): Kural 1 dili HERHANGİ bir adapter cevabında →
+    # NO-GO. Kademe 2 2026-10-11 F2-1: eşleşen tüm cümleler olumsuzsa (doğru ret: "Garantili
+    # kazanç yoktur") kesin değil ŞÜPHE — 'accept' yine engellenir, satır insana işaretlenir.
+    from app.evals.rule1 import rule1_level
 
     for r in rows:
-        reason = correction_safety_reason(r["adapter"])
-        r["adapter_critical"] = ["kural1_tavsiye_dili"] if reason else []
-        if reason:
-            r["adapter_critical_why"] = reason
-    adapter_critical = any(r["adapter_critical"] for r in rows)
+        level = rule1_level(r["adapter"])
+        if level is None:
+            r["adapter_critical"] = []
+            continue
+        kesin = level[0] == "kesin"
+        r["adapter_critical"] = ["kural1_tavsiye_dili" if kesin else "kural1_suphe"]
+        r["adapter_critical_why"] = level[1] + (
+            "" if kesin else " — olumsuz cümlede; insan incelemesi gerekli"
+        )
+    adapter_critical = any("kural1_tavsiye_dili" in r["adapter_critical"] for r in rows)
+    adapter_rule1_suspect = any("kural1_suphe" in r["adapter_critical"] for r in rows)
     vetoes = [
         name
         for name, hit in (
@@ -528,6 +535,10 @@ def _score_answers(
         adapter_collapsed=adapter_collapsed,
         adapter_guaranteed_profit=adapter_guaranteed_profit or adapter_critical,
     )
+    if adapter_rule1_suspect:
+        if verdict == "accept":
+            verdict = "inconclusive"
+        vetoes = [*vetoes, "kural1_suphe"]
     # B1: kesik cevaplar eşit koşulda puanlanamaz → 'accept' için kanıt sayılmaz.
     denom_n = max(1, len(items))
     truncation = {"base": sum(bt), "adapter": sum(at), "max_new_tokens": EVAL_MAX_NEW_TOKENS}
@@ -703,11 +714,18 @@ def evaluate_served(
     return _aggregate_repeats(per_repeat, artifact="ollama", models={**tags, "digests": before})
 
 
+#: 'accept'i engelleyen ama tek başına 'reject' sebebi olmayan işaretler.
+SOFT_VETOES = frozenset({"truncated", "kural1_suphe"})
+
+
 def _aggregate_repeats(
     per_repeat: list[AdapterEvalResult], *, artifact: str, models: dict
 ) -> AdapterEvalResult:
     verdicts = [r.verdict for r in per_repeat]
-    if any(r.vetoes for r in per_repeat) or "reject" in verdicts:
+    # Kademe 2 2026-10-11 F2-4: ölçüm-geçerliliği/insan-inceleme işaretleri (kesik cevap — base'in
+    # kesilmesi dahil —, Kural 1 şüphesi) kategorik reddetmez; zaten 'accept'i engellerler.
+    hard = [set(r.vetoes) - SOFT_VETOES for r in per_repeat]
+    if any(hard) or "reject" in verdicts:
         verdict = "reject"
     elif all(v == "accept" for v in verdicts):
         verdict = "accept"
