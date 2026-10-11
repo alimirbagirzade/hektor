@@ -105,7 +105,24 @@ def build_user_content(
     Biçim `synthetic_qa_builder` ve `discipline_dataset` ile birebir aynıdır. Parçalar
     retrieval sırasıyla eklenir; toplam bağlam `budget` karakteri aşmaz.
     """
-    parts: list[str] = []
+    parts = [text for _, text in _budget_parts(chunks, budget)]
+    if not parts:
+        return question
+    context = "\n\n".join(parts)
+    return f"BAĞLAM:\n{context}\n\nSORU: {question}"
+
+
+def chunks_in_budget(chunks: list[RetrievedChunk], budget: int) -> list[RetrievedChunk]:
+    """`build_user_content`'in modele GERÇEKTEN koyduğu parçalar (kısmen kırpılan dahil).
+
+    Kaynaklar/kartlar yalnız bunlardan kurulur (Kural 7; Kademe 2 2026-10-11 F3-1: 6×1200
+    karakterlik retrieval'da model ~2 parça görürken 6'sı kaynak diye listeleniyordu).
+    """
+    return [c for c, _ in _budget_parts(chunks, budget)]
+
+
+def _budget_parts(chunks: list[RetrievedChunk], budget: int) -> list[tuple[RetrievedChunk, str]]:
+    out: list[tuple[RetrievedChunk, str]] = []
     used = 0
     for c in chunks:
         remaining = budget - used
@@ -113,12 +130,9 @@ def build_user_content(
             break
         text = c.text.strip()[:remaining]
         if text:
-            parts.append(text)
+            out.append((c, text))
             used += len(text)
-    if not parts:
-        return question
-    context = "\n\n".join(parts)
-    return f"BAĞLAM:\n{context}\n\nSORU: {question}"
+    return out
 
 
 class ContextBudgetError(ValueError):
@@ -305,7 +319,10 @@ def chat(
             budget = synthetic_char_budget(recipe.max_seq_length)
             user_content = build_user_content(question, chunks, budget)
             result["context_budget"] = f"{budget} karakter"
+            chunks = chunks_in_budget(chunks, budget)  # bütçe dışı parça kaynak sayılmaz
             result["sources"] = _source_dicts(chunks)
+            kept = {c.paper_id for c in chunks}
+            cards = {pid: card for pid, card in cards.items() if pid in kept}
 
     key = f"{base}|{adapter_dir or ''}"
     with _LOCK:

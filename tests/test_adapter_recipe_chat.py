@@ -306,6 +306,25 @@ def test_receteli_eski_adapter_sentetik_bicimde_kalir(env: dict[str, Any]) -> No
     assert out["recipe_warning"] is None and out["context_budget"] == "2400 karakter"
 
 
+def test_sentetik_yolda_kaynaklar_yalniz_modelin_gordugu_parcalar(env: dict[str, Any]) -> None:
+    # Kademe 2 F3-1: varsayılan top_k=6 × 1200 karakter, bütçe 2400 → model ~2 parça görür.
+    chunks = [
+        RetrievedChunk(f"c{i}", f"paper_{i}", "x" * 1200, 1, None, f"T{i}", 0.2) for i in range(6)
+    ]
+    looked: list[str] = []
+
+    def _cards(pid: str) -> dict | None:
+        looked.append(pid)
+        return {"title": pid, "main_claim": f"iddia {pid}"}
+
+    out = svc.chat("soru", None, use_context=True, retriever=_Retriever(chunks), card_lookup=_cards)
+    (call,) = env["generate"]
+    assert call["question"].count("x") == 2400
+    assert [s["chunk_id"] for s in out["sources"]] == ["c0", "c1"]
+    body = "\n".join(sec["body"] for sec in out["sections"])
+    assert "paper_0" in body and "paper_2" not in body and "paper_5" not in body
+
+
 def test_recetesi_bilinmeyen_adapter_eski_davranis_ve_gorunur_uyari(
     env: dict[str, Any], caplog: pytest.LogCaptureFixture
 ) -> None:
