@@ -252,7 +252,9 @@ def verify_target(
     checks: list[Check] = []
 
     # 1) güvenlik (Kural 1)
-    reason = correction_safety_reason(target, question)
+    from app.feedback.advice_guard import candidate_reason
+
+    reason = correction_safety_reason(target, question) or candidate_reason(question, target)
     checks.append(
         Check("guvenlik", FAILED if reason else PASSED, "tüm metin", reason or "Kural 1 temiz")
     )
