@@ -189,6 +189,28 @@ class PeftTrainConfig:
     # arasında dosya değişirse eğitim DURUR (DataIntegrityError → deterministik hata).
     expect_train_sha256: str = ""
     expect_valid_sha256: str = ""
+    # CPU base dtype tercihi ("" | "fp32" | "bf16"). Profil verebilir (MoE 30B: bf16 ZORUNLU —
+    # fp32 ≈ 137 GB tahmin). Açık HEKTOR_TRAIN_DTYPE her zaman kazanır; ikisi de yoksa fp32.
+    # Eskiden yalnız ortam değişkenine bakılıyordu: web/start-train bf16 verirken doğrudan
+    # `hektor train` (dry-run dahil) fp32 varsayıp RAM'i iki katı gösteriyordu.
+    cpu_dtype: str = ""
+
+
+CPU_DTYPES = ("fp32", "bf16")
+
+
+def resolve_cpu_dtype(cfg: PeftTrainConfig) -> tuple[str, str]:
+    """CPU eğitiminin base dtype'ı ve kaynağı: (``"bf16"|"fp32"``, kaynak).
+
+    Öncelik: ``HEKTOR_TRAIN_DTYPE`` (boş değilse; ``bf16`` dışı her değer fp32 — eski
+    davranış) → profil ``cpu_dtype`` → fp32. dry-run ve train() AYNI kararı kullanır.
+    """
+    env = os.environ.get("HEKTOR_TRAIN_DTYPE", "").strip()
+    if env:
+        return ("bf16" if env == "bf16" else "fp32"), "HEKTOR_TRAIN_DTYPE"
+    if cfg.cpu_dtype in CPU_DTYPES:
+        return cfg.cpu_dtype, "profil"
+    return "fp32", "varsayılan"
 
 
 class DataIntegrityError(RuntimeError):
@@ -657,6 +679,12 @@ def load_lora_profile(name: str, profiles_path: Path | None = None) -> dict:
         out["target_modules"] = normalize_target_modules(prof["target_modules"])
     if prof.get("gradient_checkpointing") is not None:
         out["gradient_checkpointing"] = bool(prof["gradient_checkpointing"])
+    if prof.get("cpu_dtype") is not None:
+        if prof["cpu_dtype"] not in CPU_DTYPES:
+            raise ValueError(
+                f"Profil {name!r}: cpu_dtype {list(CPU_DTYPES)} olmalı: {prof['cpu_dtype']!r}"
+            )
+        out["cpu_dtype"] = prof["cpu_dtype"]
     if prof.get("load_best_model_at_end") is not None:
         out["load_best_model_at_end"] = bool(prof["load_best_model_at_end"])
     # Tamsayı alanlar: YAML'da yanlış tip/negatif değer sessizce kabul edilmez.
@@ -826,6 +854,7 @@ def resume_requested(cfg: PeftTrainConfig) -> bool:
 
 def dry_run(cfg: PeftTrainConfig) -> dict:
     missing = _check_deps()
+    cpu_dtype, dtype_src = resolve_cpu_dtype(cfg)
     return {
         "dry_run": True,
         "resume_from_checkpoint": resume_requested(cfg),
@@ -836,9 +865,8 @@ def dry_run(cfg: PeftTrainConfig) -> dict:
         "iterations": cfg.iterations,
         "max_examples": cfg.max_examples,
         "recipe": recipe_summary(cfg),
-        "ram_check": check_cpu_ram(
-            cfg.base_model, 2 if os.environ.get("HEKTOR_TRAIN_DTYPE", "fp32") == "bf16" else 4
-        )[1],
+        "cpu_dtype": f"{cpu_dtype} ({dtype_src})",
+        "ram_check": check_cpu_ram(cfg.base_model, 2 if cpu_dtype == "bf16" else 4)[1],
         "missing_packages": missing,
         "install_cmd": f"uv pip install {' '.join(missing)}" if missing else None,
     }
@@ -1123,10 +1151,11 @@ def train(cfg: PeftTrainConfig) -> dict:
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # CPU base dtype: fp32 (varsayılan, kararlı) veya bf16 (HEKTOR_TRAIN_DTYPE=bf16).
+    # CPU base dtype: fp32 (varsayılan, kararlı) veya bf16 (HEKTOR_TRAIN_DTYPE=bf16 ya da
+    # profil cpu_dtype: bf16 — bkz. resolve_cpu_dtype).
     # bf16: model 16→8GB, bellek trafiği yarı → bellek-bağımlı CPU'da potansiyel ~2×.
     # Uyarı: AVX512-BF16'sız CPU'da (örn. Tiger Lake) bf16 emüle edilir; önce ölç.
-    _want_bf16 = os.environ.get("HEKTOR_TRAIN_DTYPE", "fp32") == "bf16"
+    _want_bf16 = resolve_cpu_dtype(cfg)[0] == "bf16"
     cpu_dtype = torch.bfloat16 if _want_bf16 else torch.float32
     dtype = torch.float16 if device == "cuda" else cpu_dtype
     logger.info("PEFT LoRA egitimi basladi. Cihaz: %s, dtype: %s", device, dtype)

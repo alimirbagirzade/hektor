@@ -123,6 +123,59 @@ def test_ram_estimate_30b_bf16_fits_fp32_does_not() -> None:
     assert 60 < bf16 < 128 < fp32
 
 
+def test_reported_136_8_gb_is_fp32_estimate_bf16_is_71_4() -> None:
+    # Kullanıcı dry-run'ındaki 136,8 GB = fp32 tahmini; profilin zorunlu kıldığı bf16 ≈ 71,4.
+    total = 61_064_245_248
+    assert estimate_cpu_train_ram_gb(total, src_bytes=2, dst_bytes=4) == 136.8
+    assert estimate_cpu_train_ram_gb(total, src_bytes=2, dst_bytes=2) == 71.4
+
+
+@pytest.mark.parametrize("profile", ["moe30b_attn_local", "moe30b_attn_long"])
+def test_moe_profiles_carry_bf16_so_dry_run_matches_launch(profile: str, monkeypatch) -> None:
+    from app.training.peft_lora_train import resolve_cpu_dtype
+
+    monkeypatch.delenv("HEKTOR_TRAIN_DTYPE", raising=False)
+    prof = load_lora_profile(profile)
+    prof.pop("epochs", None)
+    cfg = _cfg(**prof)
+    # Ortam değişkeni yokken de bf16 (eskiden fp32 → RAM iki katı görünüyordu).
+    assert resolve_cpu_dtype(cfg) == ("bf16", "profil")
+    # Açık ortam değişkeni yine kazanır (bilinçli fp32 denemesi mümkün kalır).
+    monkeypatch.setenv("HEKTOR_TRAIN_DTYPE", "fp32")
+    assert resolve_cpu_dtype(cfg) == ("fp32", "HEKTOR_TRAIN_DTYPE")
+
+
+def test_cpu_dtype_default_fp32_and_invalid_profile_rejected(tmp_path: Path, monkeypatch) -> None:
+    from app.training.peft_lora_train import resolve_cpu_dtype
+
+    monkeypatch.delenv("HEKTOR_TRAIN_DTYPE", raising=False)
+    assert resolve_cpu_dtype(_cfg()) == ("fp32", "varsayılan")
+    bad = tmp_path / "p.yaml"
+    bad.write_text("x:\n  cpu_dtype: fp16\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="cpu_dtype"):
+        load_lora_profile("x", profiles_path=bad)
+
+
+def test_dry_run_ram_check_uses_profile_dtype(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("HEKTOR_TRAIN_DTYPE", raising=False)
+    (tmp_path / "model.safetensors.index.json").write_text(
+        json.dumps({"metadata": {"total_size": 61_064_245_248}}), encoding="utf-8"
+    )
+
+    class _VM:
+        available = int(106.2 * 1024**3)
+
+    import psutil
+
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: _VM())
+    monkeypatch.setattr(peft_lora_train, "_check_deps", lambda: [])
+    prof = load_lora_profile("moe30b_attn_local")
+    prof.pop("epochs", None)
+    out = peft_lora_train.dry_run(_cfg(**{**prof, "base_model": str(tmp_path)}))
+    assert out["cpu_dtype"] == "bf16 (profil)"
+    assert "≈71.4 GB" in out["ram_check"] and "Yetersiz" not in out["ram_check"]
+
+
 def test_check_cpu_ram_uses_local_index(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "model.safetensors.index.json").write_text(
         json.dumps({"metadata": {"total_size": 61 * 1024**3}}), encoding="utf-8"
