@@ -156,6 +156,56 @@ def test_worse_candidate_is_rejected(iso, tmp_path) -> None:  # noqa: F811
     assert cc.finalize(m["comparison_id"])["decision"] == "ret"
 
 
+T_LOCK = "2026-10-12T10:00:00.015625+00:00"
+
+
+def _fake_clock(monkeypatch, *stamps: str) -> list[str]:
+    """utcnow'u sabit damga dizisiyle değiştir (son damga tekrar eder)."""
+    seq = list(stamps)
+    seen: list[str] = []
+
+    def fake() -> str:
+        now = seq.pop(0) if len(seq) > 1 else seq[0]
+        seen.append(now)
+        return now
+
+    monkeypatch.setattr(cc, "utcnow", fake)
+    monkeypatch.setattr(cc.time, "sleep", lambda s: None)
+    return seen
+
+
+def test_equal_lock_and_create_timestamps_wait_for_clock(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    # Kaba saat (Windows ~15.6 ms): kilit ve create aynı damgayı alır → create saatin
+    # ilerlemesini bekler; created_at gerçek bir okuma ve kilitten KESİN sonra.
+    later = "2026-10-12T10:00:00.031250+00:00"
+    seen = _fake_clock(monkeypatch, T_LOCK, T_LOCK, T_LOCK, later)
+    m = _create(tmp_path)
+    assert m["criteria_locked_at"] == T_LOCK
+    assert m["created_at"] == later
+    assert seen.count(T_LOCK) >= 2  # eşit damga gerçekten görüldü
+
+
+def test_stuck_clock_still_rejects(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    # Saat hiç ilerlemezse kural gevşemez: eşit damga "sonra" sayılmaz.
+    _fake_clock(monkeypatch, T_LOCK)
+    monkeypatch.setattr(cc, "_CLOCK_WAIT_S", 0.0)
+    with pytest.raises(cc.CompareError, match="ÖNCE kilitlenmiş"):
+        _create(tmp_path)
+
+
+def test_future_lock_rejected(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    _fake_clock(monkeypatch, "2026-10-12T10:00:01+00:00", T_LOCK)
+    monkeypatch.setattr(cc, "_CLOCK_WAIT_S", 0.0)
+    with pytest.raises(cc.CompareError, match="ÖNCE kilitlenmiş"):
+        _create(tmp_path)
+
+
+def test_lock_without_microseconds_compared_as_time(iso, tmp_path, monkeypatch) -> None:  # noqa: F811
+    # isoformat mikrosaniye 0 iken onu yazmaz; string karşılaştırması değil zaman karşılaştırılır.
+    _fake_clock(monkeypatch, "2026-10-12T10:00:00+00:00", "2026-10-12T10:00:00.000001+00:00")
+    assert _create(tmp_path)["created_at"] == "2026-10-12T10:00:00.000001+00:00"
+
+
 def test_criteria_lock_and_tamper(iso, tmp_path) -> None:  # noqa: F811
     lock = cc.lock_criteria()
     assert cc.lock_criteria()["locked_at"] == lock["locked_at"]  # değişmez
