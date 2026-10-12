@@ -26,6 +26,7 @@ Bu bir LLM soru-cevap karşılaştırmasıdır; trading performansı iyileşmesi
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import random
@@ -225,6 +226,32 @@ def lock_criteria(criteria: dict[str, Any] | None = None) -> dict[str, Any]:
     return rec
 
 
+_CLOCK_WAIT_S = 0.25  # Windows saat çözünürlüğü ~15.6 ms; bunun birkaç katı yeter
+
+
+def _strictly_after(locked_at: Any) -> str:
+    """Ölçüt kilidinden KESİN sonra olan gerçek bir saat okuması döndür.
+
+    Kaba saat çözünürlüğünde kilit ve karşılaştırma aynı damgayı alabilir; bu durumda saat
+    ilerleyene kadar (sınırlı) beklenir — damga uydurulmaz/kaydırılmaz. Kilit hâlâ şimdiden
+    sonraysa (ileri tarihli kilit / saat geri gitti) karşılaştırma reddedilir.
+    """
+    try:
+        ref = dt.datetime.fromisoformat(str(locked_at))
+        if ref.tzinfo is None:
+            raise ValueError("saat dilimi yok")
+    except ValueError as exc:
+        raise CompareError("Ölçüt kilit zamanı okunamadı.") from exc
+    deadline = time.monotonic() + _CLOCK_WAIT_S
+    while True:
+        now = utcnow()
+        if dt.datetime.fromisoformat(now) > ref:
+            return now
+        if time.monotonic() >= deadline:
+            raise CompareError("Ölçüt karşılaştırmadan ÖNCE kilitlenmiş olmalı.")
+        time.sleep(0.002)
+
+
 def preset_criteria_shas() -> frozenset[str]:
     """Onaylı ön ayar ölçütlerinin özetleri (final kararı yalnız bunlarla)."""
     return frozenset({_sha(DEFAULT_CRITERIA), _sha(DIMENSION_CRITERIA), _sha(FINAL_CRITERIA)})
@@ -360,9 +387,7 @@ def create(
         if crit["criteria"].get("name") != FINAL_CRITERIA["name"]:
             raise CompareError("Final takımı yalnız final ölçütüyle (final_rubrik_v1) koşulur.")
     cmp_id = "cmp_" + secrets.token_hex(6)
-    now = utcnow()
-    if crit["locked_at"] >= now:
-        raise CompareError("Ölçüt karşılaştırmadan ÖNCE kilitlenmiş olmalı.")
+    now = _strictly_after(crit["locked_at"])
     effective_role = role
     note = ""
     fps = question_fingerprints(questions)
