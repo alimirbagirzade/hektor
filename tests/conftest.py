@@ -269,9 +269,15 @@ def _neutral_training_loop_gate(request, monkeypatch):
 
 # Çıkış kodu tanığı gerçek ayrık süreç doğurur; testlerde ASLA (pencere/süreç taşkını dersi,
 # 2026-10-06). Tanığın kendisi `witness()` ile süreçsiz sınanır.
+@pytest.fixture
+def real_exit_witness_spawn():
+    """Gerçek `spawn` (testin kendisi `subprocess.Popen`'ı sahtelemeli)."""
+
+
 @pytest.fixture(autouse=True)
-def _no_exit_witness_spawn(monkeypatch):
+def _no_exit_witness_spawn(request, monkeypatch):
     from app.training import exit_witness
 
-    monkeypatch.setattr(exit_witness, "spawn", lambda *a, **kw: True)
+    if "real_exit_witness_spawn" not in request.fixturenames:
+        monkeypatch.setattr(exit_witness, "spawn", lambda *a, **kw: True)
     yield

@@ -333,3 +333,24 @@ def test_easy_readiness_shows_loop_and_knowledge_items(
     assert items["egitim_dongusu"]["ok"] is False
     assert "bitiş doğrulaması yok" in items["egitim_dongusu"]["detail"]
     assert items["bilgi_verisi"]["ok"] is True
+
+
+def test_witness_spawn_runs_from_code_root_not_data_root(
+    tmp_path, monkeypatch, real_exit_witness_spawn
+):
+    """Veri kökü (HEKTOR_ROOT_PATH) kod kökünden ayrıysa `-m app.training.exit_witness` veri
+    kökünde bulunamaz → tanık sessizce ölüyordu (2026-10-12 canlı bağlamada görüldü)."""
+    from app.config import get_settings
+
+    seen = {}
+
+    def fake_popen(cmd, **kw):
+        seen.update(cmd=cmd, **kw)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    assert exit_witness.spawn("aday", 123, 1.5, tmp_path)
+    code_root = str(get_settings().source_root)
+    assert seen["cwd"] == code_root and seen["cwd"] != str(tmp_path)
+    assert seen["env"]["HEKTOR_ROOT_PATH"] == str(tmp_path)
+    assert seen["env"]["PYTHONPATH"] == code_root
+    assert seen["cmd"][1:4] == ["-m", "app.training.exit_witness", "aday"]

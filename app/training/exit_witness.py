@@ -124,13 +124,17 @@ def spawn(adapter: str, pid: int, create_time: float | None, root: Path) -> bool
     cmd = [sys.executable, "-m", "app.training.exit_witness", adapter, str(pid)]
     if create_time is not None:
         cmd.append(repr(float(create_time)))
+    from app.config import get_settings
+
+    # `-m app.…` KOD kökünden çözülmeli (veri kökü ayrı olabilir: HEKTOR_ROOT_PATH).
+    code_root = str(get_settings().source_root)
     kwargs: dict[str, Any] = {
-        "cwd": str(root),
+        "cwd": code_root,
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
         "close_fds": True,
-        "env": {**os.environ, "HEKTOR_ROOT_PATH": str(root)},
+        "env": {**os.environ, "HEKTOR_ROOT_PATH": str(root), "PYTHONPATH": code_root},
     }
     if os.name == "nt":
         kwargs["creationflags"] = DETACHED_HIDDEN
