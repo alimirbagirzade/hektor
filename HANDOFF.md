@@ -1,6 +1,6 @@
 # HANDOFF — Hektor
 
-_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-10-11 (final test takımı altyapısı + rubrik kapısı; eğitim durduruldu · pilot engelleri + Kademe 2 2026-10-11 · v14 eğitimi 2026-10-03'te 187/187 BİTTİ, aday — karşılaştırmalı değerlendirme bekliyor · araştırma otomasyonunu bekleten bayat kilit giderildi · #34–#45 main'de · aktif model hâlâ `hektor-v12-30b` · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
+_Depo: https://github.com/alimirbagirzade/hektor · Son güncelleme: 2026-10-12 (ölçüt kilidi ↔ karşılaştırma zaman damgası yarışı giderildi, PR #69 · final test takımı altyapısı + rubrik kapısı; eğitim durduruldu · pilot engelleri + Kademe 2 2026-10-11 · v14 eğitimi 2026-10-03'te 187/187 BİTTİ, aday — karşılaştırmalı değerlendirme bekliyor · araştırma otomasyonunu bekleten bayat kilit giderildi · #34–#45 main'de · aktif model hâlâ `hektor-v12-30b` · 4B dönemi kayıtları `docs/arsiv/4b_donemi/HANDOFF_2026-09_4B_donemi.md`'de)_
 
 
 Yerel-öncelikli AI **trading araştırma** sistemi (Windows · macOS Apple Silicon · Linux).
@@ -32,6 +32,23 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 ---
 
 ## Durum
+
+### 2026-10-12 — ölçüt kilidi ↔ karşılaştırma zaman damgası yarışı (PR #69)
+
+`candidate_compare.create()` ölçütün karşılaştırmadan ÖNCE kilitlendiğini
+`locked_at >= now` (ISO dizgi) ile denetliyordu. Windows'ta saat çözünürlüğü 15.6 ms
+(`GetSystemTimeAsFileTime`); `lock_criteria()` ardından hemen `create()` aynı damgayı
+alabiliyor → `test_cloud_judge.py` ve `test_ai_review_is_separate_and_never_decides`
+aralıklı düşüyordu (~14 koşuda 2-3). Yeni `_strictly_after()`: kilitten KESİN sonra gerçek
+bir saat okuması gelene kadar ≤0.25 sn bekler; damga uydurulmaz/kaydırılmaz. Saat
+ilerlemezse, kilit ileri tarihliyse ya da kilit damgası okunamıyorsa yine RET (kural
+gevşemedi; `>=`→`>` yapılmadı). Karşılaştırma artık `datetime` ile (mikrosaniye 0 iken
+`isoformat` onu yazmaz). `utcnow` monkeypatch'li 4 deterministik regresyon testi eklendi.
+Doğrulama: format/lint/mypy temiz; iki dosya 10 ardışık koşu 50/50. Tam paket 3516 geçti,
+5 kaldı — `test_easy_train.py`/`test_kademe2_real_git.py`'deki ön kontrol, masaüstünde süren
+LoRA eğitimi (`hektor_lora_full_20261011`) RAM'i tuttuğu için "Yetersiz RAM" ile engelliyor
+(gerçek boş belleği okuyor); bu değişiklikle ilgisiz. **Açık:** eğitim bitince tam paketi
+yeniden koş. Eğitim başlatılmadı.
 
 ### 2026-10-11 — Ölçüm altyapısı: final test takımı + rubrik/kritik hata kapısı (eğitim DURDURULDU)
 
