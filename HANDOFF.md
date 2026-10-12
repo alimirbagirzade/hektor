@@ -33,6 +33,21 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-12 — Kaynak bilgi denetimi + kontrollü eğitim döngüsü kapısı (dal, canlıya UYGULANMADI)
+
+Dal `claude/hektor-validation-training-loop-0345f5`. Tasarım: `docs/TASARIM_BILGI_DENETIM_DONGUSU.md`.
+- Araştırma paketinin kaynaklı aday verisi artık kalem bazında denetlenir (`hektor bilgi …`):
+  kaynak güvenilirliği/doğruluk/güncellik/fayda/tekrar/çelişki + sızıntı/köken/Kural 1, yerel
+  hakem, (Codex seçiliyse) GPT yorumu — doğrulanamayan → karantina; düzeltme ayrı sürüm; insan
+  kararı `--kim --gerekce`; onaylı kalemler değişmez sürüm → `research_selection.json` → kanonik
+  birleştirme. Seçim yoksa birleştirme bayt-aynı.
+- Eğitim döngüsü defteri (`hektor egitim-dongusu …`, `storage/training_loop/`): bitiş = çıkış kodu
+  tanığı (`train_exit.json`) + final durum + ağırlık dosyaları; geliştirme değerlendirmesi = puanlı
+  LLM-30 aday ↔ önceki model (`rubric_gate`). Tüm başlatma yollarında kapı: önceki aday
+  doğrulanmadan/geçmeden ya da aynı veri özetiyle sıfırdan eğitim yok.
+- Koşan `hektor_lora_full_20261011` bu koddan ÖNCE başlatıldı → çıkış kodu tanığı yok; bitişte
+  `cikis_kodu` kontrolü başarısız olur (bkz. dal raporu: `egitim-dongusu tanik` ya da insan kararı).
+
 ### 2026-10-12 — ölçüt kilidi ↔ karşılaştırma zaman damgası yarışı (PR #69)
 
 `candidate_compare.create()` ölçütün karşılaştırmadan ÖNCE kilitlendiğini

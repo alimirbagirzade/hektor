@@ -320,12 +320,23 @@ def data(root: Path, cfg: PackageConfig) -> dict[str, Any]:
             accepted += 1
         ledger[key]["status"] = status
         write_json(ledger_path, ledger)
+    # Kabul edilen satırlar bilgi kalemine çevrilir ve denetlenir (kaynak, doğruluk, güncellik,
+    # fayda, tekrar, çelişki + yerel hakem). Doğrulanamayan kalem karantinada kalır; hiçbiri
+    # bu aşamada eğitim verisine yazılmaz (sürüm + seçim ayrı insan adımıdır).
+    from app.research import knowledge_review
+
+    imported = knowledge_review.import_staging(output)
+    review = knowledge_review.review_pending(
+        limit=cfg.questions_per_cycle * 2, guard=lambda: guard(root, cfg)
+    )
     return {
         "questions_selected": len(selected),
         "attempted": len(jobs),
         "accepted": accepted,
         "rejected": len(jobs) - accepted,
         "output": str(output),
+        "knowledge_imported": imported,
+        "knowledge_review": review,
     }
 
 
@@ -371,6 +382,9 @@ def report(root: Path, cfg: PackageConfig) -> dict[str, Any]:
         if not row.get("card_done") and row.get("card_attempts", 0) >= cfg.max_attempts
     ]
     questions = read_json(package_dir(root) / "questions_done.json", {})
+    from app.research import knowledge_review
+
+    knowledge = knowledge_review.summary(limit=0)
     path = root / "reports" / "research_package" / "status.json"
     write_json(
         path,
@@ -384,6 +398,12 @@ def report(root: Path, cfg: PackageConfig) -> dict[str, Any]:
             "interrupted_questions": [
                 key for key, row in questions.items() if row.get("status") == "started"
             ],
+            "knowledge": {
+                "counts": knowledge["counts"],
+                "versions": knowledge["versions"],
+                "selection": knowledge["selection"],
+                "gpt": knowledge["gpt"],
+            },
             "training": "Başlatılmaz. Aday veri kalite/sızıntı denetimi ve insan onayı ister.",
             "methods": "Kaynaklı hipotezlerdir; bağımsız doğrulama ve ablasyon yapılmadı.",
         },

@@ -1150,6 +1150,15 @@ uv run hektor compare-run --set s.jsonl --active A --candidate C --base B --adap
 uv run hektor compare-lock-criteria --preset boyutlu  # ölçütü cevaplar görülmeden kilitle (broad_v1 boyutlu ölçütü)
 uv run hektor final-set format|status|validate|lock|export  # final test takımı (≥60, yerel, kilitli; docs/FINAL_TEST_TAKIMI.md)
 uv run hektor rubric-gate <raw.jsonl> --candidate B --reference A  # rubrik + kritik hata kapısı (tek kritik = NO-GO; ≥2 tekrar)
+uv run hektor bilgi durum              # kaynak bilgi kalemleri: inceleme/karantina/onay sayıları, sürüm, GPT bağlantısı (salt-okuma)
+uv run hektor bilgi iceri-al|incele    # araştırma staging satırlarını kaleme çevir · deterministik ölçüt + YEREL hakem (ağır iş sürerken çalışmaz)
+uv run hektor bilgi goster|duzelt|onayla|reddet <kr_…>  # tam kayıt · düzeltme AYRI sürüm · (insan) gerekçeli karar --kim --gerekce
+uv run hektor bilgi surum|sec <rv_…>|secimi-kaldir  # onaylı kalemlerden değişmez veri sürümü → kanonik birleştirmeye seçim
+uv run hektor egitim-dongusu durum|kapi  # aday defteri (bitiş · geliştirme değerlendirmesi · sonraki adım) · yeni eğitime döngü izni
+uv run hektor egitim-dongusu bitis <ad>  # bitişi çıkış kodu + final durum + ağırlık dosyalarıyla doğrula ve kaydet
+uv run hektor egitim-dongusu degerlendirme <ad> --aday-raw r.jsonl --onceki-raw p.jsonl  # puanlı LLM-30 aday↔önceki model kapısı → kayıt
+uv run hektor egitim-dongusu tanik <ad>  # bu sürümden ÖNCE başlatılmış koşan eğitime çıkış kodu tanığı bağla (yalnız bekler)
+uv run hektor egitim-dongusu serbest-birak <ad> --gerekce "..."  # başarısız/regresyonlu adaydan sonra devam: TAZE insan onayı
 uv run hektor lora-eval <ad> --served-tag <aday> --served-base <base> --repeats 3  # servis edilen Ollama GGUF yapıtını ölç (B6)
 uv run hektor compare-ai-review <cmp_id> --scores s.json --model <ad>  # AI incelemesini AYRI kaydet (insan puanı değil; karara girmez)
 uv run hektor compare-mark-integration <cmp_id> --note "..."  # koşuyu yalnız entegrasyon testi işaretle (terfide kullanılamaz)

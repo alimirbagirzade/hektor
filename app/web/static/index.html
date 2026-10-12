@@ -931,6 +931,20 @@
           <p class="muted small">Makale arama → kontrollü RAG → kart → aday veri → yöntem önerisi. Web sunucusu açık kaldığı sürece çalışır; yeni ağır LoRA eğitimi başlatmaz. Etkin paket için aşağıdaki eski RAG döngüsünü ayrıca açmayın.</p>
         </div>
 
+        <!-- Kaynak bilgi denetimi + kontrollü eğitim döngüsü (salt-okuma: /api/research-package/knowledge-loop) -->
+        <div class="card" id="klCard">
+          <h3>Bilgi denetimi ve eğitim döngüsü</h3>
+          <p class="muted small">Kaynaklardan gelen her bilgi kalemi kaynak güvenilirliği, doğruluk, güncellik, fayda, tekrar ve çelişki için denetlenir. Doğrulanamayan kalem <strong>karantinada</strong> kalır ve eğitime girmez. Model/GPT yorumu tek başına doğruluk kanıtı sayılmaz; insan onayı yalnız gerekçeli insan kararıdır. Bu panel salt-okumadır.</p>
+          <p id="klSummary" role="status" aria-live="polite">Yükleniyor…</p>
+          <p id="klGpt" class="muted small"></p>
+          <p id="klVersion" class="muted small"></p>
+          <div class="kl-scroll"><table class="kl-table" id="klItems"></table></div>
+          <h4>Eğitim ilerlemesi</h4>
+          <p id="klTraining">—</p>
+          <h4>Aday döngüsü (bitiş doğrulaması → geliştirme değerlendirmesi → sonraki eğitim)</h4>
+          <div class="kl-scroll"><table class="kl-table" id="klLoop"></table></div>
+        </div>
+
         <!-- RAG Öğrenme Döngüsü (otonom, sunucu-taraflı) -->
         <div class="card" style="margin-bottom:1rem;border:1px solid #334155">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">

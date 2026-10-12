@@ -282,6 +282,9 @@ def test_candidate_data_never_rewrites_training_source(tmp_path, monkeypatch):
     )
     result = worker.data(tmp_path, config())
     assert result["accepted"] == 1
+    # Kabul edilen satır doğrudan bilgi defterine gider; okunamayan satır kalem olmaz.
+    assert result["knowledge_imported"]["unreadable"] == 1
+    assert "knowledge_review" in result
     assert Path(result["output"]).is_relative_to(tmp_path / "data/research_package/staging")
     assert source.read_text(encoding="utf-8") == "SABİT EĞİTİM VERİSİ"
     assert package.read_json(package.package_dir(tmp_path) / "questions_done.json")

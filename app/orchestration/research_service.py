@@ -138,11 +138,85 @@ class ResearchService:
     def _stopped(self) -> bool:
         return self._shutdown.is_set() or not self.state().get("enabled", False)
 
-    def review(self, stage: Stage, plan: dict[str, Any]) -> dict[str, Any]:
-        """Motorlara sabit planı incelet; yanıtlarını komut olarak çalıştırma."""
+    def _ask_engine(self, name: str, prompt: str, cfg: PackageConfig, run_id: str) -> str:
+        """Seçili motora tek istem gönder; çıktı veri olarak döner (komut olarak ÇALIŞMAZ)."""
         from app.orchestration.driver import _default_runner, build_child_env
         from app.web import driver_scope
 
+        reasons = blockers(self.root, cfg)
+        if self._stopped() or reasons:
+            raise StagePaused("İnceleme bekletildi: " + "; ".join(reasons))
+        reason = research_engines.blocked_reason(name)
+        if reason:
+            raise RuntimeError(reason)
+        token = driver_scope.mint(run_id, ttl_s=600)
+        try:
+            with tempfile.TemporaryDirectory(prefix="hektor-review-") as temp:
+                command, env, cwd = research_engines.prepare(
+                    name,
+                    prompt,
+                    cfg.teacher_model,
+                    cfg.seed,
+                    build_child_env(token, run_id),
+                    Path(temp),
+                )
+                rc, output = _default_runner(
+                    command,
+                    300,
+                    env,
+                    run_id=run_id,
+                    stop_requested=lambda: self._stopped() or bool(blockers(self.root, cfg)),
+                    stdout_only=True,
+                    cwd=cwd,
+                )
+        finally:
+            driver_scope.revoke_run(run_id)
+        if rc:
+            raise RuntimeError(f"{name} çalıştırılamadı (kod {rc}); oturum/kota kontrolü gerekli.")
+        return str(output)
+
+    def review_knowledge(self) -> dict[str, Any]:
+        """Seçili GPT motoru (Codex) varsa bekleyen bilgi kalemlerine YORUM al.
+
+        Yalnız kullanıcının araştırma yöneticisinde Codex'i seçtiği durumda çalışır (ayrı
+        zamanlayıcı yok; veri aşamasından sonra aynı tur içinde). Yorum ``supheli`` ise kalem
+        karantinaya girer; ``tutarli`` hiçbir kalemi onaylamaz. Gönderilen istemin özeti
+        kayda yazılır; GPT metni hiçbir eğitim satırına girmez.
+        """
+        from app.research import knowledge_review as kr
+
+        state = self.state()
+        if "codex" not in (state.get("engines") or []):
+            return {
+                "ran": False,
+                "skipped": "GPT (Codex) motoru seçili değil — GPT incelemesi yok.",
+            }
+        cfg = PackageConfig.model_validate(read_json(self.config_path))
+        items = kr.gpt_pending(cfg.questions_per_cycle)
+        if not items:
+            return {"ran": False, "skipped": "GPT yorumu bekleyen kalem yok."}
+        prompt = kr.gpt_prompt(items)
+        prompt_sha = kr.sha256_text(prompt)
+        output = self._ask_engine("codex", prompt, cfg, str(state["run_id"]))
+        got = kr.parse_gpt_output(output, {it["item_id"] for it in items})
+        for iid, row in got.items():
+            kr.record_gpt_review(
+                iid,
+                engine="codex",
+                verdict=row["verdict"],
+                reason=row["reason"],
+                prompt_sha=prompt_sha,
+            )
+        return {
+            "ran": True,
+            "sent": len(items),
+            "answered": len(got),
+            "suspicious": sum(1 for r in got.values() if r["verdict"] == "supheli"),
+            "prompt_sha256": prompt_sha,
+        }
+
+    def review(self, stage: Stage, plan: dict[str, Any]) -> dict[str, Any]:
+        """Motorlara sabit planı incelet; yanıtlarını komut olarak çalıştırma."""
         state = self.state()
         cfg = PackageConfig.model_validate(read_json(self.config_path))
         decisions: list[dict[str, Any]] = []
@@ -176,38 +250,7 @@ class ResearchService:
         )
         run_id = str(state["run_id"])
         for name in state["engines"]:
-            reasons = blockers(self.root, cfg)
-            if self._stopped() or reasons:
-                raise StagePaused("İnceleme bekletildi: " + "; ".join(reasons))
-            reason = research_engines.blocked_reason(name)
-            if reason:
-                raise RuntimeError(reason)
-            token = driver_scope.mint(run_id, ttl_s=600)
-            try:
-                with tempfile.TemporaryDirectory(prefix="hektor-review-") as temp:
-                    command, env, cwd = research_engines.prepare(
-                        name,
-                        prompt,
-                        cfg.teacher_model,
-                        cfg.seed,
-                        build_child_env(token, run_id),
-                        Path(temp),
-                    )
-                    rc, output = _default_runner(
-                        command,
-                        300,
-                        env,
-                        run_id=run_id,
-                        stop_requested=lambda: self._stopped() or bool(blockers(self.root, cfg)),
-                        stdout_only=True,
-                        cwd=cwd,
-                    )
-            finally:
-                driver_scope.revoke_run(run_id)
-            if rc:
-                raise RuntimeError(
-                    f"{name} çalıştırılamadı (kod {rc}); oturum/kota kontrolü gerekli."
-                )
+            output = self._ask_engine(name, prompt, cfg, run_id)
             decision = parse_decision(output, stage)
             decisions.append({"engine": name, **decision.model_dump()})
             self._update(last_reviews=decisions)
@@ -258,6 +301,15 @@ class ResearchService:
                 self._update(status="waiting", last_result=result)
             else:
                 self._update(status="idle", failures=0, retry_after=0, last_result=result)
+                if result.get("executed") == "data":
+                    # GPT yorumu yalnız ek şüphe kaynağıdır; hatası turu başarısız saymaz.
+                    try:
+                        gpt = self.review_knowledge()
+                    except StagePaused as exc:
+                        gpt = {"ran": False, "skipped": str(exc)}
+                    except Exception as exc:
+                        gpt = {"ran": False, "error": str(exc)[:500]}
+                    self._update(last_knowledge_gpt=gpt)
             return result
         finally:
             self._cycle_lock.release()
