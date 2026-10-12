@@ -206,6 +206,10 @@ def _adapter_files(root, name="hektor_lora_t"):
     (d / "adapter_model.safetensors").write_bytes(b"agirlik")
     (d / "run_plan.json").write_text(json.dumps({"max_steps": 10}), "utf-8")
     (d / "run_complete.json").write_text(json.dumps({"global_step": 10, "max_steps": 10}), "utf-8")
+    # İşletim sisteminin bildirdiği çıkış kodu (exit_witness kaydı; pid testlerdeki durumla aynı).
+    (d / "train_exit.json").write_text(
+        json.dumps({"adapter": name, "pid": 0, "status": "exited", "exit_code": 0}), "utf-8"
+    )
     return d
 
 

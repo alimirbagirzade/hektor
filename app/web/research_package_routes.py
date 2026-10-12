@@ -43,3 +43,27 @@ async def research_package_start(req: ResearchStartRequest) -> dict[str, Any]:
 def research_package_stop() -> dict[str, Any]:
     """Yalnız araştırma paketini durdur; çalışan eğitim korunur."""
     return get_research_service().stop()
+
+
+@router.get("/knowledge-loop")
+def knowledge_loop_status() -> dict[str, Any]:
+    """Bilgi kalemleri (inceleme/karantina/onay), veri sürümü, eğitim ilerlemesi ve döngü
+    defteri (bitiş + geliştirme değerlendirmesi). Salt-okuma: model/motor/Ollama çağırmaz;
+    yalnız koşan eğitimin durum dosyasındaki adayı deftere kaydeder."""
+    from app.orchestration.training_loop import overview
+    from app.research.knowledge_review import summary
+    from app.training.detached_launch import training_status
+
+    try:
+        progress = training_status()
+    except Exception as exc:  # durum rozeti bozuksa ekranın kalanı yine görünsün
+        progress = {"running": False, "error": str(exc)[:300]}
+    return {
+        "knowledge": summary(limit=30),
+        "training": {
+            k: progress.get(k)
+            for k in ("running", "adapter", "step", "total", "pct", "eta", "source", "error")
+            if k in progress
+        },
+        "loop": overview(),
+    }

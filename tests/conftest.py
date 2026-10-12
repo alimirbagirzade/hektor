@@ -242,3 +242,36 @@ def _neutral_kademe2_gate(request, monkeypatch):
 
     monkeypatch.setattr(easy_train, "kademe2_check", lambda **kw: None)
     yield
+
+
+# Eğitim döngüsü kapısı (app.training.training_loop) — Kademe 2 kapısıyla aynı desen: mevcut
+# başlatma testleri döngü defterini kurmaz; kapının kendisini sınayan testler
+# `real_training_loop_gate` fikstürünü ister.
+@pytest.fixture
+def real_training_loop_gate():
+    from app.orchestration import training_loop
+
+    return training_loop.next_training_blockers
+
+
+@pytest.fixture(autouse=True)
+def _neutral_training_loop_gate(request, monkeypatch):
+    from app.orchestration import training_loop
+
+    if "real_training_loop_gate" in request.fixturenames:
+        monkeypatch.setattr(
+            training_loop, "next_training_check", training_loop.next_training_blockers
+        )
+    else:
+        monkeypatch.setattr(training_loop, "next_training_check", lambda **kw: [])
+    yield
+
+
+# Çıkış kodu tanığı gerçek ayrık süreç doğurur; testlerde ASLA (pencere/süreç taşkını dersi,
+# 2026-10-06). Tanığın kendisi `witness()` ile süreçsiz sınanır.
+@pytest.fixture(autouse=True)
+def _no_exit_witness_spawn(monkeypatch):
+    from app.training import exit_witness
+
+    monkeypatch.setattr(exit_witness, "spawn", lambda *a, **kw: True)
+    yield
