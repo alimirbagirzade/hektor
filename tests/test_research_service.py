@@ -213,3 +213,47 @@ def test_stderr_prompt_cannot_override_final_decision(monkeypatch):
     )
     assert code == 0
     assert not service.parse_decision(output, "discovery").proceed
+
+
+# ── bilgi kalemleri: GPT (Codex) yorumu yalnız seçiliyse, aynı yönetici turunda ───────
+
+
+def test_gpt_knowledge_review_only_when_codex_selected(manager, monkeypatch):
+    from app.research import knowledge_review as kr
+
+    package.write_json(manager.path, {"enabled": True, "engines": ["ollama"], "run_id": "r1"})
+    monkeypatch.setattr(manager, "_ask_engine", lambda *a, **kw: pytest.fail("GPT çağrıldı"))
+    assert "seçili değil" in manager.review_knowledge()["skipped"]
+
+    item = {"item_id": "kr_" + "a" * 20, "question": "Soru?"}
+    package.write_json(manager.path, {"enabled": True, "engines": ["codex"], "run_id": "r1"})
+    monkeypatch.setattr(kr, "gpt_pending", lambda limit: [item])
+    monkeypatch.setattr(kr, "gpt_prompt", lambda items: "ISTEM")
+    sent: list[str] = []
+
+    def ask(name, prompt, cfg, run_id):
+        sent.append(prompt)
+        return kr.GPT_MARKER + json.dumps(
+            {"item_id": item["item_id"], "verdict": "supheli", "reason": "kaynakta yok"}
+        )
+
+    recorded = []
+    monkeypatch.setattr(manager, "_ask_engine", ask)
+    monkeypatch.setattr(kr, "record_gpt_review", lambda iid, **kw: recorded.append((iid, kw)))
+    res = manager.review_knowledge()
+    assert res["ran"] and res["suspicious"] == 1 and sent == ["ISTEM"]
+    assert recorded[0][0] == item["item_id"] and recorded[0][1]["engine"] == "codex"
+    assert recorded[0][1]["prompt_sha"] == kr.sha256_text("ISTEM")
+
+
+def test_knowledge_loop_route_is_read_only_view(manager, monkeypatch):
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[require_auth] = lambda: None
+    with TestClient(app) as client:
+        res = client.get("/api/research-package/knowledge-loop")
+    assert res.status_code == 200
+    body = res.json()
+    assert set(body) == {"knowledge", "training", "loop"}
+    assert "counts" in body["knowledge"] and "gpt" in body["knowledge"]
+    assert "candidates" in body["loop"]

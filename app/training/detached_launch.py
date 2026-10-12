@@ -266,8 +266,9 @@ def _pretrain_gate_blockers(settings) -> list[str]:
     # Seçili sohbet veri sürümünde sonradan reddedilen/hariç tutulan/düzenlenen kayıt → dur.
     from app.cloud.policy import cloud_origin_lines
     from app.feedback.chat_dataset import chat_selection_blockers
+    from app.research.knowledge_review import selection_blockers as research_selection_blockers
 
-    blockers = list(report.blockers) + chat_selection_blockers()
+    blockers = list(report.blockers) + chat_selection_blockers() + research_selection_blockers()
     # Faz 3 (B): bulut kökenli satır eğitime GİRMEZ — sağlayıcı şartları izin varsaymaz.
     cloud = cloud_origin_lines(lines)
     if cloud:
@@ -685,6 +686,8 @@ _EARLY_EXIT_HINTS = {
     8: "ortak ağır iş kilidi tutuluyor ya da sohbet cevabı üretiliyor",
     10: "Kademe 2 kaydı yok/geçersiz — derin av sonrası `uv run hektor kademe2-kayit`",
     11: "koşu onaylanan reçeteyle aynı değil — yeni anlık görüntü gerekir",
+    12: "eğitim döngüsü kapısı: önceki aday doğrulanmadı/geçmedi ya da aynı veri — "
+    "`uv run hektor egitim-dongusu durum`",
     1: "kalite kapısı / veri kapısı NO-GO — ayrıntı logs/train-full.log",
 }
 
@@ -851,6 +854,16 @@ def preflight_launch(
     k2 = easy_train.kademe2_check(recipe_sha=recipe_sha)
     if k2:
         return _fail(k2)
+
+    # Eğitim döngüsü kapısı — onay tüketilmeden önce (kolay akış precheck'te de sorar).
+    from app.orchestration import training_loop
+    from app.training.train_guard import sha256_file
+
+    loop = training_loop.next_training_check(
+        data_sha=sha256_file(_combined_source(s)) or "", adapter_name=adapter_name
+    )
+    if loop:
+        return _fail("Eğitim döngüsü kapısı — " + " | ".join(loop))
 
     # Sızıntı kapısı (alt süreç de uygular, 6 ile çıkar) — onay yanmadan önce burada.
     try:
@@ -1151,6 +1164,30 @@ def launch(
             log.warning("Detached eğitim hemen çıktı (çıkış kodu %d): %s", rc, hint)
             return _fail(f"Eğitim BAŞLAMADI — alt süreç hemen çıktı (çıkış kodu {rc}): {hint}.")
         spawned = True
+        # Bağımsız bitiş kanıtı: çıkış kodunu işletim sisteminden alan pasif tanık. Tanık
+        # başlatılamazsa eğitim yine sürer; tamamlanma doğrulaması "çıkış kodu yok" der.
+        from app.orchestration import training_loop
+        from app.training import exit_witness
+
+        try:
+            training_loop.register(
+                adapter_name,
+                source="detached_launch",
+                data_sha256=data_sha256,
+                recipe_sha=recipe_sha,
+                approval_id=approval_id,
+                started_at=read_detached_training_status(root).get("started_at"),
+                base_model=base_model,
+                profile=profile,
+                pid=proc.pid,
+                pid_create_time=resource_lock.process_create_time(proc.pid),
+            )
+        except Exception:  # defter yazılamazsa eğitim yine sürer; sync_from_status tamamlar
+            log.warning("Eğitim döngüsü defterine yazılamadı: %s", adapter_name)
+        if not exit_witness.spawn(
+            adapter_name, proc.pid, resource_lock.process_create_time(proc.pid), root
+        ):
+            log.warning("Çıkış kodu tanığı başlatılamadı: %s", adapter_name)
         log.info(
             "Detached eğitim başlatıldı: %s (%d adım = %d örnek × %d epoch, dtype=%s)",
             adapter_name,

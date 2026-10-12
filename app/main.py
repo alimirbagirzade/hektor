@@ -41,6 +41,12 @@ from app.evals.final_cli import final_app, rubric_gate_cmd  # noqa: E402
 app.add_typer(final_app, name="final-set")
 app.command("rubric-gate")(rubric_gate_cmd)
 
+# Kaynak bilgi kalemleri (hektor bilgi …) + kontrollü eğitim döngüsü (hektor egitim-dongusu …).
+from app.research.knowledge_cli import bilgi_app, loop_app  # noqa: E402
+
+app.add_typer(bilgi_app, name="bilgi")
+app.add_typer(loop_app, name="egitim-dongusu")
+
 # Gece döngüsü (hektor gece · csv-lab · karantina · karantina-kaldir) — ayrı modül.
 from app.orchestration.nightly_cli import register as _register_nightly  # noqa: E402
 
@@ -939,6 +945,24 @@ def _train_impl(
                 "expect_train_sha256": _snap["train_sha256"],
                 "expect_valid_sha256": _snap["valid_sha256"],
             }
+
+        # Eğitim döngüsü kapısı (storage/training_loop_policy.md): önceki aday bitişi + geliştirme
+        # değerlendirmesi geçmeden ya da aynı veri özetiyle SIFIRDAN eğitim başlamaz. Kurtarma /
+        # sürdürme aynı koşunun devamıdır → bu kural ona uygulanmaz.
+        if not recovery and not _resume:
+            from app.orchestration import training_loop as _tloop
+            from app.training.detached_launch import _combined_source
+            from app.training.train_guard import sha256_file as _sha_file
+
+            _loop = _tloop.next_training_check(
+                data_sha=_sha_file(_combined_source(settings)) or "",
+                adapter_name=adapter_name,
+            )
+            if _loop:
+                console.print(
+                    Panel.fit(" | ".join(_loop), title="⛔ Eğitim döngüsü", border_style="red")
+                )
+                raise typer.Exit(12)
 
         # Kademe 2 (c0d6aea avı) D-1: reçetesiz yollarda (web/Auto-LoRA/start-train/CLI) da
         # eğitici, kapılardan HEMEN SONRAKİ train/valid dosyalarına özetle bağlanır. Arada kilitsiz
@@ -4624,6 +4648,9 @@ def pretrain_gate_cmd(
     from app.training import easy_train as _easy_train
 
     report.blockers.extend(chat_selection_blockers())
+    from app.research.knowledge_review import selection_blockers as _research_blockers
+
+    report.blockers.extend(_research_blockers())
     # Kademe 2 (c0d6aea avı) C-3: bulut kökenli satır kontrolü eğitim yollarıyla AYNI olsun
     # (eskiden yalnız _pretrain_gate_blockers'ta → bu komut GO, eğitim NO-GO diyebiliyordu).
     from app.cloud.policy import cloud_origin_lines

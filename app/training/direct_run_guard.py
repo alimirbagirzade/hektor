@@ -39,6 +39,17 @@ def direct_run_blocker(description: str, *, data_path: Path | None = None) -> st
     k2 = easy_train.kademe2_check(data_sha=data_sha)
     if k2:
         return k2
+    from app.orchestration import training_loop
+
+    if data_sha is None:
+        from app.config import get_settings
+        from app.training.detached_launch import _combined_source
+        from app.training.train_guard import sha256_file
+
+        data_sha = sha256_file(_combined_source(get_settings())) or ""
+    loop = training_loop.next_training_check(data_sha=data_sha)
+    if loop:
+        return "Eğitim döngüsü kapısı — " + " | ".join(loop)
     decision = authorize_training_action("train_run", description, agent_id="lora-trainer")
     if not decision.authorized:
         return (

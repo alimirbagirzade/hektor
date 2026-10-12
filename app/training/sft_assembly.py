@@ -89,6 +89,8 @@ class AssemblyResult:
     template_thinned: int = 0  # kalıplaşmış olduğu için alınmayan öz-damıtma satırı
     # Seçili sohbet veri sürümü (yalnız train satırları) + satır/token payı; seçim yoksa None.
     chat: dict[str, Any] | None = field(default=None)
+    # Seçili kaynak-bilgi sürümü (``knowledge_review``; yalnız onaylı kalemler); seçim yoksa None.
+    research: dict[str, Any] | None = field(default=None)
 
     @property
     def total(self) -> int:
@@ -134,6 +136,7 @@ def assemble_sft_lines(
     synth_cap: int = CANONICAL_SYNTH_CAP,
     distill: bool = True,
     chat: bool = True,
+    research: bool = True,
     token_counter: Callable[[str], int] | None = None,
 ) -> AssemblyResult:
     """Birleşik SFT JSONL satırlarını kur (eğitim BAŞLATMAZ).
@@ -151,6 +154,10 @@ def assemble_sft_lines(
             Pay satır VE eğitim hedef token payında `learning_chat_max_share` ile sınırlıdır;
             eksiltme aile düzeyinde, tekrarla çoğaltma yok. Değerlendirme satırları okunmaz.
         token_counter: Token payı sayacı (None → base tokenizer yerelde varsa o, yoksa yaklaşık).
+        research: `data/lora_sft/research_selection.json` ile SEÇİLMİŞ kaynak-bilgi sürümünün
+            (`app.research.knowledge_review`, yalnız onaylı kalemler) satırlarını ekle. Seçim
+            yoksa hiçbir şey eklenmez → çıktı öncekiyle aynı. Satırlar öz-damıtma biçimindedir
+            ve aynı güncel içerik kapısından (`revalidate_line`) yeniden geçer.
     """
     lora_dir = settings.root / "data" / "lora_sft"
     synth_path = lora_dir / "synthetic_qa.jsonl"
@@ -184,6 +191,23 @@ def assemble_sft_lines(
         distill_lines = [ln for ln in distill_lines if revalidate_line(ln) is None]
         distill_n = len(distill_lines)
         lines += distill_lines
+
+    research_stats: dict[str, Any] | None = None
+    if research:
+        from app.research.knowledge_review import load_selected_train_lines as _load_research
+        from app.training.self_distill import revalidate_line as _revalidate
+
+        loaded_r = _load_research()  # seçim yoksa None; özet uyuşmazsa ValueError
+        if loaded_r is not None:
+            r_lines, r_sel = loaded_r
+            kept_r = [ln for ln in r_lines if _revalidate(ln) is None]
+            research_stats = {
+                "version_id": r_sel.get("version_id", ""),
+                "selected": len(r_lines),
+                "added": len(kept_r),
+                "dropped_by_gate": len(r_lines) - len(kept_r),
+            }
+            lines += kept_r
 
     card_n = 0
     try:
@@ -249,6 +273,7 @@ def assemble_sft_lines(
         distill_n=distill_n,
         template_thinned=template_thinned,
         chat=chat_stats,
+        research=research_stats,
     )
 
 

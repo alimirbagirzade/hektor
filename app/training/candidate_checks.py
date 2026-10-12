@@ -85,6 +85,27 @@ def verify_run_completion(adapter: str, recipe: dict[str, Any] | None = None) ->
     # Arşiv yalnız sonuçlanmış koşudan yazılır; eski pid başka sürece verilmiş olabilir.
     alive = not archived and isinstance(pid, int) and _pid_alive(pid)
     add("surec_bitti", mine and not alive, f"pid {pid}" + (" (arşiv)" if archived else ""))
+    # Bağımsız bitiş kanıtı: işletim sisteminin bildirdiği çıkış kodu (``exit_witness``).
+    # ``finished_at`` alt sürecin kendi beyanıdır; tek başına yeterli SAYILMAZ.
+    from app.training.exit_witness import read_exit
+
+    ex = read_exit(adapter, s.root)
+    want_ct = st.get("pid_create_time")
+    same_proc = ex.get("pid") == pid and (
+        want_ct is None
+        or ex.get("pid_create_time") is None
+        or abs(float(ex["pid_create_time"]) - float(want_ct)) <= 2.0
+    )
+    add(
+        "cikis_kodu",
+        mine and same_proc and ex.get("status") == "exited" and ex.get("exit_code") == 0,
+        (
+            f"tanık: durum={ex.get('status')} kod={ex.get('exit_code')} pid={ex.get('pid')}"
+            + ("" if same_proc else " (koşunun pid'iyle eşleşmiyor)")
+            if ex
+            else "çıkış kodu kaydı YOK (tanık çalışmadı) — bitiş bağımsız doğrulanamadı"
+        ),
+    )
     done = _read(d / "run_complete.json") or {}
     plan = _read(d / "run_plan.json") or {}
     target = plan.get("max_steps") or plan.get("target_steps") or done.get("max_steps")

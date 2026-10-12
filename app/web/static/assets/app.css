@@ -3427,3 +3427,9 @@ code {
 .rp-engine-info {
   white-space: pre-line;
 }
+
+/* Bilgi denetimi + eğitim döngüsü kartı */
+.kl-table { width: 100%; border-collapse: collapse; font-size: .8rem; margin: .4rem 0 .8rem; }
+.kl-table th, .kl-table td { text-align: left; vertical-align: top; padding: .3rem .5rem; border-bottom: 1px solid #334155; }
+.kl-table th { font-weight: 600; }
+.kl-scroll { overflow-x: auto; }

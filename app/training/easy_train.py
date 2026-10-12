@@ -243,6 +243,21 @@ def readiness() -> dict[str, Any]:
     add("veri", bool(lines), f"lora_sft.jsonl {len(lines)} satır" if lines else "eğitim verisi yok")
     chat = chat_selection_blockers()
     add("sohbet_verisi", not chat, chat[0] if chat else "seçili sohbet sürümü geçerli / seçim yok")
+    from app.orchestration import training_loop
+    from app.research.knowledge_review import selection_blockers as research_blockers
+
+    research = research_blockers()
+    add(
+        "bilgi_verisi",
+        not research,
+        research[0] if research else "seçili bilgi sürümü geçerli / seçim yok",
+    )
+    loop = training_loop.next_training_check(data_sha=data_sha)
+    add(
+        "egitim_dongusu",
+        not loop,
+        " | ".join(loop) if loop else "önceki aday doğrulandı + geçti; veri yeni",
+    )
     lock = resource_lock.blocker()
     add("agir_is", not lock and not is_running(), lock or "koşan eğitim/dönüşüm/karşılaştırma yok")
     code = code_state_provider()
@@ -895,6 +910,11 @@ def precheck(recipe: dict[str, Any]) -> list[str]:
     k2 = kademe2_check(recipe_sha=recipe["recipe_sha"], data_sha=recipe["data_sha256"])
     if k2:
         problems.append(k2)
+    from app.orchestration import training_loop
+
+    problems += training_loop.next_training_check(
+        data_sha=recipe["data_sha256"], adapter_name=recipe["adapter_name"]
+    )
     if not problems:
         # Kademe 2 P-4: GPU/LLM yük doktoru onay TÜKETİLMEDEN önce (eskiden yalnız
         # launch→preflight içinde, onaydan sonra çalışıyordu → NO-GO'da onay boşa yanıyordu).

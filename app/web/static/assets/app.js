@@ -5233,7 +5233,62 @@
     document.getElementById("rpStop").disabled = rpBusy || !rpEnabled;
     document.getElementById("rpPeer").disabled = rpBusy || rpEnabled;
   }
+  // Bilgi denetimi + eğitim döngüsü kartı (salt-okuma). Tüm metinler esc() ile — XSS yok.
+  var klStatusLabels = { incelemede: "İncelemede", karantina: "Karantina", tekrar: "Tekrar", reddedildi: "Reddedildi", onaylandi: "Onaylandı" };
+  function klRender(d) {
+    var k = d.knowledge || {};
+    var counts = k.counts || {};
+    document.getElementById("klSummary").textContent = "Toplam " + (k.total || 0) + " kalem · " +
+      Object.keys(klStatusLabels).map(function (s) { return klStatusLabels[s] + " " + (counts[s] || 0); }).join(" · ");
+    var gpt = k.gpt || {};
+    document.getElementById("klGpt").textContent = "GPT bağlantısı: " + (gpt.available ? "var (Codex, araştırma yöneticisinde seçili)" : "YOK") +
+      (gpt.detail ? " — " + gpt.detail : "");
+    var sel = k.selection || null;
+    var versions = k.versions || [];
+    document.getElementById("klVersion").textContent = "Veri sürümleri: " +
+      (versions.length ? versions.map(function (v) { return v.version_id + " (" + v.n + ")"; }).join(", ") : "yok") +
+      " · Eğitime seçili: " + (sel && sel.version_id ? sel.version_id : "yok");
+    var rows = (k.items || []).map(function (it) {
+      var revs = (it.reviews || []).map(function (r) {
+        return esc(r.kind) + (r.model ? " [" + esc(r.model) + "]" : "") + ": " + esc(r.verdict || "—") + " · " + esc((r.at || "").slice(0, 16));
+      }).join("<br>");
+      var crit = Object.keys(it.criteria || {}).map(function (c) { return esc(c) + "=" + esc(it.criteria[c]); }).join(", ");
+      return "<tr><td>" + esc(klStatusLabels[it.status] || it.status) + (it.verification_class ? " (" + esc(it.verification_class) + ")" : "") +
+        "</td><td>" + esc(it.question) + "<br><span class=\"muted small\">" + esc(it.status_reason) + "</span></td><td>" +
+        (it.mode === "rag" ? esc(it.paper_id) + " · RAG" : "soru: " + esc(it.paper_id || "?") + " · cevap kaynaksız") +
+        " · sürüm " + esc(String(it.revision)) + "</td><td class=\"small\">" + crit +
+        "</td><td class=\"small\">" + revs + "</td></tr>";
+    });
+    document.getElementById("klItems").innerHTML = rows.length
+      ? "<thead><tr><th>Durum</th><th>Soru / gerekçe</th><th>Kaynak</th><th>Ölçütler</th><th>İncelemeler (model · tarih)</th></tr></thead><tbody>" + rows.join("") + "</tbody>"
+      : "<tbody><tr><td>Henüz bilgi kalemi yok (araştırma paketinin aday veri aşaması bekleniyor).</td></tr></tbody>";
+    var t = d.training || {};
+    document.getElementById("klTraining").textContent = t.running
+      ? (t.adapter || "") + " · adım " + (t.step || 0) + "/" + (t.total || 0) + " (%" + (t.pct || 0) + ")" + (t.eta ? " · kalan ~" + t.eta : "")
+      : "Koşan eğitim yok" + (t.error ? " (durum okunamadı: " + t.error + ")" : "");
+    var loop = (d.loop || {}).candidates || [];
+    document.getElementById("klLoop").innerHTML = loop.length
+      ? "<thead><tr><th>Aday</th><th>Veri özeti</th><th>Bitiş</th><th>Geliştirme değerlendirmesi</th><th>Sonraki adım</th></tr></thead><tbody>" +
+        loop.map(function (c) {
+          var comp = c.completion;
+          var dev = c.dev_eval;
+          var exit = comp && comp.exit && comp.exit.status ? " · çıkış " + esc(comp.exit.status) + "/" + esc(String(comp.exit.exit_code)) : "";
+          var compTxt = comp ? (comp.ok ? "doğrulandı" : "DOĞRULANAMADI: " + esc((comp.failed || []).join(", "))) + exit : (c.running ? "sürüyor" : "doğrulanmadı");
+          var devTxt = dev ? esc(dev.decision || "") + " · " + (dev.passed ? "GEÇTİ" : "GEÇMEDİ") + " · önceki: " + esc(String(dev.reference_model || "")) +
+            ((dev.problems || []).length ? "<br><span class=\"small\">" + esc(dev.problems.join("; ")) + "</span>" : "") : "kayıt yok";
+          return "<tr><td>" + esc(c.adapter) + "</td><td>" + esc(String(c.data_sha256 || "").slice(0, 12)) + "</td><td>" + compTxt +
+            "</td><td>" + devTxt + "</td><td>" + esc(c.next_step) + "</td></tr>";
+        }).join("") + "</tbody>"
+      : "<tbody><tr><td>Defterde aday yok.</td></tr></tbody>";
+  }
+  function klRefresh() {
+    if (!document.getElementById("klCard")) return Promise.resolve();
+    return api("/research-package/knowledge-loop").then(klRender).catch(function (e) {
+      document.getElementById("klSummary").textContent = "Bilgi/döngü durumu alınamadı: " + e.message;
+    });
+  }
   function rpRefresh() {
+    klRefresh();
     return api("/research-package/status").then(rpRender).catch(function (e) {
       ["rpStatus", "lrnResearchStatus"].forEach(function (id) {
         document.getElementById(id).textContent = "Araştırma durumu alınamadı: " + e.message;
