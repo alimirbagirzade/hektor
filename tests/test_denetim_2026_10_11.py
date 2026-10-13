@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import types
 from pathlib import Path
@@ -59,7 +60,10 @@ def test_lora_split_kaynak_gruplu_ve_egitim_bolmesiyle_ayni(tmp_path, monkeypatc
 def test_mlx_backend_profili_reddeder() -> None:
     res = CliRunner().invoke(app, ["train", "--backend", "mlx", "--profile", "moe30b_attn_long"])
     assert res.exit_code == 1
-    assert "MLX" in res.output and "--backend peft" in res.output
+    # Panel terminal genişliğinde kaydırılır (Windows'ta 79 sütun → "--backend" / "peft" ayrı
+    # satırlara düşer); çerçeve karakterleri ve satır kırılımları atılarak genişlikten bağımsız.
+    duz = " ".join(re.sub(r"[│┌┐└┘─]", " ", res.output).split())
+    assert "MLX" in duz and "--backend peft" in duz
 
 
 class _ModelYuklendi(RuntimeError):
