@@ -50,7 +50,14 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
   farklı → `llm30_run` sıkı şablon eşitliği nedeniyle referans koşusunda `--base` da v12 verildi
   (A/C koşulu koşulmadı). Aday LF şablonlu (base'den) → v12 ↔ aday karşılaştırmasında şablon
   satır sonu farkı bir karıştırıcıdır.
-- **Açık (insan):** iki raw.jsonl'i rubrikle puanla (`score_by_dimension` + `critical_errors`) →
+- **SONUÇ (21:03): dönüşüm YİNE durdu**, KL dışındaki iki sert kapı nedeniyle (bunların insan
+  geçersiz kılması yok, `scripts/merge_adapter.py` `gate_failures`): birleştirme farkı / adapter
+  etkisi oranı 0,17–0,20 (eşik 0,1; v12'de 0,03) ve üç istemin üçünde en olası token değişiyor.
+  Birleşik model ≠ eğitilen adapter → GGUF ÜRETİLMEDİ, LLM-30 koşuları BAŞLAMADI. Kapı
+  gevşetilmedi. Seçenekler (karar insanda): PEFT üzerinden ölçüm (`lora-eval`, Ollama'sız; döngü
+  defterinin `degerlendirme` adımı ise Ollama'lı llm30 raw ister) ya da merge-aware yeniden eğitim
+  (aynı veri özetiyle döngü kuralı engeller → yeni doğrulanmış veri ya da `serbest-birak`).
+- **Açık (insan, dönüşüm olursa):** iki raw.jsonl'i rubrikle puanla (`score_by_dimension` + `critical_errors`) →
   `uv run hektor egitim-dongusu degerlendirme hektor_lora_full_20261011 --aday-raw … --onceki-raw …`.
   Terfi insanda; final takımı ayrı ve hâlâ kilitsiz.
 
