@@ -2,21 +2,27 @@
   "schema": 1,
   "status": "done",
   "reason": "",
-  "started_at": "2026-10-13T20:30:03.024351+00:00",
-  "finished_at": "2026-10-13T20:30:06.299773+00:00",
-  "seconds": 3.28,
-  "code_commit": "f5790d8bb145",
+  "started_at": "2026-10-14T20:30:03.122555+00:00",
+  "finished_at": "2026-10-14T20:30:05.633306+00:00",
+  "seconds": 2.52,
+  "code_commit": "95572d724279",
   "steps": {
     "hakem": {
-      "ran": false,
-      "skipped": "Ağır iş sürüyor — hakem atlandı: Ağır iş kilidi: eğitim sürüyor (launch, pid 29652, durum running, 17:16:24'den beri)",
-      "model": "",
-      "pending_total": null,
-      "judged_fresh": null,
-      "left_for_next_night": null,
-      "counts": {},
+      "ran": true,
+      "skipped": "",
+      "model": "hektor-v12-30b",
+      "pending_total": 0,
+      "judged_fresh": 0,
+      "left_for_next_night": 0,
+      "counts": {
+        "tutarli": 0,
+        "supheli": 0,
+        "belirsiz": 0,
+        "failed": 0,
+        "cached": 0
+      },
       "quarantined": [],
-      "seconds": 0.01
+      "seconds": 0.25
     },
     "olcum": {
       "ran": false,
@@ -32,7 +38,7 @@
       "key_hits": null,
       "key_total": null,
       "avg_output_tokens": null,
-      "seconds": 2.83,
+      "seconds": 1.69,
       "flag_counts": {},
       "regression": [],
       "per_question": []
@@ -56,7 +62,8 @@
       "ran": true,
       "ready": false,
       "blocker_keys": [
-        "agir_is"
+        "egitim_dongusu",
+        "kademe2"
       ],
       "started_training": false,
       "error": ""
