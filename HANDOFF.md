@@ -33,6 +33,27 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-14 — `hektor_lora_full_20261011` bitti; birleştirme KL eşiği 0,08 (KULLANICI KARARI)
+
+- Eğitim 2026-10-14 03:49'da 187/187 bitti (çıkış kodu tanığı: 0, en iyi eval_loss 0,6036,
+  profil `moe30b_attn_long`, karışım `balanced_v1`, veri `613700551afb`, onay `apr_833ee55256dc`).
+  `hektor egitim-dongusu bitis` → **DOĞRULANDI** (defterde).
+- Ollama dönüşümü (`job_56f8e3668823`) 1/5'te birleştirme sadakati kapısında durdu: bf16 birleşik
+  model ↔ PEFT forward KL 0,032 / 0,072 / 0,057 (sınır 0,01), en olası token değişiyor. Koşu
+  merge-aware eğitilmedi (bkz. `docs/V15_YENIDEN_EGITIM_2026_10_04.md`; v15 pilotunda KL 0,47).
+- **Karar (kullanıcı, 2026-10-14):** `adapter_to_ollama.ps1 -MaxKL 0.08` ile devam. Sonuç: servis
+  edilen GGUF eğitilen adapter'ı birebir yansıtmaz; LLM-30 SERVİS EDİLEN modeli ölçer. Bu,
+  adapter kalitesi iddiası değildir; eşik varsayılanı (0,01) değişmedi.
+- Zincir (elle başlatıldı, arka plan): dönüşüm → `hektor-full-20261011-aday` → LLM-30 B koşulu,
+  tohum 42 43: `reports/evals/llm30/llm30_v12_ref_20261014` (referans) ve
+  `llm30_full20261011_aday_20261014`. **Not:** `hektor-v12-30b` şablonu base'den yalnız CRLF ile
+  farklı → `llm30_run` sıkı şablon eşitliği nedeniyle referans koşusunda `--base` da v12 verildi
+  (A/C koşulu koşulmadı). Aday LF şablonlu (base'den) → v12 ↔ aday karşılaştırmasında şablon
+  satır sonu farkı bir karıştırıcıdır.
+- **Açık (insan):** iki raw.jsonl'i rubrikle puanla (`score_by_dimension` + `critical_errors`) →
+  `uv run hektor egitim-dongusu degerlendirme hektor_lora_full_20261011 --aday-raw … --onceki-raw …`.
+  Terfi insanda; final takımı ayrı ve hâlâ kilitsiz.
+
 ### 2026-10-12 — Kaynak bilgi denetimi + kontrollü eğitim döngüsü kapısı (dal, canlıya UYGULANMADI)
 
 Dal `claude/hektor-validation-training-loop-0345f5`. Tasarım: `docs/TASARIM_BILGI_DENETIM_DONGUSU.md`.
