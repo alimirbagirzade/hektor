@@ -52,6 +52,11 @@ from app.orchestration.nightly_cli import register as _register_nightly  # noqa:
 
 _register_nightly(app)
 
+# Sürekli (gözetimsiz) eğitim döngüsü (hektor surekli-dongu …) — kullanıcı kararı 2026-10-15.
+from app.orchestration.continuous_loop_cli import surekli_app  # noqa: E402
+
+app.add_typer(surekli_app, name="surekli-dongu")
+
 
 @app.callback()
 def _root(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:

@@ -314,12 +314,37 @@ class Settings(BaseSettings):
     # ve terfi tek-kullanımlık taze insan onayı ister (CLAUDE.md Kural 8). Kullanıcı
     # bilinçli olarak açarsa (`.env`) kapılar geçtiğinde hat gözetimsiz ilerleyebilir.
     unattended_training_enabled: bool = False
+    # Eski Auto-LoRA arka plan döngüsü (kart kapıları + anahtar kelime eval'i) ARTIK ayrı
+    # anahtarla açılır: gözetimsiz politika açıkken iki hat aynı anda eğitim başlatmasın.
+    # Sürekli eğitim döngüsü (app/orchestration/continuous_loop.py) tek eğitim sahibidir.
+    auto_lora_auto_enabled: bool = False
     auto_lora_min_cards: int = 20  # eğitim başlamadan gereken minimum kart
     auto_lora_check_interval_min: int = 60  # kaç dakikada bir kontrol
     auto_lora_eval_threshold: float = 0.5  # eval pass_rate eşiği
     # eval'de kaç soru; 0 = setin TAMAMI. İlk-N kırpma v8'in asıl çöküşünü (#11) hiç
     # koşmuyordu (Kademe-2 av bulgusu). min_n altı 'accept' yine bloklanır (v5 dersi).
     auto_lora_eval_sample_n: int = 0
+
+    # --- Sürekli eğitim döngüsü (docs/TASARIM_SUREKLI_EGITIM.md; kullanıcı kararı 2026-10-15) ---
+    # Açıkken `hektor surekli-dongu tik` (Görev Zamanlayıcı) her turda TEK adım atar:
+    # bitiş doğrulama → Ollama dönüşümü → LLM-30 (aday + referans) → yerel hakem rubriği →
+    # kapı → (tüm sorular doğruysa DURUR, insan) → yeni veri varsa yeni eğitim.
+    # Gerçek eğitim yalnız `unattended_training_enabled` da açıksa onaysız başlar.
+    continuous_loop_enabled: bool = False
+    continuous_loop_profile: str = "moe30b_attn_long_ma"
+    continuous_loop_mix_profile: str = "balanced_v1"
+    # Referans (önceki/etkin) Ollama modeli ve onun adapter klasörü (LLM-30 referans koşusu).
+    continuous_loop_reference_tag: str = "hektor-v12-30b"
+    continuous_loop_reference_adapter: str = "hektor_lora_v12_30b"
+    continuous_loop_template_from: str = "hektor-base-30b-q4a8"
+    continuous_loop_seeds: str = "42 43"
+    # LLM-30 rubrik hakemi: ne aday ne referans olan ham base (kendi cevabını kayırmasın).
+    continuous_loop_judge_model: str = "qwen3:30b-a3b-instruct-2507-q4_K_M"
+    # Üst üste bu kadar aday kapıdan geçemezse döngü DURAKLAR (insan bakar).
+    continuous_loop_max_failures: int = 2
+    # Kademe 2 kapsamı: True → kayıt KOD özetine bağlı yeterli (veri değişince otomatik
+    # kalite + sızıntı + Kural 1 kapıları); False → kod + veri (eski kural).
+    kademe2_code_only: bool = False
 
     # --- Web (FastAPI) ---
     # Güvenlik: varsayılan olarak SADECE localhost'a bağlanır (dışarı açılmaz).

@@ -624,6 +624,8 @@ def get_auto_pipeline() -> AutoLoRAPipeline:
             check_interval_min=getattr(s, "auto_lora_check_interval_min", 60),
             eval_pass_threshold=getattr(s, "auto_lora_eval_threshold", 0.5),
             eval_sample_n=getattr(s, "auto_lora_eval_sample_n", 0),
-            auto_enabled=s.unattended_training_enabled,
+            # Gözetimsiz politika (unattended_training_enabled) artık sürekli döngüye aittir;
+            # eski hat yalnız kendi anahtarıyla VE politika açıkken kendiliğinden ilerler.
+            auto_enabled=s.auto_lora_auto_enabled and s.unattended_training_enabled,
         )
     return _pipeline
