@@ -235,6 +235,11 @@ def policy_authorize(
     )
     fresh = st.consume_fresh_approval(agent_id, action)
     if not fresh or fresh["approval_id"] != req.approval_id:
+        # Kademe 2 AUTH-4: kendi politika kaydımız onaylı+tüketilmemiş KALMASIN — yoksa sonraki
+        # insan yolu (require_fresh_approval) onu insan onayı sanıp tüketebilirdi.
+        st.update_approval_request(
+            req.approval_id, consumed_at=_utcnow(), decision_note="politika: kullanılmadı (yarış)"
+        )
         # Aynı aksiyon için önceden bekleyen başka bir onay tüketildiyse bile bu istek
         # kullanılmadan kalır; yetki yalnız KENDİ isteğimiz tüketildiyse verilir.
         return ApprovalDecision(

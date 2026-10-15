@@ -139,8 +139,20 @@ class AutoLoRAPipeline:
             "eval_pass_threshold": self.eval_pass_threshold,
         }
 
-    def set_enabled(self, enabled: bool) -> None:
+    def set_enabled(self, enabled: bool) -> bool:
+        """Periyodik kontrolü aç/kapat; GERÇEK durumu döndürür.
+
+        Kademe 2 2026-10-15 AUTH-5: gözetimsiz politika açıkken bu hat yalnız kendi anahtarıyla
+        (``auto_lora_auto_enabled``) açılabilir — aksi halde sürekli döngüyle İKİ gözetimsiz
+        eğitim sahibi olurdu. Politika kapalıyken eski davranış (her eğitim insan onayı ister).
+        """
+        from app.config.settings import get_settings
+
+        s = get_settings()
+        if enabled and s.unattended_training_enabled and not s.auto_lora_auto_enabled:
+            enabled = False
         self.auto_enabled = enabled
+        return enabled
 
     # ------------------------------------------------------------------ gates
 

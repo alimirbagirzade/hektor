@@ -209,9 +209,14 @@ def test_score_run_resumes_and_all_correct(tmp_path):
         return '{"dogruluk": 4, "alt_madde": 2, "tutarlilik": 2, "dogrulama": 2, "kritik": []}'
 
     out = j.score_run(run, generate=gen, model="yerel-hakem")
-    assert out == {"path": str(run / j.SCORED_NAME), "rows": 4, "new": 4, "unscored": 0}
+    assert out == {
+        "path": str(j.scored_path(run, "yerel-hakem")),
+        "rows": 4,
+        "new": 4,
+        "unscored": 0,
+    }
     assert (run / "raw.jsonl").read_text("utf-8").count('"score_by_dimension": null') == 4
-    assert j.all_correct(run / j.SCORED_NAME)["ok"] is True
+    assert j.all_correct(j.scored_path(run, "yerel-hakem"))["ok"] is True
     n = len(calls)
     j.score_run(run, generate=gen, model="yerel-hakem")  # sürdürme: yeniden sorulmaz
     assert len(calls) == n
@@ -223,7 +228,7 @@ def test_unparseable_judge_leaves_row_unscored_and_not_correct(tmp_path):
     run = _raw_run(tmp_path, ["llm30-s01"])
     out = j.score_run(run, generate=lambda p, s: "bilmiyorum", model="yerel-hakem")
     assert out["unscored"] == 2
-    res = j.all_correct(run / j.SCORED_NAME)
+    res = j.all_correct(j.scored_path(run, "yerel-hakem"))
     assert res["ok"] is False and res["wrong"] == ["llm30-s01"]
 
 
@@ -243,7 +248,7 @@ def test_one_wrong_dogruluk_is_not_all_correct(tmp_path):
     # Satır sırası: s01/42, s01/43, s04/42, s04/43 → s04'ün TEK tohumu bile yanlışsa soru yanlış.
     answers = iter([full, full, full, full.replace('"dogruluk": 4', '"dogruluk": 3')])
     j.score_run(run, generate=lambda p, s: next(answers), model="yerel-hakem")
-    res = j.all_correct(run / j.SCORED_NAME)
+    res = j.all_correct(j.scored_path(run, "yerel-hakem"))
     assert res["ok"] is False and res["n_correct"] == 1
 
 
@@ -343,7 +348,7 @@ def test_conversion_started_for_verified_candidate(loop_env, monkeypatch):
 
 
 def _scored(run_dir: Path, qids, dogruluk=4):
-    from app.evals.llm30_judge import SCORED_NAME
+    from app.evals.llm30_judge import scored_path
 
     run_dir.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -368,7 +373,7 @@ def _scored(run_dir: Path, qids, dogruluk=4):
             )
     text = "".join(json.dumps(r) + "\n" for r in rows)
     (run_dir / "raw.jsonl").write_text(text, encoding="utf-8")
-    (run_dir / SCORED_NAME).write_text(text, encoding="utf-8")
+    scored_path(run_dir).write_text(text, encoding="utf-8")
 
 
 def test_all_correct_pauses_for_human(loop_env, monkeypatch):
@@ -427,8 +432,12 @@ def test_ready_starts_unattended_training(loop_env, monkeypatch):
     cl = loop_env
     from app.training import easy_train as et
 
-    monkeypatch.setattr(et, "readiness", lambda: {"items": [{"key": "veri", "ok": True}]})
-    monkeypatch.setattr(et, "prepare_snapshot", lambda s: {**s, "recipe_sha": "b" * 64})
+    monkeypatch.setattr(
+        et, "readiness", lambda: {"items": [{"key": "veri", "ok": True}], "data_sha256": "d" * 64}
+    )
+    monkeypatch.setattr(
+        et, "prepare_snapshot", lambda s, remember=True: {**s, "recipe_sha": "b" * 64}
+    )
     calls = []
     monkeypatch.setattr(
         et,

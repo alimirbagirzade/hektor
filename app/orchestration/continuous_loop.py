@@ -9,7 +9,9 @@ Akış (her tik en çok bir yan etkili adım; Görev Zamanlayıcı tikleri tekra
 
     kapalı / STOP_ALL / STOP_LEARNING / duraklatıldı           → hiçbir şey
     döngünün arka plan işi (LLM-30 koşusu, hakem) sürüyor     → bekle
-    eğitim / dönüşüm / ağır iş kilidi                         → bekle
+      iş öldü: çıkış 9 (kilit/sohbet meşgul) → ertele; yarım çıktı → deneme +1
+      (3 deneme: aday işi → aday başarısız; referans işi → DURAKLAT)
+    eğitim / dönüşüm / ağır iş kilidi / Ollama erişilemiyor   → bekle
     son aday (defter):
       bitiş doğrulanmadı              → ``training_loop.record_completion``
       Ollama etiketi yok              → dönüşüm işi (``candidate_jobs``)
@@ -21,7 +23,9 @@ Akış (her tik en çok bir yan etkili adım; Görev Zamanlayıcı tikleri tekra
           kapı geçti                  → ardışık başarısızlık = 0
           kapı geçmedi                → ardışık +1; sınırda DURAKLAT, değilse politika devam
     yeni eğitim: ``easy_train.readiness`` hazırsa (veri yeni, Kademe 2 kodu kapsıyor, kaynak boş)
-      → anlık görüntü (sabit profil, merge-aware) → ``easy_train.launch(unattended=True)``
+      → anlık görüntü (veri özetine bağlı ad, sabit profil) → ``launch(unattended=True)``
+      (precheck aynı engelle 6 kez üst üste reddederse DURAKLAT)
+    tik içinde aynı istisna 3 kez üst üste → DURAKLAT (sessiz çöküş yok)
 
 Aynı-veri kuralı, sızıntı/kalite/Kural 1 kapıları, Kademe 2, STOP_ALL ve terfi kapısı aynen
 geçerlidir; bu modül yalnız insan TIKINI politika ile değiştirir. Terfi ASLA yapılmaz.
@@ -43,7 +47,14 @@ from app.config import get_settings
 from app.procutil import DETACHED_HIDDEN
 
 _TAG_SAFE = re.compile(r"[^a-z0-9._-]+")
-_JOB_KINDS = ("llm30_ref", "llm30_aday", "hakem_ref", "hakem_aday")
+#: Bir arka plan işinin (aynı koşu anahtarı) en çok deneme sayısı.
+MAX_JOB_ATTEMPTS = 3
+#: Tik içinde aynı istisna bu kadar üst üste → duraklat.
+MAX_SAME_ERRORS = 3
+#: precheck aynı engelle bu kadar üst üste reddederse → duraklat (~3 sa @30 dk).
+MAX_BLOCKED_LAUNCHES = 6
+#: Kilit/sohbet meşgul çıkışı (llm30_run / llm30_judge) — deneme SAYILMAZ.
+BUSY_EXIT = 9
 
 
 class LoopError(RuntimeError):
@@ -69,6 +80,7 @@ def read_state() -> dict[str, Any]:
     try:
         data = json.loads(p.read_text("utf-8"))
         if isinstance(data, dict):
+            data.setdefault("candidates", {})
             return data
     except (OSError, ValueError):
         pass
@@ -90,25 +102,23 @@ def _event(action: str, detail: str = "", **fields: Any) -> dict[str, Any]:
 
 
 def events(limit: int = 30) -> list[dict[str, Any]]:
-    p = loop_dir() / "events.jsonl"
-    if not p.exists():
-        return []
-    rows = [json.loads(x) for x in p.read_text("utf-8").split("\n") if x.strip()]
-    return rows[-limit:]
+    from app.evals.llm30_judge import read_jsonl
+
+    return read_jsonl(loop_dir() / "events.jsonl")[-limit:]
 
 
 # ── testlerde değiştirilebilir kancalar ──────────────────────────────────────
 
 
 def _spawn_default(args: list[str], log_name: str) -> dict[str, Any]:
-    """Arka plan Python süreci (penceresiz, ebeveynden bağımsız)."""
+    """Arka plan Python süreci (penceresiz, ebeveynden bağımsız). ``args[0]`` çıkış dosyası."""
     from app.training.resource_lock import process_create_time
 
     root = get_settings().root
     log = loop_dir() / log_name
     with log.open("ab") as out:
         proc = subprocess.Popen(
-            [sys.executable, *args],
+            [sys.executable, "-m", "app.orchestration.loop_job", *args],
             cwd=str(root),
             stdout=out,
             stderr=subprocess.STDOUT,
@@ -129,13 +139,13 @@ def _alive_default(job: dict[str, Any]) -> bool:
     return ct is None or process_create_time(int(pid)) == ct
 
 
-def _ollama_digest_default(tag: str) -> str:
-    """Etiketin Ollama özeti ('' = yok)."""
+def _ollama_digest_default(tag: str) -> str | None:
+    """Etiketin Ollama özeti: '' = etiket yok, None = Ollama'ya ERİŞİLEMİYOR (Kademe 2 CL-4)."""
     from app.feedback.model_identity import match_entry, ollama_tags
 
     tags = ollama_tags()
     if tags is None:
-        return ""
+        return None
     entry = match_entry(tags, tag)
     return str((entry or {}).get("digest") or "") if entry else ""
 
@@ -155,7 +165,7 @@ def _busy_default() -> str:
 
 spawn: Callable[[list[str], str], dict[str, Any]] = _spawn_default
 job_alive: Callable[[dict[str, Any]], bool] = _alive_default
-ollama_digest: Callable[[str], str] = _ollama_digest_default
+ollama_digest: Callable[[str], str | None] = _ollama_digest_default
 busy: Callable[[], str] = _busy_default
 
 
@@ -178,6 +188,12 @@ def llm30_dir(run_id: str) -> Path:
     return get_settings().root / "reports" / "evals" / "llm30" / run_id
 
 
+def scored_file(run_id: str) -> Path:
+    from app.evals.llm30_judge import scored_path
+
+    return scored_path(llm30_dir(run_id))
+
+
 def _expected_rows() -> int:
     from app.evals.llm30 import QUESTION_IDS
 
@@ -185,19 +201,11 @@ def _expected_rows() -> int:
 
 
 def _count_rows(path: Path, *, scored: bool = False) -> int:
-    if not path.exists():
-        return 0
-    n = 0
-    for x in path.read_text("utf-8").split("\n"):
-        if not x.strip():
-            continue
-        r = json.loads(x)
-        if r.get("condition") != "B":
-            continue
-        if scored and "judge" not in r:
-            continue
-        n += 1
-    return n
+    from app.evals.llm30_judge import read_jsonl
+
+    return sum(
+        1 for r in read_jsonl(path) if r.get("condition") == "B" and (not scored or "judge" in r)
+    )
 
 
 def run_complete(run_id: str) -> bool:
@@ -205,25 +213,66 @@ def run_complete(run_id: str) -> bool:
 
 
 def scored_complete(run_id: str) -> bool:
-    from app.evals.llm30_judge import SCORED_NAME
+    return _count_rows(scored_file(run_id), scored=True) >= _expected_rows()
 
-    return _count_rows(llm30_dir(run_id) / SCORED_NAME, scored=True) >= _expected_rows()
+
+def _output_complete(job: dict[str, Any]) -> bool:
+    run_id = str(job.get("run_id") or "")
+    if str(job.get("kind", "")).startswith("hakem"):
+        return scored_complete(run_id)
+    return run_complete(run_id)
+
+
+def _attempts(state: dict[str, Any], key: str) -> int:
+    return int((state.get("attempts") or {}).get(key, 0))
+
+
+def _run_id(state: dict[str, Any], base: str) -> str:
+    """Koşu kimliği: başarısız denemeden sonra TAZE kimlik (sürdürülemeyen koşuya takılmaz)."""
+    n = _attempts(state, base)
+    return base if n == 0 else f"{base}_d{n}"
 
 
 def _llm30_args(base: str, lora: str, adapter: str, run_id: str) -> list[str]:
     return [
-        "-m", "app.evals.llm30_run",
+        "app.evals.llm30_run",
         "--base", base, "--lora", lora, "--adapter", adapter,
         "--conditions", "B", "--seeds", *[str(s) for s in seeds()],
         "--run-id", run_id,
     ]  # fmt: skip
 
 
-def _start_job(state: dict[str, Any], kind: str, args: list[str], **meta: Any) -> dict[str, Any]:
-    info = spawn(args, f"{kind}.log")
-    state["job"] = {"kind": kind, "started_at": utcnow(), **info, **meta}
+def _start_job(
+    state: dict[str, Any], kind: str, module_args: list[str], *, key: str, **meta: Any
+) -> dict[str, Any]:
+    exit_file = loop_dir() / f"{kind}.exit.json"
+    exit_file.unlink(missing_ok=True)
+    info = spawn([str(exit_file), *module_args], f"{kind}.log")
+    state["job"] = {
+        "kind": kind,
+        "key": key,
+        "exit_file": str(exit_file),
+        "started_at": utcnow(),
+        **info,
+        **meta,
+    }
     write_state(state)
     return _event("is_baslatildi", kind, **meta)
+
+
+def _exit_code(job: dict[str, Any]) -> int | None:
+    try:
+        return int(json.loads(Path(job["exit_file"]).read_text("utf-8"))["exit_code"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _log_tail(job: dict[str, Any], n: int = 400) -> str:
+    try:
+        text = Path(job["log"]).read_text("utf-8", errors="replace")
+    except (OSError, KeyError):
+        return ""
+    return " ".join(text[-n:].split())
 
 
 def _pause(state: dict[str, Any], reason: str) -> dict[str, Any]:
@@ -236,7 +285,6 @@ def _pause(state: dict[str, Any], reason: str) -> dict[str, Any]:
 
 def _fail(state: dict[str, Any], adapter: str, why: str) -> dict[str, Any]:
     """Aday başarısız: ardışık sayaç; sınırda duraklat, değilse politika serbest bırakır."""
-    from app.orchestration import training_loop
 
     s = get_settings()
     cand = state["candidates"].setdefault(adapter, {})
@@ -250,11 +298,20 @@ def _fail(state: dict[str, Any], adapter: str, why: str) -> dict[str, Any]:
         return _pause(
             state,
             f"{state['consecutive_failures']} ardışık aday kapıdan geçemedi (son: {adapter} — "
-            f"{why}). İnsan incelemesi gerekli; devam için `hektor surekli-dongu devam`.",
+            f"{why}). İnsan incelemesi gerekli; `hektor surekli-dongu devam --gerekce …` son "
+            "başarısız adayı politika ile serbest bırakır ve döngüyü sürdürür.",
         )
+    return _release(state, adapter, why)
+
+
+def _release(state: dict[str, Any], adapter: str, why: str) -> dict[str, Any]:
+    from app.orchestration import training_loop
+
     res = training_loop.release_by_policy(
         adapter, f"Sürekli döngü: aday kapıdan geçemedi ({why}); politika ile devam."
     )
+    state["candidates"].setdefault(adapter, {})["released"] = bool(res.get("ok"))
+    write_state(state)
     return _event("serbest_birakildi" if res.get("ok") else "serbest_birakilamadi", adapter)
 
 
@@ -262,7 +319,11 @@ def _fail(state: dict[str, Any], adapter: str, why: str) -> dict[str, Any]:
 
 
 def tick() -> dict[str, Any]:
-    """Döngünün bir adımı. Dönüş: ``{action, detail}`` (her zaman olay günlüğüne de yazılır)."""
+    """Döngünün bir adımı. Dönüş: ``{action, detail}``.
+
+    Tik içindeki her istisna yakalanır ve olay günlüğüne yazılır; aynı istisna
+    ``MAX_SAME_ERRORS`` kez üst üste → DURAKLAT (Kademe 2 CL-7: sessiz sonsuz çöküş yok).
+    """
     s = get_settings()
     if not s.continuous_loop_enabled:
         return {"action": "kapali", "detail": "continuous_loop_enabled=false"}
@@ -271,7 +332,26 @@ def tick() -> dict[str, Any]:
     marker = stop_marker()
     if marker:
         return {"action": "durduruldu", "detail": marker}
+    try:
+        out = _tick(read_state())
+    except Exception as exc:
+        msg = f"{type(exc).__name__}: {exc}"[:400]
+        state = read_state()
+        err = state.get("error") or {}
+        count = int(err.get("count", 0)) + 1 if err.get("message") == msg else 1
+        state["error"] = {"message": msg, "count": count, "at": utcnow()}
+        write_state(state)
+        _event("hata", msg, tekrar=count)
+        if count >= MAX_SAME_ERRORS:
+            return _pause(state, f"Aynı hata {count} tik üst üste: {msg}")
+        return {"action": "hata", "detail": msg}
     state = read_state()
+    if state.pop("error", None) is not None:
+        write_state(state)
+    return out
+
+
+def _tick(state: dict[str, Any]) -> dict[str, Any]:
     state["last_tick"] = utcnow()
     if state.get("paused"):
         write_state(state)
@@ -283,8 +363,23 @@ def tick() -> dict[str, Any]:
             write_state(state)
             return {"action": "bekliyor", "detail": f"{job['kind']} sürüyor"}
         state.pop("job", None)
-        write_state(state)
-        _event("is_bitti", job["kind"], run_id=job.get("run_id", ""))
+        code = _exit_code(job)
+        if _output_complete(job):
+            write_state(state)
+            _event("is_bitti", job["kind"], run_id=job.get("run_id", ""))
+        elif code == BUSY_EXIT:
+            write_state(state)
+            _event("is_ertelendi", f"{job['kind']}: ağır iş kilidi / sohbet meşgul")
+        else:
+            key = str(job.get("key") or job.get("run_id") or job["kind"])
+            attempts = state.setdefault("attempts", {})
+            attempts[key] = int(attempts.get(key, 0)) + 1
+            write_state(state)
+            _event(
+                "is_basarisiz",
+                f"{job['kind']} çıkış={code} deneme={attempts[key]}: {_log_tail(job)}",
+                run_id=job.get("run_id", ""),
+            )
 
     why_busy = busy()
     if why_busy:
@@ -297,9 +392,23 @@ def tick() -> dict[str, Any]:
     return _maybe_train(state)
 
 
+def _job_exhausted(
+    state: dict[str, Any], key: str, kind: str, adapter: str
+) -> dict[str, Any] | None:
+    if _attempts(state, key) < MAX_JOB_ATTEMPTS:
+        return None
+    why = (
+        f"{kind} {MAX_JOB_ATTEMPTS} denemede tamamlanamadı "
+        f"(bkz. storage/continuous_loop/{kind}.log)"
+    )
+    if kind.endswith("_ref"):
+        return _pause(state, f"Referans ölçümü: {why}. İnsan bakmalı (referans model/adapter?).")
+    return _fail(state, adapter, why)
+
+
 def _advance_candidate(state: dict[str, Any]) -> dict[str, Any] | None:
     """Son adayı bir adım ilerlet; aday yok/işlendi → None (yeni eğitime geçilir)."""
-    from app.evals.llm30_judge import SCORED_NAME, all_correct
+    from app.evals.llm30_judge import all_correct
     from app.orchestration import training_loop
     from app.training import candidate_jobs
 
@@ -322,6 +431,7 @@ def _advance_candidate(state: dict[str, Any]) -> dict[str, Any] | None:
         _event("bitis", "doğrulandı" if comp["ok"] else "başarısız", adapter=name)
         if not comp["ok"]:
             return _fail(state, name, "bitiş doğrulanamadı: " + ", ".join(comp.get("failed", [])))
+        write_state(state)
         return {"action": "bitis_dogrulandi", "detail": name}
     if not comp.get("ok"):
         return _fail(state, name, "bitiş doğrulanamadı")
@@ -329,16 +439,22 @@ def _advance_candidate(state: dict[str, Any]) -> dict[str, Any] | None:
     # 2) dönüşüm
     tag = cand.get("tag") or candidate_tag(name)
     cand["tag"] = tag
-    if not ollama_digest(tag):
+    digest = ollama_digest(tag)
+    if digest is None:
+        write_state(state)
+        return {"action": "bekliyor", "detail": "Ollama'ya erişilemiyor"}
+    if not digest:
         conv = cand.get("conversion_job")
         if conv:
             job = candidate_jobs.get_job(conv)
-            if job.get("status") in ("failed", "lost", "error", "cancelled"):
-                return _fail(state, name, f"Ollama dönüşümü başarısız ({job.get('status')})")
-            if job.get("status") == "done":
+            status = str(job.get("status") or "")
+            if status in candidate_jobs.ACTIVE:
+                write_state(state)
+                return {"action": "bekliyor", "detail": f"dönüşüm {conv} ({status})"}
+            if status == "done":
                 return _fail(state, name, "dönüşüm 'done' ama etiket Ollama'da yok")
-            write_state(state)
-            return {"action": "bekliyor", "detail": f"dönüşüm {conv} ({job.get('status')})"}
+            # failed / lost / stopped ve tanınmayan her uç durum (Kademe 2 CL-3)
+            return _fail(state, name, f"Ollama dönüşümü tamamlanmadı ({status or '?'})")
         job = candidate_jobs.start_job(
             "conversion",
             adapter=name,
@@ -351,12 +467,18 @@ def _advance_candidate(state: dict[str, Any]) -> dict[str, Any] | None:
 
     # 3) referans LLM-30 (referans model özeti değişince yeniden)
     ref_digest = ollama_digest(s.continuous_loop_reference_tag)
+    if ref_digest is None:
+        write_state(state)
+        return {"action": "bekliyor", "detail": "Ollama'ya erişilemiyor"}
     if not ref_digest:
         return _pause(state, f"Referans model Ollama'da yok: {s.continuous_loop_reference_tag}")
-    ref_id = "loop_ref_" + _slug(s.continuous_loop_reference_tag) + "_" + ref_digest[:12]
     seed_tag = "s" + "-".join(str(x) for x in seeds())
-    ref_id += "_" + seed_tag
+    ref_base = f"loop_ref_{_slug(s.continuous_loop_reference_tag)}_{ref_digest[:12]}_{seed_tag}"
+    ref_id = _run_id(state, ref_base)
     if not run_complete(ref_id):
+        stop = _job_exhausted(state, ref_base, "llm30_ref", name)
+        if stop is not None:
+            return stop
         # Referans koşusunda base = referansın kendisi: llm30_run base/lora şablon eşitliği
         # ister; yalnız B (lora) koşulu koşulur, base kullanılmaz.
         return _start_job(
@@ -368,39 +490,49 @@ def _advance_candidate(state: dict[str, Any]) -> dict[str, Any] | None:
                 s.continuous_loop_reference_adapter,
                 ref_id,
             ),
+            key=ref_base,
             run_id=ref_id,
         )
 
     # 4) aday LLM-30
-    cand_id = f"loop_{name}_{seed_tag}"
+    cand_base = f"loop_{name}_{seed_tag}"
+    cand_id = _run_id(state, cand_base)
     cand["run_id"] = cand_id
     if not run_complete(cand_id):
+        stop = _job_exhausted(state, cand_base, "llm30_aday", name)
+        if stop is not None:
+            return stop
         return _start_job(
             state,
             "llm30_aday",
             _llm30_args(s.continuous_loop_template_from, tag, name, cand_id),
+            key=cand_base,
             run_id=cand_id,
             adapter=name,
         )
 
-    # 5) hakem
+    # 5) hakem (puan dosyası hakem modeli + istem sürümüne bağlı — Kademe 2 CL-9)
     for kind, run_id in (("hakem_ref", ref_id), ("hakem_aday", cand_id)):
         if not scored_complete(run_id):
+            key = f"hakem:{scored_file(run_id).name}:{run_id}"
+            stop = _job_exhausted(state, key, kind, name)
+            if stop is not None:
+                return stop
             return _start_job(
                 state,
                 kind,
-                ["-m", "app.evals.llm30_judge", str(llm30_dir(run_id))],
+                ["app.evals.llm30_judge", str(llm30_dir(run_id))],
+                key=key,
                 run_id=run_id,
             )
 
     # 6) kapı
-    cand_scored = llm30_dir(cand_id) / SCORED_NAME
-    ref_scored = llm30_dir(ref_id) / SCORED_NAME
+    cand_scored = scored_file(cand_id)
     rec = training_loop.record_dev_eval(
         name,
         candidate_raw=cand_scored,
         candidate_condition="B",
-        reference_raw=ref_scored,
+        reference_raw=scored_file(ref_id),
         reference_condition="B",
         min_repeats=len(seeds()),
     )
@@ -443,29 +575,41 @@ def _maybe_train(state: dict[str, Any]) -> dict[str, Any]:
     if not s.unattended_training_enabled:
         write_state(state)
         return {"action": "insan_onayi_gerekli", "detail": "unattended_training_enabled=false"}
-    stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d_%H%M")
+    data_sha = str(r.get("data_sha256") or "")
+    if not data_sha:
+        write_state(state)
+        return {"action": "egitim_hazir_degil", "detail": "eğitim verisi özeti bilinmiyor"}
+    # Kademe 2 AUTH-2: ad veri özetine bağlı → aynı veride aynı reçete/anlık görüntü yeniden
+    # kullanılır (her tik yeni tam kopya yok); insanın kolay akış ayarları EZİLMEZ.
     recipe = easy_train.prepare_snapshot(
         {
             "profile": s.continuous_loop_profile,
             "base_model": s.peft_base_model,
             "mix_profile": s.continuous_loop_mix_profile,
             "mix_weights": {},
-            "adapter_name": f"hektor_loop_{stamp}",
+            "adapter_name": f"hektor_loop_{data_sha[:12]}",
             "max_examples": 0,
-        }
+        },
+        remember=False,
     )
     snap = "snap_" + recipe["recipe_sha"][:16]
     res = easy_train.launch(snap, f"loop-{snap}", unattended=True)
-    _event(
-        "egitim_baslatildi" if res.get("ok") else "egitim_baslatilamadi",
-        res.get("message", "") or "; ".join(res.get("problems", []))[:500],
-        adapter=recipe["adapter_name"],
-        snapshot=snap,
-    )
-    return {
-        "action": "egitim_baslatildi" if res.get("ok") else "egitim_baslatilamadi",
-        "detail": res.get("message", "") or "; ".join(res.get("problems", []))[:500],
-    }
+    detail = res.get("message", "") or "; ".join(res.get("problems", []))
+    action = "egitim_baslatildi" if res.get("ok") else "egitim_baslatilamadi"
+    _event(action, detail[:500], adapter=recipe["adapter_name"], snapshot=snap)
+    state = read_state()
+    if res.get("ok"):
+        state.pop("blocked_launch", None)
+        write_state(state)
+        return {"action": action, "detail": detail[:500]}
+    problems = "; ".join(res.get("problems", [])) or detail
+    prev = state.get("blocked_launch") or {}
+    count = int(prev.get("count", 0)) + 1 if prev.get("problems") == problems else 1
+    state["blocked_launch"] = {"problems": problems, "count": count, "at": utcnow()}
+    write_state(state)
+    if count >= MAX_BLOCKED_LAUNCHES:
+        return _pause(state, f"Eğitim {count} kez aynı ön kontrolde reddedildi: {problems[:400]}")
+    return {"action": action, "detail": detail[:500]}
 
 
 # ── insan kontrolleri ────────────────────────────────────────────────────────
@@ -476,13 +620,21 @@ def pause(reason: str) -> dict[str, Any]:
 
 
 def resume(reason: str) -> dict[str, Any]:
-    """Duraklatmayı kaldır (insan). Ardışık başarısızlık sayacı sıfırlanır."""
+    """Duraklatmayı kaldır (insan). Ardışık başarısızlık sayacı ve deneme sayaçları sıfırlanır;
+    serbest bırakılmamış son başarısız aday politika ile serbest bırakılır (Kademe 2 CL-5)."""
     if len((reason or "").strip()) < 10:
         raise LoopError("Gerekçe en az 10 karakter olmalı.")
     state = read_state()
-    state.update(paused=False, pause_reason="", consecutive_failures=0)
+    state.update(paused=False, pause_reason="", consecutive_failures=0, attempts={})
+    state.pop("blocked_launch", None)
+    state.pop("error", None)
     write_state(state)
-    return _event("devam", reason.strip())
+    out = _event("devam", reason.strip())
+    for name, cand in reversed(list(state["candidates"].items())):
+        if cand.get("failed") and not cand.get("released"):
+            _release(state, name, cand.get("failure", "önceki başarısızlık"))
+        break
+    return out
 
 
 def overview() -> dict[str, Any]:

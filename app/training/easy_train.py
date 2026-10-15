@@ -748,8 +748,11 @@ def _recipe_sha(recipe: dict[str, Any]) -> str:
     return _sha_text(json.dumps({k: recipe.get(k) for k in keys}, sort_keys=True))
 
 
-def prepare_snapshot(settings: dict[str, Any]) -> dict[str, Any]:
-    """(İnsan) Değişmez veri anlık görüntüsü + reçete. Aynı reçete → aynı anlık görüntü."""
+def prepare_snapshot(settings: dict[str, Any], *, remember: bool = True) -> dict[str, Any]:
+    """(İnsan) Değişmez veri anlık görüntüsü + reçete. Aynı reçete → aynı anlık görüntü.
+
+    ``remember=False`` (sürekli döngü): insanın "son kullanılan" kolay akış ayarları EZİLMEZ.
+    """
     from app.feedback.chat_dataset import read_selection
     from app.training.detached_launch import split_lines_by_source
     from app.training.peft_lora_train import load_lora_profile
@@ -798,8 +801,9 @@ def prepare_snapshot(settings: dict[str, Any]) -> dict[str, Any]:
             shutil.rmtree(tmp, ignore_errors=True)
         else:
             os.replace(tmp, d)
-    saved = {k: norm[k] for k in default_settings()}
-    _write(last_settings_path(), {**saved, "_saved_at": utcnow()})
+    if remember:
+        saved = {k: norm[k] for k in default_settings()}
+        _write(last_settings_path(), {**saved, "_saved_at": utcnow()})
     return {**(_read(d / "recipe.json") or recipe), "summary": summary(recipe)}
 
 

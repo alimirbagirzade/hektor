@@ -5,8 +5,9 @@ Kullanıcı kararı (2026-10-15): eğitimler arası kapıyı yerel Ollama hakemi
 hakem LLM TEK otorite değildir — bu puanlar yalnız döngünün devam/dur kararını verir; terfi
 insanda ve kilitli final takımıyla yapılır.
 
-Girdi: ``llm30_run`` ``raw.jsonl``. Çıktı: aynı klasörde ``raw_scored.jsonl`` (``raw.jsonl``
-DEĞİŞMEZ) — her satıra ``score_by_dimension`` (``rubric_gate.rubric_dims``), ``critical_errors``
+Girdi: ``llm30_run`` ``raw.jsonl``. Çıktı: aynı klasörde ``raw_scored__<hakem>.jsonl``
+(``scored_path``: hakem modeli + istem sürümü adda; ``raw.jsonl`` DEĞİŞMEZ) — her satıra
+``score_by_dimension`` (``rubric_gate.rubric_dims``), ``critical_errors``
 (yalnız o sorunun kritik kodlarından) ve ``judge`` (model, tohum, gerekçe) yazılır. Hakem
 cevabı şemaya uymazsa bir kez yeniden sorulur; yine uymazsa satır PUANSIZ kalır (kapı onu
 puansız sayar → geçemez; sessiz varsayılan puan yok).
@@ -18,14 +19,17 @@ girer — eğitime ve retrieval indeksine GİRMEZ (değişmeyen kural).
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 SEED = 42
-SCORED_NAME = "raw_scored.jsonl"
+#: İstem/şema değişince artır → eski puanlar yeni hakem kimliğiyle KARIŞMAZ (Kademe 2 CL-9).
+JUDGE_VERSION = "1"
 
 #: (istem, sistem) → hakem metni. Testlerde sahte üreticiyle değiştirilir.
 Generate = Callable[[str, str], str]
@@ -43,6 +47,42 @@ def judge_model() -> str:
 
     s = get_settings()
     return (getattr(s, "continuous_loop_judge_model", "") or "").strip() or s.llm_model
+
+
+def judge_key(model: str) -> str:
+    """Hakem kimliği: model + istem/şema sürümü (puan dosyası adına girer)."""
+    slug = re.sub(r"[^a-z0-9._-]+", "-", model.lower()).strip("-")
+    h = hashlib.sha256((JUDGE_SYSTEM + JUDGE_VERSION).encode("utf-8")).hexdigest()[:8]
+    return f"{slug}__{h}"
+
+
+def scored_path(run_dir: Path, model: str | None = None) -> Path:
+    """Bu hakemin puan dosyası. Hakem ya da istem değişirse AYRI dosya (eski puan karışmaz)."""
+    return run_dir / f"raw_scored__{judge_key(model or judge_model())}.jsonl"
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Satır satır oku; çözülemeyen (yarım yazılmış) satırı ATLA — tek bozuk satır döngüyü
+    her turda çökertmesin (Kademe 2 CL-6). Atlanan satır puansız/eksik sayılır."""
+    if not path.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    for x in path.read_text("utf-8").split("\n"):
+        if not x.strip():
+            continue
+        try:
+            r = json.loads(x)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(r, dict):
+            out.append(r)
+    return out
+
+
+def _write_atomic(path: Path, rows: list[dict[str, Any]]) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), "utf-8")
+    os.replace(tmp, path)
 
 
 def _numeric_for(question_id: str) -> dict[str, object]:
@@ -134,7 +174,7 @@ def _ollama(model: str) -> Generate:
 def score_run(
     run_dir: Path, *, generate: Generate | None = None, model: str | None = None
 ) -> dict[str, Any]:
-    """``run_dir/raw.jsonl`` → ``raw_scored.jsonl``. Sürdürülebilir (puanlı satır atlanır)."""
+    """``run_dir/raw.jsonl`` → ``scored_path``. Sürdürülebilir (puanlı satır atlanır)."""
     from app.evals.llm30 import CRITICAL_BY_QUESTION, load_llm30
     from app.evals.rubric_gate import rubric_dims
     from app.orchestration.local_judge import model_blocker
@@ -145,15 +185,12 @@ def score_run(
         raise ValueError(blocker)
     gen = generate or _ollama(model)
     items = {it.id: it for it in load_llm30(purpose="selection")}
-    raw = [json.loads(x) for x in (run_dir / "raw.jsonl").read_text("utf-8").split("\n") if x]
-    out_path = run_dir / SCORED_NAME
+    raw = read_jsonl(run_dir / "raw.jsonl")
+    out_path = scored_path(run_dir, model)
     done: dict[tuple[str, str, Any], dict[str, Any]] = {}
-    if out_path.exists():
-        for x in out_path.read_text("utf-8").split("\n"):
-            if x:
-                r = json.loads(x)
-                if r.get("score_by_dimension") is not None:
-                    done[(r["condition"], r["question_id"], r.get("seed"))] = r
+    for r in read_jsonl(out_path):
+        if r.get("score_by_dimension") is not None and (r.get("judge") or {}).get("model") == model:
+            done[(r["condition"], r["question_id"], r.get("seed"))] = r
     rows: list[dict[str, Any]] = []
     n_new = n_fail = 0
     for row in raw:
@@ -180,12 +217,8 @@ def score_run(
             new["score_by_dimension"], new["critical_errors"], why = parsed
             new["judge"] = {"model": model, "seed": SEED, "gerekce": why}
         rows.append(new)
-        out_path.write_text(
-            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8"
-        )
-    out_path.write_text(
-        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8"
-    )
+        _write_atomic(out_path, rows)  # yarım satır kalmaz (Kademe 2 CL-6)
+    _write_atomic(out_path, rows)
     return {"path": str(out_path), "rows": len(rows), "new": n_new, "unscored": n_fail}
 
 
@@ -195,11 +228,7 @@ def all_correct(scored: Path, condition: str = "B") -> dict[str, Any]:
     Doğru = o koşuldaki HER satırda hakem ``dogruluk`` tam puan (4), kritik hata yok ve satır
     puanlı. Tek puansız/eksik satır → doğru DEĞİL (kanıt yetersiz).
     """
-    rows = [
-        json.loads(x)
-        for x in scored.read_text("utf-8").split("\n")
-        if x and json.loads(x).get("condition") == condition
-    ]
+    rows = [r for r in read_jsonl(scored) if r.get("condition") == condition]
     wrong = sorted(
         {
             r["question_id"]
@@ -226,7 +255,19 @@ def main() -> None:
     ap.add_argument("run_dir", type=Path)
     ap.add_argument("--model", default=None)
     args = ap.parse_args()
-    print(json.dumps(score_run(args.run_dir, model=args.model), ensure_ascii=False), flush=True)
+    import sys
+
+    from app.training.resource_lock import HeavyJobBusy, hold
+
+    # 30B hakem RAM tutar → ortak ağır iş kilidi altında (llm30_run gibi; Kademe 2 CL-8):
+    # dönüşüm/eğitim/karşılaştırma bu sürerken başlamaz. Meşgulse 9 (döngü denemeyi saymaz).
+    try:
+        with hold("comparison", "llm30_judge"):
+            out = score_run(args.run_dir, model=args.model)
+    except HeavyJobBusy as exc:
+        print(f"HATA: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(9) from exc
+    print(json.dumps(out, ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":

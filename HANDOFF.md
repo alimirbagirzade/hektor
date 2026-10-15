@@ -33,6 +33,37 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-15 — Sürekli (gözetimsiz) eğitim döngüsü + Kademe 2 (KULLANICI KARARI)
+
+Kullanıcı: "otomatik eğitim + soru-cevap kontrolü + LoRA, sürekli döngü; makaleler RAG'a; dur
+ma". Kararlar: eğitim **onaysız**; ölçüt **LLM-30 soru-cevap doğruluğu** (yerel hakem rubriği);
+insan yalnız **tüm sorular doğru** olunca (ya da 2 ardışık başarısız aday); Kademe 2 **yalnız
+kod değişince**; makaleler doğrulamalı araştırma (zayıf alaka filtreli `kaynak-tamamla` dışarıda).
+Tasarım: `docs/TASARIM_SUREKLI_EGITIM.md`. CLAUDE.md Kural 8 istisnası + Kademe 2 kapsamı yazıldı.
+
+- `hektor surekli-dongu tik|durum|duraklat|devam` (`app/orchestration/continuous_loop.py`), her
+  tik tek adım: bitiş → Ollama dönüşümü → LLM-30 B (aday + `hektor-v12-30b` referans, tohum 42 43)
+  → yerel hakem (`app/evals/llm30_judge.py`, varsayılan ham `qwen3:30b-a3b-instruct-2507-q4_K_M`)
+  → `record_dev_eval` → tüm doğru ise DURAKLAT; yeni veri + tüm kapılar hazırsa onaysız eğitim
+  (`approvals.policy_authorize`, `decided_by=policy:unattended_training`; terfi ASLA).
+- Sabit profil `moe30b_attn_long_ma` = long + **merge-aware** (full_20261011 dönüşümü sadakat
+  kapısında düştüğü için). LR 2e-4 merge-aware ile ölçülmedi.
+- Zamanlayıcı: `scripts/install-continuous-loop-task.ps1` (30 dk). Açmak için `.env`:
+  `HEKTOR_CONTINUOUS_LOOP_ENABLED=true`, `HEKTOR_UNATTENDED_TRAINING_ENABLED=true`,
+  `HEKTOR_KADEME2_CODE_ONLY=true`. Eski Auto-LoRA artık `HEKTOR_AUTO_LORA_AUTO_ENABLED` ister.
+- **Kademe 2** (`docs/evidence/kademe2_2026-10-15.json`): 2 bulucu → 15 bulgu → 2 şüpheci oy;
+  13 düzeltildi (ölen iş deneme sayacı + çıkış kodu sarmalayıcısı `loop_job`, Ollama erişilemiyor
+  ayrımı, 'stopped' dönüşüm, istisna yakalama + duraklatma, atomik hakem yazımı, hakem kilidi,
+  hakem kimliğine bağlı puan dosyası, veri özetine bağlı anlık görüntü, `devam` serbest bırakır,
+  Auto-LoRA ikinci sahip olamaz, politika kapanınca dirilme yok…), 1 reddedildi (AUTH-1).
+- **Sınırlar:** LLM-30'un 12/30 sorusunda referans cevap, 10'unda sayısal anahtar var; kalanında
+  "doğru" = hakem kanaati. Final takımı (60, taslak, kilitsiz) döngüye girmez (terfide insan).
+  Bir tur ≈ 3–4 gün (tam havuz eğitimi ~58 sa). Döngü veri üretmez: yeni eğitim için yeni veri
+  (araştırma paketi açık; RAG öğrenme döngüsünün arXiv çekimi kayıtlı sorgu olmadığından boş).
+- **Açık:** uzun RAG ölçümü (`reports/evals/uzun_rag_20261015`, aday ↔ v12, 160 cevap) sürüyor;
+  4 RAM'e duyarlı test (`test_easy_train` 2, `test_kademe2_real_git` 2) ölçüm RAM'i tutarken
+  main'de de düşüyor — ölçüm bitince yeniden koşulacak.
+
 ### 2026-10-14 — `hektor_lora_full_20261011` bitti; birleştirme KL eşiği 0,08 (KULLANICI KARARI)
 
 - Eğitim 2026-10-14 03:49'da 187/187 bitti (çıkış kodu tanığı: 0, en iyi eval_loss 0,6036,
