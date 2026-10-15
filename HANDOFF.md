@@ -57,6 +57,10 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
   gevşetilmedi. Seçenekler (karar insanda): PEFT üzerinden ölçüm (`lora-eval`, Ollama'sız; döngü
   defterinin `degerlendirme` adımı ise Ollama'lı llm30 raw ister) ya da merge-aware yeniden eğitim
   (aynı veri özetiyle döngü kuralı engeller → yeni doğrulanmış veri ya da `serbest-birak`).
+- **PEFT ölçümü (2026-10-15, kullanıcı kararı):** 6 `lora-eval` seti, aday + v12 aynı kodla.
+  v12 6 setin 4'ünde önde; aday 3 dejenere tekrar + 3 `kural1_suphe`, 35 cevap 1024'te kesik
+  (v12: 0). Ayrıntı ve sınırlar: `docs/evidence/peft_eval_full_20261011_vs_v12_2026-10-15.md`.
+  Sonuç: bu kanıtla aday terfi edilemez; reçete↔ölçüm istemi uyumsuzluğu açık test noktası.
 - **Açık (insan, dönüşüm olursa):** iki raw.jsonl'i rubrikle puanla (`score_by_dimension` + `critical_errors`) →
   `uv run hektor egitim-dongusu degerlendirme hektor_lora_full_20261011 --aday-raw … --onceki-raw …`.
   Terfi insanda; final takımı ayrı ve hâlâ kilitsiz.
