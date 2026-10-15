@@ -2,9 +2,9 @@
   "schema": 1,
   "status": "done",
   "reason": "",
-  "started_at": "2026-10-14T20:30:03.122555+00:00",
-  "finished_at": "2026-10-14T20:30:05.633306+00:00",
-  "seconds": 2.52,
+  "started_at": "2026-10-15T20:30:03.418914+00:00",
+  "finished_at": "2026-10-15T20:30:05.371287+00:00",
+  "seconds": 1.95,
   "code_commit": "95572d724279",
   "steps": {
     "hakem": {
@@ -22,7 +22,7 @@
         "cached": 0
       },
       "quarantined": [],
-      "seconds": 0.25
+      "seconds": 0.39
     },
     "olcum": {
       "ran": false,
@@ -38,7 +38,7 @@
       "key_hits": null,
       "key_total": null,
       "avg_output_tokens": null,
-      "seconds": 1.69,
+      "seconds": 1.02,
       "flag_counts": {},
       "regression": [],
       "per_question": []

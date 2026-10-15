@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "status": "done",
+  "reason": "",
+  "started_at": "2026-10-15T20:30:03.418914+00:00",
+  "finished_at": "2026-10-15T20:30:05.371287+00:00",
+  "seconds": 1.95,
+  "code_commit": "95572d724279",
+  "steps": {
+    "hakem": {
+      "ran": true,
+      "skipped": "",
+      "model": "hektor-v12-30b",
+      "pending_total": 0,
+      "judged_fresh": 0,
+      "left_for_next_night": 0,
+      "counts": {
+        "tutarli": 0,
+        "supheli": 0,
+        "belirsiz": 0,
+        "failed": 0,
+        "cached": 0
+      },
+      "quarantined": [],
+      "seconds": 0.39
+    },
+    "olcum": {
+      "ran": false,
+      "skipped": "Model değişmedi ve son ölçüm yeni — yeniden ölçülmedi.",
+      "model": "hektor-v12-30b",
+      "digest": "acebe185499a",
+      "rag": false,
+      "reason": "",
+      "n": null,
+      "n_questions": null,
+      "n_errors": null,
+      "n_flagged": null,
+      "key_hits": null,
+      "key_total": null,
+      "avg_output_tokens": null,
+      "seconds": 1.02,
+      "flag_counts": {},
+      "regression": [],
+      "per_question": []
+    },
+    "csv": {
+      "error": "",
+      "files": [
+        {
+          "file": "BTCUSDT_1h_2023-01_2024-12.csv",
+          "status": "seen",
+          "reason": "done",
+          "timeframe": "",
+          "profile": "",
+          "n_trials": null,
+          "assumptions": [],
+          "selected": []
+        }
+      ]
+    },
+    "egitim": {
+      "ran": true,
+      "ready": false,
+      "blocker_keys": [
+        "egitim_dongusu",
+        "kademe2"
+      ],
+      "started_training": false,
+      "error": ""
+    }
+  },
+  "note": "Temizlenmiş gece özeti (Hektor). Metin/cevap/yol içermez; yatırım tavsiyesi değildir."
+}
