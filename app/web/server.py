@@ -2523,8 +2523,8 @@ async def api_auto_lora_enable(enabled: bool = True) -> dict:
     """Otomatik periyodik kontrolü aç/kapat."""
     from app.lora.auto_pipeline import get_auto_pipeline
 
-    get_auto_pipeline().set_enabled(enabled)
-    return {"ok": True, "auto_enabled": enabled}
+    actual = get_auto_pipeline().set_enabled(enabled)
+    return {"ok": actual == enabled, "auto_enabled": actual}
 
 
 @app.post("/api/auto-lora/check", dependencies=[api_auth])

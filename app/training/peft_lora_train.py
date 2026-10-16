@@ -698,6 +698,11 @@ def load_lora_profile(name: str, profiles_path: Path | None = None) -> dict:
         out["cpu_dtype"] = prof["cpu_dtype"]
     if prof.get("load_best_model_at_end") is not None:
         out["load_best_model_at_end"] = bool(prof["load_best_model_at_end"])
+    if prof.get("merge_aware_bf16") is not None:
+        # Birleşik bf16 hesabıyla eğit → Ollama dönüşümünün sadakat kapısı geçer (2026-10-14:
+        # standart LoRA'da fark/etki 0,17–0,20, top-1 değişiyordu). Dropout 0 şart (kurulum
+        # zaten reddeder); NEFTune'u profil kapatmalı (v15'te ölçülen reçete).
+        out["merge_aware_bf16"] = bool(prof["merge_aware_bf16"])
     # Tamsayı alanlar: YAML'da yanlış tip/negatif değer sessizce kabul edilmez.
     for key, minimum in (
         ("gradient_accumulation_steps", 1),

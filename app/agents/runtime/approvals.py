@@ -198,6 +198,64 @@ def require_fresh_approval(
     )
 
 
+#: Politika kaynaklı kararların ``decided_by`` öneki — insan kararıyla KARIŞMAZ (kayıtta görünür).
+POLICY_PREFIX = "policy:"
+
+
+def policy_authorize(
+    agent_id: str,
+    action: str,
+    risk: RiskLevel | str,
+    summary: str,
+    *,
+    policy: str = "unattended_training",
+    store: SqliteStore | None = None,
+) -> ApprovalDecision:
+    """Gözetimsiz eğitim politikası açıkken onayı İNSAN yerine POLİTİKA verir ve tüketir.
+
+    Kullanıcı kararı (2026-10-15, CLAUDE.md Kural 8): ``unattended_training_enabled`` açıkken
+    gerçek eğitim/döngü engeli kaldırma insan onayı beklemez. Kayıt yine aynı onay deposuna
+    yazılır (alt süreç, nöbetçi ve bitiş doğrulaması aynı kanıtı okur) ama ``decided_by``
+    ``policy:<ad>`` olur — insan kararı gibi görünmez. Terfi (``promote``) ASLA bu yolla
+    yetkilendirilmez; ayar kapalıysa ya da STOP_ALL etkinse yetki VERİLMEZ (istek de açılmaz).
+    """
+    from app.agents.runtime import supervisor
+    from app.config import get_settings
+
+    if "promote" in action:
+        raise ValueError("Terfi politika ile yetkilendirilemez (insan kararı).")
+    if not get_settings().unattended_training_enabled or supervisor.is_stop_all_active():
+        return ApprovalDecision(
+            authorized=False, approval_id="", status=ApprovalStatus.pending, created=False
+        )
+    st = _store(store)
+    req = request_approval(agent_id, action, summary, risk, store=st)
+    approve(
+        req.approval_id, decided_by=POLICY_PREFIX + policy, note="gözetimsiz politika", store=st
+    )
+    fresh = st.consume_fresh_approval(agent_id, action)
+    if not fresh or fresh["approval_id"] != req.approval_id:
+        # Kademe 2 AUTH-4: kendi politika kaydımız onaylı+tüketilmemiş KALMASIN — yoksa sonraki
+        # insan yolu (require_fresh_approval) onu insan onayı sanıp tüketebilirdi.
+        st.update_approval_request(
+            req.approval_id, consumed_at=_utcnow(), decision_note="politika: kullanılmadı (yarış)"
+        )
+        # Aynı aksiyon için önceden bekleyen başka bir onay tüketildiyse bile bu istek
+        # kullanılmadan kalır; yetki yalnız KENDİ isteğimiz tüketildiyse verilir.
+        return ApprovalDecision(
+            authorized=False,
+            approval_id=req.approval_id,
+            status=ApprovalStatus.approved,
+            created=True,
+        )
+    _system_event(
+        f"Politika onayı tüketildi: {action}", agent_id, action, req.approval_id, "warning"
+    )
+    return ApprovalDecision(
+        authorized=True, approval_id=req.approval_id, status=ApprovalStatus.approved, created=True
+    )
+
+
 def has_fresh_approval(agent_id: str, action: str, store: SqliteStore | None = None) -> bool:
     """Tüketmeden, taze (approved + unconsumed) onay var mı diye bak (supervisor için)."""
     return _store(store).find_fresh_approval(agent_id, action) is not None

@@ -254,6 +254,6 @@ def test_knowledge_loop_route_is_read_only_view(manager, monkeypatch):
         res = client.get("/api/research-package/knowledge-loop")
     assert res.status_code == 200
     body = res.json()
-    assert set(body) == {"knowledge", "training", "loop"}
+    assert set(body) == {"knowledge", "training", "loop", "continuous"}
     assert "counts" in body["knowledge"] and "gpt" in body["knowledge"]
     assert "candidates" in body["loop"]

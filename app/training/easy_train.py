@@ -324,7 +324,15 @@ def kademe2_blocker(*, recipe_sha: str = "", data_sha: str | None = None) -> str
             f"Kademe 2: kod durumu doğrulanamadı ({why}) — denetlenen kod ile çalışacak kod "
             "aynı olmalı (app/ scripts/ configs/ pyproject.toml commit'li ve temiz)."
         )
-    if latest_kademe2(code["code_sha"], recipe_sha, data_sha) is None:
+    code_only = bool(getattr(get_settings(), "kademe2_code_only", False))
+    if latest_kademe2(code["code_sha"], recipe_sha, data_sha, code_only=code_only) is None:
+        if code_only:
+            return (
+                f"Kademe 2 kaydı yok: bu kod durumu ({code['code_sha'][:12]}…) için kapanmış "
+                "derin av kaydı gerekli (kod değişince zorunlu; kademe2_code_only). Derin avdan "
+                "sonra: `uv run hektor kademe2-kayit --findings bulgular.json --data-sha "
+                f'{data_sha or "<sha>"} --evidence "..."`'
+            )
         return (
             "Kademe 2 kaydı yok: bu kod durumu "
             f"({code['code_sha'][:12]}…) ve eğitim verisi ({(data_sha or '?')[:12]}…) için "
@@ -670,8 +678,15 @@ def list_kademe2() -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: str(r.get("created_at", "")))
 
 
-def latest_kademe2(code_sha: str, recipe_sha: str = "", data_sha: str = "") -> dict | None:
-    """Bu kod durumu (ve verilirse reçete/veri) için kapanmış son kayıt."""
+def latest_kademe2(
+    code_sha: str, recipe_sha: str = "", data_sha: str = "", *, code_only: bool = False
+) -> dict | None:
+    """Bu kod durumu (ve verilirse reçete/veri) için kapanmış son kayıt.
+
+    ``code_only`` (kullanıcı kararı 2026-10-15, ``kademe2_code_only``): kayıt KOD özetine bağlı
+    olması yeterli — veri değişince otomatik kalite + sızıntı + Kural 1 kapıları devrededir.
+    Reçeteye bağlı SINIRLI kabul taşıyan kayıt yine yalnız kendi reçetesini kapsar.
+    """
     found = None
     for r in list_kademe2():
         if not code_sha or r.get("code_sha") != code_sha:
@@ -703,11 +718,13 @@ def latest_kademe2(code_sha: str, recipe_sha: str = "", data_sha: str = "") -> d
         if any(_recipe_limited(f) for f in r.get("findings", [])):
             # Sınırlı kabul yalnız kendi reçetesini kapsar (elle düzenlenmiş kayıtta da).
             covered = bool(recipe_sha) and sc.get("recipe_sha") == recipe_sha
+        elif code_only:
+            covered = True
         else:
             covered = (recipe_sha and sc.get("recipe_sha") == recipe_sha) or (
                 data_sha and sc.get("data_sha256") == data_sha
             )
-        if (recipe_sha or data_sha) and not covered:
+        if (recipe_sha or data_sha or code_only) and not covered:
             continue
         found = r
     return found
@@ -731,8 +748,11 @@ def _recipe_sha(recipe: dict[str, Any]) -> str:
     return _sha_text(json.dumps({k: recipe.get(k) for k in keys}, sort_keys=True))
 
 
-def prepare_snapshot(settings: dict[str, Any]) -> dict[str, Any]:
-    """(İnsan) Değişmez veri anlık görüntüsü + reçete. Aynı reçete → aynı anlık görüntü."""
+def prepare_snapshot(settings: dict[str, Any], *, remember: bool = True) -> dict[str, Any]:
+    """(İnsan) Değişmez veri anlık görüntüsü + reçete. Aynı reçete → aynı anlık görüntü.
+
+    ``remember=False`` (sürekli döngü): insanın "son kullanılan" kolay akış ayarları EZİLMEZ.
+    """
     from app.feedback.chat_dataset import read_selection
     from app.training.detached_launch import split_lines_by_source
     from app.training.peft_lora_train import load_lora_profile
@@ -781,8 +801,9 @@ def prepare_snapshot(settings: dict[str, Any]) -> dict[str, Any]:
             shutil.rmtree(tmp, ignore_errors=True)
         else:
             os.replace(tmp, d)
-    saved = {k: norm[k] for k in default_settings()}
-    _write(last_settings_path(), {**saved, "_saved_at": utcnow()})
+    if remember:
+        saved = {k: norm[k] for k in default_settings()}
+        _write(last_settings_path(), {**saved, "_saved_at": utcnow()})
     return {**(_read(d / "recipe.json") or recipe), "summary": summary(recipe)}
 
 
@@ -929,8 +950,13 @@ def precheck(recipe: dict[str, Any]) -> list[str]:
     return problems
 
 
-def launch(snapshot_id: str, request_id: str) -> dict[str, Any]:
-    """(İnsan) Özeti onayla ve başlat. Aynı ``request_id`` ikinci kez eğitim başlatmaz."""
+def launch(snapshot_id: str, request_id: str, *, unattended: bool = False) -> dict[str, Any]:
+    """(İnsan) Özeti onayla ve başlat. Aynı ``request_id`` ikinci kez eğitim başlatmaz.
+
+    ``unattended=True`` (yalnız sürekli döngü): ön kontroller AYNEN uygulanır; onayı insan
+    yerine gözetimsiz politika verir (``approvals.policy_authorize``) — politika ayarı kapalıysa
+    eğitim BAŞLAMAZ ve insan onayı istenmez.
+    """
     from app.agents.runtime import approvals
     from app.lora.weight_decision import WeightDecisionStore
     from app.training import detached_launch
@@ -954,12 +980,28 @@ def launch(snapshot_id: str, request_id: str) -> dict[str, Any]:
             "message": "Ön kontroller geçmedi — onay TÜKETİLMEDİ.",
         }
     _set_request(request_id, {"status": "starting", "snapshot_id": snapshot_id, "at": utcnow()})
-    decision = approvals.require_fresh_approval(
-        "lora-trainer",
-        approval_action(recipe["recipe_sha"]),
-        "critical",
-        "Gerçek LoRA eğitimi (kolay akış): " + summary(recipe),
-    )
+    if unattended:
+        decision = approvals.policy_authorize(
+            "lora-trainer",
+            approval_action(recipe["recipe_sha"]),
+            "critical",
+            "Gerçek LoRA eğitimi (sürekli döngü, gözetimsiz politika): " + summary(recipe),
+        )
+        if not decision.authorized:
+            _set_request(request_id, {"status": "blocked", "at": utcnow()})
+            return {
+                "ok": False,
+                "status": "blocked",
+                "message": "Gözetimsiz eğitim politikası kapalı ya da STOP_ALL etkin — "
+                "eğitim başlatılmadı.",
+            }
+    else:
+        decision = approvals.require_fresh_approval(
+            "lora-trainer",
+            approval_action(recipe["recipe_sha"]),
+            "critical",
+            "Gerçek LoRA eğitimi (kolay akış): " + summary(recipe),
+        )
     if not decision.authorized:
         _set_request(request_id, {"status": "needs_approval", "approval_id": decision.approval_id})
         return {
@@ -972,7 +1014,9 @@ def launch(snapshot_id: str, request_id: str) -> dict[str, Any]:
         }
     # Ağırlık kararı: kullanıcı özeti (ağırlıklar dahil) onayladı → bu reçetenin ağırlıkları.
     wd = WeightDecisionStore().record(
-        recipe["mix_weights"], recipe.get("mix_label") or "özel", source="easy_train:" + snapshot_id
+        recipe["mix_weights"],
+        recipe.get("mix_label") or "özel",
+        source=("continuous_loop:" if unattended else "easy_train:") + snapshot_id,
     )
     res = detached_launch.launch(
         adapter_name=recipe["adapter_name"],

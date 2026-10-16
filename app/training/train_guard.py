@@ -335,6 +335,18 @@ def recovery_allowed(
             "durum dosyası kalıcı yetki değildir",
             {"started_at": started_at.isoformat()},
         )
+    if str(approval.get("decided_by") or "").startswith("policy:"):
+        # Kademe 2 2026-10-15 AUTH-6: politika (gözetimsiz) onayıyla başlamış koşu, kullanıcı
+        # politikayı KAPATTIYSA diriltilmez — bayrağı kapatmak "artık kendiliğinden eğitme" demek.
+        from app.config import get_settings
+
+        if not get_settings().unattended_training_enabled:
+            return RecoveryVerdict(
+                False,
+                "koşu gözetimsiz politika onayıyla başlamıştı ve politika artık KAPALI — "
+                "dirilme yok; yeni eğitim insan onayı ister",
+                {"approval_id": str(approval.get("approval_id") or "")},
+            )
 
     hash_problem = _data_hash_problem(status, data_sha256)
     if hash_problem is not None:

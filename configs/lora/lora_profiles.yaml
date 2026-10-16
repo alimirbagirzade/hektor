@@ -216,3 +216,36 @@ moe30b_attn_long:
   # (app/training/adapter_recipe.py). Yeni koşular biçimi run_plan.json'a ölçerek yazar.
   chat_prompt_format: live_rag
   note: "YEREL CPU, Qwen3-30B-A3B MoE — moe30b_attn_local + max_seq_length 6144 (v14 uzun RAG öz-damıtma örnekleri), tüm havuz, checkpoint/eval her 96 örnekte. Süre/RAM ölçülmedi; önce kısa ölçüm."
+
+# YEREL (CPU) — sürekli eğitim döngüsü (2026-10-15): moe30b_attn_long + MERGE-AWARE bf16.
+# NEDEN: hektor_lora_full_20261011 (standart LoRA) Ollama dönüşümünde birleştirme sadakati
+# kapısından geçemedi (fark/etki 0,17–0,20 > 0,1; top-1 token değişiyor) → eğitilen adapter
+# servis edilemedi. Merge-aware forward birleşik bf16 ağırlıkla eğitir (v15 pilotunda üç prob
+# KL 0). Merge-aware dropout=0 ister; NEFTune v15 reçetesindeki gibi kapalı. Diğer her şey
+# moe30b_attn_long ile aynı. LR 2e-4 merge-aware ile ÖLÇÜLMEDİ (v15 5e-5 idi) — ilk koşu ölçüm.
+moe30b_attn_long_ma:
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  epochs: 1
+  max_seq_length: 6144
+  learning_rate: 0.0002
+  use_rslora: false
+  neftune_noise_alpha: 0
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  assistant_only_loss: true
+  gradient_checkpointing: true
+  cpu_dtype: bf16
+  merge_aware_bf16: true
+  max_examples: 0
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+  gradient_accumulation_steps: 8
+  eval_every_examples: 96
+  eval_max_examples: 32
+  load_best_model_at_end: true
+  loss_weighting: token
+  chat_prompt_format: live_rag
+  note: "YEREL CPU, Qwen3-30B-A3B MoE — moe30b_attn_long + merge-aware bf16 (Ollama dönüşümü sadakat kapısı), dropout/NEFTune 0. Sürekli döngünün sabit profili."

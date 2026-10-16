@@ -22,7 +22,13 @@ Geliştirme yardımı aylık abonelikli CLI araçlarıyla yapılır.
 6. **Determinizm** — rastgelelik daima `seed` parametresiyle.
 7. **Kaynak uydurma** — retrieval boşsa açıkça belirt.
 8. **Otomatik ağır eğitim yok** — `train` varsayılan dry-run; gerçek eğitim
-   yalnızca açık `--run` ile.
+   yalnızca açık `--run` ile. **Tek istisna (kullanıcı kararı 2026-10-15):** sürekli eğitim
+   döngüsü (`hektor surekli-dongu`, `docs/TASARIM_SUREKLI_EGITIM.md`) — YALNIZ
+   `HEKTOR_CONTINUOUS_LOOP_ENABLED` ve `HEKTOR_UNATTENDED_TRAINING_ENABLED` ikisi de açıkken
+   insan tıkı yerine politika onayı (`decided_by=policy:…`) ile eğitim başlatır. Tüm kapılar
+   (veri kalitesi, sızıntı, Kural 1, aynı-veri, Kademe 2, STOP_ALL, RAM/yük) aynen geçerli;
+   ölçüt LLM-30 soru-cevap doğruluğu (yerel hakem); tüm sorular doğru olunca ya da üst üste
+   2 aday kapıdan geçemezse döngü DURUR ve insanı bekler. **Terfi asla otomatik değildir.**
 
 ## Kod stili
 - Python ≥ 3.12, `from __future__ import annotations`
@@ -54,6 +60,10 @@ seviyesine göre kademeli tarama:
   ZORLAR: her eğitim yolu (web, Auto-LoRA, kolay akış, `start-train.ps1`, `hektor train --run`,
   `pretrain-gate`) temiz ağaç + bu kod özeti ve güncel eğitim verisi için kapanmış kayıt ister
   (`uv run hektor kademe2-kayit --findings f.json --data-sha <sha> --evidence "..."`).
+  **Kullanıcı kararı 2026-10-15:** `HEKTOR_KADEME2_CODE_ONLY=true` iken kayıt yalnız KOD özetine
+  bağlıdır — kod değişince derin av zorunlu, veri değişince otomatik kalite + sızıntı + Kural 1
+  kapıları yeterli (sürekli döngü her yeni veride derin av beklemesin). Reçeteye bağlı sınırlı
+  kabul yine yalnız kendi reçetesini kapsar.
 - Kademe 1 raporu: `reports/bug-scan/scan-<tarih>.md` + HANDOFF özeti. Bulgular bir sonraki
   **denetimli** seansta düzeltilir (otomatik fix YOK — yanlış fix'i gözetimsiz main'e basma).
 - Derin av deseni: alt-sistem başına paralel finder → her bulgu adversarial doğrulama

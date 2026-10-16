@@ -269,6 +269,12 @@ def main() -> None:
             "rag_version": old["rag"].get("rag_version"),
             "system_prompt_sha256": old["system_prompt_sha256"],
         }
+        if not any(CONDITIONS[c][1] for c in args.conditions):
+            # Kademe 2 2026-10-15 CL-1: RAG'sız koşullarda (ör. sürekli döngünün yalnız-B
+            # koşusu) indeks değişimi cevapları etkilemez; araya giren bir ingest kesilmiş
+            # koşuyu sonsuza dek "sürdürülemez" yapmasın. RAG'lı koşulda kural AYNEN geçerli.
+            now.pop("rag_version")
+            was.pop("rag_version")
         diff = [k for k in now if now[k] != was[k]]
         if diff:
             raise SystemExit(

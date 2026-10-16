@@ -943,6 +943,10 @@
           <p id="klTraining">—</p>
           <h4>Aday döngüsü (bitiş doğrulaması → geliştirme değerlendirmesi → sonraki eğitim)</h4>
           <div class="kl-scroll"><table class="kl-table" id="klLoop"></table></div>
+          <h4>Sürekli eğitim döngüsü (gözetimsiz)</h4>
+          <p class="muted small">Açıkken her 30 dakikada bir adım: bitiş doğrulama → Ollama dönüşümü → LLM-30 (aday + referans) → yerel hakem rubriği → kapı. Tüm sorular doğru olunca döngü durur ve insan kararı bekler; terfi asla otomatik değildir. Duraklat/devam: <code>uv run hektor surekli-dongu duraklat|devam --gerekce "…"</code>.</p>
+          <p id="klContinuous" role="status" aria-live="polite">—</p>
+          <pre id="klContinuousEvents" class="muted small"></pre>
         </div>
 
         <!-- RAG Öğrenme Döngüsü (otonom, sunucu-taraflı) -->

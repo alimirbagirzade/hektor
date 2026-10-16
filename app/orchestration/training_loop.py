@@ -391,6 +391,42 @@ def release(adapter: str, reason: str) -> dict[str, Any]:
     return {"ok": True, "status": "released", "record": rec}
 
 
+def release_by_policy(adapter: str, reason: str) -> dict[str, Any]:
+    """Sürekli döngü: başarısız adaydan sonra devamı GÖZETİMSİZ POLİTİKA verir (2026-10-15).
+
+    ``release`` ile aynı kayıt, ama onay ``approvals.policy_authorize`` ile (``decided_by=
+    policy:…``). Politika kapalıysa ya da STOP_ALL etkinse serbest bırakılmaz. Ardışık
+    başarısızlık sınırı çağıranın (``continuous_loop``) sorumluluğudur. Aynı-veri kuralının
+    istisnası YOKTUR (yalnız "önceki aday geçmedi" engelini kaldırır).
+    """
+    from app.agents.runtime import approvals
+
+    reason = (reason or "").strip()
+    if len(reason) < 20:
+        raise TrainingLoopError("Gerekçe en az 20 karakter olmalı.")
+    rec = get(adapter)
+    if rec is None:
+        raise TrainingLoopError(f"{adapter} eğitim döngüsü defterinde yok.")
+    comp = rec.get("completion") or {}
+    decision = approvals.policy_authorize(
+        "lora-trainer",
+        RELEASE_ACTION + adapter,
+        "critical",
+        f"Eğitim döngüsü engelini kaldır ({adapter}, gözetimsiz politika): {reason[:300]}",
+    )
+    if not decision.authorized:
+        return {"ok": False, "status": "policy_off"}
+    rec["release"] = {
+        "approval_id": decision.approval_id,
+        "reason": reason,
+        "at": utcnow(),
+        "adapter_sha256": comp.get("adapter_sha256", ""),
+        "by": "policy:unattended_training",
+    }
+    _write(_path(adapter), rec)
+    return {"ok": True, "status": "released", "record": rec}
+
+
 # ── özet (web + CLI) ─────────────────────────────────────────────────────────
 
 

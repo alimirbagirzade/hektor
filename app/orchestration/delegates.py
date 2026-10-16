@@ -316,17 +316,25 @@ def train_handoff(ctx: RunContext) -> StageResult:
     cmd = f"hektor train --run --adapter {adapter}"
     from app.config import get_settings
 
-    unattended = get_settings().unattended_training_enabled
+    s = get_settings()
+    # Kademe 2 2026-10-15 AUTH-5: gözetimsiz eğitimin sahibi artık açıkça seçilir — sürekli
+    # döngü ya da (ayrı anahtarla) Auto-LoRA. Sahip yoksa "devredildi" demek sahte başarıydı.
+    if s.unattended_training_enabled and s.continuous_loop_enabled:
+        owner = "continuous-loop"
+    elif s.unattended_training_enabled and s.auto_lora_auto_enabled:
+        owner = "auto-lora-pipeline"
+    else:
+        owner = ""
     return _result(
-        StageStatus.completed if unattended else StageStatus.blocked,
+        StageStatus.completed if owner else StageStatus.blocked,
         (
-            "Eğitim yürütmesi tek sahip Auto-LoRA denetleyicisine devredildi."
-            if unattended
+            f"Eğitim yürütmesi tek sahip denetleyiciye devredildi ({owner})."
+            if owner
             else f"Detached eğitimi elle başlat: {cmd}"
         ),
         {
             "handoff": True,
-            "owner": "auto-lora-pipeline",
+            "owner": owner or "insan",
             "command": cmd,
             "adapter": adapter,
             "iters": iters,

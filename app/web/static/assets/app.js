@@ -5280,6 +5280,18 @@
             "</td><td>" + devTxt + "</td><td>" + esc(c.next_step) + "</td></tr>";
         }).join("") + "</tbody>"
       : "<tbody><tr><td>Defterde aday yok.</td></tr></tbody>";
+    var cl = d.continuous || {};
+    document.getElementById("klContinuous").textContent = cl.error
+      ? "Sürekli döngü durumu okunamadı: " + cl.error
+      : "Döngü: " + (cl.enabled ? "AÇIK" : "kapalı") + " · gözetimsiz eğitim: " + (cl.unattended ? "AÇIK" : "kapalı") +
+        (cl.paused ? " · ⏸ DURAKLATILDI: " + (cl.pause_reason || "") : "") +
+        " · ardışık başarısız: " + (cl.consecutive_failures || 0) +
+        (cl.job ? " · arka plan işi: " + cl.job : "") +
+        " · profil " + (cl.profile || "?") + " · referans " + (cl.reference || "?") + " · hakem " + (cl.judge || "?") +
+        (cl.last_tick ? " · son adım " + String(cl.last_tick).slice(0, 16) : "");
+    document.getElementById("klContinuousEvents").textContent = (cl.events || []).map(function (e) {
+      return String(e.at || "").slice(0, 16) + "  " + (e.action || "") + ": " + String(e.detail || "").slice(0, 160);
+    }).join("\n");
   }
   function klRefresh() {
     if (!document.getElementById("klCard")) return Promise.resolve();

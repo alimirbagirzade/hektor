@@ -1159,6 +1159,9 @@ uv run hektor egitim-dongusu bitis <ad>  # bitişi çıkış kodu + final durum 
 uv run hektor egitim-dongusu degerlendirme <ad> --aday-raw r.jsonl --onceki-raw p.jsonl  # puanlı LLM-30 aday↔önceki model kapısı → kayıt
 uv run hektor egitim-dongusu tanik <ad>  # bu sürümden ÖNCE başlatılmış koşan eğitime çıkış kodu tanığı bağla (yalnız bekler)
 uv run hektor egitim-dongusu serbest-birak <ad> --gerekce "..."  # başarısız/regresyonlu adaydan sonra devam: TAZE insan onayı
+uv run hektor surekli-dongu tik|durum    # sürekli (gözetimsiz) eğitim döngüsü: tek adım · salt-okuma durum (docs/TASARIM_SUREKLI_EGITIM.md)
+uv run hektor surekli-dongu duraklat|devam --gerekce "..."  # döngüyü duraklat / (insan) devam ettir — ardışık başarısızlık sayacı sıfırlanır
+uv run python -m app.evals.llm30_judge <run_dir>  # LLM-30 raw.jsonl → yerel hakem rubrik puanı (raw_scored.jsonl)
 uv run hektor lora-eval <ad> --served-tag <aday> --served-base <base> --repeats 3  # servis edilen Ollama GGUF yapıtını ölç (B6)
 uv run hektor compare-ai-review <cmp_id> --scores s.json --model <ad>  # AI incelemesini AYRI kaydet (insan puanı değil; karara girmez)
 uv run hektor compare-mark-integration <cmp_id> --note "..."  # koşuyu yalnız entegrasyon testi işaretle (terfide kullanılamaz)

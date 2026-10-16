@@ -33,6 +33,72 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-15 — Sürekli (gözetimsiz) eğitim döngüsü + Kademe 2 (KULLANICI KARARI)
+
+Kullanıcı: "otomatik eğitim + soru-cevap kontrolü + LoRA, sürekli döngü; makaleler RAG'a; dur
+ma". Kararlar: eğitim **onaysız**; ölçüt **LLM-30 soru-cevap doğruluğu** (yerel hakem rubriği);
+insan yalnız **tüm sorular doğru** olunca (ya da 2 ardışık başarısız aday); Kademe 2 **yalnız
+kod değişince**; makaleler doğrulamalı araştırma (zayıf alaka filtreli `kaynak-tamamla` dışarıda).
+Tasarım: `docs/TASARIM_SUREKLI_EGITIM.md`. CLAUDE.md Kural 8 istisnası + Kademe 2 kapsamı yazıldı.
+
+- `hektor surekli-dongu tik|durum|duraklat|devam` (`app/orchestration/continuous_loop.py`), her
+  tik tek adım: bitiş → Ollama dönüşümü → LLM-30 B (aday + `hektor-v12-30b` referans, tohum 42 43)
+  → yerel hakem (`app/evals/llm30_judge.py`, varsayılan ham `qwen3:30b-a3b-instruct-2507-q4_K_M`)
+  → `record_dev_eval` → tüm doğru ise DURAKLAT; yeni veri + tüm kapılar hazırsa onaysız eğitim
+  (`approvals.policy_authorize`, `decided_by=policy:unattended_training`; terfi ASLA).
+- Sabit profil `moe30b_attn_long_ma` = long + **merge-aware** (full_20261011 dönüşümü sadakat
+  kapısında düştüğü için). LR 2e-4 merge-aware ile ölçülmedi.
+- Zamanlayıcı: `scripts/install-continuous-loop-task.ps1` (30 dk). Açmak için `.env`:
+  `HEKTOR_CONTINUOUS_LOOP_ENABLED=true`, `HEKTOR_UNATTENDED_TRAINING_ENABLED=true`,
+  `HEKTOR_KADEME2_CODE_ONLY=true`. Eski Auto-LoRA artık `HEKTOR_AUTO_LORA_AUTO_ENABLED` ister.
+- **Kademe 2** (`docs/evidence/kademe2_2026-10-15.json`): 2 bulucu → 15 bulgu → 2 şüpheci oy;
+  13 düzeltildi (ölen iş deneme sayacı + çıkış kodu sarmalayıcısı `loop_job`, Ollama erişilemiyor
+  ayrımı, 'stopped' dönüşüm, istisna yakalama + duraklatma, atomik hakem yazımı, hakem kilidi,
+  hakem kimliğine bağlı puan dosyası, veri özetine bağlı anlık görüntü, `devam` serbest bırakır,
+  Auto-LoRA ikinci sahip olamaz, politika kapanınca dirilme yok…), 1 reddedildi (AUTH-1).
+- **Sınırlar:** LLM-30'un 12/30 sorusunda referans cevap, 10'unda sayısal anahtar var; kalanında
+  "doğru" = hakem kanaati. Final takımı (60, taslak, kilitsiz) döngüye girmez (terfide insan).
+  Bir tur ≈ 3–4 gün (tam havuz eğitimi ~58 sa). Döngü veri üretmez: yeni eğitim için yeni veri
+  (araştırma paketi açık; RAG öğrenme döngüsünün arXiv çekimi kayıtlı sorgu olmadığından boş).
+- **Uzun RAG ölçümü bitti (2026-10-16):** aday kendi reçetesiyle (canlı RAG istemi ~2255 token,
+  3072 token cevap) v12'yi 6 setin 6'sında geçti; kesilme 0, tekrar döngüsü 0 (v12: 12), 1
+  `kural1_suphe`. Önceki "aday kötü" sonucu büyük ölçüde kesilmeydi. Çekinceler: anahtar kelime
+  skoru uzun cevap lehine yanlı olabilir, v12 dağılım dışı, tek gözlem; aday Ollama'ya hâlâ
+  dönüşemiyor. `docs/evidence/uzun_rag_eval_full_20261011_vs_v12_2026-10-16.md`. Terfi değil.
+- 4 RAM'e duyarlı test ölçüm bitince yeniden koşuldu: **4/4 geçti** (düşüş RAM kaynaklıydı).
+
+### 2026-10-14 — `hektor_lora_full_20261011` bitti; birleştirme KL eşiği 0,08 (KULLANICI KARARI)
+
+- Eğitim 2026-10-14 03:49'da 187/187 bitti (çıkış kodu tanığı: 0, en iyi eval_loss 0,6036,
+  profil `moe30b_attn_long`, karışım `balanced_v1`, veri `613700551afb`, onay `apr_833ee55256dc`).
+  `hektor egitim-dongusu bitis` → **DOĞRULANDI** (defterde).
+- Ollama dönüşümü (`job_56f8e3668823`) 1/5'te birleştirme sadakati kapısında durdu: bf16 birleşik
+  model ↔ PEFT forward KL 0,032 / 0,072 / 0,057 (sınır 0,01), en olası token değişiyor. Koşu
+  merge-aware eğitilmedi (bkz. `docs/V15_YENIDEN_EGITIM_2026_10_04.md`; v15 pilotunda KL 0,47).
+- **Karar (kullanıcı, 2026-10-14):** `adapter_to_ollama.ps1 -MaxKL 0.08` ile devam. Sonuç: servis
+  edilen GGUF eğitilen adapter'ı birebir yansıtmaz; LLM-30 SERVİS EDİLEN modeli ölçer. Bu,
+  adapter kalitesi iddiası değildir; eşik varsayılanı (0,01) değişmedi.
+- Zincir (elle başlatıldı, arka plan): dönüşüm → `hektor-full-20261011-aday` → LLM-30 B koşulu,
+  tohum 42 43: `reports/evals/llm30/llm30_v12_ref_20261014` (referans) ve
+  `llm30_full20261011_aday_20261014`. **Not:** `hektor-v12-30b` şablonu base'den yalnız CRLF ile
+  farklı → `llm30_run` sıkı şablon eşitliği nedeniyle referans koşusunda `--base` da v12 verildi
+  (A/C koşulu koşulmadı). Aday LF şablonlu (base'den) → v12 ↔ aday karşılaştırmasında şablon
+  satır sonu farkı bir karıştırıcıdır.
+- **SONUÇ (21:03): dönüşüm YİNE durdu**, KL dışındaki iki sert kapı nedeniyle (bunların insan
+  geçersiz kılması yok, `scripts/merge_adapter.py` `gate_failures`): birleştirme farkı / adapter
+  etkisi oranı 0,17–0,20 (eşik 0,1; v12'de 0,03) ve üç istemin üçünde en olası token değişiyor.
+  Birleşik model ≠ eğitilen adapter → GGUF ÜRETİLMEDİ, LLM-30 koşuları BAŞLAMADI. Kapı
+  gevşetilmedi. Seçenekler (karar insanda): PEFT üzerinden ölçüm (`lora-eval`, Ollama'sız; döngü
+  defterinin `degerlendirme` adımı ise Ollama'lı llm30 raw ister) ya da merge-aware yeniden eğitim
+  (aynı veri özetiyle döngü kuralı engeller → yeni doğrulanmış veri ya da `serbest-birak`).
+- **PEFT ölçümü (2026-10-15, kullanıcı kararı):** 6 `lora-eval` seti, aday + v12 aynı kodla.
+  v12 6 setin 4'ünde önde; aday 3 dejenere tekrar + 3 `kural1_suphe`, 35 cevap 1024'te kesik
+  (v12: 0). Ayrıntı ve sınırlar: `docs/evidence/peft_eval_full_20261011_vs_v12_2026-10-15.md`.
+  Sonuç: bu kanıtla aday terfi edilemez; reçete↔ölçüm istemi uyumsuzluğu açık test noktası.
+- **Açık (insan, dönüşüm olursa):** iki raw.jsonl'i rubrikle puanla (`score_by_dimension` + `critical_errors`) →
+  `uv run hektor egitim-dongusu degerlendirme hektor_lora_full_20261011 --aday-raw … --onceki-raw …`.
+  Terfi insanda; final takımı ayrı ve hâlâ kilitsiz.
+
 ### 2026-10-12 — Kaynak bilgi denetimi + kontrollü eğitim döngüsü kapısı (dal, canlıya UYGULANMADI)
 
 Dal `claude/hektor-validation-training-loop-0345f5`. Tasarım: `docs/TASARIM_BILGI_DENETIM_DONGUSU.md`.

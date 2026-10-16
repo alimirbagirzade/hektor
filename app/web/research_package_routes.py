@@ -66,4 +66,30 @@ def knowledge_loop_status() -> dict[str, Any]:
             if k in progress
         },
         "loop": overview(),
+        "continuous": _continuous(),
+    }
+
+
+def _continuous() -> dict[str, Any]:
+    """Sürekli eğitim döngüsü özeti (salt-okuma; tik ATMAZ)."""
+    from app.orchestration.continuous_loop import overview as loop_overview
+
+    try:
+        ov = loop_overview()
+    except Exception as exc:  # durum dosyası bozuksa kartın kalanı yine görünsün
+        return {"error": str(exc)[:300]}
+    st = ov["state"]
+    return {
+        "enabled": ov["enabled"],
+        "unattended": ov["unattended"],
+        "kademe2_code_only": ov["kademe2_code_only"],
+        "profile": ov["profile"],
+        "reference": ov["reference"],
+        "judge": ov["judge"],
+        "paused": bool(st.get("paused")),
+        "pause_reason": st.get("pause_reason", ""),
+        "consecutive_failures": st.get("consecutive_failures", 0),
+        "job": (st.get("job") or {}).get("kind", ""),
+        "last_tick": st.get("last_tick", ""),
+        "events": ov["events"][-8:],
     }
