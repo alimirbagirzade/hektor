@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "status": "done",
+  "reason": "",
+  "started_at": "2026-10-16T20:30:03.907777+00:00",
+  "finished_at": "2026-10-16T20:30:06.125568+00:00",
+  "seconds": 2.22,
+  "code_commit": "f95e2fbf59ba",
+  "steps": {
+    "hakem": {
+      "ran": false,
+      "skipped": "Ağır iş sürüyor — hakem atlandı: Ağır iş kilidi: eğitim sürüyor (cli:hektor_loop_da0899c33140, pid 7328, durum running, 20:43:16'den beri)",
+      "model": "",
+      "pending_total": null,
+      "judged_fresh": null,
+      "left_for_next_night": null,
+      "counts": {},
+      "quarantined": [],
+      "seconds": 0.03
+    },
+    "olcum": {
+      "ran": false,
+      "skipped": "Model değişmedi ve son ölçüm yeni — yeniden ölçülmedi.",
+      "model": "hektor-v12-30b",
+      "digest": "acebe185499a",
+      "rag": false,
+      "reason": "",
+      "n": null,
+      "n_questions": null,
+      "n_errors": null,
+      "n_flagged": null,
+      "key_hits": null,
+      "key_total": null,
+      "avg_output_tokens": null,
+      "seconds": 1.62,
+      "flag_counts": {},
+      "regression": [],
+      "per_question": []
+    },
+    "csv": {
+      "error": "",
+      "files": [
+        {
+          "file": "BTCUSDT_1h_2023-01_2024-12.csv",
+          "status": "seen",
+          "reason": "done",
+          "timeframe": "",
+          "profile": "",
+          "n_trials": null,
+          "assumptions": [],
+          "selected": []
+        }
+      ]
+    },
+    "egitim": {
+      "ran": true,
+      "ready": false,
+      "blocker_keys": [
+        "egitim_dongusu",
+        "agir_is"
+      ],
+      "started_training": false,
+      "error": ""
+    }
+  },
+  "note": "Temizlenmiş gece özeti (Hektor). Metin/cevap/yol içermez; yatırım tavsiyesi değildir."
+}
