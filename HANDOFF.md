@@ -60,9 +60,12 @@ Tasarım: `docs/TASARIM_SUREKLI_EGITIM.md`. CLAUDE.md Kural 8 istisnası + Kadem
   "doğru" = hakem kanaati. Final takımı (60, taslak, kilitsiz) döngüye girmez (terfide insan).
   Bir tur ≈ 3–4 gün (tam havuz eğitimi ~58 sa). Döngü veri üretmez: yeni eğitim için yeni veri
   (araştırma paketi açık; RAG öğrenme döngüsünün arXiv çekimi kayıtlı sorgu olmadığından boş).
-- **Açık:** uzun RAG ölçümü (`reports/evals/uzun_rag_20261015`, aday ↔ v12, 160 cevap) sürüyor;
-  4 RAM'e duyarlı test (`test_easy_train` 2, `test_kademe2_real_git` 2) ölçüm RAM'i tutarken
-  main'de de düşüyor — ölçüm bitince yeniden koşulacak.
+- **Uzun RAG ölçümü bitti (2026-10-16):** aday kendi reçetesiyle (canlı RAG istemi ~2255 token,
+  3072 token cevap) v12'yi 6 setin 6'sında geçti; kesilme 0, tekrar döngüsü 0 (v12: 12), 1
+  `kural1_suphe`. Önceki "aday kötü" sonucu büyük ölçüde kesilmeydi. Çekinceler: anahtar kelime
+  skoru uzun cevap lehine yanlı olabilir, v12 dağılım dışı, tek gözlem; aday Ollama'ya hâlâ
+  dönüşemiyor. `docs/evidence/uzun_rag_eval_full_20261011_vs_v12_2026-10-16.md`. Terfi değil.
+- 4 RAM'e duyarlı test ölçüm bitince yeniden koşuldu: **4/4 geçti** (düşüş RAM kaynaklıydı).
 
 ### 2026-10-14 — `hektor_lora_full_20261011` bitti; birleştirme KL eşiği 0,08 (KULLANICI KARARI)
 
