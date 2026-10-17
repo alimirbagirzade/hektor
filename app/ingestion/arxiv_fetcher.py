@@ -97,11 +97,51 @@ class FetchResult:
     error: str | None = None  # hata mesajı (skipped=True ise dolu)
 
 
+#: Trading araştırmasıyla ilgili arXiv kategorileri (nicel finans + istatistik/ekonometri).
+FINANCE_CATEGORIES: tuple[str, ...] = (
+    "q-fin.TR",
+    "q-fin.PM",
+    "q-fin.ST",
+    "q-fin.RM",
+    "q-fin.CP",
+    "q-fin.MF",
+    "q-fin.GN",
+    "stat.ME",
+    "stat.ML",
+    "stat.AP",
+    "econ.EM",
+)
+_ADVANCED_RE = re.compile(r"\b(?:AND|OR|ANDNOT)\b|[a-z_]+:", re.IGNORECASE)
+_TERM_RE = re.compile(r"[\w\-]+", re.UNICODE)
+
+
+def build_search_query(query: str, *, finance_only: bool = True) -> str:
+    """Düz anahtar kelimeleri arXiv sorgu diline çevir.
+
+    2026-10-17 ölçümü: öneksiz kelimeler (ör. 'transaction costs slippage trading strategy')
+    zayıf eşleşiyor ve "Venüs keşfi", "ölüm sigortası" gibi alakasız makaleler getiriyordu.
+    Düz sorgu → her kelime ``all:`` ve ``AND`` ile; ``finance_only`` → finans/istatistik
+    kategorileriyle sınırlı. Alan öneki ya da AND/OR içeren (gelişmiş) sorgu AYNEN geçer.
+    """
+    q = (query or "").strip()
+    if not q or _ADVANCED_RE.search(q):
+        return q
+    terms = _TERM_RE.findall(q)
+    if not terms:
+        return q
+    core = " AND ".join(f"all:{t}" for t in terms)
+    if not finance_only:
+        return core
+    cats = " OR ".join(f"cat:{c}" for c in FINANCE_CATEGORIES)
+    return f"({core}) AND ({cats})"
+
+
 def search_arxiv(query: str, max_results: int = 10) -> list[ArxivEntry]:
     """arXiv'de arama yap; PDF indirmez, yalnız metadata döndürür."""
+    finance_only = bool(getattr(get_settings(), "arxiv_finance_only", True))
     params = urllib.parse.urlencode(
         {
-            "search_query": query,
+            "search_query": build_search_query(query, finance_only=finance_only),
             "max_results": min(max_results, 50),
             "sortBy": "relevance",
             "sortOrder": "descending",
