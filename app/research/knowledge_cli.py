@@ -267,7 +267,10 @@ def loop_serbest_birak(adapter: str, gerekce: str = typer.Option(..., "--gerekce
 
 @loop_app.command("tanik")
 def loop_tanik(adapter: str) -> None:
-    """KOŞAN eğitimin çıkış kodu tanığını bağla (bu sürümden önce başlatılan koşular için).
+    """KOŞAN eğitimin çıkış kodu tanığını durum dosyasındaki pid'e bağla.
+
+    ``start-train.ps1`` (nöbetçi kurtarması dahil) bunu her başlatmada çağırır; elle de
+    kullanılabilir (bu sürümden önce başlatılan ya da tanığı ölü süreçte kalan koşular).
 
     Yalnız bekler; eğitimi durdurmaz/başlatmaz. Süreç bitmişse çıkış kodu artık öğrenilemez."""
     from app.config import get_settings
@@ -281,5 +284,14 @@ def loop_tanik(adapter: str) -> None:
     if st.get("finished_at") or st.get("failed_at"):
         console.print("[red]Koşu zaten sonuçlanmış — çıkış kodu artık gözlenemez.[/red]")
         raise typer.Exit(2)
-    ok = exit_witness.spawn(adapter, st["pid"], st.get("pid_create_time"), get_settings().root)
-    console.print("tanık başlatıldı" if ok else "[red]tanık başlatılamadı[/red]")
+    from app.training.resource_lock import process_create_time
+
+    # Durum dosyası oluşturulma zamanı taşımıyorsa (eski kayıt) pid'i ŞU AN tutan süreçten al:
+    # tanık en azından bağlandığı anki süreci doğrular (pid yeniden kullanımı, Kademe 2 T2).
+    create_time = st.get("pid_create_time") or process_create_time(st["pid"])
+    ok = exit_witness.spawn(adapter, st["pid"], create_time, get_settings().root)
+    if not ok:
+        # Çıkış kodu 0 olursa start-train.ps1 tanıksız koşuyu fark etmez (Kademe 2 T1).
+        console.print("[red]tanık başlatılamadı[/red]")
+        raise typer.Exit(1)
+    console.print("tanık başlatıldı")
