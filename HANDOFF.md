@@ -33,6 +33,25 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
 
 ## Durum
 
+### 2026-10-18 — Döngü eğitimi sürüyor; kurtarma sonrası çıkış tanığı düzeltildi
+
+- **Koşan:** `hektor_loop_da0899c33140` (profil `moe30b_attn_long_ma`, merge-aware; veri
+  `da0899c3…`, 2181 örnek, 273 adım). 02:30'da 84/273, held-out eval_loss 1.16→0.71 düzenli
+  düşüyor; ~20 dk/adım → bitiş ≈ 2026-10-20 akşamı. `reference_recipe.json` (merge_aware_bf16_v1)
+  adapter kökünde → Ollama dönüşümü merge-aware yoldan geçer. Kademe 2 kaydı `k2_e4d6af259493`.
+- **Olay:** ilk süreç (pid 25464) 2026-10-16 adım 0'da iz bırakmadan öldü; nöbetçi 16 dk sonra
+  pid 9204 ile diriltti (recovery_attempts=1) ama çıkış tanığı ölü pid'de kaldı → bitişte
+  `cikis_kodu` düşüp döngü adayı 2. başarısızlık sayacaktı. Canlıda
+  `uv run hektor egitim-dongusu tanik hektor_loop_da0899c33140` ile tanık 9204'e bağlandı.
+  Kalıcı düzeltme: `start-train.ps1` her başlatmada tanığı kurar + `pid_create_time` yazar;
+  `tanik` başarısızlıkta 1 ile çıkar (Kademe 2: `docs/evidence/kademe2_2026-10-18.json`, 3 bulgu
+  2/2 onaylı, düzeltildi). Birleşince sonraki eğitimden önce `kademe2-kayit` gerekir.
+- **Ardışık başarısız aday: 1** (hektor_lora_full_20261011, standart LoRA sadakat kapısı).
+- **Sonraki tur verisi:** aynı veriyle yeniden eğitim yasak. Eğitim + LLM-30 bittikten sonra
+  (ağır iş kilidi boşken): `hektor synth-distill --gen-questions --per-paper N` → tur dosyasını
+  `distill_qa.r4` olarak yeniden adlandır → `scripts/assemble_sft.py`. r3'te en büyük kayıp
+  `rag:atıf-az` (435/1383) — öğretmen istemindeki atıf zorunluluğu iyileştirme adayı.
+
 ### 2026-10-15 — Sürekli (gözetimsiz) eğitim döngüsü + Kademe 2 (KULLANICI KARARI)
 
 Kullanıcı: "otomatik eğitim + soru-cevap kontrolü + LoRA, sürekli döngü; makaleler RAG'a; dur
