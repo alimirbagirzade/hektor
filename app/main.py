@@ -2341,7 +2341,7 @@ def arxiv_fetch(
 
     if search_only:
         console.print(f"[cyan]arXiv aranıyor:[/cyan] {query!r} (max {max_results})")
-        entries = search_arxiv(query, max_results=max_results)
+        entries = search_arxiv(query, max_results=max_results, trading_query=True)
         if not entries:
             console.print("[yellow]Sonuç bulunamadı.[/yellow]")
             raise typer.Exit()
@@ -2357,7 +2357,7 @@ def arxiv_fetch(
 
     console.print(f"[cyan]arXiv indiriliyor:[/cyan] {query!r} (max {max_results})")
     with console.status("PDF'ler indiriliyor…"):
-        results = fetch_arxiv_papers(query, max_results=max_results)
+        results = fetch_arxiv_papers(query, max_results=max_results, trading_query=True)
 
     if not results:
         console.print("[yellow]İndirilecek makale bulunamadı.[/yellow]")
@@ -3077,7 +3077,9 @@ def arxiv_sync(
 
         console.print(f"  ↻  {q['query'][:60]} ...")
         try:
-            results = fetch_arxiv_papers(q["query"], max_results=q["max_results"])
+            results = fetch_arxiv_papers(
+                q["query"], max_results=q["max_results"], trading_query=True
+            )
             new_count = sum(1 for r in results if not r.skipped)
             total_new += new_count
             store.mark_arxiv_query_ran(q["query_id"])

@@ -111,8 +111,27 @@ FINANCE_CATEGORIES: tuple[str, ...] = (
     "stat.AP",
     "econ.EM",
 )
-_ADVANCED_RE = re.compile(r"\b(?:AND|OR|ANDNOT)\b|[a-z_]+:", re.IGNORECASE)
+# Kademe 2 2026-10-17 ARX-4: yalnız BÜYÜK harf işleçler ve bilinen arXiv alan önekleri
+# "gelişmiş" sayılır — "momentum and mean reversion" ya da "Note: x" düz sorgudur.
+_ADVANCED_RE = re.compile(r"\b(?:AND|OR|ANDNOT)\b|\b(?:ti|au|abs|co|jr|cat|rn|id|all):")
 _TERM_RE = re.compile(r"[\w\-]+", re.UNICODE)
+#: AND'lenince zorunlu kelimeye dönüşüp sonucu daraltan bağlaçlar (anlam taşımaz).
+_STOPWORDS = frozenset({"and", "or", "not", "the", "of", "for", "in", "on", "with", "to", "an"})
+
+
+def _terms(q: str) -> list[str]:
+    """Anlamlı terimler (Kademe 2 ARX-3): baştaki/sondaki '-' kırpılır; tek karakterli ve
+    yalnız rakamdan oluşan parçalar ("S&P" → S, P; "GARCH(1,1)" → 1) atılır; tekrarlar
+    birleşir. Hiç terim kalmazsa boş liste (çağıran ham sorguyu gönderir)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in _TERM_RE.findall(q):
+        t = raw.strip("-")
+        if len(t) < 2 or t.isdigit() or t.lower() in seen or t.lower() in _STOPWORDS:
+            continue
+        seen.add(t.lower())
+        out.append(t)
+    return out
 
 
 def build_search_query(query: str, *, finance_only: bool = True) -> str:
@@ -126,7 +145,7 @@ def build_search_query(query: str, *, finance_only: bool = True) -> str:
     q = (query or "").strip()
     if not q or _ADVANCED_RE.search(q):
         return q
-    terms = _TERM_RE.findall(q)
+    terms = _terms(q)
     if not terms:
         return q
     core = " AND ".join(f"all:{t}" for t in terms)
@@ -136,12 +155,25 @@ def build_search_query(query: str, *, finance_only: bool = True) -> str:
     return f"({core}) AND ({cats})"
 
 
-def search_arxiv(query: str, max_results: int = 10) -> list[ArxivEntry]:
-    """arXiv'de arama yap; PDF indirmez, yalnız metadata döndürür."""
-    finance_only = bool(getattr(get_settings(), "arxiv_finance_only", True))
+def search_arxiv(
+    query: str, max_results: int = 10, *, trading_query: bool = False
+) -> list[ArxivEntry]:
+    """arXiv'de arama yap; PDF indirmez, yalnız metadata döndürür.
+
+    Varsayılan: sorgu AYNEN gider (yöntem tarayıcıları, araştırma işçisi, kaynak-tamamlayıcı
+    finans dışı konular arar ve kendi alaka kapılarını uygular). ``trading_query=True``
+    (kullanıcı/kayıtlı trading sorguları): düz sorgu ``build_search_query`` ile AND'lenir ve
+    ``arxiv_finance_only`` açıksa finans/istatistik kategorileriyle sınırlanır (Kademe 2
+    2026-10-17 ARX-1/ARX-2: filtre ortak fonksiyonda HER çağıranı vuruyordu).
+    """
+    if trading_query:
+        finance_only = bool(getattr(get_settings(), "arxiv_finance_only", True))
+        search_query = build_search_query(query, finance_only=finance_only)
+    else:
+        search_query = query
     params = urllib.parse.urlencode(
         {
-            "search_query": build_search_query(query, finance_only=finance_only),
+            "search_query": search_query,
             "max_results": min(max_results, 50),
             "sortBy": "relevance",
             "sortOrder": "descending",
@@ -161,8 +193,8 @@ def search_arxiv(query: str, max_results: int = 10) -> list[ArxivEntry]:
         # eski rsplit('/')+split('v') kategoriyi düşürüp 404 PDF URL + dosya çakışması yaratıyordu).
         stripped = raw_id.split("/abs/")[-1].split("/pdf/")[-1] if raw_id else ""
         arxiv_id = re.sub(r"v\d+$", "", stripped)
-        if not arxiv_id:
-            continue
+        if not arxiv_id or "/abs/" not in raw_id:
+            continue  # arXiv hata girdisi (…/api/errors#…) makale değildir
         title = (node.findtext("atom:title", default="", namespaces=_NS) or "").strip()
         abstract = (node.findtext("atom:summary", default="", namespaces=_NS) or "").strip()
         published = (node.findtext("atom:published", default="", namespaces=_NS) or "")[:10]
@@ -189,6 +221,8 @@ def fetch_arxiv_papers(
     max_results: int = 5,
     dest_dir: Path | None = None,
     entries: list[ArxivEntry] | None = None,
+    *,
+    trading_query: bool = False,
 ) -> list[FetchResult]:
     """arXiv'de ara → eşleşen PDF'leri indir → raw_pdf/ dizinine kaydet.
 
@@ -200,7 +234,7 @@ def fetch_arxiv_papers(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if entries is None:
-        entries = search_arxiv(query, max_results=max_results)
+        entries = search_arxiv(query, max_results=max_results, trading_query=trading_query)
     results: list[FetchResult] = []
     log_step(f"{len(entries)} arXiv sonucu indirilecek")
 
