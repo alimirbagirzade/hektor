@@ -2685,7 +2685,7 @@ def api_arxiv_search(q: str, max_results: int = 10) -> ArxivSearchResponse:
     from app.ingestion.arxiv_fetcher import search_arxiv
 
     n = max(1, min(max_results, 50))
-    entries = search_arxiv(q, max_results=n)
+    entries = search_arxiv(q, max_results=n, trading_query=True)
     return ArxivSearchResponse(
         query=q,
         results=[
@@ -2708,7 +2708,7 @@ def api_arxiv_fetch(req: ArxivFetchRequest) -> ArxivFetchResponse:
     """arXiv'de ara → PDF'leri indir → (opsiyonel) otomatik indeksle."""
     from app.ingestion.arxiv_fetcher import fetch_arxiv_papers
 
-    fetch_results = fetch_arxiv_papers(req.query, max_results=req.max_results)
+    fetch_results = fetch_arxiv_papers(req.query, max_results=req.max_results, trading_query=True)
     downloaded = [r for r in fetch_results if not r.skipped]
     skipped_count = sum(1 for r in fetch_results if r.skipped)
 
@@ -2788,7 +2788,9 @@ def api_run_arxiv_query(query_id: str) -> ArxivFetchResponse:
     row = next((r for r in rows if r["query_id"] == query_id), None)
     if row is None:
         raise HTTPException(status_code=404, detail="Sorgu bulunamadı.")
-    fetch_results = fetch_arxiv_papers(row["query"], max_results=row["max_results"])
+    fetch_results = fetch_arxiv_papers(
+        row["query"], max_results=row["max_results"], trading_query=True
+    )
     downloaded = [r for r in fetch_results if not r.skipped]
     skipped_count = len(fetch_results) - len(downloaded)
     ingested = 0

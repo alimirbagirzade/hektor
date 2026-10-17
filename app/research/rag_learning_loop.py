@@ -290,7 +290,9 @@ class RagLearningLoop:
             remaining = budget - fetched
             try:
                 results = fetch_arxiv_papers(
-                    q["query"], max_results=min(int(q["max_results"]), remaining)
+                    q["query"],
+                    max_results=min(int(q["max_results"]), remaining),
+                    trading_query=True,
                 )
             except Exception as exc:
                 log.warning("RAG loop: arXiv çekimi başarısız (%s): %s", q.get("query"), exc)
