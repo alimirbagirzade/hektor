@@ -19,6 +19,10 @@ $logDir = Join-Path $repo "storage\continuous_loop"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 $log = Join-Path $logDir "ticks.log"
 
+# UTF-8: tick output is Turkish; without this PS 5.1 decodes it with the OEM code page and
+# ticks.log shows mojibake for Turkish letters.
+$env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = "Continue"
 $line = & uv run --no-sync hektor surekli-dongu tik 2>&1 | Select-Object -Last 1
 $code = $LASTEXITCODE

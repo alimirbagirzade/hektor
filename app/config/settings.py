@@ -308,6 +308,8 @@ class Settings(BaseSettings):
     # `data/literature_inbox/` kullanılır (test/CI davranışı değişmez, Desktop'a yazmaz).
     # Makineye özel yol .env içinde: HEKTOR_SCOUT_INBOX_DIR=C:\...\Gerekli kaynaklar\_yeni
     scout_inbox_dir: str = ""
+    # arXiv düz sorgusu finans/istatistik kategorileriyle sınırlansın mı (build_search_query).
+    arxiv_finance_only: bool = True
 
     # --- Auto-LoRA Pipeline ---
     # Gözetimsiz eğitim yetkisinin TEK anahtarı. Varsayılan KAPALI: her gerçek eğitim
