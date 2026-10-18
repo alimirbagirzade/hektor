@@ -47,10 +47,19 @@ Entropia tarafı okur, kırılmasınlar diye korundu.
   `tanik` başarısızlıkta 1 ile çıkar (Kademe 2: `docs/evidence/kademe2_2026-10-18.json`, 3 bulgu
   2/2 onaylı, düzeltildi). Birleşince sonraki eğitimden önce `kademe2-kayit` gerekir.
 - **Ardışık başarısız aday: 1** (hektor_lora_full_20261011, standart LoRA sadakat kapısı).
-- **Sonraki tur verisi:** aynı veriyle yeniden eğitim yasak. Eğitim + LLM-30 bittikten sonra
-  (ağır iş kilidi boşken): `hektor synth-distill --gen-questions --per-paper N` → tur dosyasını
-  `distill_qa.r4` olarak yeniden adlandır → `scripts/assemble_sft.py`. r3'te en büyük kayıp
-  `rag:atıf-az` (435/1383) — öğretmen istemindeki atıf zorunluluğu iyileştirme adayı.
+- **Sonraki tur verisi (r4) — KULLANICI KARARI 2026-10-18: kod değişmez, daha çok soru.**
+  r3'te en büyük kayıp `rag:atıf-az` (435/1383): cevapların 433'ü metinde tam 1 farklı kaynağa
+  köşeli atıf yapıyor (315'i "Kullanılan Kaynaklar" listesinde ≥2 parça sayıyor ama kapı yalnız
+  metin içi köşeli atıfı sayar, `MIN_UNIQUE_CITATIONS=2`). İstem canlı hatla bayt-aynı kalmalı →
+  istem/kapı DEĞİŞMEZ, yeniden örnekleme EKLENMEZ; ~%49 verim kabul, hacim artırılır.
+  Eğitim + LLM-30 + hakem bittikten sonra (ağır iş kilidi boşken), ana kurulumda sırayla:
+  1. `distill_qa.jsonl`/`.meta.json`/`.rejects.jsonl` → `distill_qa.r3.*` (SİLME, yeniden adlandır).
+  2. `uv run hektor synth-distill --gen-questions --per-paper 6` (dosyaya EKLER, işlenmiş parçaları
+     atlar → makale başına ~3 yeni parça).
+  3. `uv run hektor synth-distill --rag 1500 --plain 150` (önceki turlarda kabul edilen sorular
+     `used_questions` ile otomatik dışlanır; reddedilenler yeniden denenebilir).
+  4. `uv run python scripts/assemble_sft.py` → döngü yeni veri sha'sını görür. PR #74
+     birleştiyse eğitimden önce `kademe2-kayit` gerekir.
 
 ### 2026-10-15 — Sürekli (gözetimsiz) eğitim döngüsü + Kademe 2 (KULLANICI KARARI)
 
