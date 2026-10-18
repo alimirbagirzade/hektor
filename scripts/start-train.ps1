@@ -350,6 +350,12 @@ Save-FinalStatus
     # pid: web "durdur" (request_stop_detached_training) sureci agaciyla oldurebilsin;
     # pid yoksa yalniz STOP_TRAINING dosyasi birakiyor ve egitim suruyordu.
     pid          = $(if ($proc) { [int]$proc.Id } else { 0 })
+    # Kademe 2 T2: pid yeniden kullanilabilir -- cikis tanigi, bitis dogrulamasi (same_proc)
+    # ve durdurma (_stale_stop_target) sureci olusturulma zamaniyla dogrular (psutil ile ayni
+    # FILETIME, UTC epoch saniye). Okunamazsa $null -> eski (yalniz pid) davranis.
+    pid_create_time = $(if ($proc) {
+        try { ([DateTimeOffset]$proc.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() / 1000.0 } catch { $null }
+    } else { $null })
     # K8-b: bu kosuyu yetkilendiren TUKETILMIS onayin kimligi -- kurtarmada (-Supervised)
     # cagiran (nobetci) bunu ONCEDEN train-recovery-check ile dogrulayip gecirir; taze
     # baslatmada burada henuz BILINMEZ (alt surec kendi onayini asagida tuketir) --
@@ -439,6 +445,17 @@ if ($proc) {
     }
     if (-not $mix -and -not $MixWeights -and -not $MixProfile) {
         Write-Host "  [UYARI] MIX_DECISION satiri log'da bulunamadi -- agirlik durum dosyasina yazilmadi; nobetci bu kosuyu diriltemez." -ForegroundColor Yellow
+    }
+    # Cikis kodu tanigi (exit_witness): bitis dogrulamasi (candidate_checks.cikis_kodu) durum
+    # dosyasindaki pid'in isletim sistemi cikis kodunu ister. Eskiden yalniz detached_launch
+    # tanik kuruyordu; nobetci kurtarmasi yeni pid yazip tanigi OLU ilk surecte birakiyordu ->
+    # 2026-10-16 hektor_loop_da0899c33140: 3 gunluk kosu bitince "basarisiz aday" sayilacakti.
+    # Tanik yalniz bekler; kurulamazsa egitim yine surer (dogrulama "cikis kodu yok" der).
+    try {
+        & $uv run --no-sync --project "$ProjectDir" hektor egitim-dongusu tanik $Adapter | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "tanik cikis kodu $LASTEXITCODE" }
+    } catch {
+        Write-Host "  [UYARI] Cikis kodu tanigi kurulamadi ($_) -- elle: uv run --no-sync hektor egitim-dongusu tanik $Adapter" -ForegroundColor Yellow
     }
 }
 $profLabel = if ($Profile -and $Profile.Trim() -ne "") { $Profile } else { "(vanilya)" }

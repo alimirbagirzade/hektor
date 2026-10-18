@@ -401,6 +401,42 @@ def test_watchdog_kurtarmada_agirligi_geri_verir() -> None:
     assert "-MixWeights $mw" in src and "-MixProfile $mp" in src
 
 
+def test_start_train_cikis_tanigini_durum_pidine_baglar() -> None:
+    # 2026-10-16: nöbetçi kurtarması yeni pid yazdı, tanık ölü ilk süreçte kaldı → bitiş
+    # doğrulaması (cikis_kodu) başarılı koşuyu "başarısız aday" sayacaktı.
+    src = (_SCRIPTS / "start-train.ps1").read_text(encoding="utf-8")
+    i_tanik = src.find("hektor egitim-dongusu tanik $Adapter")
+    assert i_tanik > 0, "start-train.ps1 çıkış kodu tanığını kurmuyor"
+    # Tanık, durum dosyası (yeni pid) yazıldıktan ve erken-çıkış beklemesinden SONRA kurulur.
+    for marker in ("Out-File -FilePath $StatusFile", "WaitForExit(60000)"):
+        i = src.find(marker)
+        assert 0 < i < i_tanik, f"tanık '{marker}' adımından sonra kurulmalı"
+    # Tanık/bitiş doğrulaması pid'i oluşturulma zamanıyla doğrulayabilsin (pid yeniden kullanımı).
+    assert re.search(r"^\s*pid_create_time\s*=", src, re.MULTILINE)
+
+
+def test_tanik_spawn_basarisizsa_sifir_disi_cikar(monkeypatch) -> None:
+    from typer.testing import CliRunner
+
+    from app.research import knowledge_cli
+    from app.training import exit_witness
+
+    st = {"adapter": "t_tanik", "pid": 4242, "pid_create_time": 1000.0}
+    monkeypatch.setattr(
+        "app.training.detached_launch.read_detached_training_status", lambda _root: st
+    )
+    seen: list[tuple[int, float | None]] = []
+
+    def _fail(adapter, pid, ct, root):
+        seen.append((pid, ct))
+        return False
+
+    monkeypatch.setattr(exit_witness, "spawn", _fail)
+    res = CliRunner().invoke(knowledge_cli.loop_app, ["tanik", "t_tanik"])
+    assert res.exit_code == 1, res.output
+    assert seen == [(4242, 1000.0)]
+
+
 def test_k2_2026_10_06_f3_2_train_run_kalite_kapisindan_gecer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
